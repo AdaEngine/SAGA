@@ -1,0 +1,52 @@
+[0/1] Planning build
+Building for debugging...
+[0/5] Write sources
+[2/5] Write swift-version-3CD7052B146186F2.txt
+[4/9] Emitting module SAGAShaderIR
+[5/9] Compiling SAGAShaderIR Contracts.swift
+[6/13] Compiling SAGATypes Descriptors.swift
+[7/13] Emitting module SAGATypes
+[8/13] Compiling SAGAFrontends Frontend.swift
+[9/13] Emitting module SAGAFrontends
+[10/13] Emitting module SAGAValidation
+[11/13] Compiling SAGAValidation Validation.swift
+[12/15] Emitting module SAGABackend
+[13/15] Compiling SAGABackend BackendDevice.swift
+[14/17] Emitting module SAGABackends
+[15/17] Compiling SAGABackends CodeGenerator.swift
+[16/25] Emitting module SAGAWebGPU
+[17/25] Compiling SAGAWebGPU BrowserBackend.swift
+[18/25] Emitting module SAGACompiler
+[19/25] Compiling SAGACompiler Compiler.swift
+[20/25] Emitting module SAGAMetal
+[21/25] Compiling SAGAMetal MetalBackend.swift
+[22/25] Compiling SAGACore Device.swift
+[23/25] Emitting module SAGACore
+[24/27] Compiling SAGA Exports.swift
+[25/27] Emitting module SAGA
+[26/32] Compiling SAGAFoundationTests TestBackend.swift
+[27/32] Compiling SAGAFoundationTests DescriptorTests.swift
+[28/32] Compiling SAGAFoundationTests CompilerTests.swift
+[29/32] Compiling SAGAFoundationTests DeviceTests.swift
+[30/32] Emitting module SAGAFoundationTests
+[31/34] Compiling SAGAPackageTests runner.swift
+[32/34] Emitting module SAGAPackageTests
+[32/34] Write Objects.LinkFileList
+[33/34] Linking SAGAPackageTests
+Build complete! (2.19s)
+Test Suite 'Selected tests' started at 2026-11-06 19:53:31.447.
+Test Suite 'SAGAPackageTests.xctest' started at 2026-11-06 19:53:31.454.
+Test Suite 'SAGAPackageTests.xctest' passed at 2026-11-06 19:53:31.454.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+Test Suite 'Selected tests' passed at 2026-11-06 19:53:31.454.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.007) seconds
+􀟈  Test run started.
+􀄵  Testing Library Version: 1902
+􀄵  Target Platform: arm64e-apple-macos14.0
+􀟈  Test overlappingCloseWaitsForWholeTeardownBatch(firstIsLoss:) started.
+􀟈  Test case passing 1 argument firstIsLoss → true to overlappingCloseWaitsForWholeTeardownBatch(firstIsLoss:) started.
+􀟈  Test case passing 1 argument firstIsLoss → false to overlappingCloseWaitsForWholeTeardownBatch(firstIsLoss:) started.
+􀢄  Test overlappingCloseWaitsForWholeTeardownBatch(firstIsLoss:) recorded an issue with 1 argument firstIsLoss → false at DeviceTests.swift:241:5: Expectation failed: await second.value == 2
+􀢄  Test overlappingCloseWaitsForWholeTeardownBatch(firstIsLoss:) recorded an issue with 1 argument firstIsLoss → true at DeviceTests.swift:241:5: Expectation failed: await second.value == 2
+􀢄  Test overlappingCloseWaitsForWholeTeardownBatch(firstIsLoss:) with 2 test cases failed after 0.001 seconds with 2 issues.
+􀢄  Test run with 1 test in 0 suites failed after 0.001 seconds with 2 issues.

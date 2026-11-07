@@ -1,0 +1,18 @@
+[0/1] Planning build
+Building for debugging...
+[0/1] Write swift-version-3CD7052B146186F2.txt
+[1/2] Write sources
+[3/7] Compiling SAGAShaderIR Tables.swift
+[4/7] Compiling SAGAShaderIR Diagnostics.swift
+[5/7] Compiling SAGAShaderIR Budgets.swift
+[6/7] Compiling SAGAShaderIR Contracts.swift
+[7/7] Emitting module SAGAShaderIR
+[8/11] Compiling SAGAFrontends Frontend.swift
+[9/11] Emitting module SAGAFrontends
+[10/11] Compiling SAGAValidation Validation.swift
+[11/11] Emitting module SAGAValidation
+[12/13] Compiling SAGABackends CodeGenerator.swift
+[13/13] Emitting module SAGABackends
+[14/15] Compiling SAGACompiler Compiler.swift
+[15/15] Emitting module SAGACompiler
+Build of target: 'SAGACompiler' complete! (0.71s)

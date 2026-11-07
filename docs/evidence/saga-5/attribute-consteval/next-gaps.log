@@ -1,0 +1,7 @@
+original-resolved: parsed
+original-resolved: validated
+module-forward-reference: frontend diagnostics([SAGAShaderIR.ShaderDiagnostic(severity: SAGAShaderIR.ShaderDiagnostic.Severity.error, message: "Unresolved const-expression name \'A\'", code: SAGAShaderIR.ShaderDiagnosticCode.unresolvedName, location: Optional(SAGAShaderIR.ShaderLocation.source(SAGAShaderIR.SourceSpan(startUTF8: 18, endUTF8: 19))))])
+const-builtin: parsed
+const-builtin: validated
+abstract-constant-validator: parsed
+abstract-constant-validator: validator diagnostics([SAGAShaderIR.ShaderDiagnostic(severity: SAGAShaderIR.ShaderDiagnostic.Severity.error, message: "Abstract scalar validation requires concretization", code: SAGAShaderIR.ShaderDiagnosticCode.unsupportedConstruct, location: nil)])

@@ -1,0 +1,17 @@
+{
+  "Sources/SAGAShaderIR/TypedIR.swift": "fb46b19c546306dedcbf412e8be009a9c50038e563ad00163d3cc49e49a3bce5",
+  "Sources/SAGAShaderIR/BlockWalk.swift": "5c90afb8d51c003aef0da14be3b82409db7257e3126304ae8d3a8296a78851f5",
+  "Sources/SAGAShaderIR/Capabilities.swift": "03e3779b7fdf62437729255ca731bd853106ff0957834490f378c4fc77abaab5",
+  "Sources/SAGAShaderIR/Contracts.swift": "49273f626cd1b25e530206a168850ebe308bb609f9dc8b3b89e4003632f37529",
+  "Sources/SAGAShaderIR/Tables.swift": "478ceb7991b633f22cb4c0fb04736a6d10040a74c2cf28aafdff363321413c3f",
+  "Sources/SAGAShaderIR/Diagnostics.swift": "eacbb4adf49273251a6237af7288207f5f3f4005c930bd1525b7347592b943dd",
+  "Sources/SAGAShaderIR/Budgets.swift": "4341c2005120441e2d31cac3cf14de0cebbd0d5322ba10c89cd1d36b197ae0b0",
+  "Sources/SAGAFrontends/Frontend.swift": "4f877532f798fab97309ef26ea1fcd1fbd12990a6e019b72aa5d7fd5e944d117",
+  "Sources/SAGAFrontends/WGSL/Lexer.swift": "44aeb5ec2cfd082d33a62bcc1e634cb5e43f4ef93c43ddeedbaa49050dbfbb3c",
+  "Sources/SAGAFrontends/WGSL/ControlExpressions.swift": "9094c2300373a36b4e485269f221d26408d449818444d222fcc85c9fa391801e",
+  "Sources/SAGAFrontends/WGSL/Expressions.swift": "71a28e696e6f2d3816d366bb6635b6b275c77418dc4fa4c8bc04db420e168b19",
+  "Sources/SAGAFrontends/WGSL/Statements.swift": "bb59ab8182593fb6b44e4c4d46f96f61e3057fc5a9bc48a93b381153adce7b81",
+  "Sources/SAGAFrontends/WGSL/Loops.swift": "a761f305ca2b3688b830a3232073a6a099149766d837417392773e5707d9ae66",
+  "Sources/SAGAFrontends/WGSL/WGSLFrontend.swift": "7e2babe706fce60eabf9f2e6df7467ee6d65c1419097666518886b7c4d52a090",
+  "Tests/SAGAFoundationTests/WGSLFrontendTests.swift": "f9a0fecf4f00212abcc9d92cf4d949f87bbb4a4b4917a5cc187803a57f28f8f7"
+}

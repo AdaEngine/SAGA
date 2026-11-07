@@ -1,0 +1,9 @@
+{
+  "observed_at": "2026-11-06T23:35:46.155489+00:00",
+  "ownership": "All3 frontend child sessions hasActiveRun=false, status interrupted, activeProcessCount0 read at23:35Z before mutation. Original SAGA-5 implementation executor sole source editor.",
+  "choice": "Keep previously exercised SPIRVFunction.swift implementation with canonical-loop additions; alternate FunctionLowering.swift preserved outside Sources. This is reconciliation, not parity proof.",
+  "moved_from": "Sources/SAGAFrontends/SPIRV/FunctionLowering.swift",
+  "preserved_as": "docs/evidence/saga-5/reconciliation-20261106T2330Z/FunctionLowering.swift.reconciled",
+  "sha256": "0ed1c0e79239b41ad0f805426e606a79efd12213dfb1a849d59fdd71bee1d004",
+  "not_changed": "No Package excludes, policy weakening, baseline or Rust edits."
+}

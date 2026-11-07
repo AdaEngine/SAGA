@@ -1,0 +1,36 @@
+{
+  "date": "2026-11-07T00:13Z",
+  "scope": "Narrow WGSL runtime-array minimum-footprint fix only, NOT full SAGA-5",
+  "complete": true,
+  "parent_saga5_complete": false,
+  "new_test_functions": 4,
+  "native_tests": 135,
+  "native_tests_evidence": "verification-1",
+  "native_build_evidence": "verification-2",
+  "wasm_compile_evidence": "verification-3",
+  "validator_unchanged": true,
+  "validator_sha256": "2240426e6f836d0beb7c5c45e2c73038e61e05a0eb817c5f0844625ec18539de",
+  "new_helper": "WGSLParser.isSized: bounded work/depth/cancellation structural inspection independent of nonzero minimum layout",
+  "cases": [
+    "raw span>=offset+stride (span4 and span32 offset16)",
+    "actual parseAndValidate witness for both storage structs",
+    "runtime nonfinal member rejection",
+    "nested unsized struct and array/runtime-array nesting rejection",
+    "size/alignment overflow and bounded work/depth/node/cancellation rejection",
+    "existing nested frontend rejection now asserts invalidType UTF8[43,44); raw validator tests retained"
+  ],
+  "source_hashes": {
+    "Sources/SAGAFrontends/WGSL/WGSLFrontend.swift": "d59670dc4441a638160d5f9e96dd1ee42e8f621b4f53dd772827754029f393ee",
+    "Tests/SAGAFoundationTests/WGSLFrontendTests.swift": "76fe312831379ea0aa3765892421db07edcc9094e78568decd9bd33057ced3e0",
+    "Tests/SAGAFoundationTests/FrontendIntegrationTests.swift": "328172c1962dafc7b22f80172efff21a28ebc4e60baf858f0843248a802fca37"
+  },
+  "reference_pin": "a55352911bb26a1b33bc8d5fc03bdebb0a967f5a",
+  "reference_clean": true,
+  "reference_rule": "naga/src/proc/type_methods.rs try_size Dynamic=>1 element; valid/type.rs direct final unsized array rule",
+  "old_repro_status": "Historical span0 reproduction superseded; raw source regression now acquires witness. Historical logs retained.",
+  "docs_tests": {
+    "pass": 59,
+    "skip": 0,
+    "evidence": "verification-4"
+  }
+}

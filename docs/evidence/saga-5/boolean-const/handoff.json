@@ -1,0 +1,90 @@
+{
+  "date": "2026-11-07T01:23:42.515093+00:00",
+  "full_saga5_complete": false,
+  "scope": "Independent scalar bool/integer compile-time expressions + module/function const_assert; NOT entire const-eval/full frontend DoD",
+  "new_test_functions": 13,
+  "native_tests": 176,
+  "current_turn_checks": {
+    "native_tests": "verification-5",
+    "strict_native_build": "verification-6",
+    "matched_wasm_compiler_closure": "verification-7",
+    "docs_reference_dependency": "verification-8"
+  },
+  "implemented": [
+    "integer comparisons and boolean equality, unary not and eager &/|, lazy &&/|| with WGSL nonassociating grammar",
+    "module anonymous assertion token ranges, existing bounded const dependency/cycle resolution",
+    "function const_assert, integer/bool local const scopes/shadowing and isolation from module declaration resolution",
+    "no runtime statements for assertions, including after runtime return/unconditional loop break with compile-time-only continuing",
+    "scalar bool/i32/u32 conversions, scalar all/any and eager scalar select for integer/bool",
+    "integer attribute/count/workgroup sites share typed scalar tree then require integer; explicit u32(bool) permitted, bare bool rejected"
+  ],
+  "evaluation_contract": {
+    "validation": "flat typed AST checks whole syntax, names, types, arity and overloads before value evaluation",
+    "mandatory_creation_checks": "implicit abstract-to-concrete type conversions; division/remainder denominator and signed/-1 overflow; shift count and left-shift overflow; clamp bounds",
+    "lazy": "ordinary non-selected RHS evaluation (e.g explicit unrepresentable i32 constructor) skipped, but required shader creation checks still run; eager &/|/select evaluate their actual arguments",
+    "pinned_naga_divergence": "lower/mod.rs logical() TODO issue8440 skips RHS typechecking entirely in const short circuit. Normative WGSL followed rather than reproducing this admitted reference bug.",
+    "node_types": "bool is concrete IR .bool width1; no new abstract runtime type or schema changes."
+  },
+  "safety": {
+    "depth_cap": 24,
+    "work_nodes_bytes_cancellation": true,
+    "properties": 128,
+    "malformed_boolean_trees": 256,
+    "regression_failure": "New for/loop local const test first trapped index-out-of-range (signal5). Both body.scopes and constScopes now push/pop at every block/for/loop scope; same test green; failure retained validation-red.log.",
+    "prior_depth_tests_kept": true
+  },
+  "unchanged": {
+    "validator_sha256": "2240426e6f836d0beb7c5c45e2c73038e61e05a0eb817c5f0844625ec18539de",
+    "shared_ir_hashes": {
+      "Sources/SAGAShaderIR/TypedIR.swift": "fb46b19c546306dedcbf412e8be009a9c50038e563ad00163d3cc49e49a3bce5",
+      "Sources/SAGAShaderIR/BlockWalk.swift": "5c90afb8d51c003aef0da14be3b82409db7257e3126304ae8d3a8296a78851f5",
+      "Sources/SAGAShaderIR/Capabilities.swift": "03e3779b7fdf62437729255ca731bd853106ff0957834490f378c4fc77abaab5",
+      "Sources/SAGAShaderIR/Contracts.swift": "49273f626cd1b25e530206a168850ebe308bb609f9dc8b3b89e4003632f37529",
+      "Sources/SAGAShaderIR/Tables.swift": "478ceb7991b633f22cb4c0fb04736a6d10040a74c2cf28aafdff363321413c3f",
+      "Sources/SAGAShaderIR/Diagnostics.swift": "eacbb4adf49273251a6237af7288207f5f3f4005c930bd1525b7347592b943dd",
+      "Sources/SAGAShaderIR/Budgets.swift": "4341c2005120441e2d31cac3cf14de0cebbd0d5322ba10c89cd1d36b197ae0b0"
+    },
+    "frozen_baseline_hashes": {
+      "docs/baseline/saga-2/verification-results.json": "9dc3535a477fdbe29f732d14a2959433c4237611244a54357820a89c3d8c42c0",
+      "docs/baseline/saga-2/test_docs.py": "f93250f18c2f107d0c045f9639405bdc2403e71d6631fb500522e0bd61e58acd",
+      "docs/baseline/saga-2/hashes.json": "5cedb71961d313a35de4c522fe79dd72314dc97154a2b5f12f0b0f29b574b034",
+      "docs/baseline/saga-2/test_naga_scope.py": "1b75ed57d3cb3b3fae90d7658fa77dc7862d96a2b021800f14aa5e31dcef4bbf",
+      "docs/baseline/saga-2/verify_docs.py": "3a6ece4c57b8babb6ccb1854b56aa00b3eda85ddb5bdd9432082086874b0dad8"
+    },
+    "IRbool1_WGSLmemory4": true,
+    "private_witness": true
+  },
+  "source_hashes": {
+    "Sources/SAGAFrontends/WGSL/Lexer.swift": "44aeb5ec2cfd082d33a62bcc1e634cb5e43f4ef93c43ddeedbaa49050dbfbb3c",
+    "Sources/SAGAFrontends/WGSL/ControlExpressions.swift": "9094c2300373a36b4e485269f221d26408d449818444d222fcc85c9fa391801e",
+    "Sources/SAGAFrontends/WGSL/Expressions.swift": "32aad08656ee2df450eaa4efa1035fe46ed088c4cac8072810bd660e44c07a3b",
+    "Sources/SAGAFrontends/WGSL/Materialization.swift": "1715723a35cd8ef3a9021860aa1dae7361929944d513ff0b0e07d3a96c32dcf2",
+    "Sources/SAGAFrontends/WGSL/Statements.swift": "21b7fd047df3c25a9d31ef78a257e83b05b3364370f14c998c5823ddbe1dbfe5",
+    "Sources/SAGAFrontends/WGSL/ModuleDeclarations.swift": "7f8b523a57285838ce546199b400de64c966f71802d3a1fec0c591eaf45b0195",
+    "Sources/SAGAFrontends/WGSL/ScalarConstantExpressions.swift": "e973cf0985722498d8683508b3d28254d3f297fb0661ee82035b7e993e65bebd",
+    "Sources/SAGAFrontends/WGSL/Loops.swift": "739e6f247868fe28b80b226a20fa11741476a02429949a5052dba54361faf50d",
+    "Sources/SAGAFrontends/WGSL/ConstantExpressions.swift": "91ca229f90f4e81a986334dd62391d9046cc1be89741cc88a96cf6e01b1f2efc",
+    "Sources/SAGAFrontends/WGSL/WGSLFrontend.swift": "2b3990f739b32d663ff30031ddefd204cb22c50ed5457d7a2ae7cedb7f25cb23",
+    "Tests/SAGAFoundationTests/WGSLFrontendTests.swift": "2d6aaca84e7b7a5c1bde739c8f57b601420d8be608292be7592800ddf0b25950",
+    "Tests/SAGAFoundationTests/FrontendIntegrationTests.swift": "788a862f0f90fd363cc378389b2fecd4e5750b185ea671c74ce307070d318d34"
+  },
+  "next_actual_fail_closed_gaps": [
+    "const_assert 1.0 < 2.0; unsupported non-integer numeric expression",
+    "fn f(){const x=1.0; const_assert x<2.0;} unsupported local floating const expression",
+    "const_assert all(vec2<bool>(true,true)); vector/generic const grammar unsupported",
+    "alias B=bool; const_assert B(1); alias constructor resolution unsupported"
+  ],
+  "residuals_log": "docs/evidence/saga-5/boolean-const/residuals.log",
+  "reference_pin": "a55352911bb26a1b33bc8d5fc03bdebb0a967f5a",
+  "reference_clean": true,
+  "board_updates": 0,
+  "children_or_runs": 0,
+  "policies_commits_publication_reference_writes": 0,
+  "runnable_target": "Libraries only, no new launch configuration; native existing Metal regression not new WGSL-produced GPU/CTS/browser evidence.",
+  "requested_core_cases_verified": true,
+  "docs_tests": {
+    "pass": 59,
+    "skip": 0
+  },
+  "source_hashes_rechecked": true
+}

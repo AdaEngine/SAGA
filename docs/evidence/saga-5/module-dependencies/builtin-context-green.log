@@ -1,0 +1,22 @@
+Building for debugging...
+[0/5] Write sources
+[1/5] Write swift-version-3CD7052B146186F2.txt
+[3/5] Compiling SAGAFrontends Expressions.swift
+[4/5] Emitting module SAGAFrontends
+[4/6] Write Objects.LinkFileList
+[5/6] Linking SAGAPackageTests
+Build complete! (0.94s)
+Test Suite 'Selected tests' started at 2026-11-07 03:52:44.233.
+Test Suite 'SAGAPackageTests.xctest' started at 2026-11-07 03:52:44.241.
+Test Suite 'SAGAPackageTests.xctest' passed at 2026-11-07 03:52:44.241.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+Test Suite 'Selected tests' passed at 2026-11-07 03:52:44.241.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.007) seconds
+􀟈  Test run started.
+􀄵  Testing Library Version: 1902
+􀄵  Target Platform: arm64e-apple-macos14.0
+􀟈  Suite FrontendIntegrationTests started.
+􀟈  Test abstractConstantsUseConcreteBuiltinConsensus() started.
+􁁛  Test abstractConstantsUseConcreteBuiltinConsensus() passed after 0.003 seconds.
+􁁛  Suite FrontendIntegrationTests passed after 0.003 seconds.
+􁁛  Test run with 1 test in 1 suite passed after 0.003 seconds.

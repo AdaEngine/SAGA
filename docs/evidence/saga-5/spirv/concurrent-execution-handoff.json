@@ -1,0 +1,27 @@
+{
+  "status": "blocked",
+  "reason": "Concurrent same-session source writers; duplicate SPVFunctionLowerer/SPVBlockRecord/SPVValue definitions",
+  "session": "session-dc0e5ed5-1cb5-4b1b-8877-4707990c1d64",
+  "own_written_file": "Sources/SAGAFrontends/SPIRV/FunctionLowering.swift",
+  "other_concurrent_file": "Sources/SAGAFrontends/SPIRV/SPIRVFunction.swift",
+  "inspection": "Initially only SPIRVFrontend.swift existed. FunctionLowering.swift written 23:27:16Z; SPIRVFunction.swift appeared23:27:26Z. sessions.history reveals same-session tool calls outside this turn stream. Preserve all files; sole owner must reconcile. No removal/overwrite of other implementation performed.",
+  "current_build": "failed duplicate definitions, docs/evidence/saga-5/spirv/build.log",
+  "test_status": "not verified green; earlier red includes missing APIs and concurrently incomplete other frontends",
+  "full_SAGA_15_complete": false,
+  "parent_message_attempt": {
+    "code": "message_chain_limit",
+    "receipt": false
+  },
+  "hashes": {
+    "Sources/SAGAFrontends/SPIRV/FunctionLowering.swift": "0ed1c0e79239b41ad0f805426e606a79efd12213dfb1a849d59fdd71bee1d004",
+    "Sources/SAGAFrontends/SPIRV/SPIRVFunction.swift": "aaca6c1f7b0f097144c43f8f4975e84ea888f12f50ee1d9b936ffc9e0c7fabd5",
+    "Sources/SAGAFrontends/SPIRV/SPIRVFrontend.swift": "ceabdd1d320eca107044b36221d102d2a755e03747552a72fe4e42158dab95ca"
+  },
+  "remaining": [
+    "Sole writer reconciliation before further changes",
+    "Complete function CFG/phi lowerer selection and strict build/focused tests",
+    "Precise supported opcode/decorations/options/capabilities inventory",
+    "Full upstream unsupported features explicitly rejected; no subset parity"
+  ],
+  "own_variant": "Conservative acyclic CFG with computed SSA spill/reloads, parallel Phi edge stores, bounded dominators, scalar/vector arithmetic, signature checks and backward calls; unverified, not selected over concurrent lowerer."
+}

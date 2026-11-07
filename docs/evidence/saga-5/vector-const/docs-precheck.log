@@ -1,0 +1,65 @@
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tools -p 'test*.py' -v
+test_authored_markdown_links_and_ids (test_docs.DocumentationTests) ... ok
+test_dag_and_mermaid (test_docs.DocumentationTests) ... ok
+test_inventory_unique_reproducible_and_sources (test_docs.DocumentationTests) ... ok
+test_project_scope_guard_preserves_plans_but_rejects_runtime (test_docs.DocumentationTests) ... ok
+test_reference_readonly_and_native_inventory (test_docs.DocumentationTests) ... ok
+test_report_distinguishes_platform_choice_from_open_scope (test_docs.DocumentationTests) ... ok
+test_scope_and_required_outputs (test_docs.DocumentationTests) ... ok
+test_source_hashes_and_pins (test_docs.DocumentationTests) ... ok
+test_classification_is_immutable (test_frontend_coverage.CoverageAuditTests) ... ok
+test_classify_formats_and_deep_negative (test_frontend_coverage.CoverageAuditTests) ... ok
+test_config_is_not_shader_execution (test_frontend_coverage.CoverageAuditTests) ... ok
+test_demo_cannot_claim_parity (test_frontend_coverage.CoverageAuditTests) ... ok
+test_dropped_denominator (test_frontend_coverage.CoverageAuditTests) ... ok
+test_duplicate_denominator (test_frontend_coverage.CoverageAuditTests) ... ok
+test_fake_nonzero_count_with_zero_test_log (test_frontend_coverage.CoverageAuditTests) ... ok
+test_fake_tested_without_result (test_frontend_coverage.CoverageAuditTests) ... ok
+test_false_summary_cannot_claim_parity (test_frontend_coverage.CoverageAuditTests) ... ok
+test_hash_drift (test_frontend_coverage.CoverageAuditTests) ... ok
+test_honest_unimplemented_is_audit_success_not_parity (test_frontend_coverage.CoverageAuditTests) ... ok
+test_log_hash_drift (test_frontend_coverage.CoverageAuditTests) ... ok
+test_negative_requires_typed_diagnostic (test_frontend_coverage.CoverageAuditTests) ... ok
+test_no_unaudited_copies (test_frontend_coverage.CoverageAuditTests) ... ok
+test_options_cannot_be_dropped (test_frontend_coverage.CoverageAuditTests) ... ok
+test_output_is_not_shader_execution (test_frontend_coverage.CoverageAuditTests) ... ok
+test_parser_demo_result_not_semantic (test_frontend_coverage.CoverageAuditTests) ... ok
+test_pin_drift (test_frontend_coverage.CoverageAuditTests) ... ok
+test_positive_execution_control (test_frontend_coverage.CoverageAuditTests) ... ok
+test_provenance_dropped (test_frontend_coverage.CoverageAuditTests) ... ok
+test_result_format_mismatch (test_frontend_coverage.CoverageAuditTests) ... ok
+test_result_must_have_actual_success (test_frontend_coverage.CoverageAuditTests) ... ok
+test_result_must_record_option_defaults (test_frontend_coverage.CoverageAuditTests) ... ok
+test_root_license_is_not_fixture_clearance (test_frontend_coverage.CoverageAuditTests) ... ok
+test_rule_requires_both_polarities (test_frontend_coverage.CoverageAuditTests) ... ok
+test_source_hash_drift (test_frontend_coverage.CoverageAuditTests) ... ok
+test_traversal_result_path (test_frontend_coverage.CoverageAuditTests) ... ok
+test_unknown_extra_item (test_frontend_coverage.CoverageAuditTests) ... ok
+test_unknown_result_capability (test_frontend_coverage.CoverageAuditTests) ... ok
+test_unknown_status (test_frontend_coverage.CoverageAuditTests) ... ok
+test_unrun_cannot_have_results (test_frontend_coverage.CoverageAuditTests) ... ok
+test_unsupported_requires_reason (test_frontend_coverage.CoverageAuditTests) ... ok
+test_wrong_result_identity (test_frontend_coverage.CoverageAuditTests) ... ok
+test_zero_tests_not_success (test_frontend_coverage.CoverageAuditTests) ... ok
+test_full_pinned_tree_and_real_manifest (test_frontend_coverage.PinnedDiscoveryTests) ... ok
+test_all_components_unimplemented_and_owned (test_naga_scope.NagaScopeTests) ... ok
+test_capability_not_all_to_all (test_naga_scope.NagaScopeTests) ... ok
+test_reference_format_inventory (test_naga_scope.NagaScopeTests) ... ok
+test_user_choice_and_pin (test_naga_scope.NagaScopeTests) ... ok
+test_sdk_checksum_matches_archived_official_metadata (test_runtime_policy.BuildEvidenceTests) ... ok
+test_swift_test_log_requires_nonzero_testing_summary (test_runtime_policy.BuildEvidenceTests) ... ok
+test_current_package_and_sources (test_runtime_policy.RuntimePolicyTests) ... ok
+test_external_runtime_and_transitive_dependency_rejected (test_runtime_policy.RuntimePolicyTests) ... ok
+test_historical_fixture_hashes_and_original_guard (test_runtime_policy.RuntimePolicyTests) ... ok
+test_import_and_safety_escape_rejected (test_runtime_policy.RuntimePolicyTests) ... ok
+test_nonlocal_binary_system_and_unsafe_settings_rejected (test_runtime_policy.RuntimePolicyTests) ... ok
+test_offline_compiler_inventory_denominator (test_runtime_policy.RuntimePolicyTests) ... ok
+test_only_named_diagnostic_executable_is_allowed (test_runtime_policy.RuntimePolicyTests) ... ok
+test_project_scope_rejects_foreign_sources_and_cargo (test_runtime_policy.RuntimePolicyTests) ... ok
+test_reference_inventory_reproducibility (test_runtime_policy.RuntimePolicyTests) ... ok
+test_wrong_tools_language_and_graph_rejected (test_runtime_policy.RuntimePolicyTests) ... ok
+
+----------------------------------------------------------------------
+Ran 59 tests in 2.369s
+
+OK

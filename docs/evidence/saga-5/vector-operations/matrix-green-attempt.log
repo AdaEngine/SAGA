@@ -1,0 +1,46 @@
+[0/1] Planning build
+Building for debugging...
+[0/6] Write sources
+[1/6] Write swift-version-3CD7052B146186F2.txt
+[3/12] Compiling SAGAFrontends WGSLFrontend.swift
+[4/12] Compiling SAGAFrontends VectorConstants.swift
+[5/12] Compiling SAGAFrontends VectorOperations.swift
+[6/19] Compiling SAGAFrontends FloatingConstants.swift
+[7/19] Compiling SAGAFrontends Expressions.swift
+[8/19] Compiling SAGAFrontends MatrixConstants.swift
+[9/19] Emitting module SAGAFrontends
+[10/19] Compiling SAGAFrontends ScalarConstantExpressions.swift
+[11/19] Compiling SAGAFrontends Loops.swift
+[12/19] Compiling SAGAFrontends HexFloatLiterals.swift
+[13/19] Compiling SAGAFrontends ModuleDeclarations.swift
+[14/19] Compiling SAGAFrontends ControlExpressions.swift
+[15/19] Compiling SAGAFrontends ConstantExpressions.swift
+[16/19] Compiling SAGAFrontends Statements.swift
+[17/19] Compiling SAGAFrontends Materialization.swift
+[18/22] Compiling SAGACompiler Compiler.swift
+[19/22] Compiling SAGACompiler FrontendValidation.swift
+[20/22] Emitting module SAGACompiler
+[21/29] Compiling SAGAFoundationTests SPIRVFrontendTests.swift
+[22/29] Compiling SAGAFoundationTests WGSLFrontendTests.swift
+[23/29] Emitting module SAGAFoundationTests
+[24/29] Compiling SAGAFoundationTests FrontendContractsTests.swift
+[25/29] Compiling SAGAFoundationTests FrontendIntegrationTests.swift
+[26/29] Compiling SAGAFoundationTests CompilerTests.swift
+[27/29] Compiling SAGAFoundationTests GLSLFrontendTests.swift
+[27/29] Write Objects.LinkFileList
+[28/29] Linking SAGAPackageTests
+Build complete! (3.79s)
+Test Suite 'Selected tests' started at 2026-11-07 05:14:57.445.
+Test Suite 'SAGAPackageTests.xctest' started at 2026-11-07 05:14:57.452.
+Test Suite 'SAGAPackageTests.xctest' passed at 2026-11-07 05:14:57.452.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+Test Suite 'Selected tests' passed at 2026-11-07 05:14:57.452.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.007) seconds
+􀟈  Test run started.
+􀄵  Testing Library Version: 1902
+􀄵  Target Platform: arm64e-apple-macos14.0
+􀟈  Suite WGSLFrontendTests started.
+􀟈  Test matrixConstConstructorsAndColumnAccessUseAuditedOverloads() started.
+􁁛  Test matrixConstConstructorsAndColumnAccessUseAuditedOverloads() passed after 0.005 seconds.
+􁁛  Suite WGSLFrontendTests passed after 0.005 seconds.
+􁁛  Test run with 1 test in 1 suite passed after 0.005 seconds.

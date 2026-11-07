@@ -1,0 +1,7 @@
+PASS valid-value-ir
+PASS cannot-forge-validated-witness
+PASS raw-ir-cannot-enter-codegen
+PASS non-sendable-ir-rejected
+PASS mutable-backend-rejected
+PASS device-actor-isolation-enforced
+Compile-time contracts: 6 checks passed (1 positive, 5 expected rejections).

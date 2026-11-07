@@ -1,0 +1,9 @@
+[0/1] Planning build
+Building for debugging...
+[0/3] Write sources
+[2/3] Write swift-version-1C2EE985D1325AC6.txt
+[4/7] Emitting module SAGACompiler
+[5/7] Compiling SAGACompiler Compiler.swift
+[7/8] Compiling SAGACore Device.swift
+[8/8] Emitting module SAGACore
+Build complete! (0.47s)

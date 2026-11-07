@@ -1,0 +1,23 @@
+[0/1] Planning build
+Building for debugging...
+[0/2] Write sources
+[1/2] Write swift-version-3CD7052B146186F2.txt
+[3/4] Emitting module SAGAValidation
+[4/4] Compiling SAGAValidation ShaderSemanticValidator.swift
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAValidation/ShaderSemanticValidator.swift:53:82: error: operator can throw but expression is not marked with 'try'
+ 51 |         try budget.enterDepth(); defer { try? budget.leaveDepth() }
+ 52 |         switch (try type(a), try type(b)) {
+ 53 |         case (.pointer(let x, let xs), .pointer(let y, let ys)): return xs == ys && (try same(x,y))
+    |                                                                                  |  `- note: call is to 'rethrows' function, but argument function can throw
+    |                                                                                  `- error: operator can throw but expression is not marked with 'try'
+ 54 |         case (.array(let x,let nx,let sx),.array(let y,let ny,let sy)): return nx == ny && sx == sy && (try same(x,y))
+ 55 |         default: return try type(a) == type(b)
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAValidation/ShaderSemanticValidator.swift:54:101: error: operator can throw but expression is not marked with 'try'
+ 52 |         switch (try type(a), try type(b)) {
+ 53 |         case (.pointer(let x, let xs), .pointer(let y, let ys)): return xs == ys && (try same(x,y))
+ 54 |         case (.array(let x,let nx,let sx),.array(let y,let ny,let sy)): return nx == ny && sx == sy && (try same(x,y))
+    |                                                                                                     |  `- note: call is to 'rethrows' function, but argument function can throw
+    |                                                                                                     `- error: operator can throw but expression is not marked with 'try'
+ 55 |         default: return try type(a) == type(b)
+ 56 |         }

@@ -1,0 +1,105 @@
+Test Suite 'All tests' started at 2026-11-06 20:36:29.029.
+Test Suite 'All tests' passed at 2026-11-06 20:36:29.036.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.007) seconds
+􀟈  Test run started.
+􀄵  Testing Library Version: 1902
+􀄵  Target Platform: arm64e-apple-macos14.0
+􀟈  Test invalidDescriptorsNeverReachBackend() started.
+􀟈  Test validatesLimitsAndMappingAlignmentWithoutOverflow() started.
+􀟈  Test resourceIdentityRejectsForeignForgedAndDestroyedIDs() started.
+􀟈  Test deviceLossDuringAllocationCannotPublishResource() started.
+􀟈  Test completionTimerActuallyExpiresWithoutCallback() started.
+􀟈  Test backendDeviceLossDuringAllocationIsTerminal() started.
+􀟈  Test cancelledAllocationRollsBack() started.
+􀟈  Test featuresMustBeAdvertised() started.
+􀟈  Test pipelineRejectsWrongOutputContainer() started.
+􀟈  Test browserBoundaryForwardsOnlyThroughExplicitHost() started.
+􀟈  Test acceptedWorkPinsResourcesAndQueueCompletesInOrder() started.
+􀟈  Test metalFactoryRejectsMissingAdapterWithoutFallback() started.
+􀟈  Test overlappingCloseWaitsForWholeTeardownBatch(firstIsLoss:) started.
+􀟈  Test commandValidationRejectsSizeUsageAlignmentAndForeignIDsBeforeBackend() started.
+􀟈  Test metalReadbacksAreZeroInitializedAndSnapshotOrdered() started.
+􀟈  Test closeWaitsForAcceptedWorkAndReleasesAllResources() started.
+􀟈  Test backendDeviceLossIsTerminalForAllocationAndQueue() started.
+􀟈  Test commandBuffersStayPinnedAfterDestroyAndWaiterCancellation() started.
+􀟈  Test metalTimeoutQuarantinesNativeResourcesThroughCoreCloseAndLateRetirement() started.
+􀟈  Test asyncErrorKeepsOriginalScopeAndDoesNotLeakIntoNewScope() started.
+􀟈  Test completionDeadlineAndLateCallbackResolveOnlyOnce() started.
+􀟈  Test rejectsUnknownAndIncompatibleBufferUsage() started.
+􀟈  Test metalDiagnosticComputesEveryElementOnGPU() started.
+􀟈  Test errorScopesCaptureFirstMatchingErrorAndEnforceLIFO() started.
+􀟈  Test metalRejectsUnknownPipelineAndQueueRemainsUsable() started.
+􀟈  Test diagnosticSpansRejectInvalidRanges() started.
+􀟈  Test unimplementedCompilerNeverReportsSuccessfulTranslation(input:output:) started.
+􀟈  Test cancelledCompilerDoesNotEnterPipeline() started.
+􀟈  Test containersDistinguishTextAndBinary() started.
+􀟈  Test commandTimeoutMakesCoreTerminalAndCloseDoesNotHang() started.
+􀟈  Test legacyBrowserHostRejectsCommandsInsteadOfFallingBack() started.
+􀟈  Test cancelledWaiterDoesNotCancelCommittedWork() started.
+􀟈  Test closeWaitsForPendingAllocationRollback() started.
+􀟈  Test scopePopWaitsForOperationsStartedInsideScope() started.
+􀟈  Test failedSubmissionDoesNotPoisonQueueAndReleasesPins() started.
+􀟈  Test pipelineRequiresValidatedIRBeforeCodegen() started.
+􀟈  Test repeatedCoreCloseReleasesPipelineHandlesOnRetainedBackend() started.
+􀟈  Test cancelledBeforeSubmitNeverEnqueuesWork() started.
+􀟈  Test fullMatchingScopeDoesNotLeakLaterErrorsToOuterScope() started.
+􀟈  Test case passing 1 argument firstIsLoss → true to overlappingCloseWaitsForWholeTeardownBatch(firstIsLoss:) started.
+􀟈  Test case passing 1 argument firstIsLoss → false to overlappingCloseWaitsForWholeTeardownBatch(firstIsLoss:) started.
+􀟈  Test case passing 2 arguments input → .wgsl, output → .wgsl to unimplementedCompilerNeverReportsSuccessfulTranslation(input:output:) started.
+􀟈  Test case passing 2 arguments input → .wgsl, output → .glsl to unimplementedCompilerNeverReportsSuccessfulTranslation(input:output:) started.
+􀟈  Test case passing 2 arguments input → .wgsl, output → .spirv to unimplementedCompilerNeverReportsSuccessfulTranslation(input:output:) started.
+􀟈  Test case passing 2 arguments input → .wgsl, output → .msl to unimplementedCompilerNeverReportsSuccessfulTranslation(input:output:) started.
+􀟈  Test case passing 2 arguments input → .wgsl, output → .hlsl to unimplementedCompilerNeverReportsSuccessfulTranslation(input:output:) started.
+􀟈  Test case passing 2 arguments input → .wgsl, output → .dot to unimplementedCompilerNeverReportsSuccessfulTranslation(input:output:) started.
+􀟈  Test case passing 2 arguments input → .glsl, output → .wgsl to unimplementedCompilerNeverReportsSuccessfulTranslation(input:output:) started.
+􀟈  Test case passing 2 arguments input → .glsl, output → .spirv to unimplementedCompilerNeverReportsSuccessfulTranslation(input:output:) started.
+􀟈  Test case passing 2 arguments input → .glsl, output → .msl to unimplementedCompilerNeverReportsSuccessfulTranslation(input:output:) started.
+􀟈  Test case passing 2 arguments input → .glsl, output → .glsl to unimplementedCompilerNeverReportsSuccessfulTranslation(input:output:) started.
+􀟈  Test case passing 2 arguments input → .glsl, output → .hlsl to unimplementedCompilerNeverReportsSuccessfulTranslation(input:output:) started.
+􀟈  Test case passing 2 arguments input → .spirv, output → .wgsl to unimplementedCompilerNeverReportsSuccessfulTranslation(input:output:) started.
+􀟈  Test case passing 2 arguments input → .glsl, output → .dot to unimplementedCompilerNeverReportsSuccessfulTranslation(input:output:) started.
+􀟈  Test case passing 2 arguments input → .spirv, output → .msl to unimplementedCompilerNeverReportsSuccessfulTranslation(input:output:) started.
+􀟈  Test case passing 2 arguments input → .spirv, output → .glsl to unimplementedCompilerNeverReportsSuccessfulTranslation(input:output:) started.
+􀟈  Test case passing 2 arguments input → .spirv, output → .spirv to unimplementedCompilerNeverReportsSuccessfulTranslation(input:output:) started.
+􀟈  Test case passing 2 arguments input → .spirv, output → .dot to unimplementedCompilerNeverReportsSuccessfulTranslation(input:output:) started.
+􀟈  Test case passing 2 arguments input → .spirv, output → .hlsl to unimplementedCompilerNeverReportsSuccessfulTranslation(input:output:) started.
+􁁛  Test pipelineRejectsWrongOutputContainer() passed after 0.001 seconds.
+􁁛  Test featuresMustBeAdvertised() passed after 0.001 seconds.
+􁁛  Test metalFactoryRejectsMissingAdapterWithoutFallback() passed after 0.001 seconds.
+􁁛  Test completionDeadlineAndLateCallbackResolveOnlyOnce() passed after 0.001 seconds.
+􁁛  Test backendDeviceLossDuringAllocationIsTerminal() passed after 0.001 seconds.
+􁁛  Test invalidDescriptorsNeverReachBackend() passed after 0.001 seconds.
+􁁛  Test rejectsUnknownAndIncompatibleBufferUsage() passed after 0.001 seconds.
+􁁛  Test validatesLimitsAndMappingAlignmentWithoutOverflow() passed after 0.001 seconds.
+􁁛  Test diagnosticSpansRejectInvalidRanges() passed after 0.001 seconds.
+􁁛  Test errorScopesCaptureFirstMatchingErrorAndEnforceLIFO() passed after 0.001 seconds.
+􁁛  Test containersDistinguishTextAndBinary() passed after 0.001 seconds.
+􁁛  Test resourceIdentityRejectsForeignForgedAndDestroyedIDs() passed after 0.001 seconds.
+􁁛  Test legacyBrowserHostRejectsCommandsInsteadOfFallingBack() passed after 0.001 seconds.
+􁁛  Test fullMatchingScopeDoesNotLeakLaterErrorsToOuterScope() passed after 0.001 seconds.
+􁁛  Test unimplementedCompilerNeverReportsSuccessfulTranslation(input:output:) with 18 test cases passed after 0.001 seconds.
+􁁛  Test pipelineRequiresValidatedIRBeforeCodegen() passed after 0.001 seconds.
+􁁛  Test browserBoundaryForwardsOnlyThroughExplicitHost() passed after 0.001 seconds.
+􁁛  Test cancelledCompilerDoesNotEnterPipeline() passed after 0.001 seconds.
+􁁛  Test backendDeviceLossIsTerminalForAllocationAndQueue() passed after 0.001 seconds.
+􁁛  Test commandValidationRejectsSizeUsageAlignmentAndForeignIDsBeforeBackend() passed after 0.001 seconds.
+􁁛  Test closeWaitsForAcceptedWorkAndReleasesAllResources() passed after 0.001 seconds.
+􁁛  Test cancelledBeforeSubmitNeverEnqueuesWork() passed after 0.001 seconds.
+􁁛  Test commandTimeoutMakesCoreTerminalAndCloseDoesNotHang() passed after 0.001 seconds.
+􁁛  Test scopePopWaitsForOperationsStartedInsideScope() passed after 0.001 seconds.
+􁁛  Test deviceLossDuringAllocationCannotPublishResource() passed after 0.002 seconds.
+􁁛  Test acceptedWorkPinsResourcesAndQueueCompletesInOrder() passed after 0.001 seconds.
+􁁛  Test cancelledWaiterDoesNotCancelCommittedWork() passed after 0.001 seconds.
+􁁛  Test failedSubmissionDoesNotPoisonQueueAndReleasesPins() passed after 0.001 seconds.
+􁁛  Test cancelledAllocationRollsBack() passed after 0.002 seconds.
+􁁛  Test commandBuffersStayPinnedAfterDestroyAndWaiterCancellation() passed after 0.001 seconds.
+􁁛  Test closeWaitsForPendingAllocationRollback() passed after 0.001 seconds.
+􁁛  Test asyncErrorKeepsOriginalScopeAndDoesNotLeakIntoNewScope() passed after 0.001 seconds.
+􁁛  Test overlappingCloseWaitsForWholeTeardownBatch(firstIsLoss:) with 2 test cases passed after 0.002 seconds.
+􁁛  Test completionTimerActuallyExpiresWithoutCallback() passed after 0.003 seconds.
+􁁛  Test repeatedCoreCloseReleasesPipelineHandlesOnRetainedBackend() passed after 0.017 seconds.
+􁁛  Test metalRejectsUnknownPipelineAndQueueRemainsUsable() passed after 0.021 seconds.
+􁁛  Test metalReadbacksAreZeroInitializedAndSnapshotOrdered() passed after 0.022 seconds.
+􁁛  Test metalDiagnosticComputesEveryElementOnGPU() passed after 0.024 seconds.
+􁁛  Test metalTimeoutQuarantinesNativeResourcesThroughCoreCloseAndLateRetirement() passed after 0.087 seconds.
+􁁛  Test run with 39 tests in 0 suites passed after 0.088 seconds.

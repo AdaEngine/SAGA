@@ -1,0 +1,41 @@
+[
+  {
+    "channelId": "agent:yadev:session:session-e26a2eeb-8007-4c5e-a65a-5eccd466c9e6",
+    "createdAt": "2026-11-06T22:40:48Z",
+    "latestReport": "Fire-and-forget execution failed: Worker runner unavailable.",
+    "mode": "fire_and_forget",
+    "startedAt": "2026-11-06T22:40:48Z",
+    "status": "failed",
+    "taskId": "SAGA-5",
+    "title": "SAGA-5 \u00b7 read-only full-scope parity audit",
+    "tools": [],
+    "updatedAt": "2026-11-06T22:40:48Z",
+    "workerId": "EA416BB2-0EBB-4F2F-B942-F4D31BA89D5D"
+  },
+  {
+    "channelId": "agent:yadev:session:session-e26a2eeb-8007-4c5e-a65a-5eccd466c9e6",
+    "createdAt": "2026-11-06T22:39:11Z",
+    "latestReport": "Fire-and-forget execution failed: Worker runner unavailable.",
+    "mode": "fire_and_forget",
+    "startedAt": "2026-11-06T22:39:11Z",
+    "status": "failed",
+    "taskId": "SAGA-5",
+    "title": "SAGA-5 \u00b7 shared cross-format IR/API first",
+    "tools": [],
+    "updatedAt": "2026-11-06T22:39:12Z",
+    "workerId": "38942B17-3E5A-4B2C-8C56-C28C07581C3B"
+  },
+  {
+    "channelId": "agent:yadev:session:session-e26a2eeb-8007-4c5e-a65a-5eccd466c9e6",
+    "createdAt": "2026-11-06T22:41:24Z",
+    "latestReport": "Fire-and-forget execution failed: Worker runner unavailable.",
+    "mode": "fire_and_forget",
+    "startedAt": "2026-11-06T22:41:24Z",
+    "status": "failed",
+    "taskId": "SAGA-5",
+    "title": "SAGA-5 \u00b7 fixture provenance and honest coverage harness",
+    "tools": [],
+    "updatedAt": "2026-11-06T22:41:25Z",
+    "workerId": "71ED3A94-1778-4D7C-B643-B00D7E58D07D"
+  }
+]

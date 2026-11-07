@@ -1,0 +1,35 @@
+[0/1] Planning build
+Building for debugging...
+[0/7] Write sources
+[3/7] Write swift-version-3CD7052B146186F2.txt
+[5/9] Emitting module SAGAFrontends
+[6/9] Compiling SAGAFrontends SPIRVFunction.swift
+[7/10] Compiling SAGAValidation ShaderSemanticValidator.swift
+[8/10] Emitting module SAGAValidation
+[9/10] Compiling SAGAFrontends SPIRVFrontend.swift
+[10/11] Emitting module SAGACompiler
+[11/14] Compiling SAGAFoundationTests SPIRVFrontendTests.swift
+[12/14] Emitting module SAGAFoundationTests
+[13/14] Compiling SAGAFoundationTests GLSLFrontendTests.swift
+[13/15] Write Objects.LinkFileList
+[14/15] Linking SAGAPackageTests
+Build complete! (2.44s)
+Test Suite 'Selected tests' started at 2026-11-07 02:25:37.576.
+Test Suite 'SAGAPackageTests.xctest' started at 2026-11-07 02:25:37.584.
+Test Suite 'SAGAPackageTests.xctest' passed at 2026-11-07 02:25:37.584.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+Test Suite 'Selected tests' passed at 2026-11-07 02:25:37.584.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.007) seconds
+􀟈  Test run started.
+􀄵  Testing Library Version: 1902
+􀄵  Target Platform: arm64e-apple-macos14.0
+􀟈  Suite GLSLFrontendTests started.
+􀟈  Test preprocessorShortCircuitDoesNotDivideByZero() started.
+􀟈  Test storageBlockAndForLoopHaveRealAccessAndContinuing() started.
+􀢄  Test storageBlockAndForLoopHaveRealAccessAndContinuing() recorded an issue at GLSLFrontendTests.swift:70:6: Caught error: .diagnostics([SAGAShaderIR.ShaderDiagnostic(severity: SAGAShaderIR.ShaderDiagnostic.Severity.error, message: "Expected \'=\', got \')\'", code: SAGAShaderIR.ShaderDiagnosticCode.unexpectedToken, location: Optional(SAGAShaderIR.ShaderLocation.source(SAGAShaderIR.SourceSpan(startUTF8: 42, endUTF8: 43))))])
+􀢄  Test preprocessorShortCircuitDoesNotDivideByZero() recorded an issue at GLSLFrontendTests.swift:76:6: Caught error: .diagnostics([SAGAShaderIR.ShaderDiagnostic(severity: SAGAShaderIR.ShaderDiagnostic.Severity.error, message: "Invalid conditional division", code: SAGAShaderIR.ShaderDiagnosticCode.invalidToken, location: Optional(SAGAShaderIR.ShaderLocation.source(SAGAShaderIR.SourceSpan(startUTF8: 24, endUTF8: 25))))])
+􀢄  Test storageBlockAndForLoopHaveRealAccessAndContinuing() failed after 0.001 seconds with 1 issue.
+􀢄  Test preprocessorShortCircuitDoesNotDivideByZero() failed after 0.001 seconds with 1 issue.
+􀢄  Suite GLSLFrontendTests failed after 0.001 seconds with 2 issues.
+􀄵  // Independently authored test literals, not copied from Naga fixtures.
+􀢄  Test run with 2 tests in 1 suite failed after 0.001 seconds with 2 issues.

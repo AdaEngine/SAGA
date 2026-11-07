@@ -1,0 +1,24 @@
+{
+  "scope": "bounded audit child only",
+  "checks": [
+    {
+      "command": "python3 -B -m unittest discover -s docs/tools -p test_frontend_coverage.py -v",
+      "exit_code": 0,
+      "tests": 35,
+      "log": "tests.log"
+    },
+    {
+      "command": "python3 -B docs/tools/frontend_coverage.py --reference /Users/vlad-prusakov/Developer/wgpu",
+      "exit_code": 0,
+      "result": "audit.json"
+    },
+    {
+      "command": "/usr/bin/swift build --target SAGACompiler --scratch-path .build-apple -Xswiftc -warnings-as-errors -Xswiftc -strict-concurrency=complete",
+      "exit_code": 0,
+      "verification_evidence_id": "verification-1",
+      "log": "native-build.log"
+    }
+  ],
+  "compiler_parity": false,
+  "shader_executions_imported": 0
+}

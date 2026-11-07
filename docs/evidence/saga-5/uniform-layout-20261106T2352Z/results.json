@@ -1,0 +1,18 @@
+{
+  "native_suite": 119,
+  "semantic_suite": 21,
+  "new_tests": 6,
+  "shared_api_untouched": true,
+  "full_saga5_complete": false,
+  "turn_scoped_evidence": [
+    "verification-2",
+    "verification-3",
+    "verification-4"
+  ],
+  "production_sha256": "7ca557f7ec8277a4dc9d49ee350ced741cc86b1beaf8573225f309112ff548af",
+  "docs_tests": {
+    "pass": 59,
+    "skip": 0,
+    "evidence": "verification-5"
+  }
+}

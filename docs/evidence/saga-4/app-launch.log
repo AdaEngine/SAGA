@@ -1,0 +1,2 @@
+PASS: adapter=Apple M3 Pro; elements=4099; mismatches=0; GPU=Metal; CPU-fallback=false
+Direct MSL backend diagnostic only. NOT WGSL/WebGPU/compiler conformance.

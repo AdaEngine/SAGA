@@ -1,0 +1,56 @@
+Executed 232 pinned shader inputs; acceptance/rejection report, not parity
+{
+  "executed": 232,
+  "parse": {
+    "rejected": 204,
+    "accepted": 28
+  },
+  "semantic": {
+    "not-run": 204,
+    "accepted": 23,
+    "rejected": 5
+  },
+  "largest_rejection_families": [
+    [
+      "WGSL construct not implemented: module declaration/directive 'enable'",
+      35
+    ],
+    [
+      "accepted",
+      23
+    ],
+    [
+      "Only std430 storage blocks with explicit binding implemented",
+      10
+    ],
+    [
+      "Unsupported GLSL type const",
+      8
+    ],
+    [
+      "Expected expression",
+      8
+    ],
+    [
+      "Expected '<', found '('",
+      8
+    ],
+    [
+      "Invalid numeric suffix",
+      7
+    ],
+    [
+      "WGSL construct not implemented: attribute @early_depth_test",
+      7
+    ],
+    [
+      "Unresolved type 'texture_2d'",
+      6
+    ],
+    [
+      "Binary operands must match",
+      4
+    ]
+  ],
+  "interpretation": "Raw file default-option observation, upstream options/expected diagnostics not wired; NOT conformance score."
+}

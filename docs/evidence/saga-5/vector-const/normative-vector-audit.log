@@ -1,0 +1,135 @@
+#### `vec2` #### {#vec2-builtin}
+
+<table class='data builtin'>
+  <tr><td style="width:10%">Overload
+      <td>
+        <xmp highlight=wgsl>
+          @const @must_use fn vec2<T>(e : T) -> vec2<T>
+          @const @must_use fn vec2(e : S) -> vec2<S>
+        </xmp>
+  <tr><td>Parameterization
+      <td>`T` is a [=type/concrete=] [=scalar=]<br>
+      `S` is [=scalar=]
+  <tr><td>Description
+      <td>Construction of a two-component [=vector=] with `e` as both components.
+</table>
+<table class='data builtin'>
+  <tr><td style="width:10%">Overload
+      <td>
+        <xmp highlight=wgsl>
+          @const @must_use fn vec2<T>(e : vec2<S>) -> vec2<T>
+          @const @must_use fn vec2(e : vec2<S>) -> vec2<S>
+        </xmp>
+  <tr><td>Parameterization
+      <td>`T` is a [=type/concrete=] [=scalar=]<br>
+      `S` is [=scalar=]
+  <tr><td>Description
+      <td>[=Component-wise=] construction of a two-component [=vector=] with `e.x` and `e.y` as components.
+
+      If `T` does not match `S` a conversion is used and the components are `T(e.x)` and `T(e.y)`.
+</table>
+<table class='data builtin'>
+  <tr><td style="width:10%">Overload
+      <td>
+        <xmp highlight=wgsl>
+          @const @must_use fn vec2<T>(e1 : T, e2 : T) -> vec2<T>
+          @const @must_use fn vec2(e1 : T, e2 : T) -> vec2<T>
+        </xmp>
+  <tr><td>Parameterization
+      <td>`T` is [=scalar=]
+  <tr><td>Description
+      <td>[=Component-wise=] construction of a two-component [=vector=] with `e1` and `e2` as components.
+</table>
+<table class='data builtin'>
+  <tr><td style="width:10%">Overload
+      <td>
+        <xmp highlight=wgsl>
+          @const @must_use fn vec2() -> vec2<T>
+        </xmp>
+  <tr><td>Parameterization
+      <td>`T` is AbstractInt
+  <tr><td>Description
+      <td>Returns the value `vec2(0,0)`.
+</table>
+
+#### `vec3` #### {#vec3-builtin}
+
+<table class='data builtin'>
+  <tr><td style="width:10%">Overload
+      <td>
+        <xmp highlight=wgsl>
+          @const @must_use fn vec3<T>(e : T) -> vec3<T>
+          @const @must_use fn vec3(e : S) -> vec3<S>
+        </xmp>
+  <tr><td>Parameterization
+      <td>`T` is a [=type/concrete=] [=scalar=]<br>
+      `S` is [=scalar=]
+  <tr><td>Description
+      <td>Construction of a three-component [=vector=] with `e` as all components.
+</table>
+<table class='data builtin'>
+  <tr><td style="width:10%">Overload
+      <td>
+        <xmp highlight=wgsl>
+          @const @must_use fn vec3<T>(e : vec3<S>) -> vec3<T>
+          @const @must_use fn vec3(e : vec3<S>) -> vec3<S>
+        </xmp>
+  <tr><td>Parameterization
+      <td>`T` is a [=type/concrete=] [=scalar=]<br>
+      `S` is [=scalar=]
+  <tr><td>Description
+      <td>[=Component-wise=] construction of a three-component [=vector=] with `e.x`, `e.y`, and `e.z` as components.
+
+      If `T` does not match `S` a conversion is used and the components are `T(e.x)`, `T(e.y)`, and  `T(e.z)`.
+</table>
+<table class='data builtin'>
+  <tr><td style="width:10%">Overload
+      <td>
+        <xmp highlight=wgsl>
+          @const @must_use fn vec3<T>(e1 : T, e2 : T, e3 : T) -> vec3<T>
+          @const @must_use fn vec3(e1 : T, e2 : T, e3 : T) -> vec3<T>
+        </xmp>
+  <tr><td>Parameterization
+      <td>`T` is [=scalar=]
+  <tr><td>Description
+      <td>[=Component-wise=] construction of a three-component [=vector=] with `e1`, `e2`, and `e3` as components.
+</table>
+28:    PartialVector { size: crate::VectorSize },
+33:        columns: crate::VectorSize,
+34:        rows: crate::VectorSize,
+62:            Constructor::PartialVector { size } => Constructor::PartialVector { size },
+162:            (Components::None, Constructor::PartialVector { size }) => {
+169:                        inner: crate::TypeInner::Vector {
+200:            // Vector conversion (vector -> vector)
+204:                    ty_inner: &crate::TypeInner::Vector { size: src_size, .. },
+209:                    &crate::TypeInner::Vector {
+221:            // Vector conversion (vector -> vector) - partial
+225:                    ty_inner: &crate::TypeInner::Vector { size: src_size, .. },
+228:                Constructor::PartialVector { size: dst_size },
+286:            // Vector constructor (splat) - infer type
+293:                Constructor::PartialVector { size },
+295:                expr = crate::Expression::Splat {
+301:            // Vector constructor (splat)
+310:                    &crate::TypeInner::Vector {
+316:                // Splat only allows automatic conversions of the component's scalar.
+333:                expr = crate::Expression::Splat {
+339:            // Vector constructor (by elements), partial
+Sources/SAGAFrontends/WGSL/FloatingConstants.swift:27:    switch value {
+Sources/SAGAFrontends/WGSL/FloatingConstants.swift:40:    case .boolean(let b):
+Sources/SAGAFrontends/WGSL/FloatingConstants.swift:104:  func converted(_ v: WGSLScalarConstant, to kind: WGSLConstKind, at t: WGSLToken) throws
+Sources/SAGAFrontends/WGSL/FloatingConstants.swift:139:    switch value.kind {
+Sources/SAGAFrontends/WGSL/ScalarConstantExpressions.swift:10:    switch self {
+Sources/SAGAFrontends/WGSL/ScalarConstantExpressions.swift:12:    case .boolean: .boolean
+Sources/SAGAFrontends/WGSL/ScalarConstantExpressions.swift:17:    switch self {
+Sources/SAGAFrontends/WGSL/ScalarConstantExpressions.swift:19:    case .boolean(let x): .bool(x)
+Sources/SAGAFrontends/WGSL/ScalarConstantExpressions.swift:24:    switch self {
+Sources/SAGAFrontends/WGSL/ScalarConstantExpressions.swift:26:    case .boolean: .bool
+Sources/SAGAFrontends/WGSL/ScalarConstantExpressions.swift:493:          guard case .boolean(let b) = try floatingBinary("<=", low, high, at: n.token) else {
+Sources/SAGAFrontends/WGSL/ScalarConstantExpressions.swift:523:      if case .boolean(let b) = v {
+Sources/SAGAFrontends/WGSL/ScalarConstantExpressions.swift:546:      if case .boolean(let b) = a, (op == "&&" && !b) || (op == "||" && b) {
+Sources/SAGAFrontends/WGSL/ScalarConstantExpressions.swift:550:        if case .boolean(let l) = a, case .boolean(let r) = b {
+Sources/SAGAFrontends/WGSL/ScalarConstantExpressions.swift:593:        guard case .boolean(let choose) = condition else { throw ShaderFailure.invalidHandle }
+Sources/SAGAFrontends/WGSL/ScalarConstantExpressions.swift:607:        switch v {
+Sources/SAGAFrontends/WGSL/ScalarConstantExpressions.swift:608:        case .boolean: result = v
+Sources/SAGAFrontends/WGSL/ScalarConstantExpressions.swift:615:      if name == "i32" || name == "u32", case .boolean(let b) = try value(args[0]) {
+Sources/SAGAFrontends/WGSL/ScalarConstantExpressions.swift:744:    guard case .boolean(let accepted) = result else {

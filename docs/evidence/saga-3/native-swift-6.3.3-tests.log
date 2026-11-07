@@ -1,0 +1,120 @@
+[0/1] Planning build
+Building for debugging...
+[0/4] Write sources
+[1/4] Write swift-version-3CD7052B146186F2.txt
+[3/8] Compiling SAGAShaderIR Contracts.swift
+[4/8] Emitting module SAGAShaderIR
+[5/12] Compiling SAGATypes Descriptors.swift
+[6/12] Emitting module SAGATypes
+[7/12] Emitting module SAGAFrontends
+[8/12] Compiling SAGAFrontends Frontend.swift
+[9/12] Compiling SAGAValidation Validation.swift
+[10/12] Emitting module SAGAValidation
+[11/14] Compiling SAGABackend BackendDevice.swift
+[12/14] Emitting module SAGABackend
+[13/16] Emitting module SAGABackends
+[14/16] Compiling SAGABackends CodeGenerator.swift
+[15/24] Emitting module SAGAWebGPU
+[16/24] Compiling SAGAWebGPU BrowserBackend.swift
+[17/24] Emitting module SAGACore
+[18/24] Compiling SAGAMetal MetalBackend.swift
+[19/24] Emitting module SAGAMetal
+[20/24] Emitting module SAGACompiler
+[21/24] Compiling SAGACompiler Compiler.swift
+[22/24] Compiling SAGACore Device.swift
+[23/26] Emitting module SAGA
+[24/26] Compiling SAGA Exports.swift
+[25/31] Compiling SAGAFoundationTests TestBackend.swift
+[26/31] Emitting module SAGAFoundationTests
+[27/31] Compiling SAGAFoundationTests DescriptorTests.swift
+[28/31] Compiling SAGAFoundationTests DeviceTests.swift
+[29/31] Compiling SAGAFoundationTests CompilerTests.swift
+[30/33] Emitting module SAGAPackageTests
+[31/33] Compiling SAGAPackageTests runner.swift
+[31/33] Write Objects.LinkFileList
+[32/33] Linking SAGAPackageTests
+Build complete! (1.86s)
+
+Test Suite 'All tests' started at 2026-11-06 19:55:07.295.
+Test Suite 'All tests' passed at 2026-11-06 19:55:07.303.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.007) seconds
+􀟈  Test run started.
+􀄵  Testing Library Version: 1902
+􀄵  Target Platform: arm64e-apple-macos14.0
+􀟈  Test asyncErrorKeepsOriginalScopeAndDoesNotLeakIntoNewScope() started.
+􀟈  Test invalidDescriptorsNeverReachBackend() started.
+􀟈  Test containersDistinguishTextAndBinary() started.
+􀟈  Test scopePopWaitsForOperationsStartedInsideScope() started.
+􀟈  Test pipelineRejectsWrongOutputContainer() started.
+􀟈  Test fullMatchingScopeDoesNotLeakLaterErrorsToOuterScope() started.
+􀟈  Test deviceLossDuringAllocationCannotPublishResource() started.
+􀟈  Test validatesLimitsAndMappingAlignmentWithoutOverflow() started.
+􀟈  Test closeWaitsForAcceptedWorkAndReleasesAllResources() started.
+􀟈  Test cancelledCompilerDoesNotEnterPipeline() started.
+􀟈  Test errorScopesCaptureFirstMatchingErrorAndEnforceLIFO() started.
+􀟈  Test cancelledAllocationRollsBack() started.
+􀟈  Test pipelineRequiresValidatedIRBeforeCodegen() started.
+􀟈  Test rejectsUnknownAndIncompatibleBufferUsage() started.
+􀟈  Test backendDeviceLossIsTerminalForAllocationAndQueue() started.
+􀟈  Test overlappingCloseWaitsForWholeTeardownBatch(firstIsLoss:) started.
+􀟈  Test cancelledBeforeSubmitNeverEnqueuesWork() started.
+􀟈  Test backendDeviceLossDuringAllocationIsTerminal() started.
+􀟈  Test browserBoundaryForwardsOnlyThroughExplicitHost() started.
+􀟈  Test acceptedWorkPinsResourcesAndQueueCompletesInOrder() started.
+􀟈  Test unimplementedCompilerNeverReportsSuccessfulTranslation(input:output:) started.
+􀟈  Test closeWaitsForPendingAllocationRollback() started.
+􀟈  Test featuresMustBeAdvertised() started.
+􀟈  Test failedSubmissionDoesNotPoisonQueueAndReleasesPins() started.
+􀟈  Test diagnosticSpansRejectInvalidRanges() started.
+􀟈  Test cancelledWaiterDoesNotCancelCommittedWork() started.
+􀟈  Test resourceIdentityRejectsForeignForgedAndDestroyedIDs() started.
+􀟈  Test metalFactoryDoesNotPretendBackendIsImplemented() started.
+􀟈  Test case passing 1 argument firstIsLoss → false to overlappingCloseWaitsForWholeTeardownBatch(firstIsLoss:) started.
+􀟈  Test case passing 2 arguments input → .wgsl, output → .glsl to unimplementedCompilerNeverReportsSuccessfulTranslation(input:output:) started.
+􀟈  Test case passing 2 arguments input → .wgsl, output → .spirv to unimplementedCompilerNeverReportsSuccessfulTranslation(input:output:) started.
+􀟈  Test case passing 2 arguments input → .wgsl, output → .wgsl to unimplementedCompilerNeverReportsSuccessfulTranslation(input:output:) started.
+􀟈  Test case passing 1 argument firstIsLoss → true to overlappingCloseWaitsForWholeTeardownBatch(firstIsLoss:) started.
+􀟈  Test case passing 2 arguments input → .wgsl, output → .msl to unimplementedCompilerNeverReportsSuccessfulTranslation(input:output:) started.
+􀟈  Test case passing 2 arguments input → .wgsl, output → .hlsl to unimplementedCompilerNeverReportsSuccessfulTranslation(input:output:) started.
+􀟈  Test case passing 2 arguments input → .glsl, output → .spirv to unimplementedCompilerNeverReportsSuccessfulTranslation(input:output:) started.
+􀟈  Test case passing 2 arguments input → .glsl, output → .msl to unimplementedCompilerNeverReportsSuccessfulTranslation(input:output:) started.
+􀟈  Test case passing 2 arguments input → .glsl, output → .glsl to unimplementedCompilerNeverReportsSuccessfulTranslation(input:output:) started.
+􀟈  Test case passing 2 arguments input → .spirv, output → .wgsl to unimplementedCompilerNeverReportsSuccessfulTranslation(input:output:) started.
+􀟈  Test case passing 2 arguments input → .spirv, output → .glsl to unimplementedCompilerNeverReportsSuccessfulTranslation(input:output:) started.
+􀟈  Test case passing 2 arguments input → .spirv, output → .spirv to unimplementedCompilerNeverReportsSuccessfulTranslation(input:output:) started.
+􀟈  Test case passing 2 arguments input → .glsl, output → .wgsl to unimplementedCompilerNeverReportsSuccessfulTranslation(input:output:) started.
+􀟈  Test case passing 2 arguments input → .spirv, output → .msl to unimplementedCompilerNeverReportsSuccessfulTranslation(input:output:) started.
+􀟈  Test case passing 2 arguments input → .glsl, output → .hlsl to unimplementedCompilerNeverReportsSuccessfulTranslation(input:output:) started.
+􀟈  Test case passing 2 arguments input → .wgsl, output → .dot to unimplementedCompilerNeverReportsSuccessfulTranslation(input:output:) started.
+􀟈  Test case passing 2 arguments input → .spirv, output → .dot to unimplementedCompilerNeverReportsSuccessfulTranslation(input:output:) started.
+􀟈  Test case passing 2 arguments input → .glsl, output → .dot to unimplementedCompilerNeverReportsSuccessfulTranslation(input:output:) started.
+􀟈  Test case passing 2 arguments input → .spirv, output → .hlsl to unimplementedCompilerNeverReportsSuccessfulTranslation(input:output:) started.
+􁁛  Test containersDistinguishTextAndBinary() passed after 0.001 seconds.
+􁁛  Test validatesLimitsAndMappingAlignmentWithoutOverflow() passed after 0.001 seconds.
+􁁛  Test rejectsUnknownAndIncompatibleBufferUsage() passed after 0.001 seconds.
+􁁛  Test featuresMustBeAdvertised() passed after 0.001 seconds.
+􁁛  Test backendDeviceLossDuringAllocationIsTerminal() passed after 0.001 seconds.
+􁁛  Test diagnosticSpansRejectInvalidRanges() passed after 0.001 seconds.
+􁁛  Test pipelineRequiresValidatedIRBeforeCodegen() passed after 0.001 seconds.
+􁁛  Test pipelineRejectsWrongOutputContainer() passed after 0.001 seconds.
+􁁛  Test invalidDescriptorsNeverReachBackend() passed after 0.001 seconds.
+􁁛  Test errorScopesCaptureFirstMatchingErrorAndEnforceLIFO() passed after 0.001 seconds.
+􁁛  Test fullMatchingScopeDoesNotLeakLaterErrorsToOuterScope() passed after 0.001 seconds.
+􁁛  Test browserBoundaryForwardsOnlyThroughExplicitHost() passed after 0.001 seconds.
+􁁛  Test cancelledCompilerDoesNotEnterPipeline() passed after 0.001 seconds.
+􁁛  Test asyncErrorKeepsOriginalScopeAndDoesNotLeakIntoNewScope() passed after 0.001 seconds.
+􁁛  Test metalFactoryDoesNotPretendBackendIsImplemented() passed after 0.001 seconds.
+􁁛  Test acceptedWorkPinsResourcesAndQueueCompletesInOrder() passed after 0.001 seconds.
+􁁛  Test scopePopWaitsForOperationsStartedInsideScope() passed after 0.001 seconds.
+􁁛  Test unimplementedCompilerNeverReportsSuccessfulTranslation(input:output:) with 18 test cases passed after 0.001 seconds.
+􁁛  Test closeWaitsForAcceptedWorkAndReleasesAllResources() passed after 0.001 seconds.
+􁁛  Test cancelledBeforeSubmitNeverEnqueuesWork() passed after 0.001 seconds.
+􁁛  Test cancelledAllocationRollsBack() passed after 0.001 seconds.
+􁁛  Test deviceLossDuringAllocationCannotPublishResource() passed after 0.001 seconds.
+􁁛  Test cancelledWaiterDoesNotCancelCommittedWork() passed after 0.001 seconds.
+􁁛  Test failedSubmissionDoesNotPoisonQueueAndReleasesPins() passed after 0.001 seconds.
+􁁛  Test closeWaitsForPendingAllocationRollback() passed after 0.001 seconds.
+􁁛  Test resourceIdentityRejectsForeignForgedAndDestroyedIDs() passed after 0.001 seconds.
+􁁛  Test backendDeviceLossIsTerminalForAllocationAndQueue() passed after 0.001 seconds.
+􁁛  Test overlappingCloseWaitsForWholeTeardownBatch(firstIsLoss:) with 2 test cases passed after 0.001 seconds.
+􁁛  Test run with 28 tests in 0 suites passed after 0.001 seconds.

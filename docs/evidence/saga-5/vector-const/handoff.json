@@ -1,0 +1,99 @@
+{
+  "date": "2026-11-07T01:58:50.685086+00:00",
+  "full_saga5_complete": false,
+  "requested_core_vector_cases_verified": true,
+  "new_test_functions": 9,
+  "new_wgsl_tests": 7,
+  "new_integration_tests": 2,
+  "native_tests": 193,
+  "current_turn_checks": {
+    "full_strict_native_tests": "verification-1",
+    "strict_full_native_build": "verification-2",
+    "matched_swift632_wasm_compiler": "verification-3",
+    "docs_reference_dependency": "verification-4"
+  },
+  "vector_profile": [
+    "typed flat tree node with2..4 scalar leaves, never text substitution",
+    "generic vec2/3/4<scalar> and scalar-type alias template; inferred vec2/3/4; vector-type aliases via forward declaration DAG/lexical lookup",
+    "zero/splat/mixed scalar+vector component construction with bounded total count; multi-component/splat only automatic conversions; explicit conversion only same-width vector->vector overload",
+    "per-component bool/numeric conversion via audited scalar conversion; exact concrete type consensus and abstract representability before runtime materialization",
+    "all/any vector<bool> and scalar<bool>, per-component equality/ordering and unary logical-not/negate/complement (vector arithmetic/select/other builtin overloads remain unsupported)",
+    "module vector compile-time environment and function-local const values; runtime uses lower to existing scalar literal+compose with emitted evaluation scope; contextual abstract vector materialization and pruning through existing checked frontend boundary"
+  ],
+  "continued_followup": [
+    "sqrt/inverseSqrt scalar and vector float const overloads using typed Float/Double squareRoot; finite evaluated results reject nonfinite/domain failures",
+    "hex float literals; f32 suffix exact representability checked by normalized significand bits+binary exponent, rejects too-precise/overflow/underflow rather than hiding rounding through Double",
+    "f32 hex maxfinite and minimumsubnormal, dot/noexponent, uppercase and mantissaf as digit checked",
+    "abstractFloat->runtimef32 finite-range materialization guard tightened on existing frontend coercion boundary; no raw validator change"
+  ],
+  "safety": {
+    "depth_cap": 24,
+    "bounded_components": 4,
+    "comparison_properties": 96,
+    "malformed_vector_trees": 128,
+    "whole_rhs_checks": "Syntax/names/types/implicit conversions still validated before ordinary lazy evaluation; explicit vector conversion is evaluated only when selected, mandatory per-component conversion obligations still processed. Existing integer/float division/shift/clamp checks preserved.",
+    "loop_regression_retained": true,
+    "cancellation_work_node_limits": true
+  },
+  "limitations": [
+    "Vector const arithmetic/select/index/swizzle/matrix/array/struct constructors and f16 remain explicitly unsupported; generic vec shorthand and complete overload/type-template grammar not claimed.",
+    "Concrete module vector constants are stored in frontend compile-time environment and inlined as checked compose at runtime uses; preservation as named constants/reflection/interchange is not implemented. Scalar named-constant behavior preserved.",
+    "Local abstract vectors are checked at runtime use context; general expression/remapper node families not added outside current supported profile.",
+    "Hex exponent parsing bounded to +/-100000; no arbitrary-precision lexical evaluator or device builtin accuracy/CTS parity claimed.",
+    "No fresh configured corpus/browser/CTS/new WGSL-produced GPU execution; existing native Metal regressions are distinct."
+  ],
+  "unchanged": {
+    "validator_sha256": "2240426e6f836d0beb7c5c45e2c73038e61e05a0eb817c5f0844625ec18539de",
+    "shared_ir_hashes": {
+      "Sources/SAGAShaderIR/TypedIR.swift": "fb46b19c546306dedcbf412e8be009a9c50038e563ad00163d3cc49e49a3bce5",
+      "Sources/SAGAShaderIR/BlockWalk.swift": "5c90afb8d51c003aef0da14be3b82409db7257e3126304ae8d3a8296a78851f5",
+      "Sources/SAGAShaderIR/Capabilities.swift": "03e3779b7fdf62437729255ca731bd853106ff0957834490f378c4fc77abaab5",
+      "Sources/SAGAShaderIR/Contracts.swift": "49273f626cd1b25e530206a168850ebe308bb609f9dc8b3b89e4003632f37529",
+      "Sources/SAGAShaderIR/Tables.swift": "478ceb7991b633f22cb4c0fb04736a6d10040a74c2cf28aafdff363321413c3f",
+      "Sources/SAGAShaderIR/Diagnostics.swift": "eacbb4adf49273251a6237af7288207f5f3f4005c930bd1525b7347592b943dd",
+      "Sources/SAGAShaderIR/Budgets.swift": "4341c2005120441e2d31cac3cf14de0cebbd0d5322ba10c89cd1d36b197ae0b0"
+    },
+    "frozen_baseline_hashes": {
+      "docs/baseline/saga-2/verification-results.json": "9dc3535a477fdbe29f732d14a2959433c4237611244a54357820a89c3d8c42c0",
+      "docs/baseline/saga-2/test_docs.py": "f93250f18c2f107d0c045f9639405bdc2403e71d6631fb500522e0bd61e58acd",
+      "docs/baseline/saga-2/hashes.json": "5cedb71961d313a35de4c522fe79dd72314dc97154a2b5f12f0b0f29b574b034",
+      "docs/baseline/saga-2/test_naga_scope.py": "1b75ed57d3cb3b3fae90d7658fa77dc7862d96a2b021800f14aa5e31dcef4bbf",
+      "docs/baseline/saga-2/verify_docs.py": "3a6ece4c57b8babb6ccb1854b56aa00b3eda85ddb5bdd9432082086874b0dad8"
+    },
+    "IRbool1_WGSLmemory4": true,
+    "private_witness": true
+  },
+  "source_hashes": {
+    "Sources/SAGAFrontends/WGSL/Lexer.swift": "44aeb5ec2cfd082d33a62bcc1e634cb5e43f4ef93c43ddeedbaa49050dbfbb3c",
+    "Sources/SAGAFrontends/WGSL/ControlExpressions.swift": "9094c2300373a36b4e485269f221d26408d449818444d222fcc85c9fa391801e",
+    "Sources/SAGAFrontends/WGSL/HexFloatLiterals.swift": "4cad6cf01a454d59af398726b5558b7b542bfa54bd56cc0773cc5abce9836508",
+    "Sources/SAGAFrontends/WGSL/FloatingConstants.swift": "14c5d953cf56ddb20dcfc3181e6f3a57a3dfd0eeb8547160c77c061d9d550168",
+    "Sources/SAGAFrontends/WGSL/Expressions.swift": "a54644710656d10bd1f8a62bdd145bb52753b6b352e9e7f1e516125e47fd203e",
+    "Sources/SAGAFrontends/WGSL/Materialization.swift": "f20d949e04559c3c31cc3d105fefd98aafa78bc72f026f769410bb8d2b436217",
+    "Sources/SAGAFrontends/WGSL/Statements.swift": "21b7fd047df3c25a9d31ef78a257e83b05b3364370f14c998c5823ddbe1dbfe5",
+    "Sources/SAGAFrontends/WGSL/ModuleDeclarations.swift": "7f8b523a57285838ce546199b400de64c966f71802d3a1fec0c591eaf45b0195",
+    "Sources/SAGAFrontends/WGSL/ScalarConstantExpressions.swift": "22f213d6c43f6eae0bf7f84971028ead42e9e600958510838a4502c9134da362",
+    "Sources/SAGAFrontends/WGSL/VectorConstants.swift": "b0dea000a62e40aac603b44fe5ddb5627d72886da8dd9d508ac5f788341dc063",
+    "Sources/SAGAFrontends/WGSL/Loops.swift": "739e6f247868fe28b80b226a20fa11741476a02429949a5052dba54361faf50d",
+    "Sources/SAGAFrontends/WGSL/ConstantExpressions.swift": "91ca229f90f4e81a986334dd62391d9046cc1be89741cc88a96cf6e01b1f2efc",
+    "Sources/SAGAFrontends/WGSL/WGSLFrontend.swift": "fa76eb7fb5a27457529888374381248c8357ff5c8904e95554da28d5189b9895",
+    "Tests/SAGAFoundationTests/WGSLFrontendTests.swift": "826af9acdc81a0812e7d06beba32883576eb1e9c230e8d57dcba1a82f75487e5",
+    "Tests/SAGAFoundationTests/FrontendIntegrationTests.swift": "3f61a7927cd579f310bea669bee997f4e4ba19a8c1ff917f6850d3a6c6c21346"
+  },
+  "reference_pin": "a55352911bb26a1b33bc8d5fc03bdebb0a967f5a",
+  "reference_clean": true,
+  "next_exact_gaps": [
+    "vector arithmetic const expression add/sub/mul/div componentwise overloads",
+    "vector select and other const builtin overloads",
+    "constant vector index/swizzle access",
+    "matrix/aggregate constructors, f16 feature support and broader fullSAGA5semantic/options/corpus parity"
+  ],
+  "residual_repro": "docs/evidence/saga-5/vector-const/residuals.swift/log",
+  "children_newrun_boardpayloads_policies_referencewrites_commits_publication": 0,
+  "runnable_target": "Compiler libraries only, no new launch config.",
+  "docs_tests": {
+    "pass": 59,
+    "skip": 0
+  },
+  "source_hashes_rechecked_after_checks": true
+}

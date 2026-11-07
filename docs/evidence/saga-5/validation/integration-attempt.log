@@ -1,0 +1,21 @@
+[0/1] Planning build
+Building for debugging...
+[0/3] Write sources
+[2/3] Write swift-version-3CD7052B146186F2.txt
+[4/10] Compiling SAGAFrontends Statements.swift
+[5/10] Compiling SAGAFrontends Lexer.swift
+[6/10] Compiling SAGAFrontends SPIRVFunction.swift
+[7/10] Compiling SAGAFrontends WGSLFrontend.swift
+[8/10] Compiling SAGAFrontends Expressions.swift
+[9/10] Emitting module SAGAFrontends
+[10/10] Compiling SAGAFrontends SPIRVFrontend.swift
+[11/13] Compiling SAGACompiler Compiler.swift
+[12/13] Emitting module SAGACompiler
+[13/13] Compiling SAGACompiler FrontendValidation.swift
+/Users/vlad-prusakov/Developer/saga/Sources/SAGACompiler/FrontendValidation.swift:3:8: error: public import of 'SAGAFrontends' was not used in public declarations or inlinable code
+ 1 | public import SAGAShaderIR
+ 2 | public import SAGAValidation
+ 3 | public import SAGAFrontends
+   |        `- error: public import of 'SAGAFrontends' was not used in public declarations or inlinable code
+ 4 | 
+ 5 | extension IndependentShaderCompiler {

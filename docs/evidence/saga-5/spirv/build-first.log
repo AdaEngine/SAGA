@@ -1,0 +1,113 @@
+[0/1] Planning build
+Building for debugging...
+[0/1] Write swift-version-3CD7052B146186F2.txt
+[1/2] Write sources
+[3/4] Emitting module SAGAValidation
+[4/4] Compiling SAGAValidation ShaderSemanticValidator.swift
+[4/5] Write sources
+[6/17] Compiling SAGABackends CodeGenerator.swift
+[7/17] Emitting module SAGABackends
+[8/17] Compiling SAGAFrontends SPIRVFrontend.swift
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/SPIRV/SPIRVFrontend.swift:99:70: error: 'init(validating:as:)' is only available in macOS 15.0 or newer
+ 39 | struct SPVConstant { let handle: IRHandle<IRConstant>; let type: UInt32; let unsigned: UInt32? }
+ 40 | 
+ 41 | struct SPVDecoder {
+    |        `- note: add '@available' attribute to enclosing struct
+ 42 |     let options: SPIRVFrontendOptions
+ 43 |     var budget: ShaderBudget
+    :
+ 90 |         guard case .scalar(let s) = try kind(id,i) else { throw i.fail("Expected scalar type") }; return s
+ 91 |     }
+ 92 |     func string(_ a: [UInt32], from start: Int, _ i: SPVInstruction) throws -> (String, Int) {
+    |          `- note: add '@available' attribute to enclosing instance method
+ 93 |         var bytes: [UInt8] = []
+ 94 |         for j in start..<a.count {
+    :
+ 97 |                 let byte = UInt8(truncatingIfNeeded: w >> (k * 8))
+ 98 |                 if byte == 0 {
+ 99 |                     guard k == 3 || w >> ((k + 1) * 8) == 0, let s = String(validating: bytes, as: UTF8.self) else { throw i.fail("Invalid UTF-8 or string padding") }
+    |                                                                      |- error: 'init(validating:as:)' is only available in macOS 15.0 or newer
+    |                                                                      `- note: add 'if #available' version check
+100 |                     return (s, j + 1)
+101 |                 }
+[9/17] Compiling SAGAFrontends WGSLFrontend.swift
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/WGSL/WGSLFrontend.swift:98:28: error: cannot find 'wgslKey' in scope
+ 96 |     func reserve(_ t: WGSLToken) throws {
+ 97 |         try budget.consume(.work,amount:t.text.utf8.count)
+ 98 |         guard names.insert(wgslKey(t.text)).inserted else { throw wgslError(.duplicateName,"Duplicate declaration '\(t.text)'",t) }
+    |                            `- error: cannot find 'wgslKey' in scope
+ 99 |     }
+100 |     func intern(_ kind: IRTypeKind, name: String? = nil, at t: WGSLToken? = nil) throws -> WType {
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/WGSL/WGSLFrontend.swift:116:81: error: cannot find 'wgslKey' in scope
+114 |             if try eat("alias") {
+115 |                 guard attrs.isEmpty else { throw unsupported("alias attributes") }
+116 |                 let n = try ident(); try reserve(n); try expect("="); typeNames[wgslKey(n.text)] = try type(); try expect(";"); continue
+    |                                                                                 `- error: cannot find 'wgslKey' in scope
+117 |             }
+118 |             if try eat("var") { try global(attrs); continue }
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/WGSL/WGSLFrontend.swift:187:34: error: cannot find 'wgslKey' in scope
+185 |         try enter(); defer { nesting -= 1 }
+186 |         let t = try take()
+187 |         if let known = typeNames[wgslKey(t.text)] { return known }
+    |                                  `- error: cannot find 'wgslKey' in scope
+188 |         let scalar: IRScalar?
+189 |         switch t.text {
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/WGSL/WGSLFrontend.swift:253:38: error: cannot find 'wgslKey' in scope
+251 |         while !isNext("}") {
+252 |             let attrs = try attributes(); let name = try ident()
+253 |             guard memberNames.insert(wgslKey(name.text)).inserted else { throw wgslError(.duplicateName,"Duplicate struct member",name) }
+    |                                      `- error: cannot find 'wgslKey' in scope
+254 |             if let last = members.last, try layout(last.type).1 == 0 { throw wgslError(.invalidType,"Runtime array must be final member",name) }
+255 |             try expect(":"); let ty = try type(); let l = try layout(ty); alignment = max(alignment,l.0)
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/WGSL/WGSLFrontend.swift:263:19: error: cannot find 'wgslKey' in scope
+261 |         try expect("}")
+262 |         guard !members.isEmpty else { throw wgslError(.invalidType,"Empty structure",n) }
+263 |         typeNames[wgslKey(n.text)] = try intern(.structure(members:members,span:try aligned(size,to:alignment,at:n)),name:n.text,at:n)
+    |                   `- error: cannot find 'wgslKey' in scope
+264 |     }
+265 |     func global(_ attrs: [String: Attribute]) throws {
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/WGSL/WGSLFrontend.swift:292:33: error: cannot find 'wgslKey' in scope
+290 |             guard bind != nil else { throw wgslError(.invalidBinding,"Resource requires binding",n) }
+291 |         } else if bind != nil { throw wgslError(.invalidBinding,"Non-resource cannot have binding",n) }
+292 |         try node(); globalNames[wgslKey(n.text)] = globals.count; globals.append(IRGlobalVariable(name:n.text,space:space,binding:bind,type:ty,location:n.location))
+    |                                 `- error: cannot find 'wgslKey' in scope
+293 |     }
+294 |     func constant(_ attrs: [String: Attribute]) throws {
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/WGSL/WGSLFrontend.swift:303:35: error: cannot find 'wgslKey' in scope
+301 |         try expect(";")
+302 |         try node(); let handle = try WExpr(index:globalExpressions.count); globalExpressions.append(IRExpression(type:ty,kind:.literal(value),location:t.location))
+303 |         try node(); constantNames[wgslKey(n.text)] = constants.count; constants.append(IRConstant(name:n.text,type:ty,initializer:handle,location:n.location))
+    |                                   `- error: cannot find 'wgslKey' in scope
+304 |     }
+305 | }
+[10/17] Compiling SAGAFrontends Statements.swift
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/WGSL/Statements.swift:29:31: error: operator can throw but expression is not marked with 'try'
+ 27 |         }
+ 28 |         let root = try block(newScope:false)
+ 29 |         if body.result != nil && !(try terminates(root)) { throw wgslError(.invalidControlFlow,"Non-void function must return on every path",name) }
+    |                               |  `- note: call is to 'rethrows' function, but argument function can throw
+    |                               `- error: operator can throw but expression is not marked with 'try'
+ 30 |         if body.result == nil && !(try terminates(root)) {
+ 31 |             let saved = body.current; body.current = body.blocks[root.index].statements
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/WGSL/Statements.swift:30:31: error: operator can throw but expression is not marked with 'try'
+ 28 |         let root = try block(newScope:false)
+ 29 |         if body.result != nil && !(try terminates(root)) { throw wgslError(.invalidControlFlow,"Non-void function must return on every path",name) }
+ 30 |         if body.result == nil && !(try terminates(root)) {
+    |                               |  `- note: call is to 'rethrows' function, but argument function can throw
+    |                               `- error: operator can throw but expression is not marked with 'try'
+ 31 |             let saved = body.current; body.current = body.blocks[root.index].statements
+ 32 |             try statement(.returnValue(nil),at:name)
+[11/17] Compiling SAGAFrontends Lexer.swift
+[12/17] Compiling SAGAFrontends Expressions.swift
+[13/17] Compiling SAGAFrontends SPIRVFunction.swift
+[14/17] Compiling SAGAFrontends GLSLPreprocessor.swift
+[15/17] Emitting module SAGAFrontends
+[16/17] Compiling SAGAFrontends GLSLLexer.swift
+[17/17] Compiling SAGAFrontends GLSLFrontend.swift

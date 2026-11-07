@@ -1,0 +1,50 @@
+test_authored_markdown_links_and_ids (test_docs.DocumentationTests.test_authored_markdown_links_and_ids) ... ok
+test_dag_and_mermaid (test_docs.DocumentationTests.test_dag_and_mermaid) ... ok
+test_inventory_unique_reproducible_and_sources (test_docs.DocumentationTests.test_inventory_unique_reproducible_and_sources) ... ok
+test_project_scope_guard_preserves_plans_but_rejects_runtime (test_docs.DocumentationTests.test_project_scope_guard_preserves_plans_but_rejects_runtime) ... ok
+test_reference_readonly_and_native_inventory (test_docs.DocumentationTests.test_reference_readonly_and_native_inventory) ... ok
+test_report_distinguishes_platform_choice_from_open_scope (test_docs.DocumentationTests.test_report_distinguishes_platform_choice_from_open_scope) ... ok
+test_scope_and_required_outputs (test_docs.DocumentationTests.test_scope_and_required_outputs) ... ok
+test_source_hashes_and_pins (test_docs.DocumentationTests.test_source_hashes_and_pins) ... ok
+test_all_components_unimplemented_and_owned (test_naga_scope.NagaScopeTests.test_all_components_unimplemented_and_owned) ... ok
+test_capability_not_all_to_all (test_naga_scope.NagaScopeTests.test_capability_not_all_to_all) ... ok
+test_reference_format_inventory (test_naga_scope.NagaScopeTests.test_reference_format_inventory) ... ok
+test_user_choice_and_pin (test_naga_scope.NagaScopeTests.test_user_choice_and_pin) ... ok
+test_sdk_checksum_matches_archived_official_metadata (test_runtime_policy.BuildEvidenceTests.test_sdk_checksum_matches_archived_official_metadata) ... ok
+test_swift_test_log_requires_nonzero_testing_summary (test_runtime_policy.BuildEvidenceTests.test_swift_test_log_requires_nonzero_testing_summary) ... ok
+test_current_package_and_sources (test_runtime_policy.RuntimePolicyTests.test_current_package_and_sources) ... ok
+test_external_runtime_and_transitive_dependency_rejected (test_runtime_policy.RuntimePolicyTests.test_external_runtime_and_transitive_dependency_rejected) ... ok
+test_historical_fixture_hashes_and_original_guard (test_runtime_policy.RuntimePolicyTests.test_historical_fixture_hashes_and_original_guard) ... ok
+test_import_and_safety_escape_rejected (test_runtime_policy.RuntimePolicyTests.test_import_and_safety_escape_rejected) ... ok
+test_nonlocal_binary_system_and_unsafe_settings_rejected (test_runtime_policy.RuntimePolicyTests.test_nonlocal_binary_system_and_unsafe_settings_rejected) ... ok
+test_offline_compiler_inventory_denominator (test_runtime_policy.RuntimePolicyTests.test_offline_compiler_inventory_denominator) ... ok
+test_project_scope_rejects_foreign_sources_and_cargo (test_runtime_policy.RuntimePolicyTests.test_project_scope_rejects_foreign_sources_and_cargo) ... ok
+test_reference_inventory_reproducibility (test_runtime_policy.RuntimePolicyTests.test_reference_inventory_reproducibility) ... ok
+test_wrong_tools_language_and_graph_rejected (test_runtime_policy.RuntimePolicyTests.test_wrong_tools_language_and_graph_rejected) ... ok
+
+----------------------------------------------------------------------
+Ran 23 tests in 3.231s
+
+OK
+
+{
+  "status": "pass",
+  "targets": 12,
+  "external_dependencies": 0,
+  "scope": "foundation dependency/module policy, not GPU/compiler conformance",
+  "documentation_tests": {
+    "discovered": 23,
+    "executed": 23,
+    "skipped": [],
+    "failures": 0,
+    "errors": 0,
+    "reference_enabled": true
+  },
+  "executed": {
+    "swift_build": false,
+    "swift_tests": false,
+    "gpu": false,
+    "cts": false,
+    "shader_translation": false
+  }
+}

@@ -1,0 +1,354 @@
+Building for debugging...
+[0/22] /Users/vlad-prusakov/Developer/saga/.build-glsl/arm64-apple-macosx/debug/SAGAPackageTests.derived/runner.swift
+[1/22] Write sources
+[7/22] Write SAGAMetalDiagnostic-entitlement.plist
+[12/22] Write sources
+[16/22] Write swift-version-3CD7052B146186F2.txt
+[18/33] Compiling SAGATypes BufferCommand.swift
+[19/33] Compiling SAGATypes Descriptors.swift
+[20/33] Emitting module SAGATypes
+[21/36] Emitting module SAGAShaderIR
+[22/36] Compiling SAGAShaderIR Capabilities.swift
+[23/36] Emitting module SAGABackend
+[24/36] Compiling SAGABackend BackendDevice.swift
+[25/36] Compiling SAGABackend CommandBackendDevice.swift
+[26/42] Emitting module SAGAWebGPU
+[27/42] Compiling SAGAWebGPU BrowserBackend.swift
+[28/42] Compiling SAGAShaderIR Diagnostics.swift
+[29/42] Compiling SAGAShaderIR Contracts.swift
+[30/42] Compiling SAGAShaderIR TypedIR.swift
+[31/42] Compiling SAGAShaderIR Tables.swift
+[32/42] Compiling SAGAShaderIR Budgets.swift
+[33/42] Compiling SAGAShaderIR BlockWalk.swift
+[34/46] Compiling SAGAValidation Validation.swift
+[35/46] Emitting module SAGAValidation
+[36/46] Compiling SAGAFrontends Frontend.swift
+[37/46] Emitting module SAGAFrontends
+[38/46] Emitting module SAGACore
+[39/46] Compiling SAGACore Device.swift
+[40/48] Compiling SAGABackends CodeGenerator.swift
+[41/48] Emitting module SAGABackends
+[42/50] Emitting module SAGA
+[43/50] Compiling SAGA Exports.swift
+[44/52] Compiling SAGACompiler Compiler.swift
+[45/52] Emitting module SAGACompiler
+[46/52] Emitting module SAGAMetal
+[47/52] Compiling SAGAMetal MetalBackend.swift
+[48/64] Compiling SAGAMetalDiagnostic Main.swift
+[49/64] Emitting module SAGAMetalDiagnostic
+[49/64] Write Objects.LinkFileList
+[50/64] Linking SAGAMetalDiagnostic
+[51/64] Applying SAGAMetalDiagnostic
+[53/64] Compiling SAGAFoundationTests TestBackend.swift
+[54/64] Compiling SAGAFoundationTests WGSLFrontendTests.swift
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/WGSLFrontendTests.swift:8:21: error: cannot find 'WGSLFrontend' in scope
+ 6 | @Suite struct WGSLFrontendTests {
+ 7 |     @Test func computeLowersStorageEffectsAndTypedExpressions() throws {
+ 8 |         let m = try WGSLFrontend().parse(.wgsl("""
+   |                     `- error: cannot find 'WGSLFrontend' in scope
+ 9 |         @group(0) @binding(0) var<storage, read_write> values: array<u32>;
+10 |         @compute @workgroup_size(8) fn main(@builtin(global_invocation_id) id: vec3<u32>) {
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/WGSLFrontendTests.swift:8:43: error: cannot infer contextual base in reference to member 'wgsl'
+ 6 | @Suite struct WGSLFrontendTests {
+ 7 |     @Test func computeLowersStorageEffectsAndTypedExpressions() throws {
+ 8 |         let m = try WGSLFrontend().parse(.wgsl("""
+   |                                           `- error: cannot infer contextual base in reference to member 'wgsl'
+ 9 |         @group(0) @binding(0) var<storage, read_write> values: array<u32>;
+10 |         @compute @workgroup_size(8) fn main(@builtin(global_invocation_id) id: vec3<u32>) {
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/WGSLFrontendTests.swift:23:21: error: cannot find 'WGSLFrontend' in scope
+21 |     }
+22 |     @Test func functionCallsBranchesScopesAndReturns() throws {
+23 |         let m = try WGSLFrontend().parse(.wgsl("""
+   |                     `- error: cannot find 'WGSLFrontend' in scope
+24 |         fn twice(x: u32) -> u32 { return x * 2u; }
+25 |         @compute @workgroup_size(1) fn main() {
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/WGSLFrontendTests.swift:23:43: error: cannot infer contextual base in reference to member 'wgsl'
+21 |     }
+22 |     @Test func functionCallsBranchesScopesAndReturns() throws {
+23 |         let m = try WGSLFrontend().parse(.wgsl("""
+   |                                           `- error: cannot infer contextual base in reference to member 'wgsl'
+24 |         fn twice(x: u32) -> u32 { return x * 2u; }
+25 |         @compute @workgroup_size(1) fn main() {
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/WGSLFrontendTests.swift:35:55: error: cannot find 'WGSLFrontend' in scope
+33 |     @Test func rejectsNamesTypesAndMalformedSyntax() throws {
+34 |         for source in ["fn f() { missing = 1u; }", "fn f() { let a: bool = 1u; }", "fn f() { let a = ; }", "fn f() { let x = 1u; x = 2u; }", "fn f() { break; }", "fn f() { let x=1u; let x=2u; }"] {
+35 |             #expect(throws: ShaderFailure.self) { try WGSLFrontend().parse(.wgsl(source)) }
+   |                                                       `- error: cannot find 'WGSLFrontend' in scope
+36 |         }
+37 |     }
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/WGSLFrontendTests.swift:35:77: error: cannot infer contextual base in reference to member 'wgsl'
+33 |     @Test func rejectsNamesTypesAndMalformedSyntax() throws {
+34 |         for source in ["fn f() { missing = 1u; }", "fn f() { let a: bool = 1u; }", "fn f() { let a = ; }", "fn f() { let x = 1u; x = 2u; }", "fn f() { break; }", "fn f() { let x=1u; let x=2u; }"] {
+35 |             #expect(throws: ShaderFailure.self) { try WGSLFrontend().parse(.wgsl(source)) }
+   |                                                                             `- error: cannot infer contextual base in reference to member 'wgsl'
+36 |         }
+37 |     }
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/WGSLFrontendTests.swift:39:17: error: cannot find 'WGSLFrontend' in scope
+37 |     }
+38 |     @Test func nestedCommentsUnicodeAndExactUTF8Diagnostics() throws {
+39 |         _ = try WGSLFrontend().parse(.wgsl("/* outer /* inner */ done */ fn café() { let α = 2u; }"))
+   |                 `- error: cannot find 'WGSLFrontend' in scope
+40 |         let source = "fn café() { let α = missing; }"
+41 |         do { _ = try WGSLFrontend().parse(.wgsl(source)); Issue.record("expected error") }
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/WGSLFrontendTests.swift:39:39: error: cannot infer contextual base in reference to member 'wgsl'
+37 |     }
+38 |     @Test func nestedCommentsUnicodeAndExactUTF8Diagnostics() throws {
+39 |         _ = try WGSLFrontend().parse(.wgsl("/* outer /* inner */ done */ fn café() { let α = 2u; }"))
+   |                                       `- error: cannot infer contextual base in reference to member 'wgsl'
+40 |         let source = "fn café() { let α = missing; }"
+41 |         do { _ = try WGSLFrontend().parse(.wgsl(source)); Issue.record("expected error") }
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/WGSLFrontendTests.swift:41:22: error: cannot find 'WGSLFrontend' in scope
+39 |         _ = try WGSLFrontend().parse(.wgsl("/* outer /* inner */ done */ fn café() { let α = 2u; }"))
+40 |         let source = "fn café() { let α = missing; }"
+41 |         do { _ = try WGSLFrontend().parse(.wgsl(source)); Issue.record("expected error") }
+   |                      `- error: cannot find 'WGSLFrontend' in scope
+42 |         catch ShaderFailure.diagnostics(let ds) {
+43 |             #expect(ds[0].code == .unresolvedName)
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/WGSLFrontendTests.swift:41:44: error: cannot infer contextual base in reference to member 'wgsl'
+39 |         _ = try WGSLFrontend().parse(.wgsl("/* outer /* inner */ done */ fn café() { let α = 2u; }"))
+40 |         let source = "fn café() { let α = missing; }"
+41 |         do { _ = try WGSLFrontend().parse(.wgsl(source)); Issue.record("expected error") }
+   |                                            `- error: cannot infer contextual base in reference to member 'wgsl'
+42 |         catch ShaderFailure.diagnostics(let ds) {
+43 |             #expect(ds[0].code == .unresolvedName)
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/WGSLFrontendTests.swift:51:55: error: cannot find 'WGSLFrontend' in scope
+49 |     @Test func budgetsAndUnsupportedAreNotSuccess() throws {
+50 |         for limits in [try ShaderLimits(tokens: 1), try ShaderLimits(nodes: 1), try ShaderLimits(depth: 1), try ShaderLimits(work: 1)] {
+51 |             #expect(throws: ShaderFailure.self) { try WGSLFrontend(limits: limits).parse(.wgsl("fn main() { let a = ((1u+2u)); }")) }
+   |                                                       `- error: cannot find 'WGSLFrontend' in scope
+52 |         }
+53 |         #expect(throws: ShaderFailure.self) { try WGSLFrontend().parse(.wgsl("enable made_up; fn f() {}")) }
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/WGSLFrontendTests.swift:51:91: error: cannot infer contextual base in reference to member 'wgsl'
+49 |     @Test func budgetsAndUnsupportedAreNotSuccess() throws {
+50 |         for limits in [try ShaderLimits(tokens: 1), try ShaderLimits(nodes: 1), try ShaderLimits(depth: 1), try ShaderLimits(work: 1)] {
+51 |             #expect(throws: ShaderFailure.self) { try WGSLFrontend(limits: limits).parse(.wgsl("fn main() { let a = ((1u+2u)); }")) }
+   |                                                                                           `- error: cannot infer contextual base in reference to member 'wgsl'
+52 |         }
+53 |         #expect(throws: ShaderFailure.self) { try WGSLFrontend().parse(.wgsl("enable made_up; fn f() {}")) }
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/WGSLFrontendTests.swift:53:51: error: cannot find 'WGSLFrontend' in scope
+51 |             #expect(throws: ShaderFailure.self) { try WGSLFrontend(limits: limits).parse(.wgsl("fn main() { let a = ((1u+2u)); }")) }
+52 |         }
+53 |         #expect(throws: ShaderFailure.self) { try WGSLFrontend().parse(.wgsl("enable made_up; fn f() {}")) }
+   |                                                   `- error: cannot find 'WGSLFrontend' in scope
+54 |         #expect(throws: ShaderFailure.self) { try WGSLFrontend().parse(.wgsl("fn f() { textureStore(); }")) }
+55 |     }
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/WGSLFrontendTests.swift:53:73: error: cannot infer contextual base in reference to member 'wgsl'
+51 |             #expect(throws: ShaderFailure.self) { try WGSLFrontend(limits: limits).parse(.wgsl("fn main() { let a = ((1u+2u)); }")) }
+52 |         }
+53 |         #expect(throws: ShaderFailure.self) { try WGSLFrontend().parse(.wgsl("enable made_up; fn f() {}")) }
+   |                                                                         `- error: cannot infer contextual base in reference to member 'wgsl'
+54 |         #expect(throws: ShaderFailure.self) { try WGSLFrontend().parse(.wgsl("fn f() { textureStore(); }")) }
+55 |     }
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/WGSLFrontendTests.swift:54:51: error: cannot find 'WGSLFrontend' in scope
+52 |         }
+53 |         #expect(throws: ShaderFailure.self) { try WGSLFrontend().parse(.wgsl("enable made_up; fn f() {}")) }
+54 |         #expect(throws: ShaderFailure.self) { try WGSLFrontend().parse(.wgsl("fn f() { textureStore(); }")) }
+   |                                                   `- error: cannot find 'WGSLFrontend' in scope
+55 |     }
+56 |     @Test func deterministicBoundedFuzz() throws {
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/WGSLFrontendTests.swift:54:73: error: cannot infer contextual base in reference to member 'wgsl'
+52 |         }
+53 |         #expect(throws: ShaderFailure.self) { try WGSLFrontend().parse(.wgsl("enable made_up; fn f() {}")) }
+54 |         #expect(throws: ShaderFailure.self) { try WGSLFrontend().parse(.wgsl("fn f() { textureStore(); }")) }
+   |                                                                         `- error: cannot infer contextual base in reference to member 'wgsl'
+55 |     }
+56 |     @Test func deterministicBoundedFuzz() throws {
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/WGSLFrontendTests.swift:59:24: error: cannot find 'WGSLFrontend' in scope
+57 |         var seed: UInt64 = 0x53414741
+58 |         let alphabet = Array("fn abc0123u{}()[];:+-*/=@<>!\n".utf8)
+59 |         let frontend = WGSLFrontend(limits: try ShaderLimits(sourceBytes: 512, tokens: 256, nodes: 512, depth: 24, work: 10000))
+   |                        `- error: cannot find 'WGSLFrontend' in scope
+60 |         for _ in 0..<256 {
+61 |             var bytes: [UInt8] = []
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/WGSLFrontendTests.swift:76:24: error: cannot find 'WGSLFrontend' in scope
+74 |         let task = Task {
+75 |             while !Task.isCancelled { await Task.yield() }
+76 |             return try WGSLFrontend().parse(.wgsl("fn f() {}"))
+   |                        `- error: cannot find 'WGSLFrontend' in scope
+77 |         }
+78 |         task.cancel()
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/WGSLFrontendTests.swift:76:46: error: cannot infer contextual base in reference to member 'wgsl'
+74 |         let task = Task {
+75 |             while !Task.isCancelled { await Task.yield() }
+76 |             return try WGSLFrontend().parse(.wgsl("fn f() {}"))
+   |                                              `- error: cannot infer contextual base in reference to member 'wgsl'
+77 |         }
+78 |         task.cancel()
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/WGSLFrontendTests.swift:79:9: error: no 'async' operations occur within 'await' expression
+77 |         }
+78 |         task.cancel()
+79 |         await #expect(throws: CancellationError.self) { try await task.value }
+   |         `- error: no 'async' operations occur within 'await' expression
+80 |     }
+81 | }
+[55/64] Compiling SAGAFoundationTests MetalComputeTests.swift
+[56/64] Compiling SAGAFoundationTests FrontendContractsTests.swift
+[57/64] Emitting module SAGAFoundationTests
+[58/64] Compiling SAGAFoundationTests DescriptorTests.swift
+[59/64] Compiling SAGAFoundationTests CommandTests.swift
+[60/64] Compiling SAGAFoundationTests CompilerTests.swift
+[61/64] Compiling SAGAFoundationTests DeviceTests.swift
+[62/64] Compiling SAGAFoundationTests GLSLFrontendTests.swift
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/GLSLFrontendTests.swift:8:13: error: cannot find 'GLSLFrontend' in scope
+ 6 | @Suite struct GLSLFrontendTests {
+ 7 |     func parse(_ source: String, stage: ShaderStage = .compute, defines: [String: String] = [:]) throws -> IRModule {
+ 8 |         try GLSLFrontend(options: .init(stage: IRStage(stage))).parse(.glsl(source, stage: stage, defines: defines))
+   |             `- error: cannot find 'GLSLFrontend' in scope
+ 9 |     }
+10 |     @Test func computeHasRealTypedArithmeticAndControlFlow() throws {
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/GLSLFrontendTests.swift:8:36: error: cannot infer contextual base in reference to member 'init'
+ 6 | @Suite struct GLSLFrontendTests {
+ 7 |     func parse(_ source: String, stage: ShaderStage = .compute, defines: [String: String] = [:]) throws -> IRModule {
+ 8 |         try GLSLFrontend(options: .init(stage: IRStage(stage))).parse(.glsl(source, stage: stage, defines: defines))
+   |                                    `- error: cannot infer contextual base in reference to member 'init'
+ 9 |     }
+10 |     @Test func computeHasRealTypedArithmeticAndControlFlow() throws {
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/GLSLFrontendTests.swift:8:72: error: cannot infer contextual base in reference to member 'glsl'
+ 6 | @Suite struct GLSLFrontendTests {
+ 7 |     func parse(_ source: String, stage: ShaderStage = .compute, defines: [String: String] = [:]) throws -> IRModule {
+ 8 |         try GLSLFrontend(options: .init(stage: IRStage(stage))).parse(.glsl(source, stage: stage, defines: defines))
+   |                                                                        `- error: cannot infer contextual base in reference to member 'glsl'
+ 9 |     }
+10 |     @Test func computeHasRealTypedArithmeticAndControlFlow() throws {
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/GLSLFrontendTests.swift:37:51: error: cannot find 'GLSLFrontend' in scope
+35 |         }
+36 |         for version in ["440", "450 core", "460"] { _ = try parse("#version \(version)\nvoid main(){}") }
+37 |         #expect(throws: ShaderFailure.self) { try GLSLFrontend(options: .init(stage:.vertex)).parse(.glsl("#version 450\nvoid main(){}",stage:.compute,defines:[:])) }
+   |                                                   `- error: cannot find 'GLSLFrontend' in scope
+38 |         #expect(throws: ShaderFailure.self) { try parse("#version 450\nvoid main(){}", defines:["not a name":"1"]) }
+39 |     }
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/GLSLFrontendTests.swift:37:74: error: cannot infer contextual base in reference to member 'init'
+35 |         }
+36 |         for version in ["440", "450 core", "460"] { _ = try parse("#version \(version)\nvoid main(){}") }
+37 |         #expect(throws: ShaderFailure.self) { try GLSLFrontend(options: .init(stage:.vertex)).parse(.glsl("#version 450\nvoid main(){}",stage:.compute,defines:[:])) }
+   |                                                                          `- error: cannot infer contextual base in reference to member 'init'
+38 |         #expect(throws: ShaderFailure.self) { try parse("#version 450\nvoid main(){}", defines:["not a name":"1"]) }
+39 |     }
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/GLSLFrontendTests.swift:37:86: error: cannot infer contextual base in reference to member 'vertex'
+35 |         }
+36 |         for version in ["440", "450 core", "460"] { _ = try parse("#version \(version)\nvoid main(){}") }
+37 |         #expect(throws: ShaderFailure.self) { try GLSLFrontend(options: .init(stage:.vertex)).parse(.glsl("#version 450\nvoid main(){}",stage:.compute,defines:[:])) }
+   |                                                                                      `- error: cannot infer contextual base in reference to member 'vertex'
+38 |         #expect(throws: ShaderFailure.self) { try parse("#version 450\nvoid main(){}", defines:["not a name":"1"]) }
+39 |     }
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/GLSLFrontendTests.swift:37:102: error: cannot infer contextual base in reference to member 'glsl'
+35 |         }
+36 |         for version in ["440", "450 core", "460"] { _ = try parse("#version \(version)\nvoid main(){}") }
+37 |         #expect(throws: ShaderFailure.self) { try GLSLFrontend(options: .init(stage:.vertex)).parse(.glsl("#version 450\nvoid main(){}",stage:.compute,defines:[:])) }
+   |                                                                                                      `- error: cannot infer contextual base in reference to member 'glsl'
+38 |         #expect(throws: ShaderFailure.self) { try parse("#version 450\nvoid main(){}", defines:["not a name":"1"]) }
+39 |     }
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/GLSLFrontendTests.swift:37:144: error: cannot infer contextual base in reference to member 'compute'
+35 |         }
+36 |         for version in ["440", "450 core", "460"] { _ = try parse("#version \(version)\nvoid main(){}") }
+37 |         #expect(throws: ShaderFailure.self) { try GLSLFrontend(options: .init(stage:.vertex)).parse(.glsl("#version 450\nvoid main(){}",stage:.compute,defines:[:])) }
+   |                                                                                                                                                `- error: cannot infer contextual base in reference to member 'compute'
+38 |         #expect(throws: ShaderFailure.self) { try parse("#version 450\nvoid main(){}", defines:["not a name":"1"]) }
+39 |     }
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/GLSLFrontendTests.swift:52:19: error: cannot find 'GLSLFrontend' in scope
+50 |     @Test func boundedTokensWorkDepthAndCancellation() async throws {
+51 |         for limits in [try ShaderLimits(tokens:2), try ShaderLimits(nodes:0), try ShaderLimits(depth:2), try ShaderLimits(work:3)] {
+52 |             let f=GLSLFrontend(options:.init(stage:.compute),limits:limits)
+   |                   `- error: cannot find 'GLSLFrontend' in scope
+53 |             #expect(throws: ShaderFailure.self) { try f.parse(.glsl("#version 450\nvoid main(){int x=((((1))));}",stage:.compute,defines:[:])) }
+54 |         }
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/GLSLFrontendTests.swift:52:41: error: cannot infer contextual base in reference to member 'init'
+50 |     @Test func boundedTokensWorkDepthAndCancellation() async throws {
+51 |         for limits in [try ShaderLimits(tokens:2), try ShaderLimits(nodes:0), try ShaderLimits(depth:2), try ShaderLimits(work:3)] {
+52 |             let f=GLSLFrontend(options:.init(stage:.compute),limits:limits)
+   |                                         `- error: cannot infer contextual base in reference to member 'init'
+53 |             #expect(throws: ShaderFailure.self) { try f.parse(.glsl("#version 450\nvoid main(){int x=((((1))));}",stage:.compute,defines:[:])) }
+54 |         }
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/GLSLFrontendTests.swift:52:53: error: cannot infer contextual base in reference to member 'compute'
+50 |     @Test func boundedTokensWorkDepthAndCancellation() async throws {
+51 |         for limits in [try ShaderLimits(tokens:2), try ShaderLimits(nodes:0), try ShaderLimits(depth:2), try ShaderLimits(work:3)] {
+52 |             let f=GLSLFrontend(options:.init(stage:.compute),limits:limits)
+   |                                                     `- error: cannot infer contextual base in reference to member 'compute'
+53 |             #expect(throws: ShaderFailure.self) { try f.parse(.glsl("#version 450\nvoid main(){int x=((((1))));}",stage:.compute,defines:[:])) }
+54 |         }
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/GLSLFrontendTests.swift:53:64: error: cannot infer contextual base in reference to member 'glsl'
+51 |         for limits in [try ShaderLimits(tokens:2), try ShaderLimits(nodes:0), try ShaderLimits(depth:2), try ShaderLimits(work:3)] {
+52 |             let f=GLSLFrontend(options:.init(stage:.compute),limits:limits)
+53 |             #expect(throws: ShaderFailure.self) { try f.parse(.glsl("#version 450\nvoid main(){int x=((((1))));}",stage:.compute,defines:[:])) }
+   |                                                                `- error: cannot infer contextual base in reference to member 'glsl'
+54 |         }
+55 |         let task=Task { while !Task.isCancelled { await Task.yield() }; return try parse("#version 450\nvoid main(){}") }
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/GLSLFrontendTests.swift:53:122: error: cannot infer contextual base in reference to member 'compute'
+51 |         for limits in [try ShaderLimits(tokens:2), try ShaderLimits(nodes:0), try ShaderLimits(depth:2), try ShaderLimits(work:3)] {
+52 |             let f=GLSLFrontend(options:.init(stage:.compute),limits:limits)
+53 |             #expect(throws: ShaderFailure.self) { try f.parse(.glsl("#version 450\nvoid main(){int x=((((1))));}",stage:.compute,defines:[:])) }
+   |                                                                                                                          `- error: cannot infer contextual base in reference to member 'compute'
+54 |         }
+55 |         let task=Task { while !Task.isCancelled { await Task.yield() }; return try parse("#version 450\nvoid main(){}") }
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/GLSLFrontendTests.swift:62:15: error: cannot find 'GLSLFrontend' in scope
+60 |         var seed: UInt64=14
+61 |         let alphabet=Array("{}()[];012ab#/+*<>=!\n ".utf8)
+62 |         let f=GLSLFrontend(options:.init(stage:.compute), limits:try ShaderLimits(sourceBytes:4096,tokens:512,nodes:512,depth:32,work:20000))
+   |               `- error: cannot find 'GLSLFrontend' in scope
+63 |         for n in 0..<256 {
+64 |             var bytes=Array("#version 450\n".utf8)
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/GLSLFrontendTests.swift:62:37: error: cannot infer contextual base in reference to member 'init'
+60 |         var seed: UInt64=14
+61 |         let alphabet=Array("{}()[];012ab#/+*<>=!\n ".utf8)
+62 |         let f=GLSLFrontend(options:.init(stage:.compute), limits:try ShaderLimits(sourceBytes:4096,tokens:512,nodes:512,depth:32,work:20000))
+   |                                     `- error: cannot infer contextual base in reference to member 'init'
+63 |         for n in 0..<256 {
+64 |             var bytes=Array("#version 450\n".utf8)
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/GLSLFrontendTests.swift:62:49: error: cannot infer contextual base in reference to member 'compute'
+60 |         var seed: UInt64=14
+61 |         let alphabet=Array("{}()[];012ab#/+*<>=!\n ".utf8)
+62 |         let f=GLSLFrontend(options:.init(stage:.compute), limits:try ShaderLimits(sourceBytes:4096,tokens:512,nodes:512,depth:32,work:20000))
+   |                                                 `- error: cannot infer contextual base in reference to member 'compute'
+63 |         for n in 0..<256 {
+64 |             var bytes=Array("#version 450\n".utf8)
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/GLSLFrontendTests.swift:66:35: error: cannot infer contextual base in reference to member 'glsl'
+64 |             var bytes=Array("#version 450\n".utf8)
+65 |             for _ in 0..<(n%80) { seed=seed &* 6364136223846793005 &+ 1; bytes.append(alphabet[Int(seed%UInt64(alphabet.count))]) }
+66 |             do { _ = try f.parse(.glsl(String(decoding:bytes,as:UTF8.self),stage:.compute,defines:[:])) }
+   |                                   `- error: cannot infer contextual base in reference to member 'glsl'
+67 |             catch is ShaderFailure {} // No unrelated errors or crashes are masked.
+68 |         }
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/GLSLFrontendTests.swift:66:83: error: cannot infer contextual base in reference to member 'compute'
+64 |             var bytes=Array("#version 450\n".utf8)
+65 |             for _ in 0..<(n%80) { seed=seed &* 6364136223846793005 &+ 1; bytes.append(alphabet[Int(seed%UInt64(alphabet.count))]) }
+66 |             do { _ = try f.parse(.glsl(String(decoding:bytes,as:UTF8.self),stage:.compute,defines:[:])) }
+   |                                                                                   `- error: cannot infer contextual base in reference to member 'compute'
+67 |             catch is ShaderFailure {} // No unrelated errors or crashes are masked.
+68 |         }
+error: fatalError

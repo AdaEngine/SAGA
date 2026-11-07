@@ -1,0 +1,14 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>SAGA WebGPU diagnostic</title>
+<h1>SAGA WebGPU diagnostic</h1>
+<pre id="result" role="status">Running Swift/Wasm…</pre>
+<script type="module">
+    import { runDiagnostic } from "./reactor.mjs";
+    const result = document.querySelector("#result");
+    globalThis.sagaDiagnostic = runDiagnostic();
+    globalThis.sagaDiagnostic.then(
+        value => { result.textContent = JSON.stringify(value, null, 2); },
+        error => { result.textContent = String(error); },
+    );
+</script>

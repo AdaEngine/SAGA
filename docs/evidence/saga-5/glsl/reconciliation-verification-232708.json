@@ -1,0 +1,73 @@
+{
+  "schema": 1,
+  "session": "session-a37419a7-5473-4f51-b728-500f9d424e9a",
+  "status": "blocked",
+  "reason": "Concurrent same-session source replacement detected; stopped production edits to preserve files; sole ownership needs reconciliation, not scope approval.",
+  "reference_pin": "a55352911bb26a1b33bc8d5fc03bdebb0a967f5a",
+  "rust_clean": true,
+  "checks": [
+    {
+      "command": "/usr/bin/swift build --target SAGACompiler --scratch-path .build-glsl -Xswiftc -warnings-as-errors -Xswiftc -strict-concurrency=complete",
+      "status": "pass",
+      "evidence_id": "verification-3",
+      "log": "reconciliation-build-232638.log"
+    },
+    {
+      "command": "/usr/bin/swift test --filter GLSLFrontendTests --scratch-path .build-glsl -Xswiftc -warnings-as-errors -Xswiftc -strict-concurrency=complete",
+      "time": "23:24:40Z",
+      "status": "pass",
+      "tests": 8,
+      "evidence_id": "verification-2",
+      "superseded_by": "new tests arrived concurrently; not final suite result"
+    },
+    {
+      "command": "same filtered test command",
+      "time": "23:27:08Z",
+      "status": "fail",
+      "tests": 11,
+      "failed": 3,
+      "log": "reconciliation-tests-232708.log"
+    }
+  ],
+  "failures": [
+    "preprocessorShortCircuitDoesNotDivideByZero: evaluates unselected #if operand division and rejects source",
+    "storageBlockAndForLoopHaveRealAccessAndContinuing: layout(std430) rejected before storage block and for-loop lowering",
+    "rejectsReadOnlyAndNonconstantConst: nonconstant function call is accepted as const initializer"
+  ],
+  "preserved_current_files": {
+    "Sources/SAGAFrontends/GLSL/GLSLDeclarations.swift": {
+      "sha256": "f9bdaf23bb1758621b0872f27037690c637849bd75beffdc12639f2897dd74aa",
+      "bytes": 14101
+    },
+    "Sources/SAGAFrontends/GLSL/GLSLFrontend.swift": {
+      "sha256": "4b2ebb5621d86aa73d6a67495fc11412d969f0d8c84912f753b889ced519625a",
+      "bytes": 30826
+    },
+    "Sources/SAGAFrontends/GLSL/GLSLLexer.swift": {
+      "sha256": "2f81ef284e0fb3135de157f99404d3e80d8795b686532d6b52ba0e21417f64ad",
+      "bytes": 3793
+    },
+    "Sources/SAGAFrontends/GLSL/GLSLPreprocessor.swift": {
+      "sha256": "c2f17013368b7f8b88c67a7df243afd2bf8f01429b61a94c4185c56906c002a8",
+      "bytes": 14060
+    },
+    "Tests/SAGAFoundationTests/GLSLFrontendTests.swift": {
+      "sha256": "afa1abb05601d7b53ccd1d03af6778baa8f5e512aac54c358102806b8b7a985b",
+      "bytes": 5978
+    }
+  },
+  "residuals": [
+    "GLSL resource/interface blocks and std140/std430 layout",
+    "structures/arrays/matrices and their constructors/access operations",
+    "for/do/switch/ternary/short-circuit/assignment-expression lowering and ++/--",
+    "function prototypes/overloads/forward declarations/out/inout and void calls",
+    "full constant expression semantics; current const acceptance known incorrect",
+    "extensions/precision/interpolation/profile metadata; only core 440/450/460 version check",
+    "full builtin/texture/image/atomic/subgroup/stage/capability families",
+    "complete pp-rs-equivalent preprocessing: multiline macro calls,line splicing,builtin macros,pasting/redefinitions,conditional short circuit",
+    "full reference fixture execution and per-fixture redistribution license audits",
+    "all unsupported-residuals mean full SAGA-14 DoD NOT achieved; no parent SAGA-5 success"
+  ],
+  "source_edits_in_this_reconciliation": "none; existing competing frontend implementations preserved",
+  "no_commits_or_publication": true
+}

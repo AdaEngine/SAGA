@@ -1,0 +1,29 @@
+Building for debugging...
+[0/5] Write sources
+[1/5] Write swift-version-3CD7052B146186F2.txt
+[3/6] Emitting module SAGAFoundationTests
+[4/6] Compiling SAGAFoundationTests ShaderSemanticValidationTests.swift
+[5/6] Compiling SAGAFoundationTests FrontendIntegrationTests.swift
+[5/7] Write Objects.LinkFileList
+[6/7] Linking SAGAPackageTests
+Build complete! (1.87s)
+Test Suite 'Selected tests' started at 2026-11-07 08:59:49.709.
+Test Suite 'SAGAPackageTests.xctest' started at 2026-11-07 08:59:49.716.
+Test Suite 'SAGAPackageTests.xctest' passed at 2026-11-07 08:59:49.716.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+Test Suite 'Selected tests' passed at 2026-11-07 08:59:49.716.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.007) seconds
+􀟈  Test run started.
+􀄵  Testing Library Version: 1902
+􀄵  Target Platform: arm64e-apple-macos14.0
+􀟈  Suite FrontendIntegrationTests started.
+􀟈  Suite ShaderSemanticValidationTests started.
+􀟈  Test matrixValuesNowLowerToCheckedRuntimeColumnCompose() started.
+􀟈  Test rawMatrixComposeRequiresExactColumnTypeAndCount() started.
+􀢄  Test rawMatrixComposeRequiresExactColumnTypeAndCount() recorded an issue at ShaderSemanticValidationTests.swift:706:4: Caught error: .diagnostics([SAGAShaderIR.ShaderDiagnostic(severity: SAGAShaderIR.ShaderDiagnostic.Severity.error, message: "Constructor overload not implemented", code: SAGAShaderIR.ShaderDiagnosticCode.unsupportedConstruct, location: nil)])
+􀢄  Test rawMatrixComposeRequiresExactColumnTypeAndCount() failed after 0.001 seconds with 1 issue.
+􀢄  Suite ShaderSemanticValidationTests failed after 0.001 seconds with 1 issue.
+􀢄  Test matrixValuesNowLowerToCheckedRuntimeColumnCompose() recorded an issue at FrontendIntegrationTests.swift:401:3: Caught error: .diagnostics([SAGAShaderIR.ShaderDiagnostic(severity: SAGAShaderIR.ShaderDiagnostic.Severity.error, message: "WGSL construct not implemented: matrix constant runtime lowering requires matrix compose validator contract", code: SAGAShaderIR.ShaderDiagnosticCode.unsupportedConstruct, location: Optional(SAGAShaderIR.ShaderLocation.source(SAGAShaderIR.SourceSpan(startUTF8: 65, endUTF8: 66))))])
+􀢄  Test matrixValuesNowLowerToCheckedRuntimeColumnCompose() failed after 0.001 seconds with 1 issue.
+􀢄  Suite FrontendIntegrationTests failed after 0.001 seconds with 1 issue.
+􀢄  Test run with 2 tests in 2 suites failed after 0.001 seconds with 2 issues.

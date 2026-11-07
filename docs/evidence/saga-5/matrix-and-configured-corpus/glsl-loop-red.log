@@ -1,0 +1,19 @@
+Test Suite 'Selected tests' started at 2026-11-07 11:17:23.140.
+Test Suite 'SAGAPackageTests.xctest' started at 2026-11-07 11:17:23.147.
+Test Suite 'SAGAPackageTests.xctest' passed at 2026-11-07 11:17:23.147.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+Test Suite 'Selected tests' passed at 2026-11-07 11:17:23.147.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.007) seconds
+􀟈  Test run started.
+􀄵  Testing Library Version: 1902
+􀄵  Target Platform: arm64e-apple-macos14.0
+􀟈  Suite LoopOwnershipTests started.
+􀟈  Test glslLoopsRetainOwnedChildBlocks() started.
+􀟈  Test whileLoweringOwnsDistinctBranchesAndContinuing() started.
+􀟈  Test omittedForConditionDoesNotLeaveOrphanBlock() started.
+􁁛  Test omittedForConditionDoesNotLeaveOrphanBlock() passed after 0.001 seconds.
+􀢄  Test glslLoopsRetainOwnedChildBlocks() recorded an issue at LoopOwnershipTests.swift:11:4: Caught error: .diagnostics([SAGAShaderIR.ShaderDiagnostic(severity: SAGAShaderIR.ShaderDiagnostic.Severity.error, message: "Orphan blocks/statements not accepted", code: SAGAShaderIR.ShaderDiagnosticCode.invalidReference, location: Optional(SAGAShaderIR.ShaderLocation.source(SAGAShaderIR.SourceSpan(startUTF8: 18, endUTF8: 22))))])
+􀢄  Test glslLoopsRetainOwnedChildBlocks() failed after 0.001 seconds with 1 issue.
+􁁛  Test whileLoweringOwnsDistinctBranchesAndContinuing() passed after 0.001 seconds.
+􀢄  Suite LoopOwnershipTests failed after 0.001 seconds with 1 issue.
+􀢄  Test run with 3 tests in 1 suite failed after 0.001 seconds with 1 issue.

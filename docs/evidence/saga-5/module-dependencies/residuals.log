@@ -1,0 +1,6 @@
+forward-align-resolved: parsed and validated
+abstract-align-resolved: parsed and validated
+abstract-u32-use-resolved: parsed and validated
+abstract-float-declaration: parsed and validated
+boolean-const-comparison: frontend: diagnostics([SAGAShaderIR.ShaderDiagnostic(severity: SAGAShaderIR.ShaderDiagnostic.Severity.error, message: "Unsupported relational constant expression", code: SAGAShaderIR.ShaderDiagnosticCode.unsupportedConstruct, location: Optional(SAGAShaderIR.ShaderLocation.source(SAGAShaderIR.SourceSpan(startUTF8: 10, endUTF8: 11))))])
+module-const-assert: frontend: diagnostics([SAGAShaderIR.ShaderDiagnostic(severity: SAGAShaderIR.ShaderDiagnostic.Severity.error, message: "WGSL construct not implemented: module declaration/directive \'const_assert\'", code: SAGAShaderIR.ShaderDiagnosticCode.unsupportedConstruct, location: Optional(SAGAShaderIR.ShaderLocation.source(SAGAShaderIR.SourceSpan(startUTF8: 12, endUTF8: 24))))])

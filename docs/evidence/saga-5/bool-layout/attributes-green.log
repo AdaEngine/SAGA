@@ -1,0 +1,40 @@
+Building for debugging...
+[0/5] Write sources
+[1/5] Write swift-version-3CD7052B146186F2.txt
+[3/5] Compiling SAGAFrontends WGSLFrontend.swift
+[4/5] Emitting module SAGAFrontends
+[5/9] Compiling SAGAFrontends Statements.swift
+[6/9] Compiling SAGAFrontends Loops.swift
+[7/9] Compiling SAGAFrontends Expressions.swift
+[8/9] Compiling SAGAFrontends ControlExpressions.swift
+[9/10] Emitting module SAGACompiler
+[10/11] Emitting module SAGAFoundationTests
+[10/12] Write Objects.LinkFileList
+[11/12] Linking SAGAPackageTests
+Build complete! (2.27s)
+Test Suite 'Selected tests' started at 2026-11-07 03:19:37.492.
+Test Suite 'SAGAPackageTests.xctest' started at 2026-11-07 03:19:37.499.
+Test Suite 'SAGAPackageTests.xctest' passed at 2026-11-07 03:19:37.499.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+Test Suite 'Selected tests' passed at 2026-11-07 03:19:37.499.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.007) seconds
+􀟈  Test run started.
+􀄵  Testing Library Version: 1902
+􀄵  Target Platform: arm64e-apple-macos14.0
+􀟈  Suite WGSLFrontendTests started.
+􀟈  Suite FrontendIntegrationTests started.
+􀟈  Test explicitUniformMemberLayoutAcquiresWitness() started.
+􀟈  Test boolWGSLLayoutWorksOnlyInNonHostAddressSpaces() started.
+􀟈  Test invalidMemberLayoutAttributesAreTypedErrors() started.
+􀟈  Test boolNestedLayoutAndOverflowAreChecked() started.
+􀟈  Test boolNaturalLayoutUsesWGSLFootprintWithoutChangingIRWidth() started.
+􀟈  Test explicitMemberLayoutPropagatesIntoNestedArrayStride() started.
+􁁛  Test explicitMemberLayoutPropagatesIntoNestedArrayStride() passed after 0.001 seconds.
+􁁛  Test explicitUniformMemberLayoutAcquiresWitness() passed after 0.001 seconds.
+􁁛  Test invalidMemberLayoutAttributesAreTypedErrors() passed after 0.002 seconds.
+􁁛  Test boolNaturalLayoutUsesWGSLFootprintWithoutChangingIRWidth() passed after 0.002 seconds.
+􁁛  Test boolNestedLayoutAndOverflowAreChecked() passed after 0.002 seconds.
+􁁛  Suite WGSLFrontendTests passed after 0.002 seconds.
+􁁛  Test boolWGSLLayoutWorksOnlyInNonHostAddressSpaces() passed after 0.004 seconds.
+􁁛  Suite FrontendIntegrationTests passed after 0.004 seconds.
+􁁛  Test run with 6 tests in 2 suites passed after 0.004 seconds.

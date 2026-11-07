@@ -1,0 +1,136 @@
+{
+  "scope": "full-naga",
+  "decision_date": "2026-11-06",
+  "reference_revision": "a55352911bb26a1b33bc8d5fc03bdebb0a967f5a",
+  "frontends": [
+    "wgsl",
+    "glsl",
+    "spv"
+  ],
+  "backends": [
+    "wgsl",
+    "glsl",
+    "spv",
+    "msl",
+    "hlsl",
+    "dot"
+  ],
+  "assume_all_to_all": false,
+  "runtime_backend_expansion": false,
+  "binary_ir_interchange_in_scope": true,
+  "runtime_implemented": false,
+  "items": [
+    {
+      "id": "front-wgsl",
+      "source": "naga/src/front/wgsl",
+      "owner": "SAGA-5",
+      "implementation": "not-started",
+      "verification": "not-run"
+    },
+    {
+      "id": "front-glsl",
+      "source": "naga/src/front/glsl",
+      "owner": "SAGA-5",
+      "implementation": "not-started",
+      "verification": "not-run"
+    },
+    {
+      "id": "front-spv",
+      "source": "naga/src/front/spv",
+      "owner": "SAGA-5",
+      "implementation": "not-started",
+      "verification": "not-run"
+    },
+    {
+      "id": "back-wgsl",
+      "source": "naga/src/back/wgsl",
+      "owner": "SAGA-6",
+      "implementation": "not-started",
+      "verification": "not-run"
+    },
+    {
+      "id": "back-glsl",
+      "source": "naga/src/back/glsl",
+      "owner": "SAGA-6",
+      "implementation": "not-started",
+      "verification": "not-run"
+    },
+    {
+      "id": "back-spv",
+      "source": "naga/src/back/spv",
+      "owner": "SAGA-6",
+      "implementation": "not-started",
+      "verification": "not-run"
+    },
+    {
+      "id": "back-msl",
+      "source": "naga/src/back/msl",
+      "owner": "SAGA-6",
+      "implementation": "not-started",
+      "verification": "not-run"
+    },
+    {
+      "id": "back-hlsl",
+      "source": "naga/src/back/hlsl",
+      "owner": "SAGA-6",
+      "implementation": "not-started",
+      "verification": "not-run"
+    },
+    {
+      "id": "back-dot",
+      "source": "naga/src/back/dot",
+      "owner": "SAGA-6",
+      "implementation": "not-started",
+      "verification": "not-run"
+    },
+    {
+      "id": "ir-types",
+      "source": "naga/src/ir",
+      "owner": "SAGA-3",
+      "implementation": "not-started",
+      "verification": "not-run"
+    },
+    {
+      "id": "validation",
+      "source": "naga/src/valid",
+      "owner": "SAGA-5",
+      "implementation": "not-started",
+      "verification": "not-run"
+    },
+    {
+      "id": "reflection-layout-consteval-robustness",
+      "source": "naga/src/proc",
+      "owner": "SAGA-6",
+      "implementation": "not-started",
+      "verification": "not-run"
+    },
+    {
+      "id": "compaction",
+      "source": "naga/src/compact",
+      "owner": "SAGA-6",
+      "implementation": "not-started",
+      "verification": "not-run"
+    },
+    {
+      "id": "override-specialization",
+      "source": "naga/src/back/pipeline_constants.rs",
+      "owner": "SAGA-6",
+      "implementation": "not-started",
+      "verification": "not-run"
+    },
+    {
+      "id": "diagnostics",
+      "source": "naga/src/span.rs",
+      "owner": "SAGA-5",
+      "implementation": "not-started",
+      "verification": "not-run"
+    },
+    {
+      "id": "cli-and-ir-interchange",
+      "source": "naga-cli/src/bin/naga.rs",
+      "owner": "SAGA-6",
+      "implementation": "not-started",
+      "verification": "not-run"
+    }
+  ]
+}

@@ -1,0 +1,100 @@
+    </xmp>
+  <tr>
+    <td style="width:10%">Parameterization
+    <td>[ALLNUMERICDECL]
+  <tr>
+    <td>Description
+    <td>Restricts the value of `e` within a range.
+
+    If `T` is an integer type, then the result is `min(max(e, low), high)`.
+
+    If `T` is a floating-point type, then the result is either `min(max(e,
+    low), high)`, or the median of the three values `e`, `low`, `high`.
+
+    [=Component-wise=] when `T` is a vector.
+
+    If `low` is greater than `high`, then:
+    * It is a [=shader-creation error=] if `low` and `high` are [=const-expressions=].
+    * It is a [=pipeline-creation error=] if `low` and `high` are [=override-expressions=].
+</table>
+
+### `cos` ### {#cos-builtin}
+<table class='data builtin'>
+  <tr algorithm="cos">
+  <td style="width:10%">Overload
+  <td class="nowrap">
+    <xmp highlight=wgsl>@const @must_use fn cos(e: T) -> T</xmp>
+  <tr>
+    <td style="width:10%">Parameterization
+    <td>[ALLFLOATINGDECL]
+
+        [=Component-wise=] when |T| is a vector.
+
+  <tr algorithm="concrete shift right">
+    <td>|e1|: |T|<br>
+    |e2|: |TS|<br>
+    |S| is [INT]<br>
+    |T| is |S| or vec|N|&lt;|S|&gt;<br>
+    |TS| is u32 when |T| is |S|, otherwise |TS| is vec|N|&lt;u32&gt;
+    <td class="nowrap">|e1| >> |e2|: |T|
+    <td>Shift right (shifted value is concrete).
+
+        Shift |e1| right, discarding the least significant bits.
+
+        If |S| is an unsigned type, insert zero bits at the most significant positions.
+
+        If |S| is a signed type:
+        * If |e1| is negative, each inserted bit is 1, and so the result is also negative.
+        * Otherwise, each inserted bit is 0.
+
+        The number of bits to shift is the value of |e2|, modulo the bit width of |e1|.
+
+        If |e2| is greater than or equal to the bit width or |e1|, then:
+        * It is a [=shader-creation error=] if |e2| is a [=const-expression=].
+        * It is a [=pipeline-creation error=] if |e2| is an [=override-expression=].
+
+        [=Component-wise=] when |T| is a vector.
+
+  <tr algorithm="abstract shift right">
+    <td>|e1|: |T|<br>
+    |e2|: |TS|<br>
+    |T| is AbstractInt or vec|N|&lt;AbstractInt&gt;<br>
+    |TS| is u32 when |T| is AbstractInt, otherwise |TS| is vec|N|&lt;u32&gt;
+    <td class="nowrap">|e1| >> |e2|: |T|
+    <td>Shift right (abstract).
+
+        Shift |e1| right, discarding the least significant bits.
+
+        If |e1| is negative, each inserted bit is 1, and so the result is also negative.
+        Otherwise, each inserted bit is 0.
+
+        The number of bits to shift is the value of |e2|.
+
+          if nodes[arg].kind == .integer(.abstract) { conversions.append((arg, target, t)) }
+        }
+      }
+      if t.text == "bool" { kind = .boolean }
+      if t.text == "i32" { kind = .integer(.sint) }
+      if t.text == "u32" { kind = .integer(.uint) }
+      return try append(.call(t.text, args), kind, t)
+    }
+    let v = try parser.scalarConstantName(t)
+    return try append(.value(v), v.kind, t)
+  }
+  mutating func evaluate() throws -> WGSLScalarConstant {
+    guard !tokens.isEmpty else {
+      throw wgslError(.unexpectedToken, "Missing constant expression", fallback)
+    }
+    try grammar()
+    let root = try parse()
+    guard index == tokens.count else {
+      throw wgslError(.unexpectedToken, "Unexpected constant expression token", token)
+    }
+    for (node, target, at) in conversions {
+      try parser.budget.consume(.work)
+      guard case .integer(let v) = try value(node) else { throw ShaderFailure.invalidHandle }
+      _ = try WGSLIntegerEvaluator(parser: parser, tokens: [], fallback: at).checked(
+        v.value, target, at: at)
+    }
+    // WGSL #const-expr explicitly requires shader-creation checks such as integer division
+    // even in a skipped RHS. Names/types/syntax above always cover the complete tree.

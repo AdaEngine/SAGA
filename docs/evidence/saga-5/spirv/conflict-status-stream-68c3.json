@@ -1,0 +1,20 @@
+{
+  "status": "blocked",
+  "complete": false,
+  "session": "session-dc0e5ed5-1cb5-4b1b-8877-4707990c1d64",
+  "stream": "68c3b423",
+  "reason": "concurrent same-session model streams wrote incompatible duplicate lowering; both preserved",
+  "files_sha256": {
+    "Sources/SAGAFrontends/SPIRV/SPIRVFunction.swift": "aaca6c1f7b0f097144c43f8f4975e84ea888f12f50ee1d9b936ffc9e0c7fabd5",
+    "Sources/SAGAFrontends/SPIRV/FunctionLowering.swift": "0ed1c0e79239b41ad0f805426e606a79efd12213dfb1a849d59fdd71bee1d004",
+    "Sources/SAGAFrontends/SPIRV/SPIRVFrontend.swift": "ceabdd1d320eca107044b36221d102d2a755e03747552a72fe4e42158dab95ca",
+    "Tests/SAGAFoundationTests/SPIRVFrontendTests.swift": "ff289b4b736c40248f2a8e729c987a2dcfe858dfd278808b3c450c3f14117681"
+  },
+  "build_exit": 1,
+  "tests_last_executed": 13,
+  "tests_last_passed": 12,
+  "final_tests_compilation": "failed duplicate definitions",
+  "current_verification_evidence_ids": [],
+  "reference_pin": "a55352911bb26a1b33bc8d5fc03bdebb0a967f5a",
+  "reference_clean": true
+}

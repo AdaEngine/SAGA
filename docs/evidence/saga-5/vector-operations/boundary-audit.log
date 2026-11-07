@@ -1,0 +1,2 @@
+matrix compose: diagnostics([SAGAShaderIR.ShaderDiagnostic(severity: SAGAShaderIR.ShaderDiagnostic.Severity.error, message: "Constructor overload not implemented", code: SAGAShaderIR.ShaderDiagnosticCode.unsupportedConstruct, location: nil)])
+raw literal Access vector index2 width2: accepted (OPEN semantic rule gap, not conformance)

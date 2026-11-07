@@ -1,0 +1,228 @@
+import SAGAShaderIR
+
+extension WGSLParser {
+    func define(_ n: WGSLToken, _ v: WGSLValue) throws {
+        try budget.consume(.work,amount:n.text.utf8.count+1)
+        guard let last = body.scopes.indices.last else { throw ShaderFailure.invalidHandle }
+        guard body.scopes[last][wgslKey(n.text)] == nil else { throw wgslError(.duplicateName,"Duplicate local '\(n.text)'",n) }
+        body.scopes[last][wgslKey(n.text)] = v
+    }
+    func function(_ attrs: [String:Attribute]) throws {
+        try checkAttributes(attrs,allowed:["compute","fragment","vertex","workgroup_size"])
+        let name = try ident(); try reserve(name)
+        body = WGSLFunctionBody()
+        try expect("(")
+        while !isNext(")") {
+            let a = try attributes(), n = try ident(); try expect(":"); let ty = try type()
+            try node()
+            let index = UInt32(body.arguments.count)
+            body.arguments.append(IRFunctionArgument(name:n.text,type:ty,binding:try binding(a),location:n.location))
+            let v = try expressionNode(.functionArgument(index),type:ty,at:n,emit:false)
+            try define(n,v)
+            if !(try eat(",")) { break }
+        }
+        try expect(")")
+        if try eat("->") {
+            let a = try attributes(); body.result = IRFunctionResult(type:try type(),binding:try binding(a))
+        }
+        let root = try block(newScope:false)
+        if try body.result != nil && !terminates(root) { throw wgslError(.invalidControlFlow,"Non-void function must return on every path",name) }
+        if try body.result == nil && !terminates(root) {
+            let saved = body.current; body.current = body.blocks[root.index].statements
+            try statement(.returnValue(nil),at:name)
+            body.blocks[root.index] = IRBlock(statements:body.current,location:body.blocks[root.index].location); body.current = saved
+        }
+        let stageNames = ["vertex","fragment","compute"].filter { attrs[$0] != nil }
+        guard stageNames.count <= 1 else { throw wgslError(.invalidBinding,"Conflicting stages",name) }
+        if stageNames.isEmpty && attrs["workgroup_size"] != nil { throw wgslError(.invalidBinding,"workgroup_size requires compute stage",name) }
+        for s in stageNames {
+            if let a = attrs[s], !a.arguments.isEmpty { throw wgslError(.unexpectedToken,"Stage attribute has no arguments",a.name) }
+        }
+        let fh = try IRHandle<IRFunction>(index:functions.count)
+        if let s = stageNames.first {
+            let stage: IRStage = s == "compute" ? .compute : s == "vertex" ? .vertex : .fragment
+            var workgroup = IRWorkgroupSize()
+            if s == "compute" {
+                guard let a = attrs["workgroup_size"], (1...3).contains(a.arguments.count) else { throw wgslError(.invalidBinding,"Compute needs workgroup_size with 1...3 dimensions",name) }
+                var dims: [UInt32] = []
+                for arg in a.arguments { let d = try uint(arg); guard d > 0 else { throw wgslError(.invalidBinding,"Zero workgroup dimension",arg) }; dims.append(d) }
+                while dims.count < 3 { dims.append(1) }
+                workgroup = IRWorkgroupSize(x:dims[0],y:dims[1],z:dims[2])
+                guard body.result == nil else { throw wgslError(.invalidBinding,"Compute cannot return a value",name) }
+            } else if attrs["workgroup_size"] != nil { throw wgslError(.invalidBinding,"Non-compute workgroup_size",name) }
+            try node(); entries.append(IREntryPoint(name:name.text,stage:stage,function:fh,workgroupSize:workgroup,location:name.location))
+        } else {
+            guard body.arguments.allSatisfy({ $0.binding == nil }), body.result?.binding == nil else { throw wgslError(.invalidBinding,"Non-entry function has IO attributes",name) }
+        }
+        try node()
+        functions.append(IRFunction(name:name.text,arguments:body.arguments,result:body.result,localVariables:IRTable(body.locals),expressions:IRTable(body.expressions),statements:IRTable(body.statements),blocks:IRTable(body.blocks),body:root,location:name.location))
+        functionNames[wgslKey(name.text)] = functions.count-1
+        body = WGSLFunctionBody()
+    }
+    func block(newScope: Bool = true) throws -> IRHandle<IRBlock> {
+        try enter(); defer { nesting -= 1 }
+        let start = try expect("{")
+        let previous = body.current; body.current = []
+        if newScope { body.scopes.append([:]) }
+        defer { body.current = previous; if newScope { body.scopes.removeLast() } }
+        var terminated = false
+        while !isNext("}") {
+            guard token.kind != .end else { throw wgslError(.unexpectedToken,"Unterminated block",token) }
+            if terminated && !isNext(";") { throw unsupported("unreachable statement",at:token) }
+            try parseStatement()
+            if let last = body.current.last { terminated = try statementTerminates(last) }
+        }
+        try expect("}")
+        return try saveBlock(body.current,at:start)
+    }
+    func saveBlock(_ statements: [IRHandle<IRStatement>], at t: WGSLToken) throws -> IRHandle<IRBlock> {
+        try node(); let h = try IRHandle<IRBlock>(index:body.blocks.count)
+        body.blocks.append(IRBlock(statements:statements,location:t.location)); return h
+    }
+    func terminates(_ block: IRHandle<IRBlock>) throws -> Bool {
+        try enter(); defer { nesting -= 1 }
+        guard let last = body.blocks[block.index].statements.last else { return false }
+        return try statementTerminates(last)
+    }
+    func statementTerminates(_ h: IRHandle<IRStatement>) throws -> Bool {
+        try budget.consume(.work)
+        switch body.statements[h.index].kind {
+        case .returnValue,.kill,.break,.continue: return true
+        case .block(let b):return try terminates(b)
+        case .ifCondition(_,let a,let b):return try terminates(a) && terminates(b)
+        default:return false
+        }
+    }
+    func parseStatement() throws {
+        try budget.consume(.work)
+        let start = token
+        if try eat(";") { return }
+        if isNext("{") { let b = try block(); try statement(.block(b),at:start); return }
+        if try eat("let") { try local(mutable:false,at:start); return }
+        if try eat("var") { try local(mutable:true,at:start); return }
+        if try eat("return") {
+            if try eat(";") {
+                guard body.result == nil else { throw wgslError(.typeMismatch,"Missing return value",start) }
+                try statement(.returnValue(nil),at:start)
+            } else {
+                guard let result = body.result else { throw wgslError(.typeMismatch,"Void function cannot return value",start) }
+                let v = try coerce(expression(),to:result.type,at:start); try expect(";"); try statement(.returnValue(v.handle),at:start)
+            }; return
+        }
+        if try eat("if") { try ifStatement(at:start); return }
+        if try eat("while") { try whileStatement(at:start); return }
+        if try eat("loop") { try loopStatement(at:start); return }
+        if try eat("for") { try forStatement(at:start); return }
+        if try eat("switch") { try switchStatement(at:start); return }
+        if try eat("break") {
+            guard (body.loopDepth > 0 || body.switchDepth > 0) && !body.continuing else { throw wgslError(.invalidControlFlow,"Invalid break context",start) }
+            try expect(";"); try statement(.break,at:start); return
+        }
+        if try eat("continue") {
+            guard body.loopDepth > 0 && !body.continuing else { throw wgslError(.invalidControlFlow,"Invalid continue context",start) }
+            try expect(";"); try statement(.continue,at:start); return
+        }
+        if try eat("discard") { try expect(";"); try statement(.kill,at:start); return }
+        if ["continuing","const_assert","const"].contains(start.text) { throw unsupported("statement '\(start.text)'",at:start) }
+        if try eat("_") { try expect("="); _ = try loaded(expression(),at:start); try expect(";"); return }
+        if token.kind == .word && cursor+1 < tokens.count && tokens[cursor+1].text == "(" {
+            if ["workgroupBarrier","storageBarrier","textureBarrier"].contains(start.text) {
+                _ = try take(); try expect("("); try expect(")"); try expect(";")
+                let flag: IRBarrier = start.text == "workgroupBarrier" ? .workgroup : start.text == "storageBarrier" ? .storage : .texture
+                try statement(.controlBarrier(flag),at:start); return
+            }
+            if let i = functionNames[start.text], functions[i].result == nil {
+                _ = try take(); try expect("("); var args = try arguments(); let fn = functions[i]
+                guard !entries.contains(where: {$0.function.index == i}) else { throw wgslError(.invalidControlFlow,"Cannot call entry point",start) }
+                guard args.count == fn.arguments.count else { throw wgslError(.typeMismatch,"Function arity",start) }
+                for j in args.indices { args[j] = try coerce(args[j],to:fn.arguments[j].type,at:start) }
+                try expect(";"); try statement(.call(function:try IRHandle(index:i),arguments:args.map(\.handle),result:nil),at:start); return
+            }
+        }
+        try simpleStatement(end:";")
+    }
+    func simpleStatement(end: String) throws {
+        let start = token
+        let lhs = try expression()
+        if try eat(end) {
+            // Only function calls may be standalone expressions in WGSL.
+            guard let last = body.current.last, case .call = body.statements[last.index].kind else { throw wgslError(.unexpectedToken,"Only a call may be an expression statement",start) }; return
+        }
+        guard lhs.pointer && lhs.writable else { throw wgslError(.invalidAddressSpace,"Assignment needs writable reference",start) }
+        let op = try take()
+        var rhs: WGSLValue
+        if op.text == "=" { rhs = try coerce(expression(),to:lhs.type,at:op) }
+        else if ["+=","-=","*=","/=","%=","&=","|=","^="].contains(op.text) {
+            let left = try loaded(lhs,at:op)
+            let right = try coerce(expression(),to:lhs.type,at:op)
+            guard case .scalar(let s) = types[lhs.type.index].kind, s != .bool, let (_,binary) = Self.binary[String(op.text.dropLast())] else { throw unsupported("compound assignment overload",at:op) }
+            rhs = try expressionNode(.binary(op:binary,left:left.handle,right:right.handle),type:lhs.type,at:op)
+        } else if op.text == "++" || op.text == "--" {
+            let l = try loaded(lhs,at:op)
+            let lit: IRLiteral
+            if types[lhs.type.index].kind == .scalar(.u32) { lit = .u32(1) }
+            else if types[lhs.type.index].kind == .scalar(.i32) { lit = .i32(1) }
+            else { throw wgslError(.typeMismatch,"Increment requires integer",op) }
+            let one = try expressionNode(.literal(lit),type:lhs.type,at:op,emit:false)
+            rhs = try expressionNode(.binary(op:op.text == "++" ? .add : .subtract,left:l.handle,right:one.handle),type:lhs.type,at:op)
+        } else { throw wgslError(.unexpectedToken,"Expected assignment",op) }
+        try expect(end); try statement(.store(pointer:lhs.handle,value:rhs.handle),at:start)
+    }
+
+    func local(mutable: Bool, at t: WGSLToken) throws {
+        if try eat("<") {
+            guard mutable else { throw wgslError(.unexpectedToken,"let cannot have address space",t) }
+            try expect("function"); try expect(">")
+        }
+        let n = try ident()
+        let annotation = try eat(":") ? try type() : nil
+        let hasInit = try eat("=")
+        let initial = hasInit ? try expression() : nil
+        guard mutable || initial != nil else { throw wgslError(.unexpectedToken,"let requires initializer",n) }
+        guard annotation != nil || initial != nil else { throw wgslError(.invalidType,"var requires type or initializer",n) }
+        let v: WGSLValue?
+        if let initial { v = try annotation.map { try coerce(initial,to:$0,at:n) } ?? defaultMaterialize(initial,at:n) } else { v = nil }
+        guard let ty = annotation ?? v?.type else { throw ShaderFailure.invalidHandle }
+        if mutable {
+            switch types[ty.index].kind {
+            case .atomic, .array(_, .dynamic, _): throw wgslError(.invalidType,"Invalid function variable type",n)
+            default: break
+            }
+            try node(); let local = try IRHandle<IRLocalVariable>(index:body.locals.count)
+            body.locals.append(IRLocalVariable(name:n.text,type:ty,location:n.location))
+            let ptr = try expressionNode(.localVariable(local),type:intern(.pointer(base:ty,space:.function)),at:n,emit:false)
+            try define(n,WGSLValue(handle:ptr.handle,type:ty,pointer:true,writable:true))
+            if let v { try statement(.store(pointer:ptr.handle,value:v.handle),at:n) }
+        } else if let v { try define(n,v) }
+        try expect(";")
+    }
+    func ifStatement(at t: WGSLToken) throws {
+        try enter(); defer { nesting -= 1 }
+        let cond = try loaded(expression(),at:t)
+        guard types[cond.type.index].kind == .scalar(.bool) else { throw wgslError(.typeMismatch,"if condition requires bool",t) }
+        let accept = try block()
+        let reject: IRHandle<IRBlock>
+        if try eat("else") {
+            if try eat("if") {
+                let previous = body.current; body.current = []
+                try ifStatement(at:t); reject = try saveBlock(body.current,at:t); body.current = previous
+            } else { reject = try block() }
+        } else { reject = try saveBlock([],at:t) }
+        try statement(.ifCondition(condition:cond.handle,accept:accept,reject:reject),at:t)
+    }
+    func whileStatement(at t: WGSLToken) throws {
+        let previous = body.current; body.current = []
+        let cond = try loaded(expression(),at:t)
+        guard types[cond.type.index].kind == .scalar(.bool) else { throw wgslError(.typeMismatch,"while needs bool",t) }
+        let empty = try saveBlock([],at:t)
+        let beforeBreak = body.current; body.current = []
+        try statement(.break,at:t); let breakBlock = try saveBlock(body.current,at:t); body.current = beforeBreak
+        try statement(.ifCondition(condition:cond.handle,accept:empty,reject:breakBlock),at:t)
+        body.loopDepth += 1
+        let loopBody = try block()
+        body.loopDepth -= 1
+        try statement(.block(loopBody),at:t)
+        let whole = try saveBlock(body.current,at:t); body.current = previous
+        try statement(.loop(body:whole,continuing:empty,breakIf:nil),at:t)
+    }
+}

@@ -1,0 +1,32 @@
+[0/1] Planning build
+Building for debugging...
+[0/1] Write swift-version-1C2EE985D1325AC6.txt
+[1/2] Write sources
+[3/5] Compiling SAGATypes Descriptors.swift
+[4/5] Compiling SAGATypes BufferCommand.swift
+[5/5] Emitting module SAGATypes
+[6/8] Write sources
+[9/11] Compiling SAGABackend CommandBackendDevice.swift
+[10/11] Compiling SAGABackend BackendDevice.swift
+[11/11] Emitting module SAGABackend
+[13/14] Compiling SAGACore Device.swift
+[14/14] Emitting module SAGACore
+[16/17] Compiling SAGA Exports.swift
+[17/17] Emitting module SAGA
+Build of target: 'SAGA' complete! (1.08s)
+[0/1] Planning build
+Building for debugging...
+[0/1] Write swift-version-1C2EE985D1325AC6.txt
+Build of target: 'SAGACompiler' complete! (0.11s)
+Building for debugging...
+[0/2] Write sources
+[1/2] Write swift-version-1C2EE985D1325AC6.txt
+[3/4] Emitting module SAGAMetal
+[4/4] Compiling SAGAMetal MetalBackend.swift
+Build of target: 'SAGAMetal' complete! (0.24s)
+Building for debugging...
+[0/2] Write sources
+[1/2] Write swift-version-1C2EE985D1325AC6.txt
+[3/4] Emitting module SAGAWebGPU
+[4/4] Compiling SAGAWebGPU BrowserBackend.swift
+Build of target: 'SAGAWebGPU' complete! (0.22s)

@@ -1,0 +1,15 @@
+Building for debugging...
+[0/4] Write swift-version-3CD7052B146186F2.txt
+Build complete! (0.10s)
+error: Process '/Applications/Xcode-26.6.0.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/libexec/swift/pm/swiftpm-testing-helper --test-bundle-path /Users/vlad-prusakov/Developer/saga/.build-validation/arm64-apple-macosx/debug/SAGAPackageTests.xctest/Contents/MacOS/SAGAPackageTests --filter boundedIntegerExpressionPropertiesAndDeepInputs --scratch-path .build-validation -Xswiftc -warnings-as-errors -Xswiftc -strict-concurrency=complete /Users/vlad-prusakov/Developer/saga/.build-validation/arm64-apple-macosx/debug/SAGAPackageTests.xctest/Contents/MacOS/SAGAPackageTests --testing-library swift-testing' exited with unexpected signal code 10
+Test Suite 'Selected tests' started at 2026-11-07 03:32:36.773.
+Test Suite 'SAGAPackageTests.xctest' started at 2026-11-07 03:32:36.780.
+Test Suite 'SAGAPackageTests.xctest' passed at 2026-11-07 03:32:36.780.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+Test Suite 'Selected tests' passed at 2026-11-07 03:32:36.780.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.007) seconds
+􀟈  Test run started.
+􀄵  Testing Library Version: 1902
+􀄵  Target Platform: arm64e-apple-macos14.0
+􀟈  Suite WGSLFrontendTests started.
+􀟈  Test boundedIntegerExpressionPropertiesAndDeepInputs() started.

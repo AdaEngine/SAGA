@@ -1,0 +1,24 @@
+Building for debugging...
+[0/5] Write sources
+[1/5] Write swift-version-3CD7052B146186F2.txt
+[3/5] Emitting module SAGAFrontends
+[4/5] Compiling SAGAFrontends ScalarConstantExpressions.swift
+[5/6] Emitting module SAGACompiler
+[6/7] Emitting module SAGAFoundationTests
+[6/8] Write Objects.LinkFileList
+[7/8] Linking SAGAPackageTests
+Build complete! (1.82s)
+Test Suite 'Selected tests' started at 2026-11-07 04:14:11.652.
+Test Suite 'SAGAPackageTests.xctest' started at 2026-11-07 04:14:11.659.
+Test Suite 'SAGAPackageTests.xctest' passed at 2026-11-07 04:14:11.659.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+Test Suite 'Selected tests' passed at 2026-11-07 04:14:11.659.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.007) seconds
+􀟈  Test run started.
+􀄵  Testing Library Version: 1902
+􀄵  Target Platform: arm64e-apple-macos14.0
+􀟈  Suite WGSLFrontendTests started.
+􀟈  Test boolAndIntegerConstConstructorsPreserveScalarTypes() started.
+􁁛  Test boolAndIntegerConstConstructorsPreserveScalarTypes() passed after 0.002 seconds.
+􁁛  Suite WGSLFrontendTests passed after 0.002 seconds.
+􁁛  Test run with 1 test in 1 suite passed after 0.002 seconds.

@@ -1,0 +1,18 @@
+[0/1] Planning build
+Building for debugging...
+[0/1] Write swift-version-3CD7052B146186F2.txt
+[1/2] Write sources
+[3/4] Emitting module SAGAValidation
+[4/4] Compiling SAGAValidation ShaderSemanticValidator.swift
+[4/5] Write sources
+[6/10] Compiling SAGAFrontends WGSLFrontend.swift
+[7/12] Compiling SAGAFrontends Statements.swift
+[8/12] Compiling SAGAFrontends Loops.swift
+[9/12] Compiling SAGAFrontends SPIRVFrontend.swift
+[10/12] Emitting module SAGAFrontends
+[11/12] Compiling SAGAFrontends ControlExpressions.swift
+[12/12] Compiling SAGAFrontends Expressions.swift
+[13/15] Compiling SAGACompiler FrontendValidation.swift
+[14/15] Emitting module SAGACompiler
+[15/15] Compiling SAGACompiler Compiler.swift
+Build of target: 'SAGACompiler' complete! (1.94s)

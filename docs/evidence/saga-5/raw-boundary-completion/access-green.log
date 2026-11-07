@@ -1,0 +1,34 @@
+Building for debugging...
+[0/6] Write sources
+[1/6] Write swift-version-3CD7052B146186F2.txt
+[3/6] Compiling SAGAValidation ShaderSemanticValidator.swift
+[4/6] Emitting module SAGAValidation
+[5/7] Compiling SAGAValidation StaticAccessIndex.swift
+[6/9] Emitting module SAGABackends
+[7/9] Compiling SAGABackends CodeGenerator.swift
+[8/12] Compiling SAGACompiler Compiler.swift
+[9/12] Emitting module SAGACompiler
+[10/12] Compiling SAGACompiler FrontendValidation.swift
+[11/16] Compiling SAGAFoundationTests ShaderSemanticValidationTests.swift
+[12/16] Compiling SAGAFoundationTests FrontendIntegrationTests.swift
+[13/16] Emitting module SAGAFoundationTests
+[14/16] Compiling SAGAFoundationTests CompilerTests.swift
+[14/16] Write Objects.LinkFileList
+[15/16] Linking SAGAPackageTests
+Build complete! (2.69s)
+Test Suite 'Selected tests' started at 2026-11-07 08:58:34.834.
+Test Suite 'SAGAPackageTests.xctest' started at 2026-11-07 08:58:34.842.
+Test Suite 'SAGAPackageTests.xctest' passed at 2026-11-07 08:58:34.842.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+Test Suite 'Selected tests' passed at 2026-11-07 08:58:34.842.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.007) seconds
+􀟈  Test run started.
+􀄵  Testing Library Version: 1902
+􀄵  Target Platform: arm64e-apple-macos14.0
+􀟈  Suite ShaderSemanticValidationTests started.
+􀟈  Test rawAccessLiteralAndNamedConstantBoundsCannotForgeWitness() started.
+􀟈  Test rawAccessValidConstantZeroAndDynamicIndicesStillValidate() started.
+􁁛  Test rawAccessLiteralAndNamedConstantBoundsCannotForgeWitness() passed after 0.002 seconds.
+􁁛  Test rawAccessValidConstantZeroAndDynamicIndicesStillValidate() passed after 0.002 seconds.
+􁁛  Suite ShaderSemanticValidationTests passed after 0.002 seconds.
+􁁛  Test run with 2 tests in 1 suite passed after 0.002 seconds.

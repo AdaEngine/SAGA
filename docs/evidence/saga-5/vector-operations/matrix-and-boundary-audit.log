@@ -1,0 +1,125 @@
+matrix compose: diagnostics([SAGAShaderIR.ShaderDiagnostic(severity: SAGAShaderIR.ShaderDiagnostic.Severity.error, message: "Constructor overload not implemented", code: SAGAShaderIR.ShaderDiagnosticCode.unsupportedConstruct, location: nil)])
+raw literal Access vector index2 width2: accepted (OPEN semantic rule gap, not conformance)
+699:        default: try unsupported("Constructor overload not implemented", e.location)
+704:      case .access(let base, let index):
+815:  mutating func accessResult(
+  <tr><td style="width:10%">Overload
+      <td>
+        <xmp highlight=wgsl>
+          @const @must_use fn array<T, N>(e1 : T, ..., eN : T) -> array<T, N>
+        </xmp>
+  <tr><td>Parameterization
+      <td>`T` is [=type/concrete=] and [=constructible=]
+  <tr><td>Description
+      <td>Construction of an [=array=] from elements.
+
+      Note: array&lt;|T|,|N|&gt; is [=constructible=] because its [=element count=]
+      is equal to the number of arguments to the constructor, and hence
+      fully determined at [=shader module creation|shader-creation=] time.
+</table>
+<table class='data builtin'>
+  <tr><td style="width:10%">Overload
+      <td>
+        <xmp highlight=wgsl>
+          @const @must_use fn array(e1 : T, ..., eN : T) -> array<T, N>
+        </xmp>
+  <tr><td>Parameterization
+      <td>`T` is [=constructible=]
+  <tr><td>Description
+      <td>Construction of an [=array=] from elements.
+
+      The component type is inferred from the elements' type.
+      The size of the array is determined by the number of elements.
+</table>
+
+      <td>
+        <xmp highlight=wgsl>
+          @const @must_use fn mat2x2<T>(e1 : T, e2 : T, e3 : T, e4 : T) -> mat2x2<T>
+          @const @must_use fn mat2x2(e1 : T, e2 : T, e3 : T, e4 : T) -> mat2x2<T>
+        </xmp>
+  <tr><td>Parameterization
+      <td>`T` is [FLOATSCALAR]
+  <tr><td>Description
+      <td>Construct a 2x2 column-major [=matrix=] from elements.
+
+          Same as mat2x2(vec2(e1,e2), vec2(e3,e4)).
+</table>
+
+#### `mat2x3` #### {#mat2x3-builtin}
+
+<table class='data builtin'>
+  <tr><td style="width:10%">Overload
+      <td>
+        <xmp highlight=wgsl>
+          @const @must_use fn mat2x3<T>(e : mat2x3<S>) -> mat2x3<T>
+          @const @must_use fn mat2x3(e : mat2x3<S>) -> mat2x3<S>
+        </xmp>
+  <tr><td>Parameterization
+      <td>`T` is [=f16=] or [=f32=]<br>
+      `S` is [FLOATSCALAR]
+  <tr><td>Description
+      <td>Constructor for a 2x3 column-major [=matrix=].
+
+      If `T` does not match `S`, a [[#floating-point-conversion|conversion]] occurs.
+</table>
+<table class='data builtin'>
+  <tr><td style="width:10%">Overload
+      <td>
+        <xmp highlight=wgsl>
+          @const @must_use fn mat2x3<T>(v1 : vec3<T>, v2 : vec3<T>) -> mat2x3<T>
+          @const @must_use fn mat2x3(v1 : vec3<T>, v2 : vec3<T>) -> mat2x3<T>
+        </xmp>
+  <tr><td>Parameterization
+      <td>`T` is [FLOATSCALAR]
+  <tr><td>Description
+      <td>Construct a 2x3 column-major [=matrix=] from column vectors.
+</table>
+<table class='data builtin'>
+  <tr><td style="width:10%">Overload
+      <td>
+        <xmp highlight=wgsl>
+          @const @must_use fn mat2x3<T>(e1 : T, ..., e6 : T) -> mat2x3<T>
+          @const @must_use fn mat2x3(e1 : T, ..., e6 : T) -> mat2x3<T>
+        </xmp>
+  <tr><td>Parameterization
+      <td>`T` is [FLOATSCALAR]
+  <tr><td>Description
+      <td>Construct a 2x3 column-major [=matrix=] from elements.
+
+          Same as mat2x3(vec3(e1,e2,e3), vec3(e4,e5,e6)).
+</table>
+
+#### `mat2x4` #### {#mat2x4-builtin}
+
+<table class='data builtin'>
+  <tr><td style="width:10%">Overload
+      <td>
+        <xmp highlight=wgsl>
+          @const @must_use fn mat2x4<T>(e : mat2x4<S>) -> mat2x4<T>
+          @const @must_use fn mat2x4(e : mat2x4<S>) -> mat2x4<S>
+        </xmp>
+  <tr><td>Parameterization
+      <td>`T` is [=f16=] or [=f32=]<br>
+      `S` is [FLOATSCALAR]
+  <tr><td>Description
+      <td>Constructor for a 2x4 column-major [=matrix=].
+
+      If `T` does not match `S`, a [[#floating-point-conversion|conversion]] occurs.
+</table>
+<table class='data builtin'>
+  <tr><td style="width:10%">Overload
+      <td>
+        <xmp highlight=wgsl>
+          @const @must_use fn mat2x4<T>(v1 : vec4<T>, v2 : vec4<T>) -> mat2x4<T>
+          @const @must_use fn mat2x4(v1 : vec4<T>, v2 : vec4<T>) -> mat2x4<T>
+        </xmp>
+  <tr><td>Parameterization
+      <td>`T` is [FLOATSCALAR]
+  <tr><td>Description
+      <td>Construct a 2x4 column-major [=matrix=] from column vectors.
+</table>
+<table class='data builtin'>
+  <tr><td style="width:10%">Overload
+      <td>
+        <xmp highlight=wgsl>
+          @const @must_use fn mat2x4<T>(e1 : T, ..., e8 : T) -> mat2x4<T>

@@ -1,0 +1,39 @@
+Building for debugging...
+[0/5] Write sources
+[1/5] Write swift-version-3CD7052B146186F2.txt
+[3/6] Emitting module SAGAFoundationTests
+[4/6] Compiling SAGAFoundationTests FrontendIntegrationTests.swift
+[5/6] Compiling SAGAFoundationTests WGSLFrontendTests.swift
+[5/7] Write Objects.LinkFileList
+[6/7] Linking SAGAPackageTests
+Build complete! (1.95s)
+Test Suite 'Selected tests' started at 2026-11-07 03:19:10.269.
+Test Suite 'SAGAPackageTests.xctest' started at 2026-11-07 03:19:10.280.
+Test Suite 'SAGAPackageTests.xctest' passed at 2026-11-07 03:19:10.280.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+Test Suite 'Selected tests' passed at 2026-11-07 03:19:10.280.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.011) seconds
+􀟈  Test run started.
+􀄵  Testing Library Version: 1902
+􀄵  Target Platform: arm64e-apple-macos14.0
+􀟈  Suite FrontendIntegrationTests started.
+􀟈  Suite WGSLFrontendTests started.
+􀟈  Test explicitUniformMemberLayoutAcquiresWitness() started.
+􀟈  Test invalidMemberLayoutAttributesAreTypedErrors() started.
+􀟈  Test explicitMemberLayoutPropagatesIntoNestedArrayStride() started.
+􀢄  Test invalidMemberLayoutAttributesAreTypedErrors() recorded an issue at WGSLFrontendTests.swift:253:87: Expectation failed: ([ShaderDiagnosticCode.invalidType, .duplicateName] → [SAGAShaderIR.ShaderDiagnosticCode.invalidType, SAGAShaderIR.ShaderDiagnosticCode.duplicateName]).contains(ds[0].code → .unsupportedConstruct)
+􀢄  Test explicitMemberLayoutPropagatesIntoNestedArrayStride() recorded an issue at WGSLFrontendTests.swift:240:6: Caught error: .diagnostics([SAGAShaderIR.ShaderDiagnostic(severity: SAGAShaderIR.ShaderDiagnostic.Severity.error, message: "WGSL construct not implemented: attribute @size", code: SAGAShaderIR.ShaderDiagnosticCode.unsupportedConstruct, location: Optional(SAGAShaderIR.ShaderLocation.source(SAGAShaderIR.SourceSpan(startUTF8: 23, endUTF8: 27))))])
+􀢄  Test explicitUniformMemberLayoutAcquiresWitness() recorded an issue at FrontendIntegrationTests.swift:147:6: Caught error: .diagnostics([SAGAShaderIR.ShaderDiagnostic(severity: SAGAShaderIR.ShaderDiagnostic.Severity.error, message: "WGSL construct not implemented: attribute @size", code: SAGAShaderIR.ShaderDiagnosticCode.unsupportedConstruct, location: Optional(SAGAShaderIR.ShaderLocation.source(SAGAShaderIR.SourceSpan(startUTF8: 37, endUTF8: 41))))])
+􀢄  Test invalidMemberLayoutAttributesAreTypedErrors() recorded an issue at WGSLFrontendTests.swift:253:87: Expectation failed: ([ShaderDiagnosticCode.invalidType, .duplicateName] → [SAGAShaderIR.ShaderDiagnosticCode.invalidType, SAGAShaderIR.ShaderDiagnosticCode.duplicateName]).contains(ds[0].code → .unsupportedConstruct)
+􀢄  Test explicitMemberLayoutPropagatesIntoNestedArrayStride() failed after 0.001 seconds with 1 issue.
+􀢄  Test explicitUniformMemberLayoutAcquiresWitness() failed after 0.001 seconds with 1 issue.
+􀢄  Suite FrontendIntegrationTests failed after 0.001 seconds with 1 issue.
+􀢄  Test invalidMemberLayoutAttributesAreTypedErrors() recorded an issue at WGSLFrontendTests.swift:253:87: Expectation failed: ([ShaderDiagnosticCode.invalidType, .duplicateName] → [SAGAShaderIR.ShaderDiagnosticCode.invalidType, SAGAShaderIR.ShaderDiagnosticCode.duplicateName]).contains(ds[0].code → .unsupportedConstruct)
+􀢄  Test invalidMemberLayoutAttributesAreTypedErrors() recorded an issue at WGSLFrontendTests.swift:253:87: Expectation failed: ([ShaderDiagnosticCode.invalidType, .duplicateName] → [SAGAShaderIR.ShaderDiagnosticCode.invalidType, SAGAShaderIR.ShaderDiagnosticCode.duplicateName]).contains(ds[0].code → .unsupportedConstruct)
+􀢄  Test invalidMemberLayoutAttributesAreTypedErrors() recorded an issue at WGSLFrontendTests.swift:253:87: Expectation failed: ([ShaderDiagnosticCode.invalidType, .duplicateName] → [SAGAShaderIR.ShaderDiagnosticCode.invalidType, SAGAShaderIR.ShaderDiagnosticCode.duplicateName]).contains(ds[0].code → .unsupportedConstruct)
+􀢄  Test invalidMemberLayoutAttributesAreTypedErrors() recorded an issue at WGSLFrontendTests.swift:253:87: Expectation failed: ([ShaderDiagnosticCode.invalidType, .duplicateName] → [SAGAShaderIR.ShaderDiagnosticCode.invalidType, SAGAShaderIR.ShaderDiagnosticCode.duplicateName]).contains(ds[0].code → .unsupportedConstruct)
+􀢄  Test invalidMemberLayoutAttributesAreTypedErrors() recorded an issue at WGSLFrontendTests.swift:253:87: Expectation failed: ([ShaderDiagnosticCode.invalidType, .duplicateName] → [SAGAShaderIR.ShaderDiagnosticCode.invalidType, SAGAShaderIR.ShaderDiagnosticCode.duplicateName]).contains(ds[0].code → .unsupportedConstruct)
+􀢄  Test invalidMemberLayoutAttributesAreTypedErrors() failed after 0.001 seconds with 7 issues.
+􀢄  Suite WGSLFrontendTests failed after 0.002 seconds with 8 issues.
+􀄵  // Independently authored SAGA fixtures; no upstream shader bytes copied.
+􀢄  Test run with 3 tests in 2 suites failed after 0.002 seconds with 9 issues.

@@ -1,0 +1,58 @@
+[0/1] Planning build
+Building for debugging...
+[0/8] Write sources
+[3/8] Write swift-version-3CD7052B146186F2.txt
+[5/13] Compiling SAGAFrontends Statements.swift
+[6/14] Compiling SAGAFrontends ControlExpressions.swift
+[7/14] Compiling SAGAFrontends WGSLFrontend.swift
+[8/14] Emitting module SAGAFrontends
+[9/14] Compiling SAGAFrontends Loops.swift
+[10/14] Compiling SAGAFrontends SPIRVFunction.swift
+[11/16] Compiling SAGAValidation ShaderSemanticValidator.swift
+[12/16] Emitting module SAGAValidation
+[13/18] Emitting module SAGABackends
+[14/18] Compiling SAGABackends CodeGenerator.swift
+[15/18] Compiling SAGAFrontends Expressions.swift
+[16/18] Compiling SAGAFrontends SPIRVFrontend.swift
+[17/21] Compiling SAGACompiler Compiler.swift
+[18/21] Compiling SAGACompiler FrontendValidation.swift
+[19/21] Emitting module SAGACompiler
+[20/29] Compiling SAGAFoundationTests SPIRVFrontendTests.swift
+[21/29] Compiling SAGAFoundationTests FrontendContractsTests.swift
+[22/29] Compiling SAGAFoundationTests CompilerTests.swift
+[23/29] Emitting module SAGAFoundationTests
+[24/29] Compiling SAGAFoundationTests ShaderSemanticValidationTests.swift
+[25/29] Compiling SAGAFoundationTests FrontendIntegrationTests.swift
+[26/29] Compiling SAGAFoundationTests GLSLFrontendTests.swift
+[27/29] Compiling SAGAFoundationTests WGSLFrontendTests.swift
+[28/31] Emitting module SAGAPackageTests
+[29/31] Compiling SAGAPackageTests runner.swift
+[29/31] Write Objects.LinkFileList
+[30/31] Linking SAGAPackageTests
+Build complete! (3.41s)
+Test Suite 'Selected tests' started at 2026-11-07 02:25:43.936.
+Test Suite 'SAGAPackageTests.xctest' started at 2026-11-07 02:25:43.944.
+Test Suite 'SAGAPackageTests.xctest' passed at 2026-11-07 02:25:43.944.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+Test Suite 'Selected tests' passed at 2026-11-07 02:25:43.944.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.008) seconds
+􀟈  Test run started.
+􀄵  Testing Library Version: 1902
+􀄵  Target Platform: arm64e-apple-macos14.0
+􀟈  Suite WGSLFrontendTests started.
+􀟈  Test budgetsAndUnsupportedAreNotSuccess() started.
+􀟈  Test rejectsNamesTypesAndMalformedSyntax() started.
+􀟈  Test deterministicBoundedFuzz() started.
+􀟈  Test cancellationBeforeScan() started.
+􀟈  Test nestedCommentsUnicodeAndExactUTF8Diagnostics() started.
+􀟈  Test computeLowersStorageEffectsAndTypedExpressions() started.
+􀟈  Test functionCallsBranchesScopesAndReturns() started.
+􁁛  Test cancellationBeforeScan() passed after 0.001 seconds.
+􁁛  Test nestedCommentsUnicodeAndExactUTF8Diagnostics() passed after 0.001 seconds.
+􁁛  Test functionCallsBranchesScopesAndReturns() passed after 0.001 seconds.
+􁁛  Test computeLowersStorageEffectsAndTypedExpressions() passed after 0.001 seconds.
+􁁛  Test budgetsAndUnsupportedAreNotSuccess() passed after 0.001 seconds.
+􁁛  Test rejectsNamesTypesAndMalformedSyntax() passed after 0.002 seconds.
+􁁛  Test deterministicBoundedFuzz() passed after 0.082 seconds.
+􁁛  Suite WGSLFrontendTests passed after 0.082 seconds.
+􁁛  Test run with 7 tests in 1 suite passed after 0.082 seconds.

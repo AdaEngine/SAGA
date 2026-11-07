@@ -1,0 +1,46 @@
+[0/1] Planning build
+Building for debugging...
+[0/6] Write sources
+[1/6] Write swift-version-3CD7052B146186F2.txt
+[3/7] Compiling SAGAFrontends WGSLFrontend.swift
+[4/7] Emitting module SAGAFrontends
+[5/7] Compiling SAGAFrontends ConstantExpressions.swift
+[6/11] Compiling SAGAFrontends Statements.swift
+[7/11] Compiling SAGAFrontends ControlExpressions.swift
+[8/11] Compiling SAGAFrontends Loops.swift
+[9/11] Compiling SAGAFrontends Expressions.swift
+[10/14] Emitting module SAGACompiler
+[11/14] Compiling SAGACompiler Compiler.swift
+[12/14] Compiling SAGACompiler FrontendValidation.swift
+[13/21] Compiling SAGAFoundationTests WGSLFrontendTests.swift
+[14/21] Compiling SAGAFoundationTests CompilerTests.swift
+[15/21] Compiling SAGAFoundationTests GLSLFrontendTests.swift
+[16/21] Compiling SAGAFoundationTests FrontendIntegrationTests.swift
+[17/21] Compiling SAGAFoundationTests FrontendContractsTests.swift
+[18/21] Emitting module SAGAFoundationTests
+[19/21] Compiling SAGAFoundationTests SPIRVFrontendTests.swift
+[19/21] Write Objects.LinkFileList
+[20/21] Linking SAGAPackageTests
+Build complete! (2.75s)
+Test Suite 'Selected tests' started at 2026-11-07 03:27:24.072.
+Test Suite 'SAGAPackageTests.xctest' started at 2026-11-07 03:27:24.079.
+Test Suite 'SAGAPackageTests.xctest' passed at 2026-11-07 03:27:24.079.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+Test Suite 'Selected tests' passed at 2026-11-07 03:27:24.079.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.007) seconds
+􀟈  Test run started.
+􀄵  Testing Library Version: 1902
+􀄵  Target Platform: arm64e-apple-macos14.0
+􀟈  Suite WGSLFrontendTests started.
+􀟈  Suite FrontendIntegrationTests started.
+􀟈  Test constantAttributesReachValidatedUniformLayout() started.
+􀟈  Test namedAttributeConstantsAndIntegerPrecedence() started.
+􀟈  Test invalidAttributeExpressionsFailWithTypedRanges() started.
+􀟈  Test attributeExpressionBudgetsAndCancellation() started.
+􁁛  Test constantAttributesReachValidatedUniformLayout() passed after 0.001 seconds.
+􁁛  Suite FrontendIntegrationTests passed after 0.001 seconds.
+􁁛  Test attributeExpressionBudgetsAndCancellation() passed after 0.001 seconds.
+􁁛  Test namedAttributeConstantsAndIntegerPrecedence() passed after 0.003 seconds.
+􁁛  Test invalidAttributeExpressionsFailWithTypedRanges() passed after 0.005 seconds.
+􁁛  Suite WGSLFrontendTests passed after 0.005 seconds.
+􁁛  Test run with 4 tests in 2 suites passed after 0.005 seconds.

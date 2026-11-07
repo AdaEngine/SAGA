@@ -1,0 +1,26 @@
+Test Suite 'Selected tests' started at 2026-11-07 02:26:43.380.
+Test Suite 'SAGAPackageTests.xctest' started at 2026-11-07 02:26:43.387.
+Test Suite 'SAGAPackageTests.xctest' passed at 2026-11-07 02:26:43.387.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+Test Suite 'Selected tests' passed at 2026-11-07 02:26:43.387.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.007) seconds
+􀟈  Test run started.
+􀄵  Testing Library Version: 1902
+􀄵  Target Platform: arm64e-apple-macos14.0
+􀟈  Suite WGSLFrontendTests started.
+􀟈  Test budgetsAndUnsupportedAreNotSuccess() started.
+􀟈  Test nestedCommentsUnicodeAndExactUTF8Diagnostics() started.
+􀟈  Test deterministicBoundedFuzz() started.
+􀟈  Test computeLowersStorageEffectsAndTypedExpressions() started.
+􀟈  Test rejectsNamesTypesAndMalformedSyntax() started.
+􀟈  Test functionCallsBranchesScopesAndReturns() started.
+􀟈  Test cancellationBeforeScan() started.
+􁁛  Test cancellationBeforeScan() passed after 0.001 seconds.
+􁁛  Test nestedCommentsUnicodeAndExactUTF8Diagnostics() passed after 0.001 seconds.
+􁁛  Test functionCallsBranchesScopesAndReturns() passed after 0.001 seconds.
+􁁛  Test computeLowersStorageEffectsAndTypedExpressions() passed after 0.001 seconds.
+􁁛  Test budgetsAndUnsupportedAreNotSuccess() passed after 0.002 seconds.
+􁁛  Test rejectsNamesTypesAndMalformedSyntax() passed after 0.003 seconds.
+􁁛  Test deterministicBoundedFuzz() passed after 0.085 seconds.
+􁁛  Suite WGSLFrontendTests passed after 0.085 seconds.
+􁁛  Test run with 7 tests in 1 suite passed after 0.085 seconds.

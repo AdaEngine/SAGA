@@ -1,0 +1,681 @@
+Building for debugging...
+[0/22] /Users/vlad-prusakov/Developer/saga/.build-spirv/arm64-apple-macosx/debug/SAGAPackageTests.derived/runner.swift
+[0/22] Write sources
+[11/22] Write SAGAMetalDiagnostic-entitlement.plist
+[11/22] Write sources
+[16/22] Write swift-version-3CD7052B146186F2.txt
+[18/33] Compiling SAGAShaderIR Contracts.swift
+[19/33] Compiling SAGAShaderIR Budgets.swift
+[20/33] Compiling SAGATypes Descriptors.swift
+[21/33] Emitting module SAGATypes
+[22/33] Compiling SAGATypes BufferCommand.swift
+[23/36] Emitting module SAGAShaderIR
+[24/36] Compiling SAGABackend CommandBackendDevice.swift
+[25/36] Emitting module SAGABackend
+[26/36] Compiling SAGABackend BackendDevice.swift
+[27/42] Emitting module SAGAWebGPU
+[28/42] Compiling SAGAWebGPU BrowserBackend.swift
+[29/42] Compiling SAGAShaderIR Capabilities.swift
+[30/42] Compiling SAGAShaderIR Diagnostics.swift
+[31/42] Compiling SAGAShaderIR Tables.swift
+[32/42] Compiling SAGAShaderIR BlockWalk.swift
+[33/42] Compiling SAGAShaderIR TypedIR.swift
+[34/46] Emitting module SAGAValidation
+[35/46] Compiling SAGAValidation Validation.swift
+[36/46] Compiling SAGACore Device.swift
+[37/46] Emitting module SAGACore
+[38/46] Compiling SAGAFrontends Frontend.swift
+[39/46] Emitting module SAGAFrontends
+[40/50] Emitting module SAGABackends
+[41/50] Compiling SAGABackends CodeGenerator.swift
+[42/50] Compiling SAGA Exports.swift
+[43/50] Emitting module SAGA
+[44/52] Emitting module SAGACompiler
+[45/52] Compiling SAGACompiler Compiler.swift
+[46/52] Compiling SAGAMetal MetalBackend.swift
+[47/52] Emitting module SAGAMetal
+[48/66] Compiling SAGAMetalDiagnostic Main.swift
+[49/66] Emitting module SAGAMetalDiagnostic
+[49/66] Write Objects.LinkFileList
+[50/66] Linking SAGAMetalDiagnostic
+[51/66] Applying SAGAMetalDiagnostic
+[53/66] Compiling SAGAFoundationTests TestBackend.swift
+[54/66] Compiling SAGAFoundationTests WGSLFrontendTests.swift
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/WGSLFrontendTests.swift:8:21: error: cannot find 'WGSLFrontend' in scope
+ 6 | @Suite struct WGSLFrontendTests {
+ 7 |     @Test func computeLowersStorageEffectsAndTypedExpressions() throws {
+ 8 |         let m = try WGSLFrontend().parse(.wgsl("""
+   |                     `- error: cannot find 'WGSLFrontend' in scope
+ 9 |         @group(0) @binding(0) var<storage, read_write> values: array<u32>;
+10 |         @compute @workgroup_size(8) fn main(@builtin(global_invocation_id) id: vec3<u32>) {
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/WGSLFrontendTests.swift:8:43: error: cannot infer contextual base in reference to member 'wgsl'
+ 6 | @Suite struct WGSLFrontendTests {
+ 7 |     @Test func computeLowersStorageEffectsAndTypedExpressions() throws {
+ 8 |         let m = try WGSLFrontend().parse(.wgsl("""
+   |                                           `- error: cannot infer contextual base in reference to member 'wgsl'
+ 9 |         @group(0) @binding(0) var<storage, read_write> values: array<u32>;
+10 |         @compute @workgroup_size(8) fn main(@builtin(global_invocation_id) id: vec3<u32>) {
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/WGSLFrontendTests.swift:23:21: error: cannot find 'WGSLFrontend' in scope
+21 |     }
+22 |     @Test func functionCallsBranchesScopesAndReturns() throws {
+23 |         let m = try WGSLFrontend().parse(.wgsl("""
+   |                     `- error: cannot find 'WGSLFrontend' in scope
+24 |         fn twice(x: u32) -> u32 { return x * 2u; }
+25 |         @compute @workgroup_size(1) fn main() {
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/WGSLFrontendTests.swift:23:43: error: cannot infer contextual base in reference to member 'wgsl'
+21 |     }
+22 |     @Test func functionCallsBranchesScopesAndReturns() throws {
+23 |         let m = try WGSLFrontend().parse(.wgsl("""
+   |                                           `- error: cannot infer contextual base in reference to member 'wgsl'
+24 |         fn twice(x: u32) -> u32 { return x * 2u; }
+25 |         @compute @workgroup_size(1) fn main() {
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/WGSLFrontendTests.swift:35:55: error: cannot find 'WGSLFrontend' in scope
+33 |     @Test func rejectsNamesTypesAndMalformedSyntax() throws {
+34 |         for source in ["fn f() { missing = 1u; }", "fn f() { let a: bool = 1u; }", "fn f() { let a = ; }", "fn f() { let x = 1u; x = 2u; }", "fn f() { break; }", "fn f() { let x=1u; let x=2u; }"] {
+35 |             #expect(throws: ShaderFailure.self) { try WGSLFrontend().parse(.wgsl(source)) }
+   |                                                       `- error: cannot find 'WGSLFrontend' in scope
+36 |         }
+37 |     }
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/WGSLFrontendTests.swift:35:77: error: cannot infer contextual base in reference to member 'wgsl'
+33 |     @Test func rejectsNamesTypesAndMalformedSyntax() throws {
+34 |         for source in ["fn f() { missing = 1u; }", "fn f() { let a: bool = 1u; }", "fn f() { let a = ; }", "fn f() { let x = 1u; x = 2u; }", "fn f() { break; }", "fn f() { let x=1u; let x=2u; }"] {
+35 |             #expect(throws: ShaderFailure.self) { try WGSLFrontend().parse(.wgsl(source)) }
+   |                                                                             `- error: cannot infer contextual base in reference to member 'wgsl'
+36 |         }
+37 |     }
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/WGSLFrontendTests.swift:39:17: error: cannot find 'WGSLFrontend' in scope
+37 |     }
+38 |     @Test func nestedCommentsUnicodeAndExactUTF8Diagnostics() throws {
+39 |         _ = try WGSLFrontend().parse(.wgsl("/* outer /* inner */ done */ fn café() { let α = 2u; }"))
+   |                 `- error: cannot find 'WGSLFrontend' in scope
+40 |         let source = "fn café() { let α = missing; }"
+41 |         do { _ = try WGSLFrontend().parse(.wgsl(source)); Issue.record("expected error") }
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/WGSLFrontendTests.swift:39:39: error: cannot infer contextual base in reference to member 'wgsl'
+37 |     }
+38 |     @Test func nestedCommentsUnicodeAndExactUTF8Diagnostics() throws {
+39 |         _ = try WGSLFrontend().parse(.wgsl("/* outer /* inner */ done */ fn café() { let α = 2u; }"))
+   |                                       `- error: cannot infer contextual base in reference to member 'wgsl'
+40 |         let source = "fn café() { let α = missing; }"
+41 |         do { _ = try WGSLFrontend().parse(.wgsl(source)); Issue.record("expected error") }
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/WGSLFrontendTests.swift:41:22: error: cannot find 'WGSLFrontend' in scope
+39 |         _ = try WGSLFrontend().parse(.wgsl("/* outer /* inner */ done */ fn café() { let α = 2u; }"))
+40 |         let source = "fn café() { let α = missing; }"
+41 |         do { _ = try WGSLFrontend().parse(.wgsl(source)); Issue.record("expected error") }
+   |                      `- error: cannot find 'WGSLFrontend' in scope
+42 |         catch ShaderFailure.diagnostics(let ds) {
+43 |             #expect(ds[0].code == .unresolvedName)
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/WGSLFrontendTests.swift:41:44: error: cannot infer contextual base in reference to member 'wgsl'
+39 |         _ = try WGSLFrontend().parse(.wgsl("/* outer /* inner */ done */ fn café() { let α = 2u; }"))
+40 |         let source = "fn café() { let α = missing; }"
+41 |         do { _ = try WGSLFrontend().parse(.wgsl(source)); Issue.record("expected error") }
+   |                                            `- error: cannot infer contextual base in reference to member 'wgsl'
+42 |         catch ShaderFailure.diagnostics(let ds) {
+43 |             #expect(ds[0].code == .unresolvedName)
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/WGSLFrontendTests.swift:51:55: error: cannot find 'WGSLFrontend' in scope
+49 |     @Test func budgetsAndUnsupportedAreNotSuccess() throws {
+50 |         for limits in [try ShaderLimits(tokens: 1), try ShaderLimits(nodes: 1), try ShaderLimits(depth: 1), try ShaderLimits(work: 1)] {
+51 |             #expect(throws: ShaderFailure.self) { try WGSLFrontend(limits: limits).parse(.wgsl("fn main() { let a = ((1u+2u)); }")) }
+   |                                                       `- error: cannot find 'WGSLFrontend' in scope
+52 |         }
+53 |         #expect(throws: ShaderFailure.self) { try WGSLFrontend().parse(.wgsl("enable made_up; fn f() {}")) }
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/WGSLFrontendTests.swift:51:91: error: cannot infer contextual base in reference to member 'wgsl'
+49 |     @Test func budgetsAndUnsupportedAreNotSuccess() throws {
+50 |         for limits in [try ShaderLimits(tokens: 1), try ShaderLimits(nodes: 1), try ShaderLimits(depth: 1), try ShaderLimits(work: 1)] {
+51 |             #expect(throws: ShaderFailure.self) { try WGSLFrontend(limits: limits).parse(.wgsl("fn main() { let a = ((1u+2u)); }")) }
+   |                                                                                           `- error: cannot infer contextual base in reference to member 'wgsl'
+52 |         }
+53 |         #expect(throws: ShaderFailure.self) { try WGSLFrontend().parse(.wgsl("enable made_up; fn f() {}")) }
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/WGSLFrontendTests.swift:53:51: error: cannot find 'WGSLFrontend' in scope
+51 |             #expect(throws: ShaderFailure.self) { try WGSLFrontend(limits: limits).parse(.wgsl("fn main() { let a = ((1u+2u)); }")) }
+52 |         }
+53 |         #expect(throws: ShaderFailure.self) { try WGSLFrontend().parse(.wgsl("enable made_up; fn f() {}")) }
+   |                                                   `- error: cannot find 'WGSLFrontend' in scope
+54 |         #expect(throws: ShaderFailure.self) { try WGSLFrontend().parse(.wgsl("fn f() { textureStore(); }")) }
+55 |     }
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/WGSLFrontendTests.swift:53:73: error: cannot infer contextual base in reference to member 'wgsl'
+51 |             #expect(throws: ShaderFailure.self) { try WGSLFrontend(limits: limits).parse(.wgsl("fn main() { let a = ((1u+2u)); }")) }
+52 |         }
+53 |         #expect(throws: ShaderFailure.self) { try WGSLFrontend().parse(.wgsl("enable made_up; fn f() {}")) }
+   |                                                                         `- error: cannot infer contextual base in reference to member 'wgsl'
+54 |         #expect(throws: ShaderFailure.self) { try WGSLFrontend().parse(.wgsl("fn f() { textureStore(); }")) }
+55 |     }
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/WGSLFrontendTests.swift:54:51: error: cannot find 'WGSLFrontend' in scope
+52 |         }
+53 |         #expect(throws: ShaderFailure.self) { try WGSLFrontend().parse(.wgsl("enable made_up; fn f() {}")) }
+54 |         #expect(throws: ShaderFailure.self) { try WGSLFrontend().parse(.wgsl("fn f() { textureStore(); }")) }
+   |                                                   `- error: cannot find 'WGSLFrontend' in scope
+55 |     }
+56 |     @Test func deterministicBoundedFuzz() throws {
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/WGSLFrontendTests.swift:54:73: error: cannot infer contextual base in reference to member 'wgsl'
+52 |         }
+53 |         #expect(throws: ShaderFailure.self) { try WGSLFrontend().parse(.wgsl("enable made_up; fn f() {}")) }
+54 |         #expect(throws: ShaderFailure.self) { try WGSLFrontend().parse(.wgsl("fn f() { textureStore(); }")) }
+   |                                                                         `- error: cannot infer contextual base in reference to member 'wgsl'
+55 |     }
+56 |     @Test func deterministicBoundedFuzz() throws {
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/WGSLFrontendTests.swift:59:24: error: cannot find 'WGSLFrontend' in scope
+57 |         var seed: UInt64 = 0x53414741
+58 |         let alphabet = Array("fn abc0123u{}()[];:+-*/=@<>!\n".utf8)
+59 |         let frontend = WGSLFrontend(limits: try ShaderLimits(sourceBytes: 512, tokens: 256, nodes: 512, depth: 24, work: 10000))
+   |                        `- error: cannot find 'WGSLFrontend' in scope
+60 |         for _ in 0..<256 {
+61 |             var bytes: [UInt8] = []
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/WGSLFrontendTests.swift:76:24: error: cannot find 'WGSLFrontend' in scope
+74 |         let task = Task {
+75 |             while !Task.isCancelled { await Task.yield() }
+76 |             return try WGSLFrontend().parse(.wgsl("fn f() {}"))
+   |                        `- error: cannot find 'WGSLFrontend' in scope
+77 |         }
+78 |         task.cancel()
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/WGSLFrontendTests.swift:76:46: error: cannot infer contextual base in reference to member 'wgsl'
+74 |         let task = Task {
+75 |             while !Task.isCancelled { await Task.yield() }
+76 |             return try WGSLFrontend().parse(.wgsl("fn f() {}"))
+   |                                              `- error: cannot infer contextual base in reference to member 'wgsl'
+77 |         }
+78 |         task.cancel()
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/WGSLFrontendTests.swift:79:9: error: no 'async' operations occur within 'await' expression
+77 |         }
+78 |         task.cancel()
+79 |         await #expect(throws: CancellationError.self) { try await task.value }
+   |         `- error: no 'async' operations occur within 'await' expression
+80 |     }
+81 | }
+[55/66] Compiling SAGAFoundationTests ShaderSemanticValidationTests.swift
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/ShaderSemanticValidationTests.swift:13:13: error: cannot find 'ShaderSemanticValidator' in scope
+11 |     @Test func emptyComputeModuleValidates() throws {
+12 |         let m = try module()
+13 |         try ShaderSemanticValidator().validate(m)
+   |             `- error: cannot find 'ShaderSemanticValidator' in scope
+14 |         #expect(try ValidatedModule.checking(m, with: ShaderSemanticValidator()).module == m)
+15 |     }
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/ShaderSemanticValidationTests.swift:14:55: error: cannot find 'ShaderSemanticValidator' in scope
+12 |         let m = try module()
+13 |         try ShaderSemanticValidator().validate(m)
+14 |         #expect(try ValidatedModule.checking(m, with: ShaderSemanticValidator()).module == m)
+   |                                                       `- error: cannot find 'ShaderSemanticValidator' in scope
+15 |     }
+16 |     @Test func literalTypeIsRecomputedNotTrusted() throws {
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/ShaderSemanticValidationTests.swift:19:18: error: cannot find 'ShaderSemanticValidator' in scope
+17 |         let span = try SourceSpan(startUTF8: 4, endUTF8: 8)
+18 |         let m = try module([IRExpression(type: h(0), kind: .literal(.bool(true)), location: .source(span))], types: [IRType(kind: .scalar(.u32))])
+19 |         do { try ShaderSemanticValidator().validate(m); Issue.record("invalid literal accepted") }
+   |                  `- error: cannot find 'ShaderSemanticValidator' in scope
+20 |         catch ShaderFailure.diagnostics(let ds) { #expect(ds.first?.code == .typeMismatch); #expect(ds.first?.span == span) }
+21 |     }
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/ShaderSemanticValidationTests.swift:23:51: error: cannot find 'ShaderSemanticValidator' in scope
+21 |     }
+22 |     @Test func invalidHandlesAndTypeCyclesAreRejected() throws {
+23 |         #expect(throws: ShaderFailure.self) { try ShaderSemanticValidator().validate(module([IRExpression(type: h(99), kind: .literal(.u32(1)))])) }
+   |                                                   `- error: cannot find 'ShaderSemanticValidator' in scope
+24 |         let cycle = IRModule(types: IRTable([IRType(kind: .pointer(base: try h(0), space: .function))]))
+25 |         #expect(throws: ShaderFailure.self) { try ShaderSemanticValidator().validate(cycle) }
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/ShaderSemanticValidationTests.swift:25:51: error: cannot find 'ShaderSemanticValidator' in scope
+23 |         #expect(throws: ShaderFailure.self) { try ShaderSemanticValidator().validate(module([IRExpression(type: h(99), kind: .literal(.u32(1)))])) }
+24 |         let cycle = IRModule(types: IRTable([IRType(kind: .pointer(base: try h(0), space: .function))]))
+25 |         #expect(throws: ShaderFailure.self) { try ShaderSemanticValidator().validate(cycle) }
+   |                                                   `- error: cannot find 'ShaderSemanticValidator' in scope
+26 |     }
+27 |     @Test func binaryResultTypesAreRecomputed() throws {
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/ShaderSemanticValidationTests.swift:31:51: error: cannot find 'ShaderSemanticValidator' in scope
+29 |         let a = IRExpression(type: try h(0), kind: .literal(.u32(1)))
+30 |         let bad = IRExpression(type: try h(0), kind: .binary(op: .equal, left: h(0), right: h(0)))
+31 |         #expect(throws: ShaderFailure.self) { try ShaderSemanticValidator().validate(module([a,bad],types:ts)) }
+   |                                                   `- error: cannot find 'ShaderSemanticValidator' in scope
+32 |         let good = IRExpression(type: try h(1), kind: .binary(op: .equal, left: h(0), right: h(0)))
+33 |         try ShaderSemanticValidator().validate(module([a,good],types:ts))
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/ShaderSemanticValidationTests.swift:33:13: error: cannot find 'ShaderSemanticValidator' in scope
+31 |         #expect(throws: ShaderFailure.self) { try ShaderSemanticValidator().validate(module([a,bad],types:ts)) }
+32 |         let good = IRExpression(type: try h(1), kind: .binary(op: .equal, left: h(0), right: h(0)))
+33 |         try ShaderSemanticValidator().validate(module([a,good],types:ts))
+   |             `- error: cannot find 'ShaderSemanticValidator' in scope
+34 |     }
+35 |     @Test func readonlyUniformCannotBeStored() throws {
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/ShaderSemanticValidationTests.swift:30:80: error: call can throw but is not marked with 'try'
+28 |         let ts = [IRType(kind: .scalar(.u32)), IRType(kind: .scalar(.bool))]
+29 |         let a = IRExpression(type: try h(0), kind: .literal(.u32(1)))
+30 |         let bad = IRExpression(type: try h(0), kind: .binary(op: .equal, left: h(0), right: h(0)))
+   |                                                                                |- error: call can throw but is not marked with 'try'
+   |                                                                                |- note: did you mean to use 'try'?
+   |                                                                                |- note: did you mean to handle error as optional value?
+   |                                                                                `- note: did you mean to disable error propagation?
+31 |         #expect(throws: ShaderFailure.self) { try ShaderSemanticValidator().validate(module([a,bad],types:ts)) }
+32 |         let good = IRExpression(type: try h(1), kind: .binary(op: .equal, left: h(0), right: h(0)))
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/ShaderSemanticValidationTests.swift:30:93: error: call can throw but is not marked with 'try'
+28 |         let ts = [IRType(kind: .scalar(.u32)), IRType(kind: .scalar(.bool))]
+29 |         let a = IRExpression(type: try h(0), kind: .literal(.u32(1)))
+30 |         let bad = IRExpression(type: try h(0), kind: .binary(op: .equal, left: h(0), right: h(0)))
+   |                                                                                             |- error: call can throw but is not marked with 'try'
+   |                                                                                             |- note: did you mean to use 'try'?
+   |                                                                                             |- note: did you mean to handle error as optional value?
+   |                                                                                             `- note: did you mean to disable error propagation?
+31 |         #expect(throws: ShaderFailure.self) { try ShaderSemanticValidator().validate(module([a,bad],types:ts)) }
+32 |         let good = IRExpression(type: try h(1), kind: .binary(op: .equal, left: h(0), right: h(0)))
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/ShaderSemanticValidationTests.swift:32:81: error: call can throw but is not marked with 'try'
+30 |         let bad = IRExpression(type: try h(0), kind: .binary(op: .equal, left: h(0), right: h(0)))
+31 |         #expect(throws: ShaderFailure.self) { try ShaderSemanticValidator().validate(module([a,bad],types:ts)) }
+32 |         let good = IRExpression(type: try h(1), kind: .binary(op: .equal, left: h(0), right: h(0)))
+   |                                                                                 |- error: call can throw but is not marked with 'try'
+   |                                                                                 |- note: did you mean to use 'try'?
+   |                                                                                 |- note: did you mean to handle error as optional value?
+   |                                                                                 `- note: did you mean to disable error propagation?
+33 |         try ShaderSemanticValidator().validate(module([a,good],types:ts))
+34 |     }
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/ShaderSemanticValidationTests.swift:32:94: error: call can throw but is not marked with 'try'
+30 |         let bad = IRExpression(type: try h(0), kind: .binary(op: .equal, left: h(0), right: h(0)))
+31 |         #expect(throws: ShaderFailure.self) { try ShaderSemanticValidator().validate(module([a,bad],types:ts)) }
+32 |         let good = IRExpression(type: try h(1), kind: .binary(op: .equal, left: h(0), right: h(0)))
+   |                                                                                              |- error: call can throw but is not marked with 'try'
+   |                                                                                              |- note: did you mean to use 'try'?
+   |                                                                                              |- note: did you mean to handle error as optional value?
+   |                                                                                              `- note: did you mean to disable error propagation?
+33 |         try ShaderSemanticValidator().validate(module([a,good],types:ts))
+34 |     }
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/ShaderSemanticValidationTests.swift:40:50: error: cannot find 'ShaderSemanticValidator' in scope
+38 |         let f = try module(es,statements:[.init(kind:.store(pointer:h(0),value:h(1))),.init(kind:.returnValue(nil))],types:ts).functions.values[0]
+39 |         let m = IRModule(types:IRTable(ts),globalVariables:IRTable([.init(space:.uniform,binding:.init(group:0,binding:0),type:try h(0))]),functions:IRTable([f]))
+40 |         #expect(throws:ShaderFailure.self) { try ShaderSemanticValidator().validate(m) }
+   |                                                  `- error: cannot find 'ShaderSemanticValidator' in scope
+41 |     }
+42 |     @Test func capabilitiesAndUnknownBitsAreChecked() throws {
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/ShaderSemanticValidationTests.swift:37:67: error: call can throw but is not marked with 'try'
+35 |     @Test func readonlyUniformCannotBeStored() throws {
+36 |         let ts = [IRType(kind: .scalar(.u32)),IRType(kind: .pointer(base:try h(0),space:.uniform))]
+37 |         let es = [IRExpression(type:try h(1),kind:.globalVariable(h(0))),IRExpression(type:try h(0),kind:.literal(.u32(1)))]
+   |                                                                   |- error: call can throw but is not marked with 'try'
+   |                                                                   |- note: did you mean to use 'try'?
+   |                                                                   |- note: did you mean to handle error as optional value?
+   |                                                                   `- note: did you mean to disable error propagation?
+38 |         let f = try module(es,statements:[.init(kind:.store(pointer:h(0),value:h(1))),.init(kind:.returnValue(nil))],types:ts).functions.values[0]
+39 |         let m = IRModule(types:IRTable(ts),globalVariables:IRTable([.init(space:.uniform,binding:.init(group:0,binding:0),type:try h(0))]),functions:IRTable([f]))
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/ShaderSemanticValidationTests.swift:44:50: error: cannot find 'ShaderSemanticValidator' in scope
+42 |     @Test func capabilitiesAndUnknownBitsAreChecked() throws {
+43 |         let m = IRModule(types:IRTable([IRType(kind:.scalar(.f16))]))
+44 |         #expect(throws:ShaderFailure.self) { try ShaderSemanticValidator().validate(m) }
+   |                                                  `- error: cannot find 'ShaderSemanticValidator' in scope
+45 |         try ShaderSemanticValidator(capabilities:[.shaderFloat16]).validate(m)
+46 |         #expect(throws:ShaderFailure.self) { try ShaderSemanticValidator(capabilities:.init(rawValue:1 << 63)).validate(IRModule()) }
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/ShaderSemanticValidationTests.swift:45:13: error: cannot find 'ShaderSemanticValidator' in scope
+43 |         let m = IRModule(types:IRTable([IRType(kind:.scalar(.f16))]))
+44 |         #expect(throws:ShaderFailure.self) { try ShaderSemanticValidator().validate(m) }
+45 |         try ShaderSemanticValidator(capabilities:[.shaderFloat16]).validate(m)
+   |             `- error: cannot find 'ShaderSemanticValidator' in scope
+46 |         #expect(throws:ShaderFailure.self) { try ShaderSemanticValidator(capabilities:.init(rawValue:1 << 63)).validate(IRModule()) }
+47 |     }
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/ShaderSemanticValidationTests.swift:45:52: error: reference to member 'shaderFloat16' cannot be resolved without a contextual type
+43 |         let m = IRModule(types:IRTable([IRType(kind:.scalar(.f16))]))
+44 |         #expect(throws:ShaderFailure.self) { try ShaderSemanticValidator().validate(m) }
+45 |         try ShaderSemanticValidator(capabilities:[.shaderFloat16]).validate(m)
+   |                                                    `- error: reference to member 'shaderFloat16' cannot be resolved without a contextual type
+46 |         #expect(throws:ShaderFailure.self) { try ShaderSemanticValidator(capabilities:.init(rawValue:1 << 63)).validate(IRModule()) }
+47 |     }
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/ShaderSemanticValidationTests.swift:46:50: error: cannot find 'ShaderSemanticValidator' in scope
+44 |         #expect(throws:ShaderFailure.self) { try ShaderSemanticValidator().validate(m) }
+45 |         try ShaderSemanticValidator(capabilities:[.shaderFloat16]).validate(m)
+46 |         #expect(throws:ShaderFailure.self) { try ShaderSemanticValidator(capabilities:.init(rawValue:1 << 63)).validate(IRModule()) }
+   |                                                  `- error: cannot find 'ShaderSemanticValidator' in scope
+47 |     }
+48 |     @Test func duplicateBindingsAndBadLayoutsAreRejected() throws {
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/ShaderSemanticValidationTests.swift:46:88: error: cannot infer contextual base in reference to member 'init'
+44 |         #expect(throws:ShaderFailure.self) { try ShaderSemanticValidator().validate(m) }
+45 |         try ShaderSemanticValidator(capabilities:[.shaderFloat16]).validate(m)
+46 |         #expect(throws:ShaderFailure.self) { try ShaderSemanticValidator(capabilities:.init(rawValue:1 << 63)).validate(IRModule()) }
+   |                                                                                        `- error: cannot infer contextual base in reference to member 'init'
+47 |     }
+48 |     @Test func duplicateBindingsAndBadLayoutsAreRejected() throws {
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/ShaderSemanticValidationTests.swift:51:50: error: cannot find 'ShaderSemanticValidator' in scope
+49 |         let ts = IRTable([IRType(kind:.scalar(.u32))])
+50 |         let m = IRModule(types:ts,globalVariables:IRTable([.init(space:.uniform,binding:.init(group:0,binding:1),type:try h(0)),.init(space:.uniform,binding:.init(group:0,binding:1),type:try h(0))]))
+51 |         #expect(throws:ShaderFailure.self) { try ShaderSemanticValidator().validate(m) }
+   |                                                  `- error: cannot find 'ShaderSemanticValidator' in scope
+52 |         let bad = IRModule(types:IRTable([IRType(kind:.scalar(.u32)),IRType(kind:.structure(members:[.init(type:try h(0),offset:1)],span:8))]))
+53 |         #expect(throws:ShaderFailure.self) { try ShaderSemanticValidator().validate(bad) }
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/ShaderSemanticValidationTests.swift:53:50: error: cannot find 'ShaderSemanticValidator' in scope
+51 |         #expect(throws:ShaderFailure.self) { try ShaderSemanticValidator().validate(m) }
+52 |         let bad = IRModule(types:IRTable([IRType(kind:.scalar(.u32)),IRType(kind:.structure(members:[.init(type:try h(0),offset:1)],span:8))]))
+53 |         #expect(throws:ShaderFailure.self) { try ShaderSemanticValidator().validate(bad) }
+   |                                                  `- error: cannot find 'ShaderSemanticValidator' in scope
+54 |     }
+55 |     @Test func builtinStageAndTypeChecked() throws {
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/ShaderSemanticValidationTests.swift:57:13: error: cannot find 'ShaderSemanticValidator' in scope
+55 |     @Test func builtinStageAndTypeChecked() throws {
+56 |         let a = IRFunctionArgument(type:try h(0),binding:.builtIn(.localInvocationIndex))
+57 |         try ShaderSemanticValidator().validate(module(types:[IRType(kind:.scalar(.u32))],arguments:[a]))
+   |             `- error: cannot find 'ShaderSemanticValidator' in scope
+58 |         #expect(throws:ShaderFailure.self) { try ShaderSemanticValidator().validate(module(types:[IRType(kind:.scalar(.u32))],arguments:[a],stage:.fragment)) }
+59 |     }
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/ShaderSemanticValidationTests.swift:58:50: error: cannot find 'ShaderSemanticValidator' in scope
+56 |         let a = IRFunctionArgument(type:try h(0),binding:.builtIn(.localInvocationIndex))
+57 |         try ShaderSemanticValidator().validate(module(types:[IRType(kind:.scalar(.u32))],arguments:[a]))
+58 |         #expect(throws:ShaderFailure.self) { try ShaderSemanticValidator().validate(module(types:[IRType(kind:.scalar(.u32))],arguments:[a],stage:.fragment)) }
+   |                                                  `- error: cannot find 'ShaderSemanticValidator' in scope
+59 |     }
+60 |     @Test func blockCyclesBreakAndMissingReturnAreRejected() throws {
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/ShaderSemanticValidationTests.swift:62:50: error: cannot find 'ShaderSemanticValidator' in scope
+60 |     @Test func blockCyclesBreakAndMissingReturnAreRejected() throws {
+61 |         let f = IRFunction(statements:IRTable([IRStatement(kind:.block(try h(0)))]),blocks:IRTable([IRBlock(statements:[try h(0)])]),body:try h(0))
+62 |         #expect(throws:ShaderFailure.self) { try ShaderSemanticValidator().validate(IRModule(functions:IRTable([f]))) }
+   |                                                  `- error: cannot find 'ShaderSemanticValidator' in scope
+63 |         #expect(throws:ShaderFailure.self) { try ShaderSemanticValidator().validate(module(statements:[.init(kind:.break)])) }
+64 |         #expect(throws:ShaderFailure.self) { try ShaderSemanticValidator().validate(module(types:[.init(kind:.scalar(.u32))],result:.init(type:h(0)))) }
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/ShaderSemanticValidationTests.swift:63:50: error: cannot find 'ShaderSemanticValidator' in scope
+61 |         let f = IRFunction(statements:IRTable([IRStatement(kind:.block(try h(0)))]),blocks:IRTable([IRBlock(statements:[try h(0)])]),body:try h(0))
+62 |         #expect(throws:ShaderFailure.self) { try ShaderSemanticValidator().validate(IRModule(functions:IRTable([f]))) }
+63 |         #expect(throws:ShaderFailure.self) { try ShaderSemanticValidator().validate(module(statements:[.init(kind:.break)])) }
+   |                                                  `- error: cannot find 'ShaderSemanticValidator' in scope
+64 |         #expect(throws:ShaderFailure.self) { try ShaderSemanticValidator().validate(module(types:[.init(kind:.scalar(.u32))],result:.init(type:h(0)))) }
+65 |     }
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/ShaderSemanticValidationTests.swift:64:50: error: cannot find 'ShaderSemanticValidator' in scope
+62 |         #expect(throws:ShaderFailure.self) { try ShaderSemanticValidator().validate(IRModule(functions:IRTable([f]))) }
+63 |         #expect(throws:ShaderFailure.self) { try ShaderSemanticValidator().validate(module(statements:[.init(kind:.break)])) }
+64 |         #expect(throws:ShaderFailure.self) { try ShaderSemanticValidator().validate(module(types:[.init(kind:.scalar(.u32))],result:.init(type:h(0)))) }
+   |                                                  `- error: cannot find 'ShaderSemanticValidator' in scope
+65 |     }
+66 |     @Test func budgetsAndCancellation() async throws {
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/ShaderSemanticValidationTests.swift:67:50: error: cannot find 'ShaderSemanticValidator' in scope
+65 |     }
+66 |     @Test func budgetsAndCancellation() async throws {
+67 |         #expect(throws:ShaderFailure.self) { try ShaderSemanticValidator(limits:ShaderLimits(work:0)).validate(module()) }
+   |                                                  `- error: cannot find 'ShaderSemanticValidator' in scope
+68 |         let m = try module()
+69 |         let task = Task { while !Task.isCancelled { await Task.yield() }; try ShaderSemanticValidator().validate(m) }
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/ShaderSemanticValidationTests.swift:69:79: error: cannot find 'ShaderSemanticValidator' in scope
+67 |         #expect(throws:ShaderFailure.self) { try ShaderSemanticValidator(limits:ShaderLimits(work:0)).validate(module()) }
+68 |         let m = try module()
+69 |         let task = Task { while !Task.isCancelled { await Task.yield() }; try ShaderSemanticValidator().validate(m) }
+   |                                                                               `- error: cannot find 'ShaderSemanticValidator' in scope
+70 |         task.cancel()
+71 |         await #expect(throws:CancellationError.self) { try await task.value }
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/ShaderSemanticValidationTests.swift:71:9: error: no 'async' operations occur within 'await' expression
+69 |         let task = Task { while !Task.isCancelled { await Task.yield() }; try ShaderSemanticValidator().validate(m) }
+70 |         task.cancel()
+71 |         await #expect(throws:CancellationError.self) { try await task.value }
+   |         `- error: no 'async' operations occur within 'await' expression
+72 |     }
+73 | }
+[56/66] Compiling SAGAFoundationTests SPIRVFrontendTests.swift
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/SPIRVFrontendTests.swift:16:13: error: cannot find 'SPIRVFrontend' in scope
+14 |     }
+15 |     func parse(_ words: [UInt32], options: SPIRVFrontendOptions = .init()) throws -> IRModule {
+16 |         try SPIRVFrontend(options: options).parse(.spirv(words))
+   |             `- error: cannot find 'SPIRVFrontend' in scope
+17 |     }
+18 |     func fails(_ words: [UInt32], code: ShaderDiagnosticCode = .invalidBinary) throws {
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/SPIRVFrontendTests.swift:16:52: error: cannot infer contextual base in reference to member 'spirv'
+14 |     }
+15 |     func parse(_ words: [UInt32], options: SPIRVFrontendOptions = .init()) throws -> IRModule {
+16 |         try SPIRVFrontend(options: options).parse(.spirv(words))
+   |                                                    `- error: cannot infer contextual base in reference to member 'spirv'
+17 |     }
+18 |     func fails(_ words: [UInt32], code: ShaderDiagnosticCode = .invalidBinary) throws {
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/SPIRVFrontendTests.swift:73:51: error: cannot find 'SPIRVFrontend' in scope
+71 |         #expect(try parse(huge).entryPoints.count == 1) // sparse IDs, no bound-sized allocation
+72 |         let small = try ShaderLimits(words: 10)
+73 |         #expect(throws: ShaderFailure.self) { try SPIRVFrontend(limits: small).parse(.spirv(Self.compute)) }
+   |                                                   `- error: cannot find 'SPIRVFrontend' in scope
+74 |         let work = try ShaderLimits(work: 1)
+75 |         #expect(throws: ShaderFailure.self) { try SPIRVFrontend(limits: work).parse(.spirv(Self.compute)) }
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/SPIRVFrontendTests.swift:73:87: error: cannot infer contextual base in reference to member 'spirv'
+71 |         #expect(try parse(huge).entryPoints.count == 1) // sparse IDs, no bound-sized allocation
+72 |         let small = try ShaderLimits(words: 10)
+73 |         #expect(throws: ShaderFailure.self) { try SPIRVFrontend(limits: small).parse(.spirv(Self.compute)) }
+   |                                                                                       `- error: cannot infer contextual base in reference to member 'spirv'
+74 |         let work = try ShaderLimits(work: 1)
+75 |         #expect(throws: ShaderFailure.self) { try SPIRVFrontend(limits: work).parse(.spirv(Self.compute)) }
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/SPIRVFrontendTests.swift:75:51: error: cannot find 'SPIRVFrontend' in scope
+73 |         #expect(throws: ShaderFailure.self) { try SPIRVFrontend(limits: small).parse(.spirv(Self.compute)) }
+74 |         let work = try ShaderLimits(work: 1)
+75 |         #expect(throws: ShaderFailure.self) { try SPIRVFrontend(limits: work).parse(.spirv(Self.compute)) }
+   |                                                   `- error: cannot find 'SPIRVFrontend' in scope
+76 |         let t = Task { while !Task.isCancelled { await Task.yield() }; return try SPIRVFrontend().parse(.spirv(Self.compute)) }
+77 |         t.cancel(); await #expect(throws: CancellationError.self) { try await t.value }
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/SPIRVFrontendTests.swift:75:86: error: cannot infer contextual base in reference to member 'spirv'
+73 |         #expect(throws: ShaderFailure.self) { try SPIRVFrontend(limits: small).parse(.spirv(Self.compute)) }
+74 |         let work = try ShaderLimits(work: 1)
+75 |         #expect(throws: ShaderFailure.self) { try SPIRVFrontend(limits: work).parse(.spirv(Self.compute)) }
+   |                                                                                      `- error: cannot infer contextual base in reference to member 'spirv'
+76 |         let t = Task { while !Task.isCancelled { await Task.yield() }; return try SPIRVFrontend().parse(.spirv(Self.compute)) }
+77 |         t.cancel(); await #expect(throws: CancellationError.self) { try await t.value }
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/SPIRVFrontendTests.swift:76:83: error: cannot find 'SPIRVFrontend' in scope
+74 |         let work = try ShaderLimits(work: 1)
+75 |         #expect(throws: ShaderFailure.self) { try SPIRVFrontend(limits: work).parse(.spirv(Self.compute)) }
+76 |         let t = Task { while !Task.isCancelled { await Task.yield() }; return try SPIRVFrontend().parse(.spirv(Self.compute)) }
+   |                                                                                   `- error: cannot find 'SPIRVFrontend' in scope
+77 |         t.cancel(); await #expect(throws: CancellationError.self) { try await t.value }
+78 |     }
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/SPIRVFrontendTests.swift:76:106: error: cannot infer contextual base in reference to member 'spirv'
+74 |         let work = try ShaderLimits(work: 1)
+75 |         #expect(throws: ShaderFailure.self) { try SPIRVFrontend(limits: work).parse(.spirv(Self.compute)) }
+76 |         let t = Task { while !Task.isCancelled { await Task.yield() }; return try SPIRVFrontend().parse(.spirv(Self.compute)) }
+   |                                                                                                          `- error: cannot infer contextual base in reference to member 'spirv'
+77 |         t.cancel(); await #expect(throws: CancellationError.self) { try await t.value }
+78 |     }
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/SPIRVFrontendTests.swift:77:21: error: no 'async' operations occur within 'await' expression
+75 |         #expect(throws: ShaderFailure.self) { try SPIRVFrontend(limits: work).parse(.spirv(Self.compute)) }
+76 |         let t = Task { while !Task.isCancelled { await Task.yield() }; return try SPIRVFrontend().parse(.spirv(Self.compute)) }
+77 |         t.cancel(); await #expect(throws: CancellationError.self) { try await t.value }
+   |                     `- error: no 'async' operations occur within 'await' expression
+78 |     }
+79 |     @Test func deterministicMalformedWordFuzz() throws {
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/SPIRVFrontendTests.swift:81:24: error: cannot find 'SPIRVFrontend' in scope
+79 |     @Test func deterministicMalformedWordFuzz() throws {
+80 |         let limits = try ShaderLimits(words: 512, tokens: 512, nodes: 512, depth: 16, work: 8192)
+81 |         let frontend = SPIRVFrontend(limits: limits)
+   |                        `- error: cannot find 'SPIRVFrontend' in scope
+82 |         var state: UInt32 = 0x5a6a15
+83 |         for n in 0..<400 {
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/SPIRVFrontendTests.swift:88:42: error: cannot infer contextual base in reference to member 'spirv'
+86 |             if n % 3 == 0 { w = Array(w.prefix(Int(state % UInt32(w.count)))) }
+87 |             else { w[Int(state % UInt32(w.count))] = state }
+88 |             do { _ = try frontend.parse(.spirv(w)) } catch is ShaderFailure { }
+   |                                          `- error: cannot infer contextual base in reference to member 'spirv'
+89 |         }
+90 |     }
+[57/66] Compiling SAGAFoundationTests MetalComputeTests.swift
+[58/66] Compiling SAGAFoundationTests FrontendContractsTests.swift
+[59/66] Compiling SAGAFoundationTests CommandTests.swift
+[60/66] Compiling SAGAFoundationTests DeviceTests.swift
+[61/66] Emitting module SAGAFoundationTests
+[62/66] Compiling SAGAFoundationTests DescriptorTests.swift
+[63/66] Compiling SAGAFoundationTests CompilerTests.swift
+[64/66] Compiling SAGAFoundationTests GLSLFrontendTests.swift
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/GLSLFrontendTests.swift:8:13: error: cannot find 'GLSLFrontend' in scope
+ 6 | @Suite struct GLSLFrontendTests {
+ 7 |     func parse(_ source: String, stage: ShaderStage = .compute, defines: [String: String] = [:]) throws -> IRModule {
+ 8 |         try GLSLFrontend(options: .init(stage: IRStage(stage))).parse(.glsl(source, stage: stage, defines: defines))
+   |             `- error: cannot find 'GLSLFrontend' in scope
+ 9 |     }
+10 |     @Test func computeHasRealTypedArithmeticAndControlFlow() throws {
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/GLSLFrontendTests.swift:8:36: error: cannot infer contextual base in reference to member 'init'
+ 6 | @Suite struct GLSLFrontendTests {
+ 7 |     func parse(_ source: String, stage: ShaderStage = .compute, defines: [String: String] = [:]) throws -> IRModule {
+ 8 |         try GLSLFrontend(options: .init(stage: IRStage(stage))).parse(.glsl(source, stage: stage, defines: defines))
+   |                                    `- error: cannot infer contextual base in reference to member 'init'
+ 9 |     }
+10 |     @Test func computeHasRealTypedArithmeticAndControlFlow() throws {
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/GLSLFrontendTests.swift:8:72: error: cannot infer contextual base in reference to member 'glsl'
+ 6 | @Suite struct GLSLFrontendTests {
+ 7 |     func parse(_ source: String, stage: ShaderStage = .compute, defines: [String: String] = [:]) throws -> IRModule {
+ 8 |         try GLSLFrontend(options: .init(stage: IRStage(stage))).parse(.glsl(source, stage: stage, defines: defines))
+   |                                                                        `- error: cannot infer contextual base in reference to member 'glsl'
+ 9 |     }
+10 |     @Test func computeHasRealTypedArithmeticAndControlFlow() throws {
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/GLSLFrontendTests.swift:37:51: error: cannot find 'GLSLFrontend' in scope
+35 |         }
+36 |         for version in ["440", "450 core", "460"] { _ = try parse("#version \(version)\nvoid main(){}") }
+37 |         #expect(throws: ShaderFailure.self) { try GLSLFrontend(options: .init(stage:.vertex)).parse(.glsl("#version 450\nvoid main(){}",stage:.compute,defines:[:])) }
+   |                                                   `- error: cannot find 'GLSLFrontend' in scope
+38 |         #expect(throws: ShaderFailure.self) { try parse("#version 450\nvoid main(){}", defines:["not a name":"1"]) }
+39 |     }
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/GLSLFrontendTests.swift:37:74: error: cannot infer contextual base in reference to member 'init'
+35 |         }
+36 |         for version in ["440", "450 core", "460"] { _ = try parse("#version \(version)\nvoid main(){}") }
+37 |         #expect(throws: ShaderFailure.self) { try GLSLFrontend(options: .init(stage:.vertex)).parse(.glsl("#version 450\nvoid main(){}",stage:.compute,defines:[:])) }
+   |                                                                          `- error: cannot infer contextual base in reference to member 'init'
+38 |         #expect(throws: ShaderFailure.self) { try parse("#version 450\nvoid main(){}", defines:["not a name":"1"]) }
+39 |     }
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/GLSLFrontendTests.swift:37:86: error: cannot infer contextual base in reference to member 'vertex'
+35 |         }
+36 |         for version in ["440", "450 core", "460"] { _ = try parse("#version \(version)\nvoid main(){}") }
+37 |         #expect(throws: ShaderFailure.self) { try GLSLFrontend(options: .init(stage:.vertex)).parse(.glsl("#version 450\nvoid main(){}",stage:.compute,defines:[:])) }
+   |                                                                                      `- error: cannot infer contextual base in reference to member 'vertex'
+38 |         #expect(throws: ShaderFailure.self) { try parse("#version 450\nvoid main(){}", defines:["not a name":"1"]) }
+39 |     }
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/GLSLFrontendTests.swift:37:102: error: cannot infer contextual base in reference to member 'glsl'
+35 |         }
+36 |         for version in ["440", "450 core", "460"] { _ = try parse("#version \(version)\nvoid main(){}") }
+37 |         #expect(throws: ShaderFailure.self) { try GLSLFrontend(options: .init(stage:.vertex)).parse(.glsl("#version 450\nvoid main(){}",stage:.compute,defines:[:])) }
+   |                                                                                                      `- error: cannot infer contextual base in reference to member 'glsl'
+38 |         #expect(throws: ShaderFailure.self) { try parse("#version 450\nvoid main(){}", defines:["not a name":"1"]) }
+39 |     }
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/GLSLFrontendTests.swift:37:144: error: cannot infer contextual base in reference to member 'compute'
+35 |         }
+36 |         for version in ["440", "450 core", "460"] { _ = try parse("#version \(version)\nvoid main(){}") }
+37 |         #expect(throws: ShaderFailure.self) { try GLSLFrontend(options: .init(stage:.vertex)).parse(.glsl("#version 450\nvoid main(){}",stage:.compute,defines:[:])) }
+   |                                                                                                                                                `- error: cannot infer contextual base in reference to member 'compute'
+38 |         #expect(throws: ShaderFailure.self) { try parse("#version 450\nvoid main(){}", defines:["not a name":"1"]) }
+39 |     }
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/GLSLFrontendTests.swift:52:19: error: cannot find 'GLSLFrontend' in scope
+50 |     @Test func boundedTokensWorkDepthAndCancellation() async throws {
+51 |         for limits in [try ShaderLimits(tokens:2), try ShaderLimits(nodes:0), try ShaderLimits(depth:2), try ShaderLimits(work:3)] {
+52 |             let f=GLSLFrontend(options:.init(stage:.compute),limits:limits)
+   |                   `- error: cannot find 'GLSLFrontend' in scope
+53 |             #expect(throws: ShaderFailure.self) { try f.parse(.glsl("#version 450\nvoid main(){int x=((((1))));}",stage:.compute,defines:[:])) }
+54 |         }
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/GLSLFrontendTests.swift:52:41: error: cannot infer contextual base in reference to member 'init'
+50 |     @Test func boundedTokensWorkDepthAndCancellation() async throws {
+51 |         for limits in [try ShaderLimits(tokens:2), try ShaderLimits(nodes:0), try ShaderLimits(depth:2), try ShaderLimits(work:3)] {
+52 |             let f=GLSLFrontend(options:.init(stage:.compute),limits:limits)
+   |                                         `- error: cannot infer contextual base in reference to member 'init'
+53 |             #expect(throws: ShaderFailure.self) { try f.parse(.glsl("#version 450\nvoid main(){int x=((((1))));}",stage:.compute,defines:[:])) }
+54 |         }
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/GLSLFrontendTests.swift:52:53: error: cannot infer contextual base in reference to member 'compute'
+50 |     @Test func boundedTokensWorkDepthAndCancellation() async throws {
+51 |         for limits in [try ShaderLimits(tokens:2), try ShaderLimits(nodes:0), try ShaderLimits(depth:2), try ShaderLimits(work:3)] {
+52 |             let f=GLSLFrontend(options:.init(stage:.compute),limits:limits)
+   |                                                     `- error: cannot infer contextual base in reference to member 'compute'
+53 |             #expect(throws: ShaderFailure.self) { try f.parse(.glsl("#version 450\nvoid main(){int x=((((1))));}",stage:.compute,defines:[:])) }
+54 |         }
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/GLSLFrontendTests.swift:53:64: error: cannot infer contextual base in reference to member 'glsl'
+51 |         for limits in [try ShaderLimits(tokens:2), try ShaderLimits(nodes:0), try ShaderLimits(depth:2), try ShaderLimits(work:3)] {
+52 |             let f=GLSLFrontend(options:.init(stage:.compute),limits:limits)
+53 |             #expect(throws: ShaderFailure.self) { try f.parse(.glsl("#version 450\nvoid main(){int x=((((1))));}",stage:.compute,defines:[:])) }
+   |                                                                `- error: cannot infer contextual base in reference to member 'glsl'
+54 |         }
+55 |         let task=Task { while !Task.isCancelled { await Task.yield() }; return try parse("#version 450\nvoid main(){}") }
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/GLSLFrontendTests.swift:53:122: error: cannot infer contextual base in reference to member 'compute'
+51 |         for limits in [try ShaderLimits(tokens:2), try ShaderLimits(nodes:0), try ShaderLimits(depth:2), try ShaderLimits(work:3)] {
+52 |             let f=GLSLFrontend(options:.init(stage:.compute),limits:limits)
+53 |             #expect(throws: ShaderFailure.self) { try f.parse(.glsl("#version 450\nvoid main(){int x=((((1))));}",stage:.compute,defines:[:])) }
+   |                                                                                                                          `- error: cannot infer contextual base in reference to member 'compute'
+54 |         }
+55 |         let task=Task { while !Task.isCancelled { await Task.yield() }; return try parse("#version 450\nvoid main(){}") }
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/GLSLFrontendTests.swift:62:15: error: cannot find 'GLSLFrontend' in scope
+60 |         var seed: UInt64=14
+61 |         let alphabet=Array("{}()[];012ab#/+*<>=!\n ".utf8)
+62 |         let f=GLSLFrontend(options:.init(stage:.compute), limits:try ShaderLimits(sourceBytes:4096,tokens:512,nodes:512,depth:32,work:20000))
+   |               `- error: cannot find 'GLSLFrontend' in scope
+63 |         for n in 0..<256 {
+64 |             var bytes=Array("#version 450\n".utf8)
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/GLSLFrontendTests.swift:62:37: error: cannot infer contextual base in reference to member 'init'
+60 |         var seed: UInt64=14
+61 |         let alphabet=Array("{}()[];012ab#/+*<>=!\n ".utf8)
+62 |         let f=GLSLFrontend(options:.init(stage:.compute), limits:try ShaderLimits(sourceBytes:4096,tokens:512,nodes:512,depth:32,work:20000))
+   |                                     `- error: cannot infer contextual base in reference to member 'init'
+63 |         for n in 0..<256 {
+64 |             var bytes=Array("#version 450\n".utf8)
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/GLSLFrontendTests.swift:62:49: error: cannot infer contextual base in reference to member 'compute'
+60 |         var seed: UInt64=14
+61 |         let alphabet=Array("{}()[];012ab#/+*<>=!\n ".utf8)
+62 |         let f=GLSLFrontend(options:.init(stage:.compute), limits:try ShaderLimits(sourceBytes:4096,tokens:512,nodes:512,depth:32,work:20000))
+   |                                                 `- error: cannot infer contextual base in reference to member 'compute'
+63 |         for n in 0..<256 {
+64 |             var bytes=Array("#version 450\n".utf8)
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/GLSLFrontendTests.swift:66:35: error: cannot infer contextual base in reference to member 'glsl'
+64 |             var bytes=Array("#version 450\n".utf8)
+65 |             for _ in 0..<(n%80) { seed=seed &* 6364136223846793005 &+ 1; bytes.append(alphabet[Int(seed%UInt64(alphabet.count))]) }
+66 |             do { _ = try f.parse(.glsl(String(decoding:bytes,as:UTF8.self),stage:.compute,defines:[:])) }
+   |                                   `- error: cannot infer contextual base in reference to member 'glsl'
+67 |             catch is ShaderFailure {} // No unrelated errors or crashes are masked.
+68 |         }
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/GLSLFrontendTests.swift:66:83: error: cannot infer contextual base in reference to member 'compute'
+64 |             var bytes=Array("#version 450\n".utf8)
+65 |             for _ in 0..<(n%80) { seed=seed &* 6364136223846793005 &+ 1; bytes.append(alphabet[Int(seed%UInt64(alphabet.count))]) }
+66 |             do { _ = try f.parse(.glsl(String(decoding:bytes,as:UTF8.self),stage:.compute,defines:[:])) }
+   |                                                                                   `- error: cannot infer contextual base in reference to member 'compute'
+67 |             catch is ShaderFailure {} // No unrelated errors or crashes are masked.
+68 |         }
+error: fatalError

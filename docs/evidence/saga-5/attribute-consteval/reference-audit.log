@@ -1,0 +1,183 @@
+## Operator Precedence and Associativity ## {#operator-precedence-associativity}
+
+This entire subsection is non-normative.
+
+Operator precedence and associativity in [=syntax/expression|right-hand side WGSL expressions=]
+emerge from their grammar in summary. Right-hand expressions group operators to organize them,
+as illustrated by the following diagram:
+
+<div class=operators1>
+  <figure>
+    <figcaption>Operator precedence and associativity graph</figcaption>
+    <object type="image/svg+xml" data="img/operators_1.mmd.svg"></object>
+  </figure>
+</div>
+
+To promote readability through verbosity, the following groups do not associate with other groups:
+
+* [=syntax/short_circuit_or_expression|Short-circuit OR=]
+    (can associate with [=syntax/short_circuit_or_expression|self=] and [=syntax/relational_expression|relational=] weakly),
+* [=syntax/short_circuit_and_expression|Short-circuit AND=]
+    (can associate with [=syntax/short_circuit_and_expression|self=] and [=syntax/relational_expression|relational=] weakly),
+* [=syntax/binary_or_expression|Binary OR=]
+    (can associate with [=syntax/binary_or_expression|self=] and [=syntax/unary_expression|unary=] weakly),
+* [=syntax/binary_and_expression|Binary AND=]
+    (can associate with [=syntax/binary_and_expression|self=] and [=syntax/unary_expression|unary=] weakly),
+* [=syntax/binary_xor_expression|Binary XOR=]
+    (can associate with [=syntax/binary_xor_expression|self=] and [=syntax/unary_expression|unary=] weakly).
+
+And the following groups do not associate with themselves:
+
+* [=syntax/shift_expression|Shift=]
+    (can associate with [=syntax/unary_expression|unary=] weakly),
+* [=syntax/relational_expression|Relational=]
+    (can associate with [=syntax/additive_expression|additive=] and [=syntax/shift_expression|shift=] weakly).
+
+Associating both group sections above requires parentheses to set the relationship explicitly.
+The following exemplifies where these rules render expressions invalid in comments:
+
+<div class='example wgsl function-scope' heading='Operator precedence corner cases'>
+  <xmp highlight=wgsl>
+    let a = x & (y ^ (z | w)); // Invalid: x & y ^ z | w
+    let b = (x + y) << (z >= w); // Invalid: x + y << z >= w
+    let c = x < (y > z); // Invalid: x < y > z
+    let d = x && (y || z); // Invalid: x && y || z
+  </xmp>
+</div>
+
+Emergent precedence controls the implicit parentheses of an expression, where the stronger
+binding operator will act as if it is surrounded by parentheses when together with operators
+of weaker precedence. For example, stronger binding multiplicative operators than additive will
+infer `(a + (b * c))` from `a + b * c` expression. Similarly, the emergent associativity controls
+the direction of these implicit parentheses. For example, a left-to-right association will
+infer `((a + b) + c)` from `a + b + c` expression, whereas a right-to-left association
+will infer `(* (* a))` from `* * a` expression.
+
+The following table summarizes operator precedence, associativity, and binding, sorting
+by starting with strongest to weakest. The binding column contains the stronger expression
+of the given operator, meaning, for example, if "All above" is the value, then this operator
+can include any of the stronger expressions. But, for example, if "Unary" is the value,
+then anything weaker than unary but stronger than the operator at row would require parentheses
+to bind with this operator. This column is necessary for linearly listing operators.
+
+<table class='data'>
+  <caption>
+    Operator precedence, associativity, and binding for right-hand side expressions, sorted from strong to weak<br>
+  </caption>
+                            | BinaryOperator::LessEqual
+                            | BinaryOperator::Greater
+                            | BinaryOperator::GreaterEqual
+                    )
+                ) {
+                    return Err(ConstantEvaluatorError::InvalidBinaryOpArgs);
+                }
+
+                let literal = match op {
+                    BinaryOperator::Equal => Literal::Bool(left_value == right_value),
+                    BinaryOperator::NotEqual => Literal::Bool(left_value != right_value),
+                    BinaryOperator::Less => Literal::Bool(left_value < right_value),
+                    BinaryOperator::LessEqual => Literal::Bool(left_value <= right_value),
+                    BinaryOperator::Greater => Literal::Bool(left_value > right_value),
+                    BinaryOperator::GreaterEqual => Literal::Bool(left_value >= right_value),
+
+                    _ => match (left_value, right_value) {
+                        (Literal::I16(a), Literal::I16(b)) => Literal::I16(match op {
+                            BinaryOperator::Add => a.wrapping_add(b),
+                            BinaryOperator::Subtract => a.wrapping_sub(b),
+                            BinaryOperator::Multiply => a.wrapping_mul(b),
+                            BinaryOperator::Divide => a.checked_div(b).ok_or_else(|| {
+                                if b == 0 {
+                                    ConstantEvaluatorError::DivisionByZero
+                                } else {
+                                    ConstantEvaluatorError::Overflow("division".into())
+                                }
+                            })?,
+                            BinaryOperator::Modulo => a.checked_rem(b).ok_or_else(|| {
+                                if b == 0 {
+                                    ConstantEvaluatorError::RemainderByZero
+                                } else {
+                                    ConstantEvaluatorError::Overflow("remainder".into())
+                                }
+                            })?,
+                            BinaryOperator::And => a & b,
+                            BinaryOperator::ExclusiveOr => a ^ b,
+                            BinaryOperator::InclusiveOr => a | b,
+                            _ => return Err(ConstantEvaluatorError::InvalidBinaryOpArgs),
+                        }),
+                        (Literal::I16(a), Literal::U32(b)) => Literal::I16(match op {
+                            BinaryOperator::ShiftLeft => {
+                                if (if a.is_negative() { !a } else { a }).leading_zeros() <= b {
+                                    return Err(ConstantEvaluatorError::Overflow("<<".to_string()));
+                                }
+                                a.checked_shl(b)
+                                    .ok_or(ConstantEvaluatorError::ShiftedMoreThan32Bits)?
+                            }
+                            BinaryOperator::ShiftRight => a
+                                .checked_shr(b)
+                                .ok_or(ConstantEvaluatorError::ShiftedMoreThan32Bits)?,
+                            _ => return Err(ConstantEvaluatorError::InvalidBinaryOpArgs),
+                        }),
+                        (Literal::U16(a), Literal::U16(b)) => Literal::U16(match op {
+                            BinaryOperator::Add => a.wrapping_add(b),
+                            BinaryOperator::Subtract => a.wrapping_sub(b),
+                            BinaryOperator::Multiply => a.wrapping_mul(b),
+                            BinaryOperator::Divide => a
+                                .checked_div(b)
+                                .ok_or(ConstantEvaluatorError::DivisionByZero)?,
+                            BinaryOperator::Modulo => a
+                                .checked_rem(b)
+                                .ok_or(ConstantEvaluatorError::RemainderByZero)?,
+                            BinaryOperator::And => a & b,
+                            BinaryOperator::ExclusiveOr => a ^ b,
+                            BinaryOperator::InclusiveOr => a | b,
+                            _ => return Err(ConstantEvaluatorError::InvalidBinaryOpArgs),
+                        }),
+                        (Literal::U16(a), Literal::U32(b)) => Literal::U16(match op {
+                            BinaryOperator::ShiftLeft => a
+                                .checked_mul(
+          @const @must_use fn mat4x4<T>(e1 : T, ..., e16 : T) -> mat4x4<T>
+          @const @must_use fn mat4x4(e1 : T, ..., e16 : T) -> mat4x4<T>
+        </xmp>
+  <tr><td>Parameterization
+      <td>`T` is [FLOATSCALAR]
+  <tr><td>Description
+      <td>Construct a 4x4 column-major [=matrix=] from elements.
+
+          Same as mat4x4(vec4(e1,e2,e3,e4), vec4(e5,e6,e7,e8), vec4(e9,e10,e11,e12), vec4(e13,e14,e15,e16)).
+</table>
+
+#### Structures #### {#structures-builtin}
+
+<table class='data builtin'>
+  <tr><td style="width:10%">Overload
+      <td>
+        <xmp highlight=wgsl>@const @must_use fn S(e1 : T1, ..., eN : TN) -> S</xmp>
+  <tr><td>Parameterization
+      <td>`S` is a [=constructible=] structure type with members having types `T1` ... `TN`.
+  <tr><td>Description
+      <td>Construct a [=structure=] of type `S` from members.
+</table>
+
+#### `u32` #### {#u32-builtin}
+
+<table class='data builtin'>
+  <tr><td style="width:10%">Overload
+      <td>
+        <xmp highlight=wgsl>@const @must_use fn u32(e : T) -> u32</xmp>
+  <tr><td>Parameterization
+      <td>`T` is a [=scalar=] type
+  <tr><td>Description
+      <td>Construct a [=u32=] value.
+
+      If `T` is [=u32=], this is an identity operation.<br>
+      If `T` is [=i32=], this is a reinterpretation of bits (i.e. the result is the unique value in [=u32=] that has the same bit pattern as `e`).<br>
+      If `T` is a [[#floating-point-types|floating point type]], `e` is [=scalar floating point to integral conversion|converted=] to [=u32=], [=rounding=] towards zero.<br>
+      If `T` is [=bool=], the result is `1u` if `e` is `true` and `0u` otherwise.<br>
+      If `T` is [=AbstractInt=], this is an identity operation if the `e` can be represented in [=u32=], otherwise it produces a [=shader-creation error=].
+  <tr><td>
+      <td>
+
+      Note: The overload from [=AbstractInt=] exists so expressions such as `u32(4*1000*1000*1000)` can create a u32 value that would otherwise overflow the i32 type. If this overload did not exist, [=overload resolution=] would select the `u32(i32)` overload, the AbstractInt expression would automatically convert to i32, and this would cause a shader-creation error due to overflow.
+</table>
+
+#### `vec2` #### {#vec2-builtin}

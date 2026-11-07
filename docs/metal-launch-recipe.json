@@ -1,0 +1,29 @@
+{
+  "name": "SAGA · Metal GPU diagnostic",
+  "target": "SAGAMetalDiagnostic",
+  "platform": "macOS",
+  "checkoutPath": "/Users/vlad-prusakov/Developer/saga",
+  "workingDirectory": ".",
+  "build": [
+    {
+      "executable": "/usr/bin/swift",
+      "arguments": [
+        "build",
+        "--scratch-path",
+        ".build-apple",
+        "-Xswiftc",
+        "-warnings-as-errors",
+        "-Xswiftc",
+        "-strict-concurrency=complete"
+      ]
+    },
+    {
+      "executable": "/usr/bin/python3",
+      "arguments": [
+        "scripts/package-metal-diagnostic.py"
+      ]
+    }
+  ],
+  "appPath": ".build-play/SAGAMetalDiagnostic.app",
+  "bundleID": "team.saga.MetalDiagnostic"
+}

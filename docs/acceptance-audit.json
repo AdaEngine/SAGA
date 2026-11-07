@@ -1,0 +1,52 @@
+{
+  "scope": "documentation baseline acceptance only",
+  "changed_paths": [
+    "docs/adr/implement-independent-webgpu.md",
+    "docs/adr/use-metal-and-browser-webgpu.md",
+    "docs/conformance.md",
+    "docs/provenance.md",
+    "docs/roadmap.md",
+    "docs/tools/test_docs.py",
+    "docs/tools/verify_docs.py",
+    "docs/verification-results.json",
+    "docs/verification.md",
+    "docs/acceptance-audit.json"
+  ],
+  "outside_docs_changed": false,
+  "outside_docs_fingerprints": {
+    "IDEA.md": "9c1ecb810a7969eea92b896eebe1a9b12641344790a31b1fafb14434727cdc88",
+    ".sloppy/plans/wgpu-rust/index.html": "1b35ebc49386f24507f006045a1be33f9ee83f2b66aa91ab4a8290c218a9d6da",
+    ".sloppy/plans/wgpu-rust/manifest.json": "da54e2faadf0b99169012ab3992a7c059e1c1de8bbb858a33777ee62cf086539",
+    ".sloppy/plans/wgpu-rust/wgpu-rust.md": "e930e0e3a30249485d1f69da4e1c5f5d33b416903beb3d05a6bd415dc35c396b",
+    ".sloppy/plans/wgpu-rust/assets/style.css": "0de4eb7a3a2a4f92d5bb05a4ead9a5fca999dc9c8bc4cc38a642bd97a460558f"
+  },
+  "preserved_inventory_source_paths": [
+    "docs/inventory.json",
+    "docs/inventory.md",
+    "docs/native-inventory.json",
+    "docs/roadmap.json",
+    "docs/source-hashes.json",
+    "docs/source-verification.json",
+    "docs/sources/gpuweb-LICENSE.md",
+    "docs/sources/wgsl-spec.bs",
+    "docs/sources/webgpu-spec.bs",
+    "docs/sources/wgpu-LICENSE.MIT",
+    "docs/sources/fetch.json",
+    "docs/sources/wgpu-cts_runner-revision.txt",
+    "docs/sources/cts-tree.json",
+    "docs/sources/cts-revision.json",
+    "docs/sources/gpuweb-revision.json",
+    "docs/sources/cts-README.md",
+    "docs/sources/wgpu-LICENSE.APACHE",
+    "docs/sources/cts-LICENSE.txt"
+  ],
+  "reference_head": "a55352911bb26a1b33bc8d5fc03bdebb0a967f5a",
+  "reference_worktree_clean": true,
+  "reference_notices_and_cts_pin_match_git_objects": true,
+  "historical_network_metadata_consistent": true,
+  "fresh_network_requests": false,
+  "swift_build": false,
+  "swift_tests": false,
+  "gpu": false,
+  "cts": false
+}

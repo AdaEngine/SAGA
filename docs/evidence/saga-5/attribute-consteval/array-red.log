@@ -1,0 +1,26 @@
+Building for debugging...
+[0/5] Write sources
+[1/5] Write swift-version-3CD7052B146186F2.txt
+[3/5] Compiling SAGAFoundationTests WGSLFrontendTests.swift
+[4/5] Emitting module SAGAFoundationTests
+[4/6] Write Objects.LinkFileList
+[5/6] Linking SAGAPackageTests
+Build complete! (1.85s)
+Test Suite 'Selected tests' started at 2026-11-07 03:30:21.179.
+Test Suite 'SAGAPackageTests.xctest' started at 2026-11-07 03:30:21.186.
+Test Suite 'SAGAPackageTests.xctest' passed at 2026-11-07 03:30:21.186.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+Test Suite 'Selected tests' passed at 2026-11-07 03:30:21.186.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.007) seconds
+􀟈  Test run started.
+􀄵  Testing Library Version: 1902
+􀄵  Target Platform: arm64e-apple-macos14.0
+􀟈  Suite WGSLFrontendTests started.
+􀟈  Test attributedIntegerExpressionsRejectMalformedTreesDeterministically() started.
+􀟈  Test creationFixedArrayCountsUseSameBoundedConstantRules() started.
+􀢄  Test creationFixedArrayCountsUseSameBoundedConstantRules() recorded an issue at WGSLFrontendTests.swift:346:6: Caught error: .diagnostics([SAGAShaderIR.ShaderDiagnostic(severity: SAGAShaderIR.ShaderDiagnostic.Severity.error, message: "Expected numeric/bool literal", code: SAGAShaderIR.ShaderDiagnosticCode.unexpectedToken, location: Optional(SAGAShaderIR.ShaderLocation.source(SAGAShaderIR.SourceSpan(startUTF8: 28, endUTF8: 33))))])
+􀢄  Test creationFixedArrayCountsUseSameBoundedConstantRules() failed after 0.001 seconds with 1 issue.
+􁁛  Test attributedIntegerExpressionsRejectMalformedTreesDeterministically() passed after 0.003 seconds.
+􀢄  Suite WGSLFrontendTests failed after 0.003 seconds with 1 issue.
+􀄵  // Independently authored SAGA fixtures; no upstream shader bytes copied.
+􀢄  Test run with 2 tests in 1 suite failed after 0.003 seconds with 1 issue.

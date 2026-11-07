@@ -1,0 +1,51 @@
+[0/1] Planning build
+Building for debugging...
+[0/7] Write sources
+[2/7] Write swift-version-3CD7052B146186F2.txt
+[4/10] Compiling SAGAFrontends WGSLFrontend.swift
+[5/10] Compiling SAGAFrontends ModuleDeclarations.swift
+[6/10] Compiling SAGAFrontends ScalarConstantExpressions.swift
+[7/10] Emitting module SAGAFrontends
+[8/10] Compiling SAGAFrontends Statements.swift
+[9/15] Compiling SAGAFrontends Loops.swift
+[10/15] Compiling SAGAFrontends Materialization.swift
+[11/15] Compiling SAGAFrontends ControlExpressions.swift
+[12/15] Compiling SAGAFrontends Expressions.swift
+[13/15] Compiling SAGAFrontends ConstantExpressions.swift
+[14/18] Emitting module SAGACompiler
+[15/18] Compiling SAGACompiler FrontendValidation.swift
+[16/18] Compiling SAGACompiler Compiler.swift
+[17/25] Compiling SAGAFoundationTests SPIRVFrontendTests.swift
+[18/25] Compiling SAGAFoundationTests FrontendContractsTests.swift
+[19/25] Compiling SAGAFoundationTests GLSLFrontendTests.swift
+[20/25] Compiling SAGAFoundationTests FrontendIntegrationTests.swift
+[21/25] Emitting module SAGAFoundationTests
+[22/25] Compiling SAGAFoundationTests WGSLFrontendTests.swift
+[23/25] Compiling SAGAFoundationTests CompilerTests.swift
+[23/25] Write Objects.LinkFileList
+[24/25] Linking SAGAPackageTests
+Build complete! (3.67s)
+Test Suite 'Selected tests' started at 2026-11-07 04:10:40.519.
+Test Suite 'SAGAPackageTests.xctest' started at 2026-11-07 04:10:40.526.
+Test Suite 'SAGAPackageTests.xctest' passed at 2026-11-07 04:10:40.526.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+Test Suite 'Selected tests' passed at 2026-11-07 04:10:40.526.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.007) seconds
+􀟈  Test run started.
+􀄵  Testing Library Version: 1902
+􀄵  Target Platform: arm64e-apple-macos14.0
+􀟈  Suite WGSLFrontendTests started.
+􀟈  Suite FrontendIntegrationTests started.
+􀟈  Test constShortCircuitStillValidatesSkippedSyntaxNamesAndTypes() started.
+􀟈  Test booleanAndAssertionResourceLimitsRemainBounded() started.
+􀟈  Test moduleAndFunctionAssertionsAreCompileTimeOnly() started.
+􀟈  Test booleanConstComparisonsLogicalAndBitwiseRules() started.
+􀟈  Test assertionsResolveForwardDependenciesAndRejectFalsePrecisely() started.
+􁁛  Test assertionsResolveForwardDependenciesAndRejectFalsePrecisely() passed after 0.002 seconds.
+􁁛  Test moduleAndFunctionAssertionsAreCompileTimeOnly() passed after 0.003 seconds.
+􁁛  Test booleanAndAssertionResourceLimitsRemainBounded() passed after 0.003 seconds.
+􁁛  Suite FrontendIntegrationTests passed after 0.003 seconds.
+􁁛  Test constShortCircuitStillValidatesSkippedSyntaxNamesAndTypes() passed after 0.003 seconds.
+􁁛  Test booleanConstComparisonsLogicalAndBitwiseRules() passed after 0.004 seconds.
+􁁛  Suite WGSLFrontendTests passed after 0.004 seconds.
+􁁛  Test run with 5 tests in 2 suites passed after 0.004 seconds.

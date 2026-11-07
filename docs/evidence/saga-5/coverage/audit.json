@@ -1,0 +1,33 @@
+{
+  "audit": "pass",
+  "compiler_parity": false,
+  "records": 2841,
+  "tested": 0,
+  "statuses": {
+    "not-implemented": 621,
+    "not-run": 2220
+  },
+  "roles": {
+    "config": 192,
+    "inline-case": 348,
+    "inline-test-container": 8,
+    "input": 268,
+    "lexical": 840,
+    "negative-input": 2,
+    "output": 951,
+    "rule": 64,
+    "source": 164,
+    "upstream-auxiliary": 4
+  },
+  "kinds": {
+    "fixture": 1425,
+    "fuzz-reference": 7,
+    "inline-test-anchor": 348,
+    "lexical-feature": 557,
+    "requirement": 64,
+    "source": 157,
+    "validation-error-anchor": 283
+  },
+  "reference_revision": "a55352911bb26a1b33bc8d5fc03bdebb0a967f5a",
+  "limitation": "Coverage audit success is not frontend/compiler execution or exhaustive semantic parity."
+}

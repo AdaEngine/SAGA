@@ -1,0 +1,9 @@
+generic-vector-resolved: parsed and validated
+vector-alias-resolved: parsed and validated
+sqrt-hex-resolved: parsed and validated
+runtime-context-resolved: parsed and validated
+vector-arithmetic-next: diagnostics([SAGAShaderIR.ShaderDiagnostic(severity: SAGAShaderIR.ShaderDiagnostic.Severity.error, message: "Operator requires integers", code: SAGAShaderIR.ShaderDiagnosticCode.typeMismatch, location: Optional(SAGAShaderIR.ShaderLocation.source(SAGAShaderIR.SourceSpan(startUTF8: 27, endUTF8: 28))))])
+vector-select-next: diagnostics([SAGAShaderIR.ShaderDiagnostic(severity: SAGAShaderIR.ShaderDiagnostic.Severity.error, message: "Select condition requires bool", code: SAGAShaderIR.ShaderDiagnosticCode.typeMismatch, location: Optional(SAGAShaderIR.ShaderLocation.source(SAGAShaderIR.SourceSpan(startUTF8: 17, endUTF8: 23))))])
+matrix-constructor-next: diagnostics([SAGAShaderIR.ShaderDiagnostic(severity: SAGAShaderIR.ShaderDiagnostic.Severity.error, message: "Relational operators do not chain", code: SAGAShaderIR.ShaderDiagnosticCode.unexpectedToken, location: Optional(SAGAShaderIR.ShaderLocation.source(SAGAShaderIR.SourceSpan(startUTF8: 18, endUTF8: 19))))])
+f16-next: diagnostics([SAGAShaderIR.ShaderDiagnostic(severity: SAGAShaderIR.ShaderDiagnostic.Severity.error, message: "Vector scalar template type unsupported", code: SAGAShaderIR.ShaderDiagnosticCode.unsupportedConstruct, location: Optional(SAGAShaderIR.ShaderLocation.source(SAGAShaderIR.SourceSpan(startUTF8: 13, endUTF8: 16))))])
+vector-swizzle-next: diagnostics([SAGAShaderIR.ShaderDiagnostic(severity: SAGAShaderIR.ShaderDiagnostic.Severity.error, message: "Unexpected constant expression token", code: SAGAShaderIR.ShaderDiagnosticCode.unexpectedToken, location: Optional(SAGAShaderIR.ShaderLocation.source(SAGAShaderIR.SourceSpan(startUTF8: 33, endUTF8: 34))))])

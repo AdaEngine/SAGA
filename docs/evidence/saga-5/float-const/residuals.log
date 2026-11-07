@@ -1,0 +1,9 @@
+float-assert-resolved: parsed and validated
+local-float-resolved: parsed and validated
+alias-resolved: parsed and validated
+f32-step-rounding: parsed and validated
+abstract-step-precision: parsed and validated
+vector-all-next: diagnostics([SAGAShaderIR.ShaderDiagnostic(severity: SAGAShaderIR.ShaderDiagnostic.Severity.error, message: "Relational operators do not chain", code: SAGAShaderIR.ShaderDiagnosticCode.unexpectedToken, location: Optional(SAGAShaderIR.ShaderLocation.source(SAGAShaderIR.SourceSpan(startUTF8: 26, endUTF8: 27))))])
+vector-alias-next: diagnostics([SAGAShaderIR.ShaderDiagnostic(severity: SAGAShaderIR.ShaderDiagnostic.Severity.error, message: "Aggregate alias const constructor unsupported", code: SAGAShaderIR.ShaderDiagnosticCode.unsupportedConstruct, location: Optional(SAGAShaderIR.ShaderLocation.source(SAGAShaderIR.SourceSpan(startUTF8: 37, endUTF8: 38))))])
+float-builtin-next: diagnostics([SAGAShaderIR.ShaderDiagnostic(severity: SAGAShaderIR.ShaderDiagnostic.Severity.error, message: "Const function not implemented", code: SAGAShaderIR.ShaderDiagnosticCode.unsupportedConstruct, location: Optional(SAGAShaderIR.ShaderLocation.source(SAGAShaderIR.SourceSpan(startUTF8: 13, endUTF8: 17))))])
+hex-float-next: diagnostics([SAGAShaderIR.ShaderDiagnostic(severity: SAGAShaderIR.ShaderDiagnostic.Severity.error, message: "WGSL construct not implemented: hexadecimal float literal", code: SAGAShaderIR.ShaderDiagnosticCode.unsupportedConstruct, location: Optional(SAGAShaderIR.ShaderLocation.source(SAGAShaderIR.SourceSpan(startUTF8: 13, endUTF8: 18))))])

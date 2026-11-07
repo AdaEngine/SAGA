@@ -1,0 +1,36 @@
+Building for debugging...
+[0/8] Write sources
+[3/8] Write swift-version-3CD7052B146186F2.txt
+[5/17] Compiling SAGAFrontends Lexer.swift
+[6/17] Compiling SAGAFrontends Statements.swift
+[7/17] Compiling SAGAFrontends WGSLFrontend.swift
+[8/17] Compiling SAGAFrontends SPIRVFunction.swift
+[9/17] Compiling SAGAFrontends Expressions.swift
+[10/17] Compiling SAGAFrontends GLSLPreprocessor.swift
+[11/17] Compiling SAGAFrontends SPIRVFrontend.swift
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/SPIRV/SPIRVFrontend.swift:99:70: error: 'init(validating:as:)' is only available in macOS 15.0 or newer
+ 39 | struct SPVConstant { let handle: IRHandle<IRConstant>; let type: UInt32; let unsigned: UInt32? }
+ 40 | 
+ 41 | struct SPVDecoder {
+    |        `- note: add '@available' attribute to enclosing struct
+ 42 |     let options: SPIRVFrontendOptions
+ 43 |     var budget: ShaderBudget
+    :
+ 90 |         guard case .scalar(let s) = try kind(id,i) else { throw i.fail("Expected scalar type") }; return s
+ 91 |     }
+ 92 |     func string(_ a: [UInt32], from start: Int, _ i: SPVInstruction) throws -> (String, Int) {
+    |          `- note: add '@available' attribute to enclosing instance method
+ 93 |         var bytes: [UInt8] = []
+ 94 |         for j in start..<a.count {
+    :
+ 97 |                 let byte = UInt8(truncatingIfNeeded: w >> (k * 8))
+ 98 |                 if byte == 0 {
+ 99 |                     guard k == 3 || w >> ((k + 1) * 8) == 0, let s = String(validating: bytes, as: UTF8.self) else { throw i.fail("Invalid UTF-8 or string padding") }
+    |                                                                      |- error: 'init(validating:as:)' is only available in macOS 15.0 or newer
+    |                                                                      `- note: add 'if #available' version check
+100 |                     return (s, j + 1)
+101 |                 }
+[12/17] Emitting module SAGAFrontends
+[13/17] Compiling SAGAFrontends GLSLFrontend.swift
+[14/17] Emitting module SAGAValidation
+error: fatalError

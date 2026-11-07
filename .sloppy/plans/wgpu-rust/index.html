@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>wgpu-rust</title>
+  <link rel="stylesheet" href="assets/style.css">
+  <link rel="stylesheet" href="web/resource?path=assets/style.css">
+</head>
+<body>
+  <main class="plan-page">
+    <p>Попробовал ещё раз — <strong>workflow пока не сохранился</strong>.</p>
+    <p>Проверил состояние: существующих workflow в SAGA нет, задачи <strong>SAGA-1…11</strong> сохранены, дубликаты не создавал.</p>
+    <p>Блокер — схема инструмента <code>project.workflow</code>:</p>
+    <ul>
+<li>пустое поле <code>condition</code> отклоняется вместо трактовки как безусловного перехода;</li>
+<li>явное условие вместе с пустым <code>conditionKey</code> тоже отклоняется: валидатор считает, что заданы оба варианта.</li>
+</ul>
+    <p>То есть предыдущую проблему воспроизвёл; <strong>запуска workflow и автоматического конвейера не произошло</strong>. Код проекта и текущую работу исполнителя не трогал.</p>
+    <p>Для продолжения нужно исправить передачу необязательных полей: не отправлять <code>condition</code> и <code>conditionKey</code>, когда они не используются. Подменять граф фиктивными условиями ради сохранения не буду.</p>
+  </main>
+</body>
+</html>

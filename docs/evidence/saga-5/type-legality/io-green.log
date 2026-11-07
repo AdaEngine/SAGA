@@ -1,0 +1,26 @@
+Building for debugging...
+[0/5] Write sources
+[1/5] Write swift-version-3CD7052B146186F2.txt
+[3/5] Compiling SAGAValidation ShaderSemanticValidator.swift
+[4/5] Emitting module SAGAValidation
+[5/6] Emitting module SAGACompiler
+[6/7] Emitting module SAGAFoundationTests
+[6/8] Write Objects.LinkFileList
+[7/8] Linking SAGAPackageTests
+Build complete! (1.91s)
+Test Suite 'Selected tests' started at 2026-11-07 03:02:31.352.
+Test Suite 'SAGAPackageTests.xctest' started at 2026-11-07 03:02:31.359.
+Test Suite 'SAGAPackageTests.xctest' passed at 2026-11-07 03:02:31.359.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+Test Suite 'Selected tests' passed at 2026-11-07 03:02:31.359.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.007) seconds
+􀟈  Test run started.
+􀄵  Testing Library Version: 1902
+􀄵  Target Platform: arm64e-apple-macos14.0
+􀟈  Suite ShaderSemanticValidationTests started.
+􀟈  Test aggregateEntryPointBindingsAreValidatedAcrossMembersAndArguments() started.
+􀟈  Test aggregateVertexPositionAndBuiltinIdentityAreChecked() started.
+􁁛  Test aggregateEntryPointBindingsAreValidatedAcrossMembersAndArguments() passed after 0.001 seconds.
+􁁛  Test aggregateVertexPositionAndBuiltinIdentityAreChecked() passed after 0.001 seconds.
+􁁛  Suite ShaderSemanticValidationTests passed after 0.001 seconds.
+􁁛  Test run with 2 tests in 1 suite passed after 0.001 seconds.

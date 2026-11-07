@@ -1,0 +1,29 @@
+232
+Executed 232 pinned shader inputs; acceptance/rejection report, not parity
+{
+  "files_executed": 232,
+  "by_format": {
+    "glsl": 49,
+    "wgsl": 183
+  },
+  "parse": {
+    "rejected": 213,
+    "accepted": 19
+  },
+  "semantic": {
+    "not-run": 213,
+    "accepted": 7,
+    "rejected": 12
+  },
+  "diagnostics": {
+    "SAGA6002": 167,
+    "none": 7,
+    "SAGA3001": 6,
+    "SAGA2001": 27,
+    "SAGA3002": 1,
+    "SAGA5005": 1,
+    "SAGA4001": 9,
+    "SAGA1001": 8,
+    "SAGA4002": 6
+  }
+}

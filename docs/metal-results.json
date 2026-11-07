@@ -1,0 +1,96 @@
+{
+  "schema": 1,
+  "date": "2026-11-06",
+  "task": "SAGA-4",
+  "scope": "Metal backend diagnostic, not WGSL/WebGPU conformance",
+  "native_toolchain": "Apple Swift 6.3.3",
+  "tools_version": "6.2",
+  "language_mode": "6",
+  "os": "macOS 26.6.1 (25G76)",
+  "gpu": "Apple M3 Pro",
+  "reference_revision": "a55352911bb26a1b33bc8d5fc03bdebb0a967f5a",
+  "native_tests": {
+    "passed": 39,
+    "failed": 0,
+    "gpu_tests": 5
+  },
+  "compile_time_checks": 6,
+  "docs_checks": {
+    "passed": 24,
+    "failed": 0,
+    "skipped": 0,
+    "reference_enabled": true
+  },
+  "gpu_counts_checked": [
+    1,
+    63,
+    64,
+    65,
+    4099,
+    1048576
+  ],
+  "gpu_mismatches": 0,
+  "cpu_fallback": false,
+  "metal_api_validation": true,
+  "wasm": {
+    "compiler": "Swift 6.3.2",
+    "sdk": "swift-6.3.2-RELEASE_wasm",
+    "library_targets": 11,
+    "status": "compiled",
+    "browser_execution": false
+  },
+  "dependencies": {
+    "external_packages": 0,
+    "policy_status": "pass",
+    "linked_library_log": "evidence/saga-4/linked-libraries.log"
+  },
+  "launch": {
+    "configuration_id": "8186ee3f-420e-4762-a53e-bab7141e8cc0",
+    "recipe": "metal-launch-recipe.json",
+    "actually_launched": true,
+    "app_run_elements": 4099,
+    "headless": true,
+    "card_evidence_attachment": "runtime rejected augmented IDs; exact verified recipe persisted without optional metadata"
+  },
+  "returned_verification_ids": [
+    "verification-2",
+    "verification-3",
+    "verification-4"
+  ],
+  "source_sha256": {
+    "Package.swift": "567474cfe08eda34cc990834d071c773c036e1b4ad4a8885ec07e3ffa54760d3",
+    "Sources/SAGA/Exports.swift": "b024afa8ca365be11cf93f4df6c85db864d31b799efb167f48cc9ef3cb1f0f10",
+    "Sources/SAGABackend/BackendDevice.swift": "acec65e5c049c35608e7f03d5b185963e96c1e1757eb0f572447d5780946a7b9",
+    "Sources/SAGABackend/CommandBackendDevice.swift": "d511650454c63b975a76f454098f71f62f5d6575d6f70db20afcb45128f25750",
+    "Sources/SAGABackends/CodeGenerator.swift": "6a0abc2c46084f775afe5102a90a02f17f123a3dd4366aec3ce6c4b1cd36d4b6",
+    "Sources/SAGACompiler/Compiler.swift": "eb7e7e7385502409c3a3d3e10ffe285d0a3b6551490bc90eb29f610011b867a7",
+    "Sources/SAGACore/Device.swift": "aab1ce35db46031f45122fe3c5d6aae12ed0f1b90ed48ab403c2b776330a24b0",
+    "Sources/SAGAFrontends/Frontend.swift": "d1d35f30e869b80b53bbd565cd10613ae37182b977961e74a094938f9a1e07a4",
+    "Sources/SAGAMetal/MetalBackend.swift": "0614b4d7111e952d9980cdefd1a286285085ed0ead13954386d6aa9e6343b272",
+    "Sources/SAGAMetalDiagnostic/Main.swift": "f4395e4e01395216b8298aab159c0f28c1c06424e302f87804af2747386816b2",
+    "Sources/SAGAShaderIR/Contracts.swift": "4c862ac2c236fea2d972d4a4ff4431752630c3e8d68c7aa1e44a707f6bef373c",
+    "Sources/SAGATypes/BufferCommand.swift": "7cd84f7d1f7301e14a41c1f80c618d3c420653101d8f72f930876a1e0b8dfccf",
+    "Sources/SAGATypes/Descriptors.swift": "a72bfa8c0796c711b1131c94de21ca09470bc991386dcbb44e43b45cfe0541f5",
+    "Sources/SAGAValidation/Validation.swift": "afa1d9e4716cc054f9002df795ed679d42aa6fb4f22a3a549a00ddcb1d588d68",
+    "Sources/SAGAWebGPU/BrowserBackend.swift": "14421f782e38e7e8fa0eecb2f47abd253d67c6eaa1b4d402b4d9e4c034511d77",
+    "Tests/SAGAFoundationTests/CommandTests.swift": "eb3642c49c5935da6f16b755c2ec6515688689d698d18ef6e0a087af401addd5",
+    "Tests/SAGAFoundationTests/CompilerTests.swift": "a96debd0584ae900b7f96a05b17f3fed63d6c6eca2aacf8f1fe679c40579f2b8",
+    "Tests/SAGAFoundationTests/DescriptorTests.swift": "527ab29ddbdaf23af2e1024f3fd9b304d8384e525b6b1716a8bd1016342a969f",
+    "Tests/SAGAFoundationTests/DeviceTests.swift": "7e5f041a8a157c193057558390cf0493d27a2b4ab1b13cc2e392c8e6e9f7432f",
+    "Tests/SAGAFoundationTests/MetalComputeTests.swift": "0dbfe79592ac32ea0d3c632acd387d292f92538e6da9d5384afb0f2ecf0dc7c8",
+    "Tests/SAGAFoundationTests/TestBackend.swift": "237529a89a09382c2d11df8cc32318e509f99506d43cab45bb3c825a98e32326",
+    "docs/runtime-policy.json": "5a3bc82f18b37d11537f2da51b2cc46851d85ad7ba73fdeceac08bc6b6a89ec4",
+    "docs/tools/runtime_policy.py": "049545c49dd4b997c026e42d87b8a0adbe486232ee0c49c468b8a0f1b0994a4a",
+    "scripts/package-metal-diagnostic.py": "1d1f5ec426fe3bf93ef1799de0a5a7fa214686adfd6427a3dc0aae60c79e970e"
+  },
+  "not_claimed": [
+    "WGSL/compiler parity",
+    "WebGPU conformance",
+    "browser execution",
+    "CTS",
+    "hosted CI",
+    "Swift 6.2.x compiler run",
+    "hardware-removal/driver-reset recovery"
+  ],
+  "no_commits_or_publication": true
+}

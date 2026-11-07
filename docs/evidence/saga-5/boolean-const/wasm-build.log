@@ -1,0 +1,9 @@
+Building for debugging...
+[0/1] Write swift-version-1C2EE985D1325AC6.txt
+[1/2] Write sources
+[3/4] Compiling SAGAFrontends ConstantExpressions.swift
+[4/4] Emitting module SAGAFrontends
+[5/7] Compiling SAGAFrontends ScalarConstantExpressions.swift
+[6/7] Compiling SAGAFrontends Statements.swift
+[7/7] Compiling SAGAFrontends WGSLFrontend.swift
+Build of target: 'SAGACompiler' complete! (1.28s)

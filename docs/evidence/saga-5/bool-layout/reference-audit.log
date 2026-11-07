@@ -1,0 +1,129 @@
+138:pub const BOOL_WIDTH: Bytes = 1;
+    pub fn try_size(&self, gctx: super::GlobalCtx) -> Option<u32> {
+        match *self {
+            Self::Scalar(scalar) | Self::Atomic(scalar) => Some(scalar.width as u32),
+            Self::Vector { size, scalar } => Some(size as u32 * scalar.width as u32),
+            // matrices are treated as arrays of aligned columns
+            Self::Matrix {
+                columns,
+                rows,
+                scalar,
+            } => Some(super::Alignment::from(rows) * scalar.width as u32 * columns as u32),
+            Self::CooperativeMatrix {
+                columns,
+                rows,
+                scalar,
+                role: _,
+            } => Some(columns as u32 * rows as u32 * scalar.width as u32),
+            Self::Pointer { .. } | Self::ValuePointer { .. } => Some(POINTER_SPAN),
+            Self::Array {
+                base: _,
+                size,
+                stride,
+            } => {
+                let count = match size.resolve(gctx) {
+                    Ok(crate::proc::IndexableLength::Known(count)) => count,
+                    // any struct member or array element needing a size at pipeline-creation time
+                    // must have a creation-fixed footprint
+                    Err(_) => 0,
+                    // A dynamically-sized array has to have at least one element
+                    Ok(crate::proc::IndexableLength::Dynamic) => 1,
+import Testing
+import SAGAShaderIR
+import SAGAFrontends
+
+// Independently authored SAGA fixtures; no upstream shader bytes copied.
+@Suite struct WGSLFrontendTests {
+    @Test func computeLowersStorageEffectsAndTypedExpressions() throws {
+        let m = try WGSLFrontend().parse(.wgsl("""
+        @group(0) @binding(0) var<storage, read_write> values: array<u32>;
+        @compute @workgroup_size(8) fn main(@builtin(global_invocation_id) id: vec3<u32>) {
+            let i = id.x;
+            values[i] = values[i] + 1u;
+        }
+        """))
+        #expect(m.entryPoints.count == 1)
+        #expect(m.entryPoints[0].workgroupSize.x == 8)
+        #expect(m.globalVariables.count == 1)
+        let fn = m.functions.values[0]
+        #expect(fn.statements.values.contains { if case .store = $0.kind { true } else { false } })
+        #expect(fn.statements.values.contains { if case .emit = $0.kind { true } else { false } })
+    }
+    @Test func functionCallsBranchesScopesAndReturns() throws {
+        let m = try WGSLFrontend().parse(.wgsl("""
+        fn twice(x: u32) -> u32 { return x * 2u; }
+        @compute @workgroup_size(1) fn main() {
+            var x: u32 = twice(3u);
+            if x > 2u { x = twice(x); } else { x = 1u; }
+        }
+        """))
+        #expect(m.functions.count == 2)
+        #expect(m.functions.values[1].statements.values.contains { if case .call = $0.kind { true } else { false } })
+    }
+    @Test func rejectsNamesTypesAndMalformedSyntax() throws {
+        for source in ["fn f() { missing = 1u; }", "fn f() { let a: bool = 1u; }", "fn f() { let a = ; }", "fn f() { let x = 1u; x = 2u; }", "fn f() { break; }", "fn f() { let x=1u; let x=2u; }"] {
+            #expect(throws: ShaderFailure.self) { try WGSLFrontend().parse(.wgsl(source)) }
+        }
+    }
+    @Test func nestedCommentsUnicodeAndExactUTF8Diagnostics() throws {
+        _ = try WGSLFrontend().parse(.wgsl("/* outer /* inner */ done */ fn café() { let α = 2u; }"))
+        let source = "fn café() { let α = missing; }"
+        do { _ = try WGSLFrontend().parse(.wgsl(source)); Issue.record("expected error") }
+        catch ShaderFailure.diagnostics(let ds) {
+            #expect(ds[0].code == .unresolvedName)
+            let bytes = Array(source.utf8)
+            let span = try #require(ds[0].span)
+            #expect(String(decoding: bytes[span.startUTF8..<span.endUTF8], as: UTF8.self) == "missing")
+        }
+    }
+    @Test func budgetsAndUnsupportedAreNotSuccess() throws {
+        for limits in [try ShaderLimits(tokens: 1), try ShaderLimits(nodes: 1), try ShaderLimits(depth: 1), try ShaderLimits(work: 1)] {
+            #expect(throws: ShaderFailure.self) { try WGSLFrontend(limits: limits).parse(.wgsl("fn main() { let a = ((1u+2u)); }")) }
+        }
+        #expect(throws: ShaderFailure.self) { try WGSLFrontend().parse(.wgsl("enable made_up; fn f() {}")) }
+        #expect(throws: ShaderFailure.self) { try WGSLFrontend().parse(.wgsl("fn f() { textureStore(); }")) }
+    }
+    case .atomic(let s):
+      try scalarCheck(s, loc: loc)
+      try need(
+        (s.kind == .uint || s.kind == .sint) && s.width == 4, .unsupportedConstruct,
+        "Only 32-bit integer atomic type rules implemented", loc)
+      return TypeLayout(alignment: 4, size: 4, constructible: false, containsAtomic: true)
+    case .pointer(let base, let space):
+      try prior(base)
+      let pointee = try layout(base)
+      try storeType(base, space: space, location: loc)
+      try need(pointee.data, .invalidType, "Pointer base must be a plain type", loc)
+      switch space {
+      case .function, .private, .workgroup, .uniform: break
+      case .storage(let a):
+        try need(
+          a.rawValue > 0 && a.rawValue & ~UInt8(7) == 0, .invalidAddressSpace,
+          "Invalid pointer access", loc)
+      default: try unsupported("Pointer address space not implemented", loc)
+      }
+      return TypeLayout(alignment: 1, size: 0, data: false, constructible: false, host: false)
+    case .array(let base, let count, let stride):
+      try prior(base)
+      let b = try layout(base)
+      try need(
+        b.data && b.sized && UInt64(stride) >= b.size && UInt64(stride) % b.alignment == 0,
+        .invalidType, "Invalid array stride/base", loc)
+      switch count {
+      case .constant(let n):
+        try need(
+          n > 0 && UInt64(n) * UInt64(stride) <= UInt64(Int32.max), .invalidType,
+          "Array size overflow/zero", loc)
+        return TypeLayout(
+          alignment: b.alignment, size: UInt64(n) * UInt64(stride), constructible: b.constructible,
+          containsAtomic: b.containsAtomic, host: b.host)
+      case .dynamic:
+        return TypeLayout(
+          alignment: b.alignment, size: UInt64(stride), sized: false, constructible: false,
+          containsAtomic: b.containsAtomic, host: b.host)
+2240426e6f836d0beb7c5c45e2c73038e61e05a0eb817c5f0844625ec18539de  Sources/SAGAValidation/ShaderSemanticValidator.swift
+afa1d9e4716cc054f9002df795ed679d42aa6fb4f22a3a549a00ddcb1d588d68  Sources/SAGAValidation/Validation.swift
+3408:Attributes [=attribute/align=] and [=attribute/size=] are [=layout attributes=],
+11800:Note: Each alignment value is always a power of two, by construction.
+12092:and the [=attribute/align=] and [=attribute/size=] attributes on structure members.
+12273:Note: The following examples show how to use [=attribute/align=] and [=attribute/size=] attributes

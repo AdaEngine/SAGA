@@ -1,0 +1,249 @@
+### Vector Access Expression ### {#vector-access-expr}
+
+Accessing components of a vector can be done either:
+* Using array subscripting (e.g. `v[2]`), or
+* Using a <dfn noexport>swizzle</dfn> name, a [=context-dependent name=] written as a sequence of convenience names, each mapping to a component of the source vector.
+    * The color set of convenience names: `r`, `g`, `b`, `a` for vector components 0, 1, 2, and 3 respectively.
+    * The dimensional set of convenience names: `x`, `y`, `z`, `w` for vector components 0, 1, 2, and 3, respectively.
+
+The convenience names are accessed using the `.` notation. (e.g. `color.bgra`).
+
+The convenience letterings [=shader-creation error|must not=] be mixed. For example, you cannot use `.rybw`.
+
+A convenience letter [=shader-creation error|must not=] access a component past the end of the vector.
+
+The convenience letterings can be applied in any order, including duplicating letters as needed.
+The provided number of letters [=shader-creation error|must=] be between 1 and 4.
+That is, using convenience letters can only produce a scalar type or a valid vector type.
+
+The result type depends on the number of letters provided. Assuming a `vec4<f32>`
+<table>
+  <thead>
+    <tr><th>Accessor<th>Result type
+  </thead>
+  <tr><td>r<td>`f32`
+  <tr><td>rg<td>`vec2<f32>`
+  <tr><td>rgb<td>`vec3<f32>`
+  <tr><td>rgba<td>`vec4<f32>`
+</table>
+
+<div class='example wgsl function-scope'>
+  <xmp highlight=wgsl>
+    var a: vec3<f32> = vec3<f32>(1., 2., 3.);
+    var b: f32 = a.y;          // b = 2.0
+    var c: vec2<f32> = a.bb;   // c = (3.0, 3.0)
+    var d: vec3<f32> = a.zyx;  // d = (3.0, 2.0, 1.0)
+    var e: f32 = a[1];         // e = 2.0
+  </xmp>
+</div>
+
+#### Vector Single Component Selection #### {#vector-single-component}
+
+<table class='data'>
+  <caption>Vector decomposition: single component selection</caption>
+  <thead>
+    <tr><th>Precondition<th>Conclusion<th>Description
+  </thead>
+  <tr algorithm="first vector component selection"><td>|e|: vec|N|&lt;|T|&gt;<br>
+       <td class="nowrap">
+           |e|`.x`: |T|<br>
+           |e|`.r`: |T|
+       <td>Select the first component of |e|
+
+       This is a single-letter [=swizzle=].
+  <tr algorithm="second vector component selection"><td>|e|: vec|N|&lt;|T|&gt;<br>
+       <td class="nowrap">
+           |e|`.y`: |T|<br>
+           |e|`.g`: |T|
+       <td>Select the second component of |e|
+
+       This is a single-letter [=swizzle=].
+  <tr algorithm="third vector component selection"><td>|e|: vec|N|&lt;|T|&gt;<br>
+          |N| is 3 or 4
+       <td class="nowrap">
+           |e|`.z`: |T|<br>
+           |e|`.b`: |T|
+       <td>Select the third component of |e|
+
+       This is a single-letter [=swizzle=].
+  <tr algorithm="fourth vector component selection"><td>|e|: vec4&lt;|T|&gt;
+       <td class="nowrap">
+           |e|`.w`: |T|<br>
+           |e|`.a`: |T|
+       <td>Select the fourth component of |e|
+
+       This is a single-letter [=swizzle=].
+  <tr algorithm="vector indexed component selection concrete">
+       <td>|e|: vec|N|&lt;|T|&gt;<br>
+           |i|: [INT]<br>
+           |T| is [=type/concrete=]
+       <td class="nowrap">
+           |e|[|i|]: |T|
+       <td>Select the |i|'<sup>th</sup> component of vector<br>
+           The first component is at index |i|=0.
+
+           If |i| is outside the range [0,|N|-1]:<br>
+           * It is a [=shader-creation error=] if |i| is a [=const-expression=].
+           * It is a [=pipeline-creation error=] if |i| is an [=override-expression=].
+           * Otherwise an [=indeterminate value=] for |T| may be returned.
+
+### `select` ### {#select-builtin}
+<table class='data builtin'>
+  <tr algorithm="scalar select">
+    <td style="width:10%">Overload
+    <td class="nowrap">
+      <xmp highlight=wgsl>
+        @const @must_use fn select(f: T,
+                                   t: T,
+                                   cond: bool) -> T
+      </xmp>
+  <tr>
+    <td style="width:10%">Parameterization
+    <td>`T` is [=scalar=] or [=vector=]
+  <tr>
+    <td>Description
+    <td>Returns `t` when `cond` is true, and `f` otherwise.
+</table>
+
+<table class='data builtin'>
+  <tr algorithm="vector select">
+    <td style="width:10%">Overload
+    <td class="nowrap">
+      <xmp highlight=wgsl>
+        @const @must_use fn select(f: vecN<T>,
+                                   t: vecN<T>,
+                                   cond: vecN<bool>) -> vecN<T>
+      </xmp>
+  <tr>
+    <td style="width:10%">Parameterization
+    <td>`T` is [=scalar=]
+  <tr>
+    <td>Description
+    <td>[=Component-wise=] selection. Result component `i` is evaluated
+        as `select(f[i], t[i], cond[i])`.
+</table>
+
+## Array Built-in Functions ## {#array-builtin-functions}
+
+### `arrayLength` ### {#arrayLength-builtin}
+<table class='data builtin'>
+  <tr algorithm="runtime-sized array length">
+    <td style="width:10%">Overload
+    <td class="nowrap">
+      <xmp highlight=wgsl>
+        @must_use fn arrayLength(p: ptr<AS, array<E>, AM>) -> u32
+      </xmp>
+  <tr>
+    fn binary_op_splat(
+        &mut self,
+        op: ir::BinaryOperator,
+        left: &mut Handle<ir::Expression>,
+        right: &mut Handle<ir::Expression>,
+    ) -> Result<'source, ()> {
+        if matches!(
+            op,
+            ir::BinaryOperator::Add
+                | ir::BinaryOperator::Subtract
+                | ir::BinaryOperator::Divide
+                | ir::BinaryOperator::Modulo
+        ) {
+            match resolve_inner_binary!(self, *left, *right) {
+                (&ir::TypeInner::Vector { size, .. }, &ir::TypeInner::Scalar { .. }) => {
+                    *right = self.append_expression(
+                        ir::Expression::Splat {
+                            size,
+                            value: *right,
+                        },
+                        self.get_expression_span(*right),
+                    )?;
+                }
+                (&ir::TypeInner::Scalar { .. }, &ir::TypeInner::Vector { size, .. }) => {
+                    *left = self.append_expression(
+                        ir::Expression::Splat { size, value: *left },
+                        self.get_expression_span(*left),
+                    )?;
+                }
+                _ => {}
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Add a single expression to the expression table that is not covered by `self.emitter`.
+    ///
+    /// This is useful for `CallResult` and `AtomicResult` expressions, which should not be covered by
+    /// `Emit` statements.
+                "select" => {
+                    let mut args = ctx.prepare_args(arguments, 3, function_span);
+
+                    let reject_orig = args.next()?;
+                    let accept_orig = args.next()?;
+                    let mut values = [
+                        self.expression_for_abstract(reject_orig, ctx)?,
+                        self.expression_for_abstract(accept_orig, ctx)?,
+                    ];
+                    let condition = self.expression(args.next()?, ctx)?;
+
+                    args.finish()?;
+
+                    let diagnostic_details =
+                        |ctx: &ExpressionContext<'_, '_, '_>,
+                         ty_res: &proc::TypeResolution,
+                         orig_expr| {
+                            (
+                                ctx.ast_expressions.get_span(orig_expr),
+                                format!("`{}`", ctx.as_diagnostic_display(ty_res)),
+                            )
+                        };
+                    for (&value, orig_value) in values.iter().zip([reject_orig, accept_orig]) {
+                        let value_ty_res = resolve!(ctx, value);
+                        if value_ty_res
+                            .inner_with(&ctx.module.types)
+                            .vector_size_and_scalar()
+                            .is_none()
+                        {
+                            let (arg_span, arg_type) =
+                                diagnostic_details(ctx, value_ty_res, orig_value);
+                            return Err(Box::new(Error::SelectUnexpectedArgumentType {
+                                arg_span,
+                                arg_type,
+                            }));
+                        }
+                    }
+                    let mut consensus_scalar = ctx
+                self.register_evaluated_expr(Expression::Splat { size, value }, span)
+            }
+            Expression::AccessIndex { base, index } => {
+                let base = self.check_and_get(base)?;
+
+                self.access(base, index as usize, span)
+            }
+            Expression::Access { base, index } => {
+                let base = self.check_and_get(base)?;
+                let index = self.check_and_get(index)?;
+
+                let index_val: u32 = self
+                    .to_ctx()
+                    .get_const_val_from(index, self.expressions)
+                    .map_err(|_| ConstantEvaluatorError::InvalidAccessIndexTy)?;
+                self.access(base, index_val as usize, span)
+            }
+            Expression::Swizzle {
+                size,
+                vector,
+                pattern,
+            } => {
+                let vector = self.check_and_get(vector)?;
+
+                self.swizzle(size, span, vector, pattern)
+            }
+            Expression::Unary { expr, op } => {
+                let expr = self.check_and_get(expr)?;
+
+                self.unary_op(op, expr, span)
+            }
+            Expression::Binary { left, right, op } => {
+                let left = self.check_and_get(left)?;
+                let right = self.check_and_get(right)?;
+

@@ -1,0 +1,8 @@
+[0/1] Planning build
+Building for debugging...
+[0/1] Write swift-version-3CD7052B146186F2.txt
+[1/2] Write sources
+[3/4] Compiling SAGAValidation ShaderSemanticValidator.swift
+[4/4] Emitting module SAGAValidation
+[5/5] Emitting module SAGACompiler
+Build of target: 'SAGACompiler' complete! (1.06s)

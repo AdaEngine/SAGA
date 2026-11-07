@@ -1,0 +1,40 @@
+test_classification_is_immutable (test_frontend_coverage.CoverageAuditTests) ... ok
+test_classify_formats_and_deep_negative (test_frontend_coverage.CoverageAuditTests) ... ok
+test_config_is_not_shader_execution (test_frontend_coverage.CoverageAuditTests) ... ok
+test_demo_cannot_claim_parity (test_frontend_coverage.CoverageAuditTests) ... ok
+test_dropped_denominator (test_frontend_coverage.CoverageAuditTests) ... ok
+test_duplicate_denominator (test_frontend_coverage.CoverageAuditTests) ... ok
+test_fake_nonzero_count_with_zero_test_log (test_frontend_coverage.CoverageAuditTests) ... ok
+test_fake_tested_without_result (test_frontend_coverage.CoverageAuditTests) ... ok
+test_false_summary_cannot_claim_parity (test_frontend_coverage.CoverageAuditTests) ... ok
+test_hash_drift (test_frontend_coverage.CoverageAuditTests) ... ok
+test_honest_unimplemented_is_audit_success_not_parity (test_frontend_coverage.CoverageAuditTests) ... ok
+test_log_hash_drift (test_frontend_coverage.CoverageAuditTests) ... ok
+test_negative_requires_typed_diagnostic (test_frontend_coverage.CoverageAuditTests) ... ok
+test_no_unaudited_copies (test_frontend_coverage.CoverageAuditTests) ... ok
+test_options_cannot_be_dropped (test_frontend_coverage.CoverageAuditTests) ... ok
+test_output_is_not_shader_execution (test_frontend_coverage.CoverageAuditTests) ... ok
+test_parser_demo_result_not_semantic (test_frontend_coverage.CoverageAuditTests) ... ok
+test_pin_drift (test_frontend_coverage.CoverageAuditTests) ... ok
+test_positive_execution_control (test_frontend_coverage.CoverageAuditTests) ... ok
+test_provenance_dropped (test_frontend_coverage.CoverageAuditTests) ... ok
+test_result_format_mismatch (test_frontend_coverage.CoverageAuditTests) ... ok
+test_result_must_have_actual_success (test_frontend_coverage.CoverageAuditTests) ... ok
+test_result_must_record_option_defaults (test_frontend_coverage.CoverageAuditTests) ... ok
+test_root_license_is_not_fixture_clearance (test_frontend_coverage.CoverageAuditTests) ... ok
+test_rule_requires_both_polarities (test_frontend_coverage.CoverageAuditTests) ... ok
+test_source_hash_drift (test_frontend_coverage.CoverageAuditTests) ... ok
+test_traversal_result_path (test_frontend_coverage.CoverageAuditTests) ... ok
+test_unknown_extra_item (test_frontend_coverage.CoverageAuditTests) ... ok
+test_unknown_result_capability (test_frontend_coverage.CoverageAuditTests) ... ok
+test_unknown_status (test_frontend_coverage.CoverageAuditTests) ... ok
+test_unrun_cannot_have_results (test_frontend_coverage.CoverageAuditTests) ... ok
+test_unsupported_requires_reason (test_frontend_coverage.CoverageAuditTests) ... ok
+test_wrong_result_identity (test_frontend_coverage.CoverageAuditTests) ... ok
+test_zero_tests_not_success (test_frontend_coverage.CoverageAuditTests) ... ok
+test_full_pinned_tree_and_real_manifest (test_frontend_coverage.PinnedDiscoveryTests) ... ok
+
+----------------------------------------------------------------------
+Ran 35 tests in 0.249s
+
+OK

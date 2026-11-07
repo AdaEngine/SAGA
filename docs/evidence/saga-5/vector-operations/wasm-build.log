@@ -1,0 +1,23 @@
+[0/1] Planning build
+Building for debugging...
+[0/1] Write swift-version-1C2EE985D1325AC6.txt
+[1/2] Write sources
+[3/10] Compiling SAGAFrontends VectorConstants.swift
+[4/10] Compiling SAGAFrontends FloatingConstants.swift
+[5/10] Compiling SAGAFrontends MatrixConstants.swift
+[6/10] Compiling SAGAFrontends VectorOperations.swift
+[7/10] Compiling SAGAFrontends WGSLFrontend.swift
+[8/17] Compiling SAGAFrontends Materialization.swift
+[9/17] Compiling SAGAFrontends ModuleDeclarations.swift
+[10/17] Compiling SAGAFrontends Expressions.swift
+[11/17] Compiling SAGAFrontends ScalarConstantExpressions.swift
+[12/17] Emitting module SAGAFrontends
+[13/17] Compiling SAGAFrontends HexFloatLiterals.swift
+[14/17] Compiling SAGAFrontends ConstantExpressions.swift
+[15/17] Compiling SAGAFrontends Loops.swift
+[16/17] Compiling SAGAFrontends Statements.swift
+[17/17] Compiling SAGAFrontends ControlExpressions.swift
+[19/21] Emitting module SAGACompiler
+[20/21] Compiling SAGACompiler FrontendValidation.swift
+[21/21] Compiling SAGACompiler Compiler.swift
+Build of target: 'SAGACompiler' complete! (1.62s)

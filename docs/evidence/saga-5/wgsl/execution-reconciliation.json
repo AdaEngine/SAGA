@@ -1,0 +1,113 @@
+{
+  "schema": 1,
+  "outcome": "blocked",
+  "scope": "SAGA-13 WGSL frontend only",
+  "parent_complete": false,
+  "session": "session-549a135e-0fa6-4183-bd25-8fc4db480ea1",
+  "api": "WGSLFrontend: BoundedShaderFrontend; Module=IRModule; init(options: WGSLFrontendOptions = WGSLFrontendOptions(), limits: ShaderLimits = .default)",
+  "files_present": {
+    "Sources/SAGAFrontends/WGSL/ControlExpressions.swift": {
+      "sha256": "9094c2300373a36b4e485269f221d26408d449818444d222fcc85c9fa391801e",
+      "bytes": 3809
+    },
+    "Sources/SAGAFrontends/WGSL/Expressions.swift": {
+      "sha256": "71a28e696e6f2d3816d366bb6635b6b275c77418dc4fa4c8bc04db420e168b19",
+      "bytes": 20818
+    },
+    "Sources/SAGAFrontends/WGSL/Lexer.swift": {
+      "sha256": "44aeb5ec2cfd082d33a62bcc1e634cb5e43f4ef93c43ddeedbaa49050dbfbb3c",
+      "bytes": 6421
+    },
+    "Sources/SAGAFrontends/WGSL/Loops.swift": {
+      "sha256": "a761f305ca2b3688b830a3232073a6a099149766d837417392773e5707d9ae66",
+      "bytes": 5174
+    },
+    "Sources/SAGAFrontends/WGSL/Statements.swift": {
+      "sha256": "bb59ab8182593fb6b44e4c4d46f96f61e3057fc5a9bc48a93b381153adce7b81",
+      "bytes": 14551
+    },
+    "Sources/SAGAFrontends/WGSL/WGSLFrontend.swift": {
+      "sha256": "7e2babe706fce60eabf9f2e6df7467ee6d65c1419097666518886b7c4d52a090",
+      "bytes": 17585
+    },
+    "Tests/SAGAFoundationTests/WGSLFrontendTests.swift": {
+      "sha256": "f9a0fecf4f00212abcc9d92cf4d949f87bbb4a4b4917a5cc187803a57f28f8f7",
+      "bytes": 10043
+    }
+  },
+  "checks": [
+    {
+      "command": [
+        "/usr/bin/swift",
+        "test",
+        "--filter",
+        "WGSLFrontendTests",
+        "--scratch-path",
+        ".build-wgsl",
+        "-Xswiftc",
+        "-warnings-as-errors",
+        "-Xswiftc",
+        "-strict-concurrency=complete"
+      ],
+      "exit_code": 0,
+      "tests_executed": 7,
+      "evidence": "verification-2",
+      "log": "docs/evidence/saga-5/wgsl/review-native-tests.log"
+    },
+    {
+      "command": [
+        "/usr/bin/swift",
+        "build",
+        "--target",
+        "SAGACompiler",
+        "--scratch-path",
+        ".build-wgsl",
+        "-Xswiftc",
+        "-warnings-as-errors",
+        "-Xswiftc",
+        "-strict-concurrency=complete"
+      ],
+      "exit_code": 0,
+      "evidence": "verification-3",
+      "log": "docs/evidence/saga-5/wgsl/review-strict-build.log"
+    }
+  ],
+  "implemented_observed": [
+    "bounded scalar scanner, nested comments, UTF8 spans",
+    "module constants/aliases/structs/storage variables (subset)",
+    "typed function declarations/calls/local scope and assignments",
+    "IR emit/load/store/call lowering and scalar/vector accesses",
+    "branch/loop and short-circuit lowering under implementation"
+  ],
+  "unimplemented_or_explicitly_rejected_observed": [
+    "enable/requires/diagnostic directives and extension feature combinations",
+    "f16 and hexadecimal float parsing",
+    "complete reserved-word and Unicode14 tables",
+    "full template-list discovery and shift expressions",
+    "global expression const evaluation/overrides/forward declarations",
+    "ptr/resource/texture/sampler/binding-array/advanced types",
+    "full expression overload/builtin families, atomics/textures/subgroups/ray/mesh/cooperative operations",
+    "documentation capture when parseDocComments enabled",
+    "full attribute constant expressions/interpolation/layout attributes",
+    "all reference WGSL fixture/capability combinations and exhaustive expanded semantic mapping"
+  ],
+  "limitation": "Observed list only, not a complete atomic semantic denominator. Present representation/partial tests are NOT full WGSL/SAGA-13 acceptance. Parent owns independent shared semantic validation.",
+  "ownership_blocker": "Another executing continuation in this SAME session produced source files and tool events concurrently. Expressions.swift, Statements.swift and later files appeared while current pass was preparing exclusive create; exclusive-create guard refused overwrite. Current pass stopped further source edits to preserve active implementation. Source snapshot may advance after these test logs; parent must reconcile sole turn ownership then rerun final checks.",
+  "changes_this_pass": [
+    "WGSLFrontend.swift small scoped invocation-local parser state and exact-name key changes; preserved during continuing implementation, no destructive rollback",
+    "additional durable review logs/report only after detecting overlap"
+  ],
+  "provenance": {
+    "fixtures": "Independent SAGA-authored Swift literal tests; no upstream shader bytes copied in this pass",
+    "reference_revision": "a55352911bb26a1b33bc8d5fc03bdebb0a967f5a",
+    "reference_clean": true
+  },
+  "no_commits_publication_dependencies_or_rust_writes": true,
+  "parent_report_delivery": {
+    "status": "rejected",
+    "code": "message_chain_limit",
+    "message": "Eight automatic deliveries reached; new user turn required",
+    "message_id": "dba3748f-080a-49e8-b43f-657bf9fc055d",
+    "target": "yadev/session-e26a2eeb-8007-4c5e-a65a-5eccd466c9e6"
+  }
+}

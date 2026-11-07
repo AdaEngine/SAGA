@@ -1,0 +1,69 @@
+Building for debugging...
+[0/8] /Users/vlad-prusakov/Developer/saga/.build-wgsl/isolated-build/arm64-apple-macosx/debug/WGSLScopedCheckPackageTests.derived/runner.swift
+[1/8] Write sources
+[5/8] Write swift-version-3CD7052B146186F2.txt
+[7/16] Compiling SAGAShaderIR Contracts.swift
+[8/16] Compiling SAGAShaderIR TypedIR.swift
+[9/16] Emitting module SAGAShaderIR
+[10/16] Compiling SAGAShaderIR Tables.swift
+[11/16] Compiling SAGAShaderIR Diagnostics.swift
+[12/16] Compiling SAGAShaderIR Budgets.swift
+[13/16] Compiling SAGAShaderIR BlockWalk.swift
+[14/16] Compiling SAGAShaderIR Capabilities.swift
+[15/24] Compiling SAGAFrontends Statements.swift
+[16/24] Compiling SAGAFrontends WGSLFrontend.swift
+[17/24] Compiling SAGAFrontends Loops.swift
+[18/24] Compiling SAGAFrontends Frontend.swift
+[19/24] Compiling SAGAFrontends Lexer.swift
+[20/24] Compiling SAGAFrontends ControlExpressions.swift
+[21/24] Compiling SAGAFrontends Expressions.swift
+[22/24] Emitting module SAGAFrontends
+[23/26] Emitting module WGSLScopedTests
+[24/26] Compiling WGSLScopedTests WGSLFrontendTests.swift
+[25/28] Compiling WGSLScopedCheckPackageTests runner.swift
+[26/28] Emitting module WGSLScopedCheckPackageTests
+[26/28] Write Objects.LinkFileList
+[27/28] Linking WGSLScopedCheckPackageTests
+Build complete! (4.42s)
+Test Suite 'Selected tests' started at 2026-11-07 02:29:10.528.
+Test Suite 'WGSLScopedCheckPackageTests.xctest' started at 2026-11-07 02:29:10.536.
+Test Suite 'WGSLScopedCheckPackageTests.xctest' passed at 2026-11-07 02:29:10.536.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+Test Suite 'Selected tests' passed at 2026-11-07 02:29:10.536.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.008) seconds
+􀟈  Test run started.
+􀄵  Testing Library Version: 1902
+􀄵  Target Platform: arm64e-apple-macos14.0
+􀟈  Suite WGSLFrontendTests started.
+􀟈  Test computeLowersStorageEffectsAndTypedExpressions() started.
+􀟈  Test formatCapabilitiesAndDocOptionsAreNotIgnored() started.
+􀟈  Test cancellationBeforeScan() started.
+􀟈  Test scalarMaterializationAndConstantArithmetic() started.
+􀟈  Test rejectsNamesTypesAndMalformedSyntax() started.
+􀟈  Test shortCircuitCallIsOnlyInConditionalBranch() started.
+􀟈  Test failClosedLexicalAndSemanticBoundaries() started.
+􀟈  Test deterministicBoundedFuzz() started.
+􀟈  Test loopsSwitchAndContinuingProduceStructuredIR() started.
+􀟈  Test aliasesStructuresConstructorsAndNaturalLayout() started.
+􀟈  Test functionCallsBranchesScopesAndReturns() started.
+􀟈  Test unicodeScalarIdentityDoesNotNormalizeIdentifiers() started.
+􀟈  Test boundedAdversarialStructuredInputs() started.
+􀟈  Test budgetsAndUnsupportedAreNotSuccess() started.
+􀟈  Test nestedCommentsUnicodeAndExactUTF8Diagnostics() started.
+􁁛  Test shortCircuitCallIsOnlyInConditionalBranch() passed after 0.002 seconds.
+􁁛  Test unicodeScalarIdentityDoesNotNormalizeIdentifiers() passed after 0.001 seconds.
+􁁛  Test cancellationBeforeScan() passed after 0.002 seconds.
+􁁛  Test nestedCommentsUnicodeAndExactUTF8Diagnostics() passed after 0.001 seconds.
+􁁛  Test computeLowersStorageEffectsAndTypedExpressions() passed after 0.002 seconds.
+􁁛  Test loopsSwitchAndContinuingProduceStructuredIR() passed after 0.002 seconds.
+􁁛  Test scalarMaterializationAndConstantArithmetic() passed after 0.002 seconds.
+􁁛  Test aliasesStructuresConstructorsAndNaturalLayout() passed after 0.003 seconds.
+􁁛  Test functionCallsBranchesScopesAndReturns() passed after 0.003 seconds.
+􁁛  Test formatCapabilitiesAndDocOptionsAreNotIgnored() passed after 0.003 seconds.
+􁁛  Test budgetsAndUnsupportedAreNotSuccess() passed after 0.003 seconds.
+􁁛  Test rejectsNamesTypesAndMalformedSyntax() passed after 0.004 seconds.
+􁁛  Test failClosedLexicalAndSemanticBoundaries() passed after 0.006 seconds.
+􁁛  Test boundedAdversarialStructuredInputs() passed after 0.010 seconds.
+􁁛  Test deterministicBoundedFuzz() passed after 0.083 seconds.
+􁁛  Suite WGSLFrontendTests passed after 0.084 seconds.
+􁁛  Test run with 15 tests in 1 suite passed after 0.084 seconds.

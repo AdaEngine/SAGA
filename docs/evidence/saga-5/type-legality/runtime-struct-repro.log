@@ -1,0 +1,2 @@
+WGSL frontend runtime-array struct span=0
+Concrete validator: diagnostics([SAGAShaderIR.ShaderDiagnostic(severity: SAGAShaderIR.ShaderDiagnostic.Severity.error, message: "Invalid structure span", code: SAGAShaderIR.ShaderDiagnosticCode.invalidType, location: Optional(SAGAShaderIR.ShaderLocation.source(SAGAShaderIR.SourceSpan(startUTF8: 7, endUTF8: 8))))])

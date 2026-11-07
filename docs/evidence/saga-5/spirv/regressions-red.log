@@ -1,0 +1,63 @@
+[0/1] Planning build
+Building for debugging...
+[0/7] Write sources
+[2/7] Write swift-version-3CD7052B146186F2.txt
+[4/12] Compiling SAGAFrontends WGSLFrontend.swift
+[5/12] Compiling SAGAFrontends Statements.swift
+[6/12] Compiling SAGAFrontends Expressions.swift
+[7/12] Compiling SAGAFrontends ControlExpressions.swift
+[8/12] Compiling SAGAFrontends GLSLFrontend.swift
+[9/12] Compiling SAGAFrontends GLSLLexer.swift
+[10/12] Emitting module SAGAFrontends
+[11/15] Compiling SAGACompiler Compiler.swift
+[12/15] Emitting module SAGACompiler
+[13/15] Compiling SAGACompiler FrontendValidation.swift
+[14/23] Compiling SAGAFoundationTests WGSLFrontendTests.swift
+[15/23] Compiling SAGAFoundationTests ShaderSemanticValidationTests.swift
+[16/23] Compiling SAGAFoundationTests FrontendContractsTests.swift
+[17/23] Compiling SAGAFoundationTests FrontendIntegrationTests.swift
+[18/23] Compiling SAGAFoundationTests GLSLFrontendTests.swift
+[19/23] Compiling SAGAFoundationTests CompilerTests.swift
+[20/23] Emitting module SAGAFoundationTests
+[21/23] Compiling SAGAFoundationTests SPIRVFrontendTests.swift
+[22/25] Compiling SAGAPackageTests runner.swift
+[23/25] Emitting module SAGAPackageTests
+[23/25] Write Objects.LinkFileList
+[24/25] Linking SAGAPackageTests
+Build complete! (2.81s)
+Test Suite 'Selected tests' started at 2026-11-07 02:24:51.648.
+Test Suite 'SAGAPackageTests.xctest' started at 2026-11-07 02:24:51.655.
+Test Suite 'SAGAPackageTests.xctest' passed at 2026-11-07 02:24:51.655.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+Test Suite 'Selected tests' passed at 2026-11-07 02:24:51.655.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.007) seconds
+􀟈  Test run started.
+􀄵  Testing Library Version: 1902
+􀄵  Target Platform: arm64e-apple-macos14.0
+􀟈  Suite SPIRVFrontendTests started.
+􀟈  Test deterministicMalformedWordFuzz() started.
+􀟈  Test malformedUTF8NamesAndMissingFragmentOriginAreRejected() started.
+􀟈  Test invalidDecorationTargetsAndModesAreNotSilentlyIgnored() started.
+􀟈  Test structuredSelectionPhiHasRealEdgeStores() started.
+􀟈  Test headerWordCountsIDsAndOrderRejected() started.
+􀟈  Test relaxedCapabilityPolicyIsExplicitlyRejected() started.
+􀟈  Test sparseHugeBoundAndBudgetsCancellation() started.
+􀟈  Test actualComputeHeaderEntrySizeAndEndian() started.
+􀟈  Test actualArithmeticAndPrivateStore() started.
+􀟈  Test unsupportedNeverReturnsDummyAndCoordinateNotIgnored() started.
+􁁛  Test unsupportedNeverReturnsDummyAndCoordinateNotIgnored() passed after 0.001 seconds.
+􁁛  Test relaxedCapabilityPolicyIsExplicitlyRejected() passed after 0.001 seconds.
+􀢄  Test malformedUTF8NamesAndMissingFragmentOriginAreRejected() recorded an issue at SPIRVFrontendTests.swift:19:48: Issue recorded
+􀄵  accepted malformed words
+􁁛  Test headerWordCountsIDsAndOrderRejected() passed after 0.001 seconds.
+􁁛  Test structuredSelectionPhiHasRealEdgeStores() passed after 0.001 seconds.
+􁁛  Test actualArithmeticAndPrivateStore() passed after 0.001 seconds.
+􁁛  Test actualComputeHeaderEntrySizeAndEndian() passed after 0.001 seconds.
+􀢄  Test malformedUTF8NamesAndMissingFragmentOriginAreRejected() failed after 0.001 seconds with 1 issue.
+􁁛  Test invalidDecorationTargetsAndModesAreNotSilentlyIgnored() passed after 0.001 seconds.
+􁁛  Test sparseHugeBoundAndBudgetsCancellation() passed after 0.001 seconds.
+􁁛  Test deterministicMalformedWordFuzz() passed after 0.009 seconds.
+􀢄  Suite SPIRVFrontendTests failed after 0.009 seconds with 1 issue.
+􀄵  // Independently authored binary fixtures. Numeric encoding: SPIR-V universal grammar,
+􀄵  // vulkan-sdk-1.4.341.0; no upstream shader/test bytes or expected IR copied.
+􀢄  Test run with 10 tests in 1 suite failed after 0.009 seconds with 1 issue.

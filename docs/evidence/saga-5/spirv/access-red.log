@@ -1,0 +1,67 @@
+[0/1] Planning build
+Building for debugging...
+[0/8] Write sources
+[3/8] Write swift-version-3CD7052B146186F2.txt
+[5/13] Emitting module SAGAFrontends
+[6/13] Compiling SAGAFrontends Loops.swift
+[7/13] Compiling SAGAFrontends SPIRVFrontend.swift
+[8/13] Compiling SAGAFrontends Statements.swift
+[9/13] Compiling SAGAFrontends WGSLFrontend.swift
+[10/15] Emitting module SAGAValidation
+[11/15] Compiling SAGAValidation ShaderSemanticValidator.swift
+[12/15] Compiling SAGAFrontends Expressions.swift
+[13/15] Compiling SAGAFrontends ControlExpressions.swift
+[14/18] Emitting module SAGACompiler
+[15/18] Compiling SAGACompiler FrontendValidation.swift
+[16/18] Compiling SAGACompiler Compiler.swift
+[17/25] Compiling SAGAFoundationTests SPIRVFrontendTests.swift
+[18/25] Compiling SAGAFoundationTests FrontendIntegrationTests.swift
+[19/25] Compiling SAGAFoundationTests FrontendContractsTests.swift
+[20/25] Compiling SAGAFoundationTests CompilerTests.swift
+[21/25] Emitting module SAGAFoundationTests
+[22/25] Compiling SAGAFoundationTests GLSLFrontendTests.swift
+[23/25] Compiling SAGAFoundationTests WGSLFrontendTests.swift
+[23/25] Write Objects.LinkFileList
+[24/25] Linking SAGAPackageTests
+Build complete! (2.70s)
+Test Suite 'Selected tests' started at 2026-11-07 02:26:13.581.
+Test Suite 'SAGAPackageTests.xctest' started at 2026-11-07 02:26:13.588.
+Test Suite 'SAGAPackageTests.xctest' passed at 2026-11-07 02:26:13.588.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+Test Suite 'Selected tests' passed at 2026-11-07 02:26:13.588.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.007) seconds
+􀟈  Test run started.
+􀄵  Testing Library Version: 1902
+􀄵  Target Platform: arm64e-apple-macos14.0
+􀟈  Suite SPIRVFrontendTests started.
+􀟈  Test actualComputeHeaderEntrySizeAndEndian() started.
+􀟈  Test compositeConstructAndExtractAreTyped() started.
+􀟈  Test relaxedCapabilityPolicyIsExplicitlyRejected() started.
+􀟈  Test resourceAccessChainPreservesBindingAndMemberStore() started.
+􀟈  Test structuredSelectionPhiHasRealEdgeStores() started.
+􀟈  Test resourceWrongPointeeOrIndexRejects() started.
+􀟈  Test malformedUTF8NamesAndMissingFragmentOriginAreRejected() started.
+􀟈  Test actualArithmeticAndPrivateStore() started.
+􀟈  Test headerWordCountsIDsAndOrderRejected() started.
+􀟈  Test unsupportedNeverReturnsDummyAndCoordinateNotIgnored() started.
+􀟈  Test deterministicMalformedWordFuzz() started.
+􀟈  Test sparseHugeBoundAndBudgetsCancellation() started.
+􀟈  Test invalidDecorationTargetsAndModesAreNotSilentlyIgnored() started.
+􁁛  Test relaxedCapabilityPolicyIsExplicitlyRejected() passed after 0.001 seconds.
+􁁛  Test malformedUTF8NamesAndMissingFragmentOriginAreRejected() passed after 0.001 seconds.
+􁁛  Test headerWordCountsIDsAndOrderRejected() passed after 0.001 seconds.
+􁁛  Test resourceWrongPointeeOrIndexRejects() passed after 0.001 seconds.
+􀢄  Test resourceAccessChainPreservesBindingAndMemberStore() recorded an issue at SPIRVFrontendTests.swift:128:9: Expectation failed: m.functions.values[0].expressions.values.contains { if case .accessIndex(_,0) = $0.kind {true} else {false} }
+􁁛  Test unsupportedNeverReturnsDummyAndCoordinateNotIgnored() passed after 0.001 seconds.
+􀢄  Test resourceAccessChainPreservesBindingAndMemberStore() failed after 0.001 seconds with 1 issue.
+􁁛  Test structuredSelectionPhiHasRealEdgeStores() passed after 0.001 seconds.
+􁁛  Test compositeConstructAndExtractAreTyped() passed after 0.001 seconds.
+􁁛  Test actualArithmeticAndPrivateStore() passed after 0.001 seconds.
+􁁛  Test invalidDecorationTargetsAndModesAreNotSilentlyIgnored() passed after 0.001 seconds.
+􁁛  Test actualComputeHeaderEntrySizeAndEndian() passed after 0.001 seconds.
+􁁛  Test sparseHugeBoundAndBudgetsCancellation() passed after 0.001 seconds.
+􁁛  Test deterministicMalformedWordFuzz() passed after 0.009 seconds.
+􀢄  Suite SPIRVFrontendTests failed after 0.010 seconds with 1 issue.
+􀄵  // Independently authored binary fixtures. Numeric encoding: SPIR-V universal grammar,
+􀄵  // vulkan-sdk-1.4.341.0; no upstream shader/test bytes or expected IR copied.
+􀢄  Test run with 13 tests in 1 suite failed after 0.010 seconds with 1 issue.

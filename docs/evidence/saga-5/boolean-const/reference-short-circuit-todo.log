@@ -1,0 +1,192 @@
+Swizzle view expressions are enabled by the [=language_extension/swizzle_assignment=] language extension.
+
+A [=swizzle view=] is formed by:
+* Applying a multi-letter [=swizzle=] name to a [=reference type|reference=] or [=pointer type|pointer=] value
+    with [=access/read_write=] access mode and whose [=store type=] is a vector, or
+* Applying a multi-letter [=swizzle=] name to a swizzle view.
+
+By these rules, the index list part of a swizzle view is fully determined at
+[=shader module creation|shader-creation=] time.
+
+In this section the <dfn noexport>swizzle index function</dfn> SI is defined as:
+* SI(`x`) &equals; 0
+* SI(`y`) &equals; 1
+* SI(`z`) &equals; 2
+* SI(`w`) &equals; 3
+* SI(`r`) &equals; 0
+* SI(`g`) &equals; 1
+* SI(`b`) &equals; 2
+* SI(`a`) &equals; 3
+
+We say a <dfn noexport>[=swizzle=] name |Z| represents the |K| indices &laquo;&nbsp;|Idx|<sub>0</sub>, ..., |Idx|<sub>|K|&minus;1</sub> &raquo;</dfn> if:
+
+* One of the following is true:
+    * Each letter in |Z| is `x`, `y`, `z`, or `w`, or
+    * Each letter in |Z| is `r`, `g`, `b`, or `a`
+* Each |Idx|<sub>|i|</sub> equals SI(|L|), where |L| is the |i|'th letter in |Z|.
+
+Note: For example, the swizzle `wzyx` represents the four indices &laquo;3, 2,
+1, 0&raquo;, and the swizzle `rb` represents the two indices &laquo;0, 2&raquo;.
+The swizzle `rgbz` does not represent any index sequence, since it mixes `rgba`
+and `xyzw` letters.
+
+<table class='data'>
+  <caption>Forming a swizzle view from a reference</caption>
+  <thead>
+    <tr><th>Precondition<th>Conclusion<th>Description
+  </thead>
+  <tr algorithm="swizzle view from reference expression">
+       <td>
+          [=language_extension/swizzle_assignment=] is supported
+
+          |r|: ref&lt;|AS|,|T|,read_write&gt;<br>
+          |T| is vec|N|&lt;|S|&gt;<br>
+          The swizzle name |Z| represents the |K| indices
+          |I| = &laquo;&nbsp;|Idx|<sub>0</sub>, ..., |Idx|<sub>|K|&minus;1</sub> &raquo;<br>
+          |K| in {2,3,4}<br>
+       <td class="nowrap">
+          |r|.|Z|&nbsp;: swizzle&lt;|AS|,|S|,|N|,|K|&gt;
+       <td>Result is the [=swizzle view=] (&|r|, |I|).
+
+          Each index in |I| [=shader-creation error|must=] be less than |N|.
+
+          If |r| is an [=invalid memory reference=], then the result is an [=invalid swizzle view=].
+
+</table>
+
+<table class='data'>
+  <caption>Forming a swizzle view from a pointer</caption>
+  <thead>
+            );
+
+            let mut reject = crate::Block::with_capacity(1);
+            reject.push(
+                crate::Statement::Store {
+                    pointer,
+                    value: else_val,
+                },
+                span,
+            );
+
+            let rctx = ctx.runtime_expression_ctx(span)?;
+            rctx.block.push(
+                crate::Statement::If {
+                    condition,
+                    accept,
+                    reject,
+                },
+                span,
+            );
+
+            Ok(Typed::Reference(crate::Expression::LocalVariable(
+                result_var,
+            )))
+        } else {
+            let left_val: Option<bool> = ctx.get_const_val(left).ok();
+
+            if left_val.is_some_and(|left_val| {
+                op == crate::BinaryOperator::LogicalAnd && !left_val
+                    || op == crate::BinaryOperator::LogicalOr && left_val
+            }) {
+                // Short-circuit behavior: don't evaluate the RHS.
+
+                // TODO(https://github.com/gfx-rs/wgpu/issues/8440): We shouldn't ignore the
+                // RHS completely, it should still be type-checked. Preserving it for type
+                // checking is a bit tricky, because we're trying to produce an expression
+                // for a const context, but the RHS is allowed to have things that aren't
+                // const.
+
+                Ok(Typed::Plain(ctx.get(left).clone()))
+            } else {
+                // Evaluate the RHS and construct the entire binary expression as we
+                // normally would. This case applies to well-formed constant logical
+                // expressions that don't short-circuit (handled by the constant evaluator
+                // shortly), to override expressions (handled when overrides are processed)
+                // and to non-well-formed expressions (rejected by type checking).
+                let right = self.expression_for_abstract(right, ctx)?;
+                ctx.grow_types(right)?;
+
+                Ok(Typed::Plain(crate::Expression::Binary { op, left, right }))
+            }
+        }
+    }
+
+    fn type_expression(
+        &mut self,
+                (Token::Word("discard"), _) => {
+                    lexer.expect(Token::Separator(';'))?;
+                    ast::StatementKind::Kill
+                }
+                // https://www.w3.org/TR/WGSL/#const-assert-statement
+                (Token::Word("const_assert"), _) => {
+                    // parentheses are optional
+                    let paren = lexer.next_if(Token::Paren('('));
+
+                    let condition = this.expression(lexer, ctx)?;
+
+                    if paren {
+                        lexer.expect(Token::Paren(')'))?;
+                    }
+                    lexer.expect(Token::Separator(';'))?;
+                    ast::StatementKind::ConstAssert(condition)
+                }
+                token => {
+                    this.variable_or_value_or_func_call_or_variable_updating_statement(
+                        lexer,
+import SAGAShaderIR
+
+extension WGSLParser {
+    func define(_ n: WGSLToken, _ v: WGSLValue) throws {
+        try budget.consume(.work,amount:n.text.utf8.count+1)
+        guard let last = body.scopes.indices.last else { throw ShaderFailure.invalidHandle }
+        guard body.scopes[last][wgslKey(n.text)] == nil else { throw wgslError(.duplicateName,"Duplicate local '\(n.text)'",n) }
+        body.scopes[last][wgslKey(n.text)] = v
+    }
+    func function(_ attrs: [String:Attribute]) throws {
+        try checkAttributes(attrs,allowed:["compute","fragment","vertex","workgroup_size"])
+        let name = try ident(); try reserve(name)
+        body = WGSLFunctionBody()
+        try expect("(")
+        while !isNext(")") {
+            let a = try attributes(), n = try ident(); try expect(":"); let ty = try type()
+            try node()
+            let index = UInt32(body.arguments.count)
+            body.arguments.append(IRFunctionArgument(name:n.text,type:ty,binding:try binding(a),location:n.location))
+            let v = try expressionNode(.functionArgument(index),type:ty,at:n,emit:false)
+            try define(n,v)
+            if !(try eat(",")) { break }
+        }
+        try expect(")")
+        if try eat("->") {
+            let a = try attributes(); body.result = IRFunctionResult(type:try type(),binding:try binding(a))
+        }
+        let root = try block(newScope:false)
+        if try body.result != nil && !terminates(root) { throw wgslError(.invalidControlFlow,"Non-void function must return on every path",name) }
+        if try body.result == nil && !terminates(root) {
+            let saved = body.current; body.current = body.blocks[root.index].statements
+            try statement(.returnValue(nil),at:name)
+            }
+        }
+        try simpleStatement(end:";")
+    }
+    func simpleStatement(end: String) throws {
+        let start = token
+        let lhs = try expression()
+        if try eat(end) {
+            // Only function calls may be standalone expressions in WGSL.
+            guard let last = body.current.last, case .call = body.statements[last.index].kind else { throw wgslError(.unexpectedToken,"Only a call may be an expression statement",start) }; return
+        }
+        guard lhs.pointer && lhs.writable else { throw wgslError(.invalidAddressSpace,"Assignment needs writable reference",start) }
+        let op = try take()
+        var rhs: WGSLValue
+        if op.text == "=" { rhs = try coerce(expression(),to:lhs.type,at:op) }
+        else if ["+=","-=","*=","/=","%=","&=","|=","^="].contains(op.text) {
+            let left = try loaded(lhs,at:op)
+            let right = try coerce(expression(),to:lhs.type,at:op)
+            guard case .scalar(let s) = types[lhs.type.index].kind, s != .bool, let (_,binary) = Self.binary[String(op.text.dropLast())] else { throw unsupported("compound assignment overload",at:op) }
+            rhs = try expressionNode(.binary(op:binary,left:left.handle,right:right.handle),type:lhs.type,at:op)
+        } else if op.text == "++" || op.text == "--" {
+            let l = try loaded(lhs,at:op)
+            let lit: IRLiteral
+            if types[lhs.type.index].kind == .scalar(.u32) { lit = .u32(1) }
+a55352911bb26a1b33bc8d5fc03bdebb0a967f5a

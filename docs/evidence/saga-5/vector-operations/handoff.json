@@ -1,0 +1,107 @@
+{
+  "date": "2026-11-07T02:20:20.849172+00:00",
+  "requested_vector_cases_verified": true,
+  "full_saga5_complete": false,
+  "native_tests": 204,
+  "new_test_functions": 11,
+  "new_wgsl_test_functions": 8,
+  "new_integration_test_functions": 3,
+  "checks_this_turn": {
+    "strict_native_tests": "verification-1",
+    "strict_full_native_build": "verification-2",
+    "matched_swift632_wasm_compiler": "verification-3",
+    "docs_reference_dependency": "verification-4"
+  },
+  "vector_operations": [
+    "componentwise +-*/%, integer &|^ and shifts; bool &| only; exact vector widths",
+    "mixed scalar/vector only normative +-*/%, shape expansion after static overload resolution",
+    "static leaf consensus and implicit abstract representability on all RHS nodes; concrete mismatch rejected; f32 per-node and integer wrapping/abstract checked scalar semantics reused",
+    "eager select scalarbool or samewidth boolvector condition, both value arguments same scalar/vector shape",
+    "constant postfix swizzle xyzw/rgba unmixed1..4 with width checks; single swizzle scalar, multi swizzle vector, repeated lanes valid",
+    "constant scalarinteger indices, negative/oversized/OOB reject with exact source expression spans even in skipped RHS",
+    "pure constant compose/swizzle/access runtime use-site folding for contextual abstract materialization, without effectful loads or general AST rewrite",
+    "literal runtime vector index bounds guard in frontend before unchanged raw validator; not a full raw semantic fix"
+  ],
+  "mandatory_checks": "per-component integer divisor0/signedMIN/-1; shift-count/left-overflow; implicit conversions; index bounds. Safe division divisor does not force skipped bad ordinary numerator conversion. Existing clamp/scalar obligations preserved.",
+  "next_residual_continued": {
+    "matrix_const_only": "2..4 columns/rows up to16 typed scalar leaves; zero/scalar/column constructors, explicit same-shape conversion, aliases, column indexing in constant context. Column-major/numeric leaf/shape checks; implicit materialization validated before lazy evaluation.",
+    "runtime_boundary": "No raw validator modification. Existing matrix compose rejects Constructor overload not implemented. Matrix runtime/localconst lowering explicitly remains unsupported; module matrix constants in frontend env may feed assertions including function const_assert.",
+    "raw_access_rule_gap": "Repro shows raw Access(vec2,index literal2) can still acquire a witness; frontend WGSL literal-index path now rejects it, but direct raw semantic gap remains. Audit precedes any proposed validator change as required.",
+    "audit": "docs/evidence/saga-5/vector-operations/boundary-audit.swift/log"
+  },
+  "safety": {
+    "bounded_vector_lanes": 4,
+    "bounded_matrix_elements": 16,
+    "depth_cap": 24,
+    "work_node_depth_cancellation": true,
+    "deterministic_operation_properties": 96,
+    "malformed_operation_trees": 192,
+    "all_old_signal5_signal10_hex_regressions_preserved": true
+  },
+  "reflection_interchange_gap": "Concrete module vector names still inline from compile-time environment; new matrix module values similarly compile-time only, not retained as named IR constants. No full reflection/interchange parity.",
+  "unchanged": {
+    "validator_sha256": "2240426e6f836d0beb7c5c45e2c73038e61e05a0eb817c5f0844625ec18539de",
+    "shared_ir_hashes": {
+      "Sources/SAGAShaderIR/TypedIR.swift": "fb46b19c546306dedcbf412e8be009a9c50038e563ad00163d3cc49e49a3bce5",
+      "Sources/SAGAShaderIR/BlockWalk.swift": "5c90afb8d51c003aef0da14be3b82409db7257e3126304ae8d3a8296a78851f5",
+      "Sources/SAGAShaderIR/Capabilities.swift": "03e3779b7fdf62437729255ca731bd853106ff0957834490f378c4fc77abaab5",
+      "Sources/SAGAShaderIR/Contracts.swift": "49273f626cd1b25e530206a168850ebe308bb609f9dc8b3b89e4003632f37529",
+      "Sources/SAGAShaderIR/Tables.swift": "478ceb7991b633f22cb4c0fb04736a6d10040a74c2cf28aafdff363321413c3f",
+      "Sources/SAGAShaderIR/Diagnostics.swift": "eacbb4adf49273251a6237af7288207f5f3f4005c930bd1525b7347592b943dd",
+      "Sources/SAGAShaderIR/Budgets.swift": "4341c2005120441e2d31cac3cf14de0cebbd0d5322ba10c89cd1d36b197ae0b0"
+    },
+    "frozen_baseline_hashes": {
+      "docs/baseline/saga-2/verification-results.json": "9dc3535a477fdbe29f732d14a2959433c4237611244a54357820a89c3d8c42c0",
+      "docs/baseline/saga-2/test_docs.py": "f93250f18c2f107d0c045f9639405bdc2403e71d6631fb500522e0bd61e58acd",
+      "docs/baseline/saga-2/hashes.json": "5cedb71961d313a35de4c522fe79dd72314dc97154a2b5f12f0b0f29b574b034",
+      "docs/baseline/saga-2/test_naga_scope.py": "1b75ed57d3cb3b3fae90d7658fa77dc7862d96a2b021800f14aa5e31dcef4bbf",
+      "docs/baseline/saga-2/verify_docs.py": "3a6ece4c57b8babb6ccb1854b56aa00b3eda85ddb5bdd9432082086874b0dad8"
+    },
+    "IRbool1_WGSLmemory4": true,
+    "private_witness": true
+  },
+  "source_hashes": {
+    "Sources/SAGAFrontends/WGSL/Lexer.swift": "44aeb5ec2cfd082d33a62bcc1e634cb5e43f4ef93c43ddeedbaa49050dbfbb3c",
+    "Sources/SAGAFrontends/WGSL/ControlExpressions.swift": "9094c2300373a36b4e485269f221d26408d449818444d222fcc85c9fa391801e",
+    "Sources/SAGAFrontends/WGSL/MatrixConstants.swift": "160515d8a98e86100d12728bf857b7d63dd2997861a0f79e8850ce5d7f3f000d",
+    "Sources/SAGAFrontends/WGSL/HexFloatLiterals.swift": "4cad6cf01a454d59af398726b5558b7b542bfa54bd56cc0773cc5abce9836508",
+    "Sources/SAGAFrontends/WGSL/FloatingConstants.swift": "eb4101219b74020a591cfb83a70c5c7d4d3a5a7cc893fb6f9d4cc77398b11084",
+    "Sources/SAGAFrontends/WGSL/Expressions.swift": "c45b8ac9fc4ea0938530dc00e35b491ce17dae45e064021b8bf0fb5c4c137647",
+    "Sources/SAGAFrontends/WGSL/Materialization.swift": "f20d949e04559c3c31cc3d105fefd98aafa78bc72f026f769410bb8d2b436217",
+    "Sources/SAGAFrontends/WGSL/Statements.swift": "21b7fd047df3c25a9d31ef78a257e83b05b3364370f14c998c5823ddbe1dbfe5",
+    "Sources/SAGAFrontends/WGSL/ModuleDeclarations.swift": "7f8b523a57285838ce546199b400de64c966f71802d3a1fec0c591eaf45b0195",
+    "Sources/SAGAFrontends/WGSL/ScalarConstantExpressions.swift": "6db2c66e11fd499954d4a7e7b26985eb4f1702f171dbda8c9a5708df750fa21f",
+    "Sources/SAGAFrontends/WGSL/VectorConstants.swift": "2df42adff12c4061328abf557db3cdbc892c793a838f72c83149847e657c4c94",
+    "Sources/SAGAFrontends/WGSL/Loops.swift": "739e6f247868fe28b80b226a20fa11741476a02429949a5052dba54361faf50d",
+    "Sources/SAGAFrontends/WGSL/ConstantExpressions.swift": "91ca229f90f4e81a986334dd62391d9046cc1be89741cc88a96cf6e01b1f2efc",
+    "Sources/SAGAFrontends/WGSL/WGSLFrontend.swift": "2bf2da1ecf2b9bdc4aa416087fc7f71e0261bfc75cb4545ed44c197f68a4556e",
+    "Sources/SAGAFrontends/WGSL/VectorOperations.swift": "7825be2e5159d064aa0e026dff6b1c8feddefbf5bfbf7f75f4bdf592f3af102e",
+    "Tests/SAGAFoundationTests/WGSLFrontendTests.swift": "1ee5637a9ae1bda07dcb1031392daeacdca87483b51bc9b564bf7307ed35252f",
+    "Tests/SAGAFoundationTests/FrontendIntegrationTests.swift": "4301df9e3e3ea3b1c85d4728da60f7dc25152eadc38158ebc73a8c9abf506a5a"
+  },
+  "reference_pin": "a55352911bb26a1b33bc8d5fc03bdebb0a967f5a",
+  "reference_clean": true,
+  "next_exact_gaps": [
+    "raw validator constant-index rule for dynamic Access with literal/const index, already reproduced",
+    "matrix runtime/localconst compose validation and lowering, requires boundary semantics follow-up",
+    "matrix arithmetic/remaining builtins, array/struct const aggregates and f16 feature support",
+    "remaining3format frontend/options/semantics/configured fixture parity not completed"
+  ],
+  "residual_repro": "docs/evidence/saga-5/vector-operations/residuals.swift/log",
+  "new_children_runs_boardpayloads_permission_changes_referencewrites_commits_publication": 0,
+  "conformance_limits": "No new corpus/browser/CTS/compiler-generated GPU check; matched Wasm compile-only; existing Metal regressions are not frontend parity.",
+  "runnable_target": "Compiler libraries only, no new Play/launch configuration.",
+  "docs_tests": {
+    "pass": 59,
+    "skip": 0
+  },
+  "source_hashes_rechecked_after_verification": true,
+  "final_coordinator_report_delivery": {
+    "status": "refused",
+    "code": "message_chain_limit",
+    "message": "This automatic message chain has reached eight deliveries. Wait for a new user turn.",
+    "no_retry_or_alternate_delivery_attempt": true,
+    "earlier_boundary_message": "0e75df2e-62ea-4bdf-bd9b-e5b9e15d4212 queued, not confirmed read",
+    "handoff": "Durable report/logs and typed outcome preserve final evidence; delivery cap is not itself a code implementation prohibition."
+  }
+}

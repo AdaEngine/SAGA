@@ -1,0 +1,52 @@
+name: Foundation contracts
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  apple-native:
+    runs-on: macos-15
+    strategy:
+      fail-fast: false
+      matrix:
+        swift: ['6.2.4', '6.3.2']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: swift-actions/setup-swift@v2
+        with:
+          swift-version: ${{ matrix.swift }}
+      - name: Record actual compiler and enforce expected release
+        env:
+          EXPECTED_SWIFT: ${{ matrix.swift }}
+        run: |
+          swift --version
+          swift --version | grep -F "version $EXPECTED_SWIFT "
+      - name: Build with strict concurrency
+        run: swift build -Xswiftc -warnings-as-errors -Xswiftc -strict-concurrency=complete
+      - name: Typecheck public isolation and validated-IR contracts
+        run: python3 scripts/verify-swift-contracts.py --modules "$(swift build --show-bin-path)/Modules"
+      - name: Test real contracts with a nonzero denominator
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .verification
+          swift test -Xswiftc -warnings-as-errors -Xswiftc -strict-concurrency=complete 2>&1 | tee .verification/swift-test.log
+          python3 scripts/check-swift-test-log.py .verification/swift-test.log
+      - name: Docs, immutable baseline, dependency and module policies
+        run: python3 -B docs/tools/verify_docs.py
+  web-compile:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: swift-actions/setup-swift@v2
+        with:
+          swift-version: '6.3.2'
+      - name: Install checksum-pinned matching official Wasm SDK
+        run: python3 scripts/install-web-sdk.py
+      - name: Compile Swift boundaries for Wasm
+        run: |
+          for target in SAGA SAGACompiler SAGAMetal SAGAWebGPU; do
+            swift build --target "$target" --scratch-path .build-wasm --swift-sdk swift-6.3.2-RELEASE_wasm -Xswiftc -warnings-as-errors -Xswiftc -strict-concurrency=complete
+          done
+      - name: Link and package the WebGPU diagnostic reactor
+        run: sh scripts/build-web-diagnostic.sh
+      # Hardware WebGPU execution is checked separately by scripts/test-web-diagnostic.mjs.

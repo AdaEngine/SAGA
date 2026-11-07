@@ -1,0 +1,91 @@
+A <dfn noexport>hexadecimal floating point literal</dfn> is:
+* A `0x` or `0X` prefix
+* Then a significand, specified as a sequence of hexadecimal digits, with an optional hexadecimal point (`.`) somewhere among them.
+    The significand represents a fraction in base 16 notation.
+* Then an optional exponent suffix consisting of:
+    * `p` or `P`
+    * Then an exponent specified as an decimal number with an optional leading sign (`+` or `-`).
+    * Then an optional `f` or `h` suffix.
+* At least one of the hexadecimal point, or the exponent [=shader-creation error|must=] be present.
+     If neither are, then the token is instead an [=integer literal=].
+
+<pre class=include>
+path: syntax/hex_float_literal.syntax.bs.include
+</pre>
+
+<div class='example wgsl hexadecimal-float-literals' heading='hexadecimal floating point literals'>
+  <xmp highlight=wgsl>
+    <tr><th>Numeric Literal<th>Suffix<th>Type<th>Examples
+  </thead>
+
+  <tr><td>[=integer literal=]<td>`i`<td>[=i32=]<td>42i
+  <tr><td>[=integer literal=]<td>`u`<td>[=u32=]<td>42u
+  <tr><td>[=integer literal=]<td><td>[=AbstractInt=]<td>124
+  <tr><td>[=floating point literal=]<td>`f`<td>[=f32=]<td>42f 1e5f 1.2f 0x1.0p10f
+  <tr><td>[=floating point literal=]<td>`h`<td>[=f16=]<td>42h 1e5h 1.2h 0x1.0p10h
+  <tr><td>[=floating point literal=]<td><td>[=AbstractFloat=]<td>1e5 1.2 0x1.0p10
+</table>
+
+A [=shader-creation error=] results if:
+* An [=integer literal=] with a `i` or `u` suffix cannot be represented by the target type.
+* A [=hexadecimal floating point literal=] with a `f` or `h` suffix overflows or cannot be exactly represented by the target type.
+* A [=decimal floating point literal=] with a `f` or `h` suffix overflows the target type.
+* A [=floating point literal=] with a `h` suffix is used while the [=extension/f16|f16 extension=] is not enabled.
+
+Note: The hexadecimal float value 0x1.00000001p0 requires 33 significand bits to be represented exactly,
+but [=f32=] only has 23 explicit significand bits.
+
+Note: If you want to use an `f` suffix to force a hexadecimal float literal to be of type, the literal must also
+use a binary exponent.  For example, write `0x1p0f`.  In comparison, `0x1f` is a hexadecimal integer literal.
+
+## Keywords ## {#keywords}
+
+### `sqrt` ### {#sqrt-builtin}
+<table class='data builtin'>
+  <tr algorithm="sqrt">
+    <td style="width:10%">Overload
+    <td class="nowrap">
+      <xmp highlight=wgsl>
+        @const @must_use fn sqrt(e: T) -> T
+      </xmp>
+  <tr>
+    <td style="width:10%">Parameterization
+    <td>[ALLFLOATINGDECL]
+  <tr>
+    <td>Description
+    <td>Returns the square root of `e`.
+    [=Component-wise=] when `T` is a vector.
+  <tr>
+    <td>Scalar [=domain=]
+    <td>Interval [0, [PINF]]
+</table>
+
+### `step` ### {#step-builtin}
+<table class='data builtin'>
+  <tr algorithm="step">
+### `inverseSqrt` ### {#inverseSqrt-builtin}
+<table class='data builtin'>
+  <tr algorithm="inverseSqrt">
+    <td style="width:10%">Overload
+    <td class="nowrap">
+      <xmp highlight=wgsl>
+        @const @must_use fn inverseSqrt(e: T) -> T
+      </xmp>
+  <tr>
+    <td style="width:10%">Parameterization
+    <td>[ALLFLOATINGDECL]
+  <tr>
+    <td>Description
+    <td>Returns the reciprocal of `sqrt(e)`.
+    [=Component-wise=] when `T` is a vector.
+  <tr>
+    <td>Scalar [=domain=]
+    <td>Interval [0, [PINF]]
+</table>
+
+### `ldexp` ### {#ldexp-builtin}
+<table class='data builtin'>
+  <tr algorithm="ldexp">
+    <td style="width:10%">Overload
+    <td class="nowrap">
+      <xmp highlight=wgsl>

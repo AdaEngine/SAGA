@@ -1,0 +1,39 @@
+[0/1] Planning build
+Building for debugging...
+[0/7] Write sources
+[4/7] Write swift-version-3CD7052B146186F2.txt
+[6/10] Compiling SAGATypes Descriptors.swift
+[7/10] Compiling SAGATypes BufferCommand.swift
+[8/10] Emitting module SAGATypes
+[9/13] Compiling SAGABackend CommandBackendDevice.swift
+[10/13] Emitting module SAGABackend
+[11/13] Compiling SAGABackend BackendDevice.swift
+[12/19] Emitting module SAGAWebGPU
+[13/19] Compiling SAGAWebGPU BrowserBackend.swift
+[14/19] Emitting module SAGACore
+[15/19] Compiling SAGACore Device.swift
+[16/21] Emitting module SAGA
+[17/21] Compiling SAGA Exports.swift
+[18/21] Compiling SAGAMetal MetalBackend.swift
+[19/21] Emitting module SAGAMetal
+[20/27] Compiling SAGAFoundationTests MetalComputeTests.swift
+[21/27] Compiling SAGAFoundationTests TestBackend.swift
+[22/27] Emitting module SAGAFoundationTests
+[23/27] Compiling SAGAFoundationTests DescriptorTests.swift
+[24/27] Compiling SAGAFoundationTests CompilerTests.swift
+[25/27] Compiling SAGAFoundationTests DeviceTests.swift
+[25/27] Write Objects.LinkFileList
+[26/27] Linking SAGAPackageTests
+Build complete! (2.70s)
+Test Suite 'Selected tests' started at 2026-11-06 20:28:33.351.
+Test Suite 'SAGAPackageTests.xctest' started at 2026-11-06 20:28:33.358.
+Test Suite 'SAGAPackageTests.xctest' passed at 2026-11-06 20:28:33.358.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+Test Suite 'Selected tests' passed at 2026-11-06 20:28:33.359.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.007) seconds
+􀟈  Test run started.
+􀄵  Testing Library Version: 1902
+􀄵  Target Platform: arm64e-apple-macos14.0
+􀟈  Test metalDiagnosticComputesEveryElementOnGPU() started.
+􁁛  Test metalDiagnosticComputesEveryElementOnGPU() passed after 0.082 seconds.
+􁁛  Test run with 1 test in 0 suites passed after 0.082 seconds.

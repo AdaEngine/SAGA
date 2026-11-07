@@ -1,0 +1,876 @@
+[0/1] Planning build
+Building for debugging...
+[0/1] Write swift-version-3CD7052B146186F2.txt
+error: emit-module command failed with exit code 1 (use -v to see invocation)
+[2/5] Emitting module SAGAFrontends
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/SPIRV/FunctionLowering.swift:3:8: error: invalid redeclaration of 'SPVBlockRecord'
+  1 | import SAGAShaderIR
+  2 | 
+  3 | struct SPVBlockRecord { let label: SPVInstruction; var code: [SPVInstruction] = [] }
+    |        `- error: invalid redeclaration of 'SPVBlockRecord'
+  4 | struct SPVValue {
+  5 |     let type: UInt32
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/SPIRV/FunctionLowering.swift:4:8: error: invalid redeclaration of 'SPVValue'
+  2 | 
+  3 | struct SPVBlockRecord { let label: SPVInstruction; var code: [SPVInstruction] = [] }
+  4 | struct SPVValue {
+    |        `- error: invalid redeclaration of 'SPVValue'
+  5 |     let type: UInt32
+  6 |     let expression: IRHandle<IRExpression>?
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/SPIRV/FunctionLowering.swift:20:26: error: 'SPVValue' is ambiguous for type lookup in this context
+  2 | 
+  3 | struct SPVBlockRecord { let label: SPVInstruction; var code: [SPVInstruction] = [] }
+  4 | struct SPVValue {
+    |        `- note: found this candidate
+  5 |     let type: UInt32
+  6 |     let expression: IRHandle<IRExpression>?
+    :
+ 18 |     var blocks: [IRBlock] = []
+ 19 |     var locals: [IRLocalVariable] = []
+ 20 |     var values: [UInt32: SPVValue] = [:]
+    |                          `- error: 'SPVValue' is ambiguous for type lookup in this context
+ 21 |     var source: [UInt32: SPVBlockRecord] = [:]
+ 22 |     var order: [UInt32] = []
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/SPIRV/SPIRVFunction.swift:11:8: note: found this candidate
+  9 |     var terminator: SPVInstruction?
+ 10 | }
+ 11 | struct SPVValue { let expression: IRHandle<IRExpression>; let type: UInt32 }
+    |        `- note: found this candidate
+ 12 | 
+ 13 | struct SPVFunctionLowerer {
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/SPIRV/FunctionLowering.swift:21:26: error: 'SPVBlockRecord' is ambiguous for type lookup in this context
+  1 | import SAGAShaderIR
+  2 | 
+  3 | struct SPVBlockRecord { let label: SPVInstruction; var code: [SPVInstruction] = [] }
+    |        `- note: found this candidate
+  4 | struct SPVValue {
+  5 |     let type: UInt32
+    :
+ 19 |     var locals: [IRLocalVariable] = []
+ 20 |     var values: [UInt32: SPVValue] = [:]
+ 21 |     var source: [UInt32: SPVBlockRecord] = [:]
+    |                          `- error: 'SPVBlockRecord' is ambiguous for type lookup in this context
+ 22 |     var order: [UInt32] = []
+ 23 |     var predecessors: [UInt32: Set<UInt32>] = [:]
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/SPIRV/SPIRVFunction.swift:3:8: note: found this candidate
+  1 | import SAGAShaderIR
+  2 | 
+  3 | struct SPVBlockRecord {
+    |        `- note: found this candidate
+  4 |     let label: SPVInstruction
+  5 |     var instructions: [SPVInstruction] = []
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/SPIRV/FunctionLowering.swift:76:25: error: 'SPVBlockRecord' is ambiguous for type lookup in this context
+  1 | import SAGAShaderIR
+  2 | 
+  3 | struct SPVBlockRecord { let label: SPVInstruction; var code: [SPVInstruction] = [] }
+    |        `- note: found this candidate
+  4 | struct SPVValue {
+  5 |     let type: UInt32
+    :
+ 74 |         values[id]=SPVValue(type:type,expression:nil,spill:slot,block:currentBlock)
+ 75 |     }
+ 76 |     func successors(_ b:SPVBlockRecord) throws -> [UInt32] {
+    |                         `- error: 'SPVBlockRecord' is ambiguous for type lookup in this context
+ 77 |         guard let i=b.code.last else {throw b.label.fail("Block has no terminator")}
+ 78 |         switch i.op {
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/SPIRV/SPIRVFunction.swift:3:8: note: found this candidate
+  1 | import SAGAShaderIR
+  2 | 
+  3 | struct SPVBlockRecord {
+    |        `- note: found this candidate
+  4 |     let label: SPVInstruction
+  5 |     var instructions: [SPVInstruction] = []
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/SPIRV/FunctionLowering.swift:12:8: error: invalid redeclaration of 'SPVFunctionLowerer'
+ 10 | 
+ 11 | /// Conservative structured acyclic CFG lowering; computed SSA results spill at their definition.
+ 12 | struct SPVFunctionLowerer {
+    |        `- error: invalid redeclaration of 'SPVFunctionLowerer'
+ 13 |     let module: SPVDecoder
+ 14 |     let record: SPVFunctionRecord
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/SPIRV/SPIRVFunction.swift:17:26: error: 'SPVBlockRecord' is ambiguous for type lookup in this context
+  1 | import SAGAShaderIR
+  2 | 
+  3 | struct SPVBlockRecord {
+    |        `- note: found this candidate
+  4 |     let label: SPVInstruction
+  5 |     var instructions: [SPVInstruction] = []
+    :
+ 15 |     let record: SPVFunctionRecord
+ 16 |     var budget: ShaderBudget
+ 17 |     var blocks: [UInt32: SPVBlockRecord] = [:]
+    |                          `- error: 'SPVBlockRecord' is ambiguous for type lookup in this context
+ 18 |     var order: [UInt32] = []
+ 19 |     var predecessors: [UInt32: Set<UInt32>] = [:]
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/SPIRV/FunctionLowering.swift:3:8: note: found this candidate
+  1 | import SAGAShaderIR
+  2 | 
+  3 | struct SPVBlockRecord { let label: SPVInstruction; var code: [SPVInstruction] = [] }
+    |        `- note: found this candidate
+  4 | struct SPVValue {
+  5 |     let type: UInt32
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/SPIRV/SPIRVFunction.swift:25:26: error: 'SPVValue' is ambiguous for type lookup in this context
+  9 |     var terminator: SPVInstruction?
+ 10 | }
+ 11 | struct SPVValue { let expression: IRHandle<IRExpression>; let type: UInt32 }
+    |        `- note: found this candidate
+ 12 | 
+ 13 | struct SPVFunctionLowerer {
+    :
+ 23 |     var irBlocks: [IRBlock] = []
+ 24 |     var locals: [IRLocalVariable] = []
+ 25 |     var values: [UInt32: SPVValue] = [:]
+    |                          `- error: 'SPVValue' is ambiguous for type lookup in this context
+ 26 |     var phiPointers: [UInt32: IRHandle<IRExpression>] = [:]
+ 27 |     var visited: Set<UInt32> = []
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/SPIRV/FunctionLowering.swift:4:8: note: found this candidate
+  2 | 
+  3 | struct SPVBlockRecord { let label: SPVInstruction; var code: [SPVInstruction] = [] }
+  4 | struct SPVValue {
+    |        `- note: found this candidate
+  5 |     let type: UInt32
+  6 |     let expression: IRHandle<IRExpression>?
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/SPIRV/SPIRVFunction.swift:43:67: error: 'SPVValue' is ambiguous for type lookup in this context
+  9 |     var terminator: SPVInstruction?
+ 10 | }
+ 11 | struct SPVValue { let expression: IRHandle<IRExpression>; let type: UInt32 }
+    |        `- note: found this candidate
+ 12 | 
+ 13 | struct SPVFunctionLowerer {
+    :
+ 41 |         try node();let h=try IRHandle<IRBlock>(index:irBlocks.count);irBlocks.append(.init(statements:ss,location:i.location));return h
+ 42 |     }
+ 43 |     mutating func value(_ id:UInt32,_ i:SPVInstruction) throws -> SPVValue {
+    |                                                                   `- error: 'SPVValue' is ambiguous for type lookup in this context
+ 44 |         try work()
+ 45 |         if let v=values[id] { return v }
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/SPIRV/FunctionLowering.swift:4:8: note: found this candidate
+  2 | 
+  3 | struct SPVBlockRecord { let label: SPVInstruction; var code: [SPVInstruction] = [] }
+  4 | struct SPVValue {
+    |        `- note: found this candidate
+  5 |     let type: UInt32
+  6 |     let expression: IRHandle<IRExpression>?
+[3/5] Compiling SAGAFrontends SPIRVFunction.swift
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/SPIRV/SPIRVFunction.swift:3:8: error: invalid redeclaration of 'SPVBlockRecord'
+  1 | import SAGAShaderIR
+  2 | 
+  3 | struct SPVBlockRecord {
+    |        `- error: invalid redeclaration of 'SPVBlockRecord'
+  4 |     let label: SPVInstruction
+  5 |     var instructions: [SPVInstruction] = []
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/SPIRV/SPIRVFunction.swift:11:8: error: invalid redeclaration of 'SPVValue'
+  9 |     var terminator: SPVInstruction?
+ 10 | }
+ 11 | struct SPVValue { let expression: IRHandle<IRExpression>; let type: UInt32 }
+    |        `- error: invalid redeclaration of 'SPVValue'
+ 12 | 
+ 13 | struct SPVFunctionLowerer {
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/SPIRV/SPIRVFunction.swift:17:26: error: 'SPVBlockRecord' is ambiguous for type lookup in this context
+  1 | import SAGAShaderIR
+  2 | 
+  3 | struct SPVBlockRecord {
+    |        `- note: found this candidate
+  4 |     let label: SPVInstruction
+  5 |     var instructions: [SPVInstruction] = []
+    :
+ 15 |     let record: SPVFunctionRecord
+ 16 |     var budget: ShaderBudget
+ 17 |     var blocks: [UInt32: SPVBlockRecord] = [:]
+    |                          `- error: 'SPVBlockRecord' is ambiguous for type lookup in this context
+ 18 |     var order: [UInt32] = []
+ 19 |     var predecessors: [UInt32: Set<UInt32>] = [:]
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/SPIRV/FunctionLowering.swift:3:8: note: found this candidate
+  1 | import SAGAShaderIR
+  2 | 
+  3 | struct SPVBlockRecord { let label: SPVInstruction; var code: [SPVInstruction] = [] }
+    |        `- note: found this candidate
+  4 | struct SPVValue {
+  5 |     let type: UInt32
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/SPIRV/SPIRVFunction.swift:25:26: error: 'SPVValue' is ambiguous for type lookup in this context
+  9 |     var terminator: SPVInstruction?
+ 10 | }
+ 11 | struct SPVValue { let expression: IRHandle<IRExpression>; let type: UInt32 }
+    |        `- note: found this candidate
+ 12 | 
+ 13 | struct SPVFunctionLowerer {
+    :
+ 23 |     var irBlocks: [IRBlock] = []
+ 24 |     var locals: [IRLocalVariable] = []
+ 25 |     var values: [UInt32: SPVValue] = [:]
+    |                          `- error: 'SPVValue' is ambiguous for type lookup in this context
+ 26 |     var phiPointers: [UInt32: IRHandle<IRExpression>] = [:]
+ 27 |     var visited: Set<UInt32> = []
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/SPIRV/FunctionLowering.swift:4:8: note: found this candidate
+  2 | 
+  3 | struct SPVBlockRecord { let label: SPVInstruction; var code: [SPVInstruction] = [] }
+  4 | struct SPVValue {
+    |        `- note: found this candidate
+  5 |     let type: UInt32
+  6 |     let expression: IRHandle<IRExpression>?
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/SPIRV/SPIRVFunction.swift:43:67: error: 'SPVValue' is ambiguous for type lookup in this context
+  9 |     var terminator: SPVInstruction?
+ 10 | }
+ 11 | struct SPVValue { let expression: IRHandle<IRExpression>; let type: UInt32 }
+    |        `- note: found this candidate
+ 12 | 
+ 13 | struct SPVFunctionLowerer {
+    :
+ 41 |         try node();let h=try IRHandle<IRBlock>(index:irBlocks.count);irBlocks.append(.init(statements:ss,location:i.location));return h
+ 42 |     }
+ 43 |     mutating func value(_ id:UInt32,_ i:SPVInstruction) throws -> SPVValue {
+    |                                                                   `- error: 'SPVValue' is ambiguous for type lookup in this context
+ 44 |         try work()
+ 45 |         if let v=values[id] { return v }
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/SPIRV/FunctionLowering.swift:4:8: note: found this candidate
+  2 | 
+  3 | struct SPVBlockRecord { let label: SPVInstruction; var code: [SPVInstruction] = [] }
+  4 | struct SPVValue {
+    |        `- note: found this candidate
+  5 |     let type: UInt32
+  6 |     let expression: IRHandle<IRExpression>?
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/SPIRV/SPIRVFunction.swift:13:8: error: invalid redeclaration of 'SPVFunctionLowerer'
+ 11 | struct SPVValue { let expression: IRHandle<IRExpression>; let type: UInt32 }
+ 12 | 
+ 13 | struct SPVFunctionLowerer {
+    |        `- error: invalid redeclaration of 'SPVFunctionLowerer'
+ 14 |     let module: SPVDecoder
+ 15 |     let record: SPVFunctionRecord
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/SPIRV/SPIRVFunction.swift:47:87: error: missing arguments for parameters 'spill', 'block' in call
+ 45 |         if let v=values[id] { return v }
+ 46 |         if let c=module.constantMap[id] {
+ 47 |             let e=try expr(module.type(c.type,i),.constant(c.handle),i);let v=SPVValue(expression:e,type:c.type);values[id]=v;return v
+    |                                                                                       `- error: missing arguments for parameters 'spill', 'block' in call
+ 48 |         }
+ 49 |         if let (g,t)=module.globalMap[id] {
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/SPIRV/FunctionLowering.swift:4:8: note: 'init(type:expression:spill:block:)' declared here
+  2 | 
+  3 | struct SPVBlockRecord { let label: SPVInstruction; var code: [SPVInstruction] = [] }
+  4 | struct SPVValue {
+    |        `- note: 'init(type:expression:spill:block:)' declared here
+  5 |     let type: UInt32
+  6 |     let expression: IRHandle<IRExpression>?
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/SPIRV/SPIRVFunction.swift:50:81: error: missing arguments for parameters 'spill', 'block' in call
+ 48 |         }
+ 49 |         if let (g,t)=module.globalMap[id] {
+ 50 |             let e=try expr(module.type(t,i),.globalVariable(g),i);let v=SPVValue(expression:e,type:t);values[id]=v;return v
+    |                                                                                 `- error: missing arguments for parameters 'spill', 'block' in call
+ 51 |         }
+ 52 |         throw i.fail("Undefined, forward or non-dominating value %\(id)")
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/SPIRV/FunctionLowering.swift:4:8: note: 'init(type:expression:spill:block:)' declared here
+  2 | 
+  3 | struct SPVBlockRecord { let label: SPVInstruction; var code: [SPVInstruction] = [] }
+  4 | struct SPVValue {
+    |        `- note: 'init(type:expression:spill:block:)' declared here
+  5 |     let type: UInt32
+  6 |     let expression: IRHandle<IRExpression>?
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/SPIRV/SPIRVFunction.swift:59:32: error: missing arguments for parameters 'spill', 'block' in call
+ 57 |     mutating func result(_ i:SPVInstruction,_ k:IRExpressionKind,_ ss:inout [IRHandle<IRStatement>],emit:Bool=true) throws {
+ 58 |         let t=try module.type(i.a[0],i);let e=try expr(t,k,i)
+ 59 |         values[i.a[1]]=SPVValue(expression:e,type:i.a[0]);if emit {ss.append(try stmt(.emit([e]),i))}
+    |                                `- error: missing arguments for parameters 'spill', 'block' in call
+ 60 |     }
+ 61 |     mutating func lower() throws -> IRFunction {
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/SPIRV/FunctionLowering.swift:4:8: note: 'init(type:expression:spill:block:)' declared here
+  2 | 
+  3 | struct SPVBlockRecord { let label: SPVInstruction; var code: [SPVInstruction] = [] }
+  4 | struct SPVValue {
+    |        `- note: 'init(type:expression:spill:block:)' declared here
+  5 |     let type: UInt32
+  6 |     let expression: IRHandle<IRExpression>?
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/SPIRV/SPIRVFunction.swift:73:93: error: missing arguments for parameters 'spill', 'block' in call
+ 71 |                 guard current == nil,count < signature.parameters.count,signature.parameters[count] == i.a[0] else {throw i.fail("Invalid parameter/order/type")}
+ 72 |                 let t=try module.type(i.a[0],i);parameters.append(.init(name:module.names[i.a[1]],type:t,location:i.location))
+ 73 |                 let e=try expr(t,.functionArgument(UInt32(count)),i);values[i.a[1]]=SPVValue(expression:e,type:i.a[0]);count+=1;continue
+    |                                                                                             `- error: missing arguments for parameters 'spill', 'block' in call
+ 74 |             }
+ 75 |             if i.op == 248 {
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/SPIRV/FunctionLowering.swift:4:8: note: 'init(type:expression:spill:block:)' declared here
+  2 | 
+  3 | struct SPVBlockRecord { let label: SPVInstruction; var code: [SPVInstruction] = [] }
+  4 | struct SPVValue {
+    |        `- note: 'init(type:expression:spill:block:)' declared here
+  5 |     let type: UInt32
+  6 |     let expression: IRHandle<IRExpression>?
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/SPIRV/SPIRVFunction.swift:102:104: error: cannot infer contextual base in reference to member 'unsupportedConstruct'
+100 |             case 250:
+101 |                 guard term.a.count==3 || term.a.count==5 else {throw term.fail("Invalid conditional operands")};targets=[term.a[1],term.a[2]]
+102 |                 guard b.merge != nil else {throw term.fail("Conditional requires SelectionMerge",code:.unsupportedConstruct)}
+    |                                                                                                        `- error: cannot infer contextual base in reference to member 'unsupportedConstruct'
+103 |             case 253,252,255:try term.count(0);targets=[]
+104 |             case 254:try term.count(1);targets=[]
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/SPIRV/SPIRVFunction.swift:105:84: error: cannot infer contextual base in reference to member 'unsupportedConstruct'
+103 |             case 253,252,255:try term.count(0);targets=[]
+104 |             case 254:try term.count(1);targets=[]
+105 |             case 251:throw term.fail("Switch reconstruction not implemented",code:.unsupportedConstruct)
+    |                                                                                    `- error: cannot infer contextual base in reference to member 'unsupportedConstruct'
+106 |             default:throw term.fail("Unknown terminator")
+107 |             }
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/SPIRV/SPIRVFunction.swift:109:180: error: cannot infer contextual base in reference to member 'unsupportedConstruct'
+107 |             }
+108 |             if let merge=b.merge {guard blocks[merge] != nil,merge != id,term.op==250 else {throw term.fail("Invalid structured merge")}}
+109 |             if let continuing=b.continuing {guard blocks[continuing] != nil,continuing != id,continuing != b.merge else {throw term.fail("Loop continuing shape unavailable",code:.unsupportedConstruct)}}
+    |                                                                                                                                                                                    `- error: cannot infer contextual base in reference to member 'unsupportedConstruct'
+110 |             for target in targets {try work();guard blocks[target] != nil,target != first else {throw term.fail("Invalid branch target/entry predecessor")};predecessors[target,default:[]].insert(id)}
+111 |         }
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/SPIRV/SPIRVFunction.swift:115:153: error: cannot infer contextual base in reference to member 'unsupportedConstruct'
+113 |             guard let b=blocks[id] else {throw h.fail("Missing block")}
+114 |             for p in b.phis {
+115 |                 let t=try module.type(p.a[0],p);guard let pointer=module.localPointerTypes[t] else {throw p.fail("Phi of pointer not implemented",code:.unsupportedConstruct)}
+    |                                                                                                                                                         `- error: cannot infer contextual base in reference to member 'unsupportedConstruct'
+116 |                 var incoming:Set<UInt32>=[]
+117 |                 for j in stride(from:2,to:p.a.count,by:2) {
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/SPIRV/SPIRVFunction.swift:183:93: error: cannot infer contextual base in reference to member 'unsupportedConstruct'
+181 |                 guard !module.voids.contains(resultType) else {throw term.fail("ReturnValue in void function")};let v=try typed(term.a[0],resultType,term);ss.append(try stmt(.returnValue(v),term));next=nil
+182 |             case 252:ss.append(try stmt(.kill,term));next=nil
+183 |             case 255:throw term.fail("OpUnreachable cannot be represented faithfully",code:.unsupportedConstruct)
+    |                                                                                             `- error: cannot infer contextual base in reference to member 'unsupportedConstruct'
+184 |             default:throw term.fail("Unsupported control flow",code:.unsupportedConstruct)
+185 |             }
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/SPIRV/SPIRVFunction.swift:184:70: error: cannot infer contextual base in reference to member 'unsupportedConstruct'
+182 |             case 252:ss.append(try stmt(.kill,term));next=nil
+183 |             case 255:throw term.fail("OpUnreachable cannot be represented faithfully",code:.unsupportedConstruct)
+184 |             default:throw term.fail("Unsupported control flow",code:.unsupportedConstruct)
+    |                                                                      `- error: cannot infer contextual base in reference to member 'unsupportedConstruct'
+185 |             }
+186 |         }
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/SPIRV/SPIRVFunction.swift:196:106: error: cannot infer contextual base in reference to member 'unsupportedConstruct'
+194 |               let merge=h.merge,let continuing=h.continuing,term.op==250 else {throw record.header.fail("Invalid canonical loop")}
+195 |         let trueExit=term.a[1]==merge,falseExit=term.a[2]==merge
+196 |         guard trueExit != falseExit else {throw term.fail("Canonical loop must have one exit edge",code:.unsupportedConstruct)}
+    |                                                                                                          `- error: cannot infer contextual base in reference to member 'unsupportedConstruct'
+197 |         let bodyID=trueExit ? term.a[2]:term.a[1]
+198 |         guard bodyID != continuing,bodyID != id else {throw term.fail("Loop body shape unavailable",code:.unsupportedConstruct)}
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/SPIRV/SPIRVFunction.swift:198:107: error: cannot infer contextual base in reference to member 'unsupportedConstruct'
+196 |         guard trueExit != falseExit else {throw term.fail("Canonical loop must have one exit edge",code:.unsupportedConstruct)}
+197 |         let bodyID=trueExit ? term.a[2]:term.a[1]
+198 |         guard bodyID != continuing,bodyID != id else {throw term.fail("Loop body shape unavailable",code:.unsupportedConstruct)}
+    |                                                                                                           `- error: cannot infer contextual base in reference to member 'unsupportedConstruct'
+199 |         let outer=values
+200 |         var body:[IRHandle<IRStatement>]=[]
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/SPIRV/SPIRVFunction.swift:256:78: error: missing arguments for parameters 'spill', 'block' in call
+254 |             let v=try typed(a[1],pointer.base,i);ss.append(try stmt(.store(pointer:p.expression,value:v),i))
+255 |         case 83:
+256 |             try i.count(3);let v=try typed(a[2],a[0],i);values[a[1]]=SPVValue(expression:v,type:a[0])
+    |                                                                              `- error: missing arguments for parameters 'spill', 'block' in call
+257 |         case 57:
+258 |             try i.minimum(3)
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/SPIRV/FunctionLowering.swift:4:8: note: 'init(type:expression:spill:block:)' declared here
+  2 | 
+  3 | struct SPVBlockRecord { let label: SPVInstruction; var code: [SPVInstruction] = [] }
+  4 | struct SPVValue {
+    |        `- note: 'init(type:expression:spill:block:)' declared here
+  5 |     let type: UInt32
+  6 |     let expression: IRHandle<IRExpression>?
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/SPIRV/SPIRVFunction.swift:266:132: error: missing arguments for parameters 'spill', 'block' in call
+264 |             for (j,p) in sig.parameters.enumerated() {args.append(try typed(a[j+3],p,i))}
+265 |             let r:IRHandle<IRExpression>?
+266 |             if module.voids.contains(a[0]) {r=nil} else {let e=try expr(module.type(a[0],i),.callResult(h),i);values[a[1]]=SPVValue(expression:e,type:a[0]);r=e}
+    |                                                                                                                                    `- error: missing arguments for parameters 'spill', 'block' in call
+267 |             ss.append(try stmt(.call(function:h,arguments:args,result:r),i))
+268 |         case 65:try accessChain(i,&ss)
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/SPIRV/FunctionLowering.swift:4:8: note: 'init(type:expression:spill:block:)' declared here
+  2 | 
+  3 | struct SPVBlockRecord { let label: SPVInstruction; var code: [SPVInstruction] = [] }
+  4 | struct SPVValue {
+    |        `- note: 'init(type:expression:spill:block:)' declared here
+  5 |     let type: UInt32
+  6 |     let expression: IRHandle<IRExpression>?
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/SPIRV/SPIRVFunction.swift:284:34: error: missing arguments for parameters 'spill', 'block' in call
+282 |             }
+283 |             guard t == module.typeMap[a[0]] else {throw i.fail("CompositeExtract result type mismatch")}
+284 |             values[a[1]]=SPVValue(expression:e,type:a[0])
+    |                                  `- error: missing arguments for parameters 'spill', 'block' in call
+285 |         case 124:
+286 |             try i.count(3);let v=try value(a[2],i);let t=try module.type(a[0],i)
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/SPIRV/FunctionLowering.swift:4:8: note: 'init(type:expression:spill:block:)' declared here
+  2 | 
+  3 | struct SPVBlockRecord { let label: SPVInstruction; var code: [SPVInstruction] = [] }
+  4 | struct SPVValue {
+    |        `- note: 'init(type:expression:spill:block:)' declared here
+  5 |     let type: UInt32
+  6 |     let expression: IRHandle<IRExpression>?
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/SPIRV/SPIRVFunction.swift:335:34: error: cannot infer contextual base in reference to member 'u32'
+333 |             let index=try value(indexID,i)
+334 |             let ik=try module.kind(index.type,i)
+335 |             guard ik == .scalar(.u32) || ik == .scalar(.i32) else {throw i.fail("Index must be i32/u32")}
+    |                                  `- error: cannot infer contextual base in reference to member 'u32'
+336 |             let next:IRHandle<IRType>
+337 |             if let c=module.constantMap[indexID]?.unsigned {next=try indexedType(t,c,i)}
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/SPIRV/SPIRVFunction.swift:335:57: error: cannot infer contextual base in reference to member 'i32'
+333 |             let index=try value(indexID,i)
+334 |             let ik=try module.kind(index.type,i)
+335 |             guard ik == .scalar(.u32) || ik == .scalar(.i32) else {throw i.fail("Index must be i32/u32")}
+    |                                                         `- error: cannot infer contextual base in reference to member 'i32'
+336 |             let next:IRHandle<IRType>
+337 |             if let c=module.constantMap[indexID]?.unsigned {next=try indexedType(t,c,i)}
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/SPIRV/SPIRVFunction.swift:355:30: error: missing arguments for parameters 'spill', 'block' in call
+353 |             e=try expr(pt,.access(base:e,index:index.expression),i);ss.append(try stmt(.emit([e]),i));t=next
+354 |         }
+355 |         values[a[1]]=SPVValue(expression:e,type:a[0])
+    |                              `- error: missing arguments for parameters 'spill', 'block' in call
+356 |     }
+357 |     mutating func binary(_ i:SPVInstruction,_ ss:inout [IRHandle<IRStatement>]) throws {
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/SPIRV/FunctionLowering.swift:4:8: note: 'init(type:expression:spill:block:)' declared here
+  2 | 
+  3 | struct SPVBlockRecord { let label: SPVInstruction; var code: [SPVInstruction] = [] }
+  4 | struct SPVValue {
+    |        `- note: 'init(type:expression:spill:block:)' declared here
+  5 |     let type: UInt32
+  6 |     let expression: IRHandle<IRExpression>?
+[4/5] Compiling SAGAFrontends SPIRVFrontend.swift
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/SPIRV/FunctionLowering.swift:20:26: error: 'SPVValue' is ambiguous for type lookup in this context
+  2 | 
+  3 | struct SPVBlockRecord { let label: SPVInstruction; var code: [SPVInstruction] = [] }
+  4 | struct SPVValue {
+    |        `- note: found this candidate
+  5 |     let type: UInt32
+  6 |     let expression: IRHandle<IRExpression>?
+    :
+ 18 |     var blocks: [IRBlock] = []
+ 19 |     var locals: [IRLocalVariable] = []
+ 20 |     var values: [UInt32: SPVValue] = [:]
+    |                          `- error: 'SPVValue' is ambiguous for type lookup in this context
+ 21 |     var source: [UInt32: SPVBlockRecord] = [:]
+ 22 |     var order: [UInt32] = []
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/SPIRV/SPIRVFunction.swift:11:8: note: found this candidate
+  9 |     var terminator: SPVInstruction?
+ 10 | }
+ 11 | struct SPVValue { let expression: IRHandle<IRExpression>; let type: UInt32 }
+    |        `- note: found this candidate
+ 12 | 
+ 13 | struct SPVFunctionLowerer {
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/SPIRV/FunctionLowering.swift:21:26: error: 'SPVBlockRecord' is ambiguous for type lookup in this context
+  1 | import SAGAShaderIR
+  2 | 
+  3 | struct SPVBlockRecord { let label: SPVInstruction; var code: [SPVInstruction] = [] }
+    |        `- note: found this candidate
+  4 | struct SPVValue {
+  5 |     let type: UInt32
+    :
+ 19 |     var locals: [IRLocalVariable] = []
+ 20 |     var values: [UInt32: SPVValue] = [:]
+ 21 |     var source: [UInt32: SPVBlockRecord] = [:]
+    |                          `- error: 'SPVBlockRecord' is ambiguous for type lookup in this context
+ 22 |     var order: [UInt32] = []
+ 23 |     var predecessors: [UInt32: Set<UInt32>] = [:]
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/SPIRV/SPIRVFunction.swift:3:8: note: found this candidate
+  1 | import SAGAShaderIR
+  2 | 
+  3 | struct SPVBlockRecord {
+    |        `- note: found this candidate
+  4 |     let label: SPVInstruction
+  5 |     var instructions: [SPVInstruction] = []
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/SPIRV/SPIRVFunction.swift:17:26: error: 'SPVBlockRecord' is ambiguous for type lookup in this context
+  1 | import SAGAShaderIR
+  2 | 
+  3 | struct SPVBlockRecord {
+    |        `- note: found this candidate
+  4 |     let label: SPVInstruction
+  5 |     var instructions: [SPVInstruction] = []
+    :
+ 15 |     let record: SPVFunctionRecord
+ 16 |     var budget: ShaderBudget
+ 17 |     var blocks: [UInt32: SPVBlockRecord] = [:]
+    |                          `- error: 'SPVBlockRecord' is ambiguous for type lookup in this context
+ 18 |     var order: [UInt32] = []
+ 19 |     var predecessors: [UInt32: Set<UInt32>] = [:]
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/SPIRV/FunctionLowering.swift:3:8: note: found this candidate
+  1 | import SAGAShaderIR
+  2 | 
+  3 | struct SPVBlockRecord { let label: SPVInstruction; var code: [SPVInstruction] = [] }
+    |        `- note: found this candidate
+  4 | struct SPVValue {
+  5 |     let type: UInt32
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/SPIRV/SPIRVFunction.swift:25:26: error: 'SPVValue' is ambiguous for type lookup in this context
+  9 |     var terminator: SPVInstruction?
+ 10 | }
+ 11 | struct SPVValue { let expression: IRHandle<IRExpression>; let type: UInt32 }
+    |        `- note: found this candidate
+ 12 | 
+ 13 | struct SPVFunctionLowerer {
+    :
+ 23 |     var irBlocks: [IRBlock] = []
+ 24 |     var locals: [IRLocalVariable] = []
+ 25 |     var values: [UInt32: SPVValue] = [:]
+    |                          `- error: 'SPVValue' is ambiguous for type lookup in this context
+ 26 |     var phiPointers: [UInt32: IRHandle<IRExpression>] = [:]
+ 27 |     var visited: Set<UInt32> = []
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/SPIRV/FunctionLowering.swift:4:8: note: found this candidate
+  2 | 
+  3 | struct SPVBlockRecord { let label: SPVInstruction; var code: [SPVInstruction] = [] }
+  4 | struct SPVValue {
+    |        `- note: found this candidate
+  5 |     let type: UInt32
+  6 |     let expression: IRHandle<IRExpression>?
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/SPIRV/SPIRVFrontend.swift:173:25: error: reference to member 'init' cannot be resolved without a contextual type
+171 |         try validateDecorations(header)
+172 |         for f in functions {
+173 |             var lower = SPVFunctionLowerer(module: self, record: f, budget: budget)
+    |                         `- error: reference to member 'init' cannot be resolved without a contextual type
+174 |             let value = try lower.lower(); budget = lower.budget; lowered.append(value)
+175 |         }
+[5/5] Compiling SAGAFrontends FunctionLowering.swift
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/SPIRV/FunctionLowering.swift:3:8: error: invalid redeclaration of 'SPVBlockRecord'
+  1 | import SAGAShaderIR
+  2 | 
+  3 | struct SPVBlockRecord { let label: SPVInstruction; var code: [SPVInstruction] = [] }
+    |        `- error: invalid redeclaration of 'SPVBlockRecord'
+  4 | struct SPVValue {
+  5 |     let type: UInt32
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/SPIRV/FunctionLowering.swift:4:8: error: invalid redeclaration of 'SPVValue'
+  2 | 
+  3 | struct SPVBlockRecord { let label: SPVInstruction; var code: [SPVInstruction] = [] }
+  4 | struct SPVValue {
+    |        `- error: invalid redeclaration of 'SPVValue'
+  5 |     let type: UInt32
+  6 |     let expression: IRHandle<IRExpression>?
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/SPIRV/FunctionLowering.swift:20:26: error: 'SPVValue' is ambiguous for type lookup in this context
+  2 | 
+  3 | struct SPVBlockRecord { let label: SPVInstruction; var code: [SPVInstruction] = [] }
+  4 | struct SPVValue {
+    |        `- note: found this candidate
+  5 |     let type: UInt32
+  6 |     let expression: IRHandle<IRExpression>?
+    :
+ 18 |     var blocks: [IRBlock] = []
+ 19 |     var locals: [IRLocalVariable] = []
+ 20 |     var values: [UInt32: SPVValue] = [:]
+    |                          `- error: 'SPVValue' is ambiguous for type lookup in this context
+ 21 |     var source: [UInt32: SPVBlockRecord] = [:]
+ 22 |     var order: [UInt32] = []
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/SPIRV/SPIRVFunction.swift:11:8: note: found this candidate
+  9 |     var terminator: SPVInstruction?
+ 10 | }
+ 11 | struct SPVValue { let expression: IRHandle<IRExpression>; let type: UInt32 }
+    |        `- note: found this candidate
+ 12 | 
+ 13 | struct SPVFunctionLowerer {
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/SPIRV/FunctionLowering.swift:21:26: error: 'SPVBlockRecord' is ambiguous for type lookup in this context
+  1 | import SAGAShaderIR
+  2 | 
+  3 | struct SPVBlockRecord { let label: SPVInstruction; var code: [SPVInstruction] = [] }
+    |        `- note: found this candidate
+  4 | struct SPVValue {
+  5 |     let type: UInt32
+    :
+ 19 |     var locals: [IRLocalVariable] = []
+ 20 |     var values: [UInt32: SPVValue] = [:]
+ 21 |     var source: [UInt32: SPVBlockRecord] = [:]
+    |                          `- error: 'SPVBlockRecord' is ambiguous for type lookup in this context
+ 22 |     var order: [UInt32] = []
+ 23 |     var predecessors: [UInt32: Set<UInt32>] = [:]
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/SPIRV/SPIRVFunction.swift:3:8: note: found this candidate
+  1 | import SAGAShaderIR
+  2 | 
+  3 | struct SPVBlockRecord {
+    |        `- note: found this candidate
+  4 |     let label: SPVInstruction
+  5 |     var instructions: [SPVInstruction] = []
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/SPIRV/FunctionLowering.swift:76:25: error: 'SPVBlockRecord' is ambiguous for type lookup in this context
+  1 | import SAGAShaderIR
+  2 | 
+  3 | struct SPVBlockRecord { let label: SPVInstruction; var code: [SPVInstruction] = [] }
+    |        `- note: found this candidate
+  4 | struct SPVValue {
+  5 |     let type: UInt32
+    :
+ 74 |         values[id]=SPVValue(type:type,expression:nil,spill:slot,block:currentBlock)
+ 75 |     }
+ 76 |     func successors(_ b:SPVBlockRecord) throws -> [UInt32] {
+    |                         `- error: 'SPVBlockRecord' is ambiguous for type lookup in this context
+ 77 |         guard let i=b.code.last else {throw b.label.fail("Block has no terminator")}
+ 78 |         switch i.op {
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/SPIRV/SPIRVFunction.swift:3:8: note: found this candidate
+  1 | import SAGAShaderIR
+  2 | 
+  3 | struct SPVBlockRecord {
+    |        `- note: found this candidate
+  4 |     let label: SPVInstruction
+  5 |     var instructions: [SPVInstruction] = []
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/SPIRV/FunctionLowering.swift:12:8: error: invalid redeclaration of 'SPVFunctionLowerer'
+ 10 | 
+ 11 | /// Conservative structured acyclic CFG lowering; computed SSA results spill at their definition.
+ 12 | struct SPVFunctionLowerer {
+    |        `- error: invalid redeclaration of 'SPVFunctionLowerer'
+ 13 |     let module: SPVDecoder
+ 14 |     let record: SPVFunctionRecord
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/SPIRV/FunctionLowering.swift:71:74: error: extra arguments at positions #3, #4 in call
+ 69 |     mutating func publish(_ id:UInt32,type:UInt32,value:IRHandle<IRExpression>,_ i:SPVInstruction,into body:inout [IRHandle<IRStatement>]) throws {
+ 70 |         let t=try module.type(type,i)
+ 71 |         if case .pointer=module.types[t.index].kind { values[id]=SPVValue(type:type,expression:value,spill:nil,block:currentBlock);return }
+    |                                                                          `- error: extra arguments at positions #3, #4 in call
+ 72 |         let slot=try local(t,i), p=try expression(pointerType(t,i),.localVariable(slot),i)
+ 73 |         try statement(.store(pointer:p,value:value),i,into:&body)
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/SPIRV/SPIRVFunction.swift:11:8: note: 'init(expression:type:)' declared here
+  9 |     var terminator: SPVInstruction?
+ 10 | }
+ 11 | struct SPVValue { let expression: IRHandle<IRExpression>; let type: UInt32 }
+    |        `- note: 'init(expression:type:)' declared here
+ 12 | 
+ 13 | struct SPVFunctionLowerer {
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/SPIRV/FunctionLowering.swift:71:108: error: 'nil' requires a contextual type
+ 69 |     mutating func publish(_ id:UInt32,type:UInt32,value:IRHandle<IRExpression>,_ i:SPVInstruction,into body:inout [IRHandle<IRStatement>]) throws {
+ 70 |         let t=try module.type(type,i)
+ 71 |         if case .pointer=module.types[t.index].kind { values[id]=SPVValue(type:type,expression:value,spill:nil,block:currentBlock);return }
+    |                                                                                                            `- error: 'nil' requires a contextual type
+ 72 |         let slot=try local(t,i), p=try expression(pointerType(t,i),.localVariable(slot),i)
+ 73 |         try statement(.store(pointer:p,value:value),i,into:&body)
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/SPIRV/FunctionLowering.swift:74:28: error: extra arguments at positions #3, #4 in call
+ 72 |         let slot=try local(t,i), p=try expression(pointerType(t,i),.localVariable(slot),i)
+ 73 |         try statement(.store(pointer:p,value:value),i,into:&body)
+ 74 |         values[id]=SPVValue(type:type,expression:nil,spill:slot,block:currentBlock)
+    |                            `- error: extra arguments at positions #3, #4 in call
+ 75 |     }
+ 76 |     func successors(_ b:SPVBlockRecord) throws -> [UInt32] {
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/SPIRV/SPIRVFunction.swift:11:8: note: 'init(expression:type:)' declared here
+  9 |     var terminator: SPVInstruction?
+ 10 | }
+ 11 | struct SPVValue { let expression: IRHandle<IRExpression>; let type: UInt32 }
+    |        `- note: 'init(expression:type:)' declared here
+ 12 | 
+ 13 | struct SPVFunctionLowerer {
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/SPIRV/FunctionLowering.swift:74:50: error: 'nil' is not compatible with expected argument type 'IRHandle<IRExpression>'
+ 72 |         let slot=try local(t,i), p=try expression(pointerType(t,i),.localVariable(slot),i)
+ 73 |         try statement(.store(pointer:p,value:value),i,into:&body)
+ 74 |         values[id]=SPVValue(type:type,expression:nil,spill:slot,block:currentBlock)
+    |                                                  `- error: 'nil' is not compatible with expected argument type 'IRHandle<IRExpression>'
+ 75 |     }
+ 76 |     func successors(_ b:SPVBlockRecord) throws -> [UInt32] {
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/SPIRV/FunctionLowering.swift:83:72: error: cannot infer contextual base in reference to member 'unsupportedConstruct'
+ 81 |         case 253,252,255:try i.count(0);return []
+ 82 |         case 254:try i.count(1);return []
+ 83 |         default:throw i.fail("Unsupported or missing terminator",code:.unsupportedConstruct)
+    |                                                                        `- error: cannot infer contextual base in reference to member 'unsupportedConstruct'
+ 84 |         }
+ 85 |     }
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/SPIRV/FunctionLowering.swift:103:36: error: extra arguments at positions #3, #4 in call
+101 |             let t=try module.type(p.a[0],p)
+102 |             arguments.append(.init(name:module.names[p.a[1]],type:t,location:p.location))
+103 |             values[p.a[1]]=SPVValue(type:p.a[0],expression:try expression(t,.functionArgument(UInt32(n)),p),spill:nil,block:nil)
+    |                                    `- error: extra arguments at positions #3, #4 in call
+104 |         }
+105 |         for id in order {
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/SPIRV/SPIRVFunction.swift:11:8: note: 'init(expression:type:)' declared here
+  9 |     var terminator: SPVInstruction?
+ 10 | }
+ 11 | struct SPVValue { let expression: IRHandle<IRExpression>; let type: UInt32 }
+    |        `- note: 'init(expression:type:)' declared here
+ 12 | 
+ 13 | struct SPVFunctionLowerer {
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/SPIRV/FunctionLowering.swift:103:115: error: 'nil' requires a contextual type
+101 |             let t=try module.type(p.a[0],p)
+102 |             arguments.append(.init(name:module.names[p.a[1]],type:t,location:p.location))
+103 |             values[p.a[1]]=SPVValue(type:p.a[0],expression:try expression(t,.functionArgument(UInt32(n)),p),spill:nil,block:nil)
+    |                                                                                                                   `- error: 'nil' requires a contextual type
+104 |         }
+105 |         for id in order {
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/SPIRV/FunctionLowering.swift:103:125: error: 'nil' requires a contextual type
+101 |             let t=try module.type(p.a[0],p)
+102 |             arguments.append(.init(name:module.names[p.a[1]],type:t,location:p.location))
+103 |             values[p.a[1]]=SPVValue(type:p.a[0],expression:try expression(t,.functionArgument(UInt32(n)),p),spill:nil,block:nil)
+    |                                                                                                                             `- error: 'nil' requires a contextual type
+104 |         }
+105 |         for id in order {
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/SPIRV/FunctionLowering.swift:131:107: error: cannot infer contextual base in reference to member 'unsupportedConstruct'
+129 |                 guard seen==predecessors[id,default:[]] else {throw i.fail("Phi predecessor list mismatch")}
+130 |                 let t=try module.type(i.a[0],i)
+131 |                 if case .pointer=module.types[t.index].kind {throw i.fail("Pointer Phi unsupported",code:.unsupportedConstruct)}
+    |                                                                                                           `- error: cannot infer contextual base in reference to member 'unsupportedConstruct'
+132 |                 values[i.a[1]]=SPVValue(type:i.a[0],expression:nil,spill:try local(t,i),block:id)
+133 |             }
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/SPIRV/FunctionLowering.swift:132:40: error: extra arguments at positions #3, #4 in call
+130 |                 let t=try module.type(i.a[0],i)
+131 |                 if case .pointer=module.types[t.index].kind {throw i.fail("Pointer Phi unsupported",code:.unsupportedConstruct)}
+132 |                 values[i.a[1]]=SPVValue(type:i.a[0],expression:nil,spill:try local(t,i),block:id)
+    |                                        `- error: extra arguments at positions #3, #4 in call
+133 |             }
+134 |         }
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/SPIRV/SPIRVFunction.swift:11:8: note: 'init(expression:type:)' declared here
+  9 |     var terminator: SPVInstruction?
+ 10 | }
+ 11 | struct SPVValue { let expression: IRHandle<IRExpression>; let type: UInt32 }
+    |        `- note: 'init(expression:type:)' declared here
+ 12 | 
+ 13 | struct SPVFunctionLowerer {
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/SPIRV/FunctionLowering.swift:132:64: error: 'nil' is not compatible with expected argument type 'IRHandle<IRExpression>'
+130 |                 let t=try module.type(i.a[0],i)
+131 |                 if case .pointer=module.types[t.index].kind {throw i.fail("Pointer Phi unsupported",code:.unsupportedConstruct)}
+132 |                 values[i.a[1]]=SPVValue(type:i.a[0],expression:nil,spill:try local(t,i),block:id)
+    |                                                                `- error: 'nil' is not compatible with expected argument type 'IRHandle<IRExpression>'
+133 |             }
+134 |         }
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/SPIRV/FunctionLowering.swift:159:158: error: cannot infer contextual base in reference to member 'unsupportedConstruct'
+157 |         let origin=source[start]?.label ?? record.header
+158 |         while let id=next,id != stop {
+159 |             try charge();guard visited.insert(id).inserted,let b=source[id],let term=b.code.last else {throw origin.fail("Cycle or overlapping region",code:.unsupportedConstruct)}
+    |                                                                                                                                                              `- error: cannot infer contextual base in reference to member 'unsupportedConstruct'
+160 |             currentBlock=id;var merge:UInt32?,variablesFinished=false
+161 |             for(n,i) in b.code.dropLast().enumerated() {
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/SPIRV/FunctionLowering.swift:166:83: error: cannot infer contextual base in reference to member 'unsupportedConstruct'
+164 |                 case 245:break
+165 |                 case 247:try i.count(2);guard i.a[1]==0,n==b.code.count-2,source[i.a[0]] != nil else {throw i.fail("Invalid SelectionMerge")};merge=i.a[0]
+166 |                 case 246:throw i.fail("Loop reconstruction not implemented",code:.unsupportedConstruct)
+    |                                                                                   `- error: cannot infer contextual base in reference to member 'unsupportedConstruct'
+167 |                 default:try instruction(i,firstBlock:id==order.first && !variablesFinished,into:&body)
+168 |                 }
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/SPIRV/FunctionLowering.swift:173:123: error: cannot infer contextual base in reference to member 'unsupportedConstruct'
+171 |             case 249:guard merge==nil else {throw term.fail("SelectionMerge without conditional")};try edge(from:id,to:term.a[0],term,into:&body);next=term.a[0]
+172 |             case 250:
+173 |                 guard let merge,merge != id,term.a[1] != term.a[2] else {throw term.fail("Unstructured conditional",code:.unsupportedConstruct)}
+    |                                                                                                                           `- error: cannot infer contextual base in reference to member 'unsupportedConstruct'
+174 |                 let(c,t)=try read(term.a[0],term,into:&body);guard try module.kind(t,term) == .scalar(.bool) else {throw term.fail("Branch condition not bool")}
+175 |                 let accept=try branch(from:id,target:term.a[1],stop:merge,depth:depth+1,term)
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/SPIRV/FunctionLowering.swift:180:68: error: cannot infer contextual base in reference to member 'unsupportedConstruct'
+178 |             case 253:guard module.voids.contains(record.header.a[0]),merge==nil else {throw term.fail("Return without required value")};try statement(.returnValue(nil),term,into:&body);next=nil
+179 |             case 254:let(v,t)=try read(term.a[0],term,into:&body);guard t==record.header.a[0],merge==nil else {throw term.fail("Return type mismatch")};try statement(.returnValue(v),term,into:&body);next=nil
+180 |             default:throw term.fail("Unsupported terminator",code:.unsupportedConstruct)
+    |                                                                    `- error: cannot infer contextual base in reference to member 'unsupportedConstruct'
+181 |             }
+182 |         }
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/SPIRV/FunctionLowering.swift:197:34: error: extra arguments at positions #3, #4 in call
+195 |             guard firstBlock,a.count==3 || a.count==4,let p=module.pointers[a[0]],p.storage==7,a[2]==7 else {throw i.fail("Invalid local variable")}
+196 |             let t=try module.type(p.base,i),slot=try local(t,i),ptr=try expression(module.type(a[0],i),.localVariable(slot),i)
+197 |             values[a[1]]=SPVValue(type:a[0],expression:ptr,spill:nil,block:nil)
+    |                                  `- error: extra arguments at positions #3, #4 in call
+198 |             if a.count==4 {let(v,vt)=try read(a[3],i,into:&body);guard vt==p.base,module.constantMap[a[3]] != nil else {throw i.fail("Bad local initializer")};try statement(.store(pointer:ptr,value:v),i,into:&body)}
+199 |         case 62:
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/SPIRV/SPIRVFunction.swift:11:8: note: 'init(expression:type:)' declared here
+  9 |     var terminator: SPVInstruction?
+ 10 | }
+ 11 | struct SPVValue { let expression: IRHandle<IRExpression>; let type: UInt32 }
+    |        `- note: 'init(expression:type:)' declared here
+ 12 | 
+ 13 | struct SPVFunctionLowerer {
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/SPIRV/FunctionLowering.swift:197:66: error: 'nil' requires a contextual type
+195 |             guard firstBlock,a.count==3 || a.count==4,let p=module.pointers[a[0]],p.storage==7,a[2]==7 else {throw i.fail("Invalid local variable")}
+196 |             let t=try module.type(p.base,i),slot=try local(t,i),ptr=try expression(module.type(a[0],i),.localVariable(slot),i)
+197 |             values[a[1]]=SPVValue(type:a[0],expression:ptr,spill:nil,block:nil)
+    |                                                                  `- error: 'nil' requires a contextual type
+198 |             if a.count==4 {let(v,vt)=try read(a[3],i,into:&body);guard vt==p.base,module.constantMap[a[3]] != nil else {throw i.fail("Bad local initializer")};try statement(.store(pointer:ptr,value:v),i,into:&body)}
+199 |         case 62:
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/SPIRV/FunctionLowering.swift:197:76: error: 'nil' requires a contextual type
+195 |             guard firstBlock,a.count==3 || a.count==4,let p=module.pointers[a[0]],p.storage==7,a[2]==7 else {throw i.fail("Invalid local variable")}
+196 |             let t=try module.type(p.base,i),slot=try local(t,i),ptr=try expression(module.type(a[0],i),.localVariable(slot),i)
+197 |             values[a[1]]=SPVValue(type:a[0],expression:ptr,spill:nil,block:nil)
+    |                                                                            `- error: 'nil' requires a contextual type
+198 |             if a.count==4 {let(v,vt)=try read(a[3],i,into:&body);guard vt==p.base,module.constantMap[a[3]] != nil else {throw i.fail("Bad local initializer")};try statement(.store(pointer:ptr,value:v),i,into:&body)}
+199 |         case 62:
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/SPIRV/FunctionLowering.swift:214:139: error: extra arguments at positions #3, #4 in call
+212 |             var args:[IRHandle<IRExpression>]=[]
+213 |             for(j,id) in a.dropFirst(3).enumerated() {let(v,t)=try read(id,i,into:&body);guard t==sig.parameters[j] else {throw i.fail("Call argument mismatch")};args.append(v)}
+214 |             if module.voids.contains(a[0]) {try statement(.call(function:fn,arguments:args,result:nil),i,into:&body);values[a[1]]=SPVValue(type:a[0],expression:nil,spill:nil,block:currentBlock)}
+    |                                                                                                                                           `- error: extra arguments at positions #3, #4 in call
+215 |             else {let v=try expression(module.type(a[0],i),.callResult(fn),i);try statement(.call(function:fn,arguments:args,result:v),i,into:&body);try publish(a[1],type:a[0],value:v,i,into:&body)}
+216 |         case 65,80,81,124:throw i.fail("Access/composite/bitcast lowering unavailable",code:.unsupportedConstruct)
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/SPIRV/SPIRVFunction.swift:11:8: note: 'init(expression:type:)' declared here
+  9 |     var terminator: SPVInstruction?
+ 10 | }
+ 11 | struct SPVValue { let expression: IRHandle<IRExpression>; let type: UInt32 }
+    |        `- note: 'init(expression:type:)' declared here
+ 12 | 
+ 13 | struct SPVFunctionLowerer {
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/SPIRV/FunctionLowering.swift:214:161: error: 'nil' is not compatible with expected argument type 'IRHandle<IRExpression>'
+212 |             var args:[IRHandle<IRExpression>]=[]
+213 |             for(j,id) in a.dropFirst(3).enumerated() {let(v,t)=try read(id,i,into:&body);guard t==sig.parameters[j] else {throw i.fail("Call argument mismatch")};args.append(v)}
+214 |             if module.voids.contains(a[0]) {try statement(.call(function:fn,arguments:args,result:nil),i,into:&body);values[a[1]]=SPVValue(type:a[0],expression:nil,spill:nil,block:currentBlock)}
+    |                                                                                                                                                                 `- error: 'nil' is not compatible with expected argument type 'IRHandle<IRExpression>'
+215 |             else {let v=try expression(module.type(a[0],i),.callResult(fn),i);try statement(.call(function:fn,arguments:args,result:v),i,into:&body);try publish(a[1],type:a[0],value:v,i,into:&body)}
+216 |         case 65,80,81,124:throw i.fail("Access/composite/bitcast lowering unavailable",code:.unsupportedConstruct)
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/SPIRV/FunctionLowering.swift:214:171: error: 'nil' requires a contextual type
+212 |             var args:[IRHandle<IRExpression>]=[]
+213 |             for(j,id) in a.dropFirst(3).enumerated() {let(v,t)=try read(id,i,into:&body);guard t==sig.parameters[j] else {throw i.fail("Call argument mismatch")};args.append(v)}
+214 |             if module.voids.contains(a[0]) {try statement(.call(function:fn,arguments:args,result:nil),i,into:&body);values[a[1]]=SPVValue(type:a[0],expression:nil,spill:nil,block:currentBlock)}
+    |                                                                                                                                                                           `- error: 'nil' requires a contextual type
+215 |             else {let v=try expression(module.type(a[0],i),.callResult(fn),i);try statement(.call(function:fn,arguments:args,result:v),i,into:&body);try publish(a[1],type:a[0],value:v,i,into:&body)}
+216 |         case 65,80,81,124:throw i.fail("Access/composite/bitcast lowering unavailable",code:.unsupportedConstruct)

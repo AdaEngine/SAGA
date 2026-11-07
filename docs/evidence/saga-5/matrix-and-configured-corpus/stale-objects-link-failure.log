@@ -1,0 +1,7 @@
+error: link command failed with exit code 1 (use -v to see invocation)
+Undefined symbols for architecture arm64:
+  "SAGAValidation.SemanticChecker.need(Swift.Bool, SAGAShaderIR.ShaderDiagnosticCode, Swift.String, SAGAShaderIR.ShaderLocation?) throws -> ()", referenced from:
+      SAGAValidation.SemanticChecker.staticAccessIndex(_: SAGAShaderIR.IRHandle<SAGAShaderIR.IRExpression>, in: SAGAShaderIR.IRTable<SAGAShaderIR.IRExpression>, location: SAGAShaderIR.ShaderLocation?) throws -> Swift.UInt32? in StaticAccessIndex.swift.o
+      SAGAValidation.SemanticChecker.staticAccessIndex(_: SAGAShaderIR.IRHandle<SAGAShaderIR.IRExpression>, in: SAGAShaderIR.IRTable<SAGAShaderIR.IRExpression>, location: SAGAShaderIR.ShaderLocation?) throws -> Swift.UInt32? in StaticAccessIndex.swift.o
+ld: symbol(s) not found for architecture arm64
+clang: error: linker command failed with exit code 1 (use -v to see invocation)

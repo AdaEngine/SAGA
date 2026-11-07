@@ -1,0 +1,258 @@
+[0/1] Planning build
+Building for debugging...
+[0/8] Write sources
+[3/8] Write swift-version-3CD7052B146186F2.txt
+[5/8] Compiling SAGAFrontends GLSLFrontend.swift
+[6/8] Emitting module SAGAFrontends
+[7/10] Compiling SAGACompiler FrontendValidation.swift
+[8/10] Emitting module SAGACompiler
+[9/11] Compiling SAGACompiler Compiler.swift
+[10/19] Compiling SAGAFoundationTests SPIRVFrontendTests.swift
+[11/19] Compiling SAGAFoundationTests WGSLFrontendTests.swift
+[12/19] Compiling SAGAFoundationTests GLSLFrontendTests.swift
+[13/19] Compiling SAGAFoundationTests ShaderSemanticValidationTests.swift
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/ShaderSemanticValidationTests.swift:30:80: error: call can throw but is not marked with 'try'
+ 28 |         let ts = [IRType(kind: .scalar(.u32)), IRType(kind: .scalar(.bool))]
+ 29 |         let a = IRExpression(type: try h(0), kind: .literal(.u32(1)))
+ 30 |         let bad = IRExpression(type: try h(0), kind: .binary(op: .equal, left: h(0), right: h(0)))
+    |                                                                                |- error: call can throw but is not marked with 'try'
+    |                                                                                |- note: did you mean to use 'try'?
+    |                                                                                |- note: did you mean to handle error as optional value?
+    |                                                                                `- note: did you mean to disable error propagation?
+ 31 |         #expect(throws: ShaderFailure.self) { try ShaderSemanticValidator().validate(module([a,bad],types:ts)) }
+ 32 |         let good = IRExpression(type: try h(1), kind: .binary(op: .equal, left: h(0), right: h(0)))
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/ShaderSemanticValidationTests.swift:30:93: error: call can throw but is not marked with 'try'
+ 28 |         let ts = [IRType(kind: .scalar(.u32)), IRType(kind: .scalar(.bool))]
+ 29 |         let a = IRExpression(type: try h(0), kind: .literal(.u32(1)))
+ 30 |         let bad = IRExpression(type: try h(0), kind: .binary(op: .equal, left: h(0), right: h(0)))
+    |                                                                                             |- error: call can throw but is not marked with 'try'
+    |                                                                                             |- note: did you mean to use 'try'?
+    |                                                                                             |- note: did you mean to handle error as optional value?
+    |                                                                                             `- note: did you mean to disable error propagation?
+ 31 |         #expect(throws: ShaderFailure.self) { try ShaderSemanticValidator().validate(module([a,bad],types:ts)) }
+ 32 |         let good = IRExpression(type: try h(1), kind: .binary(op: .equal, left: h(0), right: h(0)))
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/ShaderSemanticValidationTests.swift:32:81: error: call can throw but is not marked with 'try'
+ 30 |         let bad = IRExpression(type: try h(0), kind: .binary(op: .equal, left: h(0), right: h(0)))
+ 31 |         #expect(throws: ShaderFailure.self) { try ShaderSemanticValidator().validate(module([a,bad],types:ts)) }
+ 32 |         let good = IRExpression(type: try h(1), kind: .binary(op: .equal, left: h(0), right: h(0)))
+    |                                                                                 |- error: call can throw but is not marked with 'try'
+    |                                                                                 |- note: did you mean to use 'try'?
+    |                                                                                 |- note: did you mean to handle error as optional value?
+    |                                                                                 `- note: did you mean to disable error propagation?
+ 33 |         try ShaderSemanticValidator().validate(module([a,good],types:ts))
+ 34 |     }
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/ShaderSemanticValidationTests.swift:32:94: error: call can throw but is not marked with 'try'
+ 30 |         let bad = IRExpression(type: try h(0), kind: .binary(op: .equal, left: h(0), right: h(0)))
+ 31 |         #expect(throws: ShaderFailure.self) { try ShaderSemanticValidator().validate(module([a,bad],types:ts)) }
+ 32 |         let good = IRExpression(type: try h(1), kind: .binary(op: .equal, left: h(0), right: h(0)))
+    |                                                                                              |- error: call can throw but is not marked with 'try'
+    |                                                                                              |- note: did you mean to use 'try'?
+    |                                                                                              |- note: did you mean to handle error as optional value?
+    |                                                                                              `- note: did you mean to disable error propagation?
+ 33 |         try ShaderSemanticValidator().validate(module([a,good],types:ts))
+ 34 |     }
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/ShaderSemanticValidationTests.swift:37:67: error: call can throw but is not marked with 'try'
+ 35 |     @Test func readonlyUniformCannotBeStored() throws {
+ 36 |         let ts = [IRType(kind: .scalar(.u32)),IRType(kind: .pointer(base:try h(0),space:.uniform))]
+ 37 |         let es = [IRExpression(type:try h(1),kind:.globalVariable(h(0))),IRExpression(type:try h(0),kind:.literal(.u32(1)))]
+    |                                                                   |- error: call can throw but is not marked with 'try'
+    |                                                                   |- note: did you mean to use 'try'?
+    |                                                                   |- note: did you mean to handle error as optional value?
+    |                                                                   `- note: did you mean to disable error propagation?
+ 38 |         let f = try module(es,statements:[.init(kind:.store(pointer:h(0),value:h(1))),.init(kind:.returnValue(nil))],types:ts).functions.values[0]
+ 39 |         let m = IRModule(types:IRTable(ts),globalVariables:IRTable([.init(space:.uniform,binding:.init(group:0,binding:0),type:try h(0))]),functions:IRTable([f]))
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/ShaderSemanticValidationTests.swift:78:209: error: call can throw but is not marked with 'try'
+ 76 |     @Test func derivativeRequiresUniformControlIncludingNestedEarlyExit() throws {
+ 77 |         let ts = IRTable([IRType(kind:.scalar(.bool)),IRType(kind:.scalar(.f32))])
+ 78 |         let es = IRTable([IRExpression(type:try h(0),kind:.functionArgument(0)),IRExpression(type:try h(1),kind:.literal(.f32(1))),IRExpression(type:try h(1),kind:.derivative(axis:.x,control:.none,expression:h(1)))])
+    |                                                                                                                                                                                                                 |- error: call can throw but is not marked with 'try'
+    |                                                                                                                                                                                                                 |- note: did you mean to use 'try'?
+    |                                                                                                                                                                                                                 |- note: did you mean to handle error as optional value?
+    |                                                                                                                                                                                                                 `- note: did you mean to disable error propagation?
+ 79 |         // body -> nested block -> divergent if with early return; derivative follows nested block.
+ 80 |         let ss = IRTable([IRStatement(kind:.block(try h(1))),IRStatement(kind:.ifCondition(condition:try h(0),accept:h(2),reject:h(3))),IRStatement(kind:.returnValue(nil)),IRStatement(kind:.emit([try h(2)]))])
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/ShaderSemanticValidationTests.swift:80:118: error: call can throw but is not marked with 'try'
+ 78 |         let es = IRTable([IRExpression(type:try h(0),kind:.functionArgument(0)),IRExpression(type:try h(1),kind:.literal(.f32(1))),IRExpression(type:try h(1),kind:.derivative(axis:.x,control:.none,expression:h(1)))])
+ 79 |         // body -> nested block -> divergent if with early return; derivative follows nested block.
+ 80 |         let ss = IRTable([IRStatement(kind:.block(try h(1))),IRStatement(kind:.ifCondition(condition:try h(0),accept:h(2),reject:h(3))),IRStatement(kind:.returnValue(nil)),IRStatement(kind:.emit([try h(2)]))])
+    |                                                                                                                      |- error: call can throw but is not marked with 'try'
+    |                                                                                                                      |- note: did you mean to use 'try'?
+    |                                                                                                                      |- note: did you mean to handle error as optional value?
+    |                                                                                                                      `- note: did you mean to disable error propagation?
+ 81 |         let bs = IRTable([IRBlock(statements:[try h(0),h(3)]),IRBlock(statements:[try h(1)]),IRBlock(statements:[try h(2)]),IRBlock()])
+ 82 |         let f=IRFunction(arguments:[.init(type:try h(0))],expressions:es,statements:ss,blocks:bs,body:try h(0))
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/ShaderSemanticValidationTests.swift:80:130: error: call can throw but is not marked with 'try'
+ 78 |         let es = IRTable([IRExpression(type:try h(0),kind:.functionArgument(0)),IRExpression(type:try h(1),kind:.literal(.f32(1))),IRExpression(type:try h(1),kind:.derivative(axis:.x,control:.none,expression:h(1)))])
+ 79 |         // body -> nested block -> divergent if with early return; derivative follows nested block.
+ 80 |         let ss = IRTable([IRStatement(kind:.block(try h(1))),IRStatement(kind:.ifCondition(condition:try h(0),accept:h(2),reject:h(3))),IRStatement(kind:.returnValue(nil)),IRStatement(kind:.emit([try h(2)]))])
+    |                                                                                                                                  |- error: call can throw but is not marked with 'try'
+    |                                                                                                                                  |- note: did you mean to use 'try'?
+    |                                                                                                                                  |- note: did you mean to handle error as optional value?
+    |                                                                                                                                  `- note: did you mean to disable error propagation?
+ 81 |         let bs = IRTable([IRBlock(statements:[try h(0),h(3)]),IRBlock(statements:[try h(1)]),IRBlock(statements:[try h(2)]),IRBlock()])
+ 82 |         let f=IRFunction(arguments:[.init(type:try h(0))],expressions:es,statements:ss,blocks:bs,body:try h(0))
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/ShaderSemanticValidationTests.swift:81:56: error: call can throw but is not marked with 'try'
+ 79 |         // body -> nested block -> divergent if with early return; derivative follows nested block.
+ 80 |         let ss = IRTable([IRStatement(kind:.block(try h(1))),IRStatement(kind:.ifCondition(condition:try h(0),accept:h(2),reject:h(3))),IRStatement(kind:.returnValue(nil)),IRStatement(kind:.emit([try h(2)]))])
+ 81 |         let bs = IRTable([IRBlock(statements:[try h(0),h(3)]),IRBlock(statements:[try h(1)]),IRBlock(statements:[try h(2)]),IRBlock()])
+    |                                                        |- error: call can throw but is not marked with 'try'
+    |                                                        |- note: did you mean to use 'try'?
+    |                                                        |- note: did you mean to handle error as optional value?
+    |                                                        `- note: did you mean to disable error propagation?
+ 82 |         let f=IRFunction(arguments:[.init(type:try h(0))],expressions:es,statements:ss,blocks:bs,body:try h(0))
+ 83 |         do { try ShaderSemanticValidator().validate(IRModule(types:ts,functions:IRTable([f])));Issue.record("Divergent derivative accepted") }
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/ShaderSemanticValidationTests.swift:85:140: error: call can throw but is not marked with 'try'
+ 83 |         do { try ShaderSemanticValidator().validate(IRModule(types:ts,functions:IRTable([f])));Issue.record("Divergent derivative accepted") }
+ 84 |         catch ShaderFailure.diagnostics(let ds) {#expect(ds.first?.code == .nonUniformControlFlow)}
+ 85 |         let good=IRFunction(expressions:IRTable([es.values[1],IRExpression(type:try h(1),kind:.derivative(axis:.x,control:.none,expression:h(0)))]),statements:IRTable([.init(kind:.emit([try h(1)])),.init(kind:.returnValue(nil))]),blocks:IRTable([IRBlock(statements:[try h(0),h(1)])]),body:try h(0))
+    |                                                                                                                                            |- error: call can throw but is not marked with 'try'
+    |                                                                                                                                            |- note: did you mean to use 'try'?
+    |                                                                                                                                            |- note: did you mean to handle error as optional value?
+    |                                                                                                                                            `- note: did you mean to disable error propagation?
+ 86 |         try ShaderSemanticValidator().validate(IRModule(types:ts,functions:IRTable([good]),entryPoints:[.init(name:"f",stage:.fragment,function:try h(0))]))
+ 87 |         #expect(throws:ShaderFailure.self) {try ShaderSemanticValidator().validate(IRModule(types:ts,functions:IRTable([good]),entryPoints:[.init(name:"f",stage:.compute,function:try h(0))]))}
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/ShaderSemanticValidationTests.swift:85:276: error: call can throw but is not marked with 'try'
+ 83 |         do { try ShaderSemanticValidator().validate(IRModule(types:ts,functions:IRTable([f])));Issue.record("Divergent derivative accepted") }
+ 84 |         catch ShaderFailure.diagnostics(let ds) {#expect(ds.first?.code == .nonUniformControlFlow)}
+ 85 |         let good=IRFunction(expressions:IRTable([es.values[1],IRExpression(type:try h(1),kind:.derivative(axis:.x,control:.none,expression:h(0)))]),statements:IRTable([.init(kind:.emit([try h(1)])),.init(kind:.returnValue(nil))]),blocks:IRTable([IRBlock(statements:[try h(0),h(1)])]),body:try h(0))
+    |                                                                                                                                                                                                                                                                                    |- error: call can throw but is not marked with 'try'
+    |                                                                                                                                                                                                                                                                                    |- note: did you mean to use 'try'?
+    |                                                                                                                                                                                                                                                                                    |- note: did you mean to handle error as optional value?
+    |                                                                                                                                                                                                                                                                                    `- note: did you mean to disable error propagation?
+ 86 |         try ShaderSemanticValidator().validate(IRModule(types:ts,functions:IRTable([good]),entryPoints:[.init(name:"f",stage:.fragment,function:try h(0))]))
+ 87 |         #expect(throws:ShaderFailure.self) {try ShaderSemanticValidator().validate(IRModule(types:ts,functions:IRTable([good]),entryPoints:[.init(name:"f",stage:.compute,function:try h(0))]))}
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/ShaderSemanticValidationTests.swift:92:124: error: call can throw but is not marked with 'try'
+ 90 |         let ts=IRTable([IRType(kind:.scalar(.u32))])
+ 91 |         let callee=IRFunction(result:.init(type:try h(0)),expressions:IRTable([IRExpression(type:try h(0),kind:.literal(.u32(4)))]),statements:IRTable([.init(kind:.returnValue(try h(0)))]),blocks:IRTable([IRBlock(statements:[try h(0)])]),body:try h(0))
+ 92 |         let caller=IRFunction(result:.init(type:try h(0)),expressions:IRTable([IRExpression(type:try h(0),kind:.callResult(h(0)))]),statements:IRTable([.init(kind:.call(function:try h(0),arguments:[],result:h(0))),.init(kind:.returnValue(try h(0)))]),blocks:IRTable([IRBlock(statements:[try h(0),h(1)])]),body:try h(0))
+    |                                                                                                                            |- error: call can throw but is not marked with 'try'
+    |                                                                                                                            |- note: did you mean to use 'try'?
+    |                                                                                                                            |- note: did you mean to handle error as optional value?
+    |                                                                                                                            `- note: did you mean to disable error propagation?
+ 93 |         try ShaderSemanticValidator().validate(IRModule(types:ts,functions:IRTable([callee,caller])))
+ 94 |         let forged=IRFunction(result:caller.result,expressions:caller.expressions,statements:IRTable([.init(kind:.returnValue(try h(0)))]),blocks:IRTable([IRBlock(statements:[try h(0)])]),body:try h(0))
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/ShaderSemanticValidationTests.swift:92:208: error: call can throw but is not marked with 'try'
+ 90 |         let ts=IRTable([IRType(kind:.scalar(.u32))])
+ 91 |         let callee=IRFunction(result:.init(type:try h(0)),expressions:IRTable([IRExpression(type:try h(0),kind:.literal(.u32(4)))]),statements:IRTable([.init(kind:.returnValue(try h(0)))]),blocks:IRTable([IRBlock(statements:[try h(0)])]),body:try h(0))
+ 92 |         let caller=IRFunction(result:.init(type:try h(0)),expressions:IRTable([IRExpression(type:try h(0),kind:.callResult(h(0)))]),statements:IRTable([.init(kind:.call(function:try h(0),arguments:[],result:h(0))),.init(kind:.returnValue(try h(0)))]),blocks:IRTable([IRBlock(statements:[try h(0),h(1)])]),body:try h(0))
+    |                                                                                                                                                                                                                |- error: call can throw but is not marked with 'try'
+    |                                                                                                                                                                                                                |- note: did you mean to use 'try'?
+    |                                                                                                                                                                                                                |- note: did you mean to handle error as optional value?
+    |                                                                                                                                                                                                                `- note: did you mean to disable error propagation?
+ 93 |         try ShaderSemanticValidator().validate(IRModule(types:ts,functions:IRTable([callee,caller])))
+ 94 |         let forged=IRFunction(result:caller.result,expressions:caller.expressions,statements:IRTable([.init(kind:.returnValue(try h(0)))]),blocks:IRTable([IRBlock(statements:[try h(0)])]),body:try h(0))
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/ShaderSemanticValidationTests.swift:92:297: error: call can throw but is not marked with 'try'
+ 90 |         let ts=IRTable([IRType(kind:.scalar(.u32))])
+ 91 |         let callee=IRFunction(result:.init(type:try h(0)),expressions:IRTable([IRExpression(type:try h(0),kind:.literal(.u32(4)))]),statements:IRTable([.init(kind:.returnValue(try h(0)))]),blocks:IRTable([IRBlock(statements:[try h(0)])]),body:try h(0))
+ 92 |         let caller=IRFunction(result:.init(type:try h(0)),expressions:IRTable([IRExpression(type:try h(0),kind:.callResult(h(0)))]),statements:IRTable([.init(kind:.call(function:try h(0),arguments:[],result:h(0))),.init(kind:.returnValue(try h(0)))]),blocks:IRTable([IRBlock(statements:[try h(0),h(1)])]),body:try h(0))
+    |                                                                                                                                                                                                                                                                                                         |- error: call can throw but is not marked with 'try'
+    |                                                                                                                                                                                                                                                                                                         |- note: did you mean to use 'try'?
+    |                                                                                                                                                                                                                                                                                                         |- note: did you mean to handle error as optional value?
+    |                                                                                                                                                                                                                                                                                                         `- note: did you mean to disable error propagation?
+ 93 |         try ShaderSemanticValidator().validate(IRModule(types:ts,functions:IRTable([callee,caller])))
+ 94 |         let forged=IRFunction(result:caller.result,expressions:caller.expressions,statements:IRTable([.init(kind:.returnValue(try h(0)))]),blocks:IRTable([IRBlock(statements:[try h(0)])]),body:try h(0))
+[14/19] Compiling SAGAFoundationTests CompilerTests.swift
+[15/19] Compiling SAGAFoundationTests FrontendContractsTests.swift
+[16/19] Emitting module SAGAFoundationTests
+[17/19] Compiling SAGAFoundationTests FrontendIntegrationTests.swift
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/FrontendIntegrationTests.swift:7:21: error: cannot find type 'ShaderInput' in scope
+ 5 |     // Independent literal fixtures, not upstream copies. These test end-to-end boundaries, not parity.
+ 6 |     @Test func threeActualFrontendModulesAcquireWitnessOnlyAfterBuiltInValidation() throws {
+ 7 |         let inputs:[ShaderInput] = [
+   |                     `- error: cannot find type 'ShaderInput' in scope
+ 8 |             .wgsl("@compute @workgroup_size(1) fn main() {}"),
+ 9 |             .glsl("#version 450\nvoid main(){}",stage:.compute,defines:[:]),
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/FrontendIntegrationTests.swift:9:56: error: cannot infer contextual base in reference to member 'compute'
+ 7 |         let inputs:[ShaderInput] = [
+ 8 |             .wgsl("@compute @workgroup_size(1) fn main() {}"),
+ 9 |             .glsl("#version 450\nvoid main(){}",stage:.compute,defines:[:]),
+   |                                                        `- error: cannot infer contextual base in reference to member 'compute'
+10 |             .spirv([0x07230203,0x00010300,0,100,0,0x00020011,1,0x0003000e,0,1,0x0005000f,5,10,0x6e69616d,0,0x00060010,10,17,1,1,1,0x00020013,1,0x00030021,2,1,0x00050036,1,10,0,2,0x000200f8,11,0x000100fd,0x00010038])
+11 |         ]
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/FrontendIntegrationTests.swift:15:61: error: cannot infer contextual base in reference to member 'compute'
+13 |             let checked=try IndependentShaderCompiler().parseAndValidate(input)
+14 |             #expect(checked.module.entryPoints.count == 1)
+15 |             #expect(checked.module.entryPoints[0].stage == .compute)
+   |                                                             `- error: cannot infer contextual base in reference to member 'compute'
+16 |         }
+17 |     }
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/FrontendIntegrationTests.swift:21:21: error: cannot find 'WGSLFrontend' in scope
+19 |         // Workgroup size exceeds pinned validator limit; syntax is valid.
+20 |         let source="@compute @workgroup_size(20000) fn main() {}"
+21 |         let raw=try WGSLFrontend().parse(.wgsl(source))
+   |                     `- error: cannot find 'WGSLFrontend' in scope
+22 |         #expect(raw.entryPoints.count == 1)
+23 |         #expect(throws:ShaderFailure.self) {try IndependentShaderCompiler().parseAndValidate(.wgsl(source))}
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/FrontendIntegrationTests.swift:21:43: error: cannot infer contextual base in reference to member 'wgsl'
+19 |         // Workgroup size exceeds pinned validator limit; syntax is valid.
+20 |         let source="@compute @workgroup_size(20000) fn main() {}"
+21 |         let raw=try WGSLFrontend().parse(.wgsl(source))
+   |                                           `- error: cannot infer contextual base in reference to member 'wgsl'
+22 |         #expect(raw.entryPoints.count == 1)
+23 |         #expect(throws:ShaderFailure.self) {try IndependentShaderCompiler().parseAndValidate(.wgsl(source))}
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/FrontendIntegrationTests.swift:23:24: error: cannot find 'ShaderFailure' in scope
+21 |         let raw=try WGSLFrontend().parse(.wgsl(source))
+22 |         #expect(raw.entryPoints.count == 1)
+23 |         #expect(throws:ShaderFailure.self) {try IndependentShaderCompiler().parseAndValidate(.wgsl(source))}
+   |                        `- error: cannot find 'ShaderFailure' in scope
+24 |     }
+25 |     @Test func invalidInputAndBudgetNeverReturnValidatedWitness() throws {
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/FrontendIntegrationTests.swift:26:21: error: cannot find type 'ShaderInput' in scope
+24 |     }
+25 |     @Test func invalidInputAndBudgetNeverReturnValidatedWitness() throws {
+26 |         let inputs:[ShaderInput] = [.wgsl("fn main( {"),.glsl("#version 450\nvoid main(}",stage:.compute,defines:[:]),.spirv([0x07230203])]
+   |                     `- error: cannot find type 'ShaderInput' in scope
+27 |         for input in inputs {#expect(throws:ShaderFailure.self) {try IndependentShaderCompiler().parseAndValidate(input)}}
+28 |         #expect(throws:ShaderFailure.self) {try IndependentShaderCompiler().parseAndValidate(.wgsl("fn f() {}"),limits:ShaderLimits(work:1))}
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/FrontendIntegrationTests.swift:26:98: error: cannot infer contextual base in reference to member 'compute'
+24 |     }
+25 |     @Test func invalidInputAndBudgetNeverReturnValidatedWitness() throws {
+26 |         let inputs:[ShaderInput] = [.wgsl("fn main( {"),.glsl("#version 450\nvoid main(}",stage:.compute,defines:[:]),.spirv([0x07230203])]
+   |                                                                                                  `- error: cannot infer contextual base in reference to member 'compute'
+27 |         for input in inputs {#expect(throws:ShaderFailure.self) {try IndependentShaderCompiler().parseAndValidate(input)}}
+28 |         #expect(throws:ShaderFailure.self) {try IndependentShaderCompiler().parseAndValidate(.wgsl("fn f() {}"),limits:ShaderLimits(work:1))}
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/FrontendIntegrationTests.swift:27:45: error: cannot find 'ShaderFailure' in scope
+25 |     @Test func invalidInputAndBudgetNeverReturnValidatedWitness() throws {
+26 |         let inputs:[ShaderInput] = [.wgsl("fn main( {"),.glsl("#version 450\nvoid main(}",stage:.compute,defines:[:]),.spirv([0x07230203])]
+27 |         for input in inputs {#expect(throws:ShaderFailure.self) {try IndependentShaderCompiler().parseAndValidate(input)}}
+   |                                             `- error: cannot find 'ShaderFailure' in scope
+28 |         #expect(throws:ShaderFailure.self) {try IndependentShaderCompiler().parseAndValidate(.wgsl("fn f() {}"),limits:ShaderLimits(work:1))}
+29 |     }
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/FrontendIntegrationTests.swift:28:24: error: cannot find 'ShaderFailure' in scope
+26 |         let inputs:[ShaderInput] = [.wgsl("fn main( {"),.glsl("#version 450\nvoid main(}",stage:.compute,defines:[:]),.spirv([0x07230203])]
+27 |         for input in inputs {#expect(throws:ShaderFailure.self) {try IndependentShaderCompiler().parseAndValidate(input)}}
+28 |         #expect(throws:ShaderFailure.self) {try IndependentShaderCompiler().parseAndValidate(.wgsl("fn f() {}"),limits:ShaderLimits(work:1))}
+   |                        `- error: cannot find 'ShaderFailure' in scope
+29 |     }
+30 | }
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/FrontendIntegrationTests.swift:28:120: error: cannot find 'ShaderLimits' in scope
+26 |         let inputs:[ShaderInput] = [.wgsl("fn main( {"),.glsl("#version 450\nvoid main(}",stage:.compute,defines:[:]),.spirv([0x07230203])]
+27 |         for input in inputs {#expect(throws:ShaderFailure.self) {try IndependentShaderCompiler().parseAndValidate(input)}}
+28 |         #expect(throws:ShaderFailure.self) {try IndependentShaderCompiler().parseAndValidate(.wgsl("fn f() {}"),limits:ShaderLimits(work:1))}
+   |                                                                                                                        `- error: cannot find 'ShaderLimits' in scope
+29 |     }
+30 | }
+error: fatalError

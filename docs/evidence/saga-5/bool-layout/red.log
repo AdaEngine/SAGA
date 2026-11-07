@@ -1,0 +1,61 @@
+[0/1] Planning build
+Building for debugging...
+[0/5] Write sources
+[1/5] Write swift-version-3CD7052B146186F2.txt
+[3/6] Compiling SAGAFoundationTests FrontendIntegrationTests.swift
+[4/6] Compiling SAGAFoundationTests WGSLFrontendTests.swift
+[5/6] Emitting module SAGAFoundationTests
+[5/7] Write Objects.LinkFileList
+[6/7] Linking SAGAPackageTests
+Build complete! (1.61s)
+Test Suite 'Selected tests' started at 2026-11-07 03:17:42.665.
+Test Suite 'SAGAPackageTests.xctest' started at 2026-11-07 03:17:42.673.
+Test Suite 'SAGAPackageTests.xctest' passed at 2026-11-07 03:17:42.673.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+Test Suite 'Selected tests' passed at 2026-11-07 03:17:42.673.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.007) seconds
+􀟈  Test run started.
+􀄵  Testing Library Version: 1902
+􀄵  Target Platform: arm64e-apple-macos14.0
+􀟈  Suite FrontendIntegrationTests started.
+􀟈  Suite WGSLFrontendTests started.
+􀟈  Test boolWGSLLayoutWorksOnlyInNonHostAddressSpaces() started.
+􀟈  Test boolNaturalLayoutUsesWGSLFootprintWithoutChangingIRWidth() started.
+􀟈  Test boolNestedLayoutAndOverflowAreChecked() started.
+􀢄  Test boolNaturalLayoutUsesWGSLFootprintWithoutChangingIRWidth() recorded an issue at WGSLFrontendTests.swift:211:13: Expectation failed: (actual → 1) == (stride → 4)
+􀢄  Test boolNaturalLayoutUsesWGSLFootprintWithoutChangingIRWidth() recorded an issue at WGSLFrontendTests.swift:215:13: Expectation failed: (members[1].offset → 1) == (stride → 4)
+􀢄  Test boolNestedLayoutAndOverflowAreChecked() recorded an issue at WGSLFrontendTests.swift:230:9: Expectation failed: (members.map(\.offset) → [0, 1, 4]) == [0, 4, 16]
+􀅺  inserted [1], removed [16]
+􀢄  Test boolNaturalLayoutUsesWGSLFootprintWithoutChangingIRWidth() recorded an issue at WGSLFrontendTests.swift:216:13: Expectation failed: (members[2].offset → 2) == ((name == "vec3<bool>" ? 28 : 2 * stride) → 8)
+􀢄  Test boolNestedLayoutAndOverflowAreChecked() recorded an issue at WGSLFrontendTests.swift:230:55: Expectation failed: (span → 8) == 32
+􀢄  Test boolNaturalLayoutUsesWGSLFootprintWithoutChangingIRWidth() recorded an issue at WGSLFrontendTests.swift:217:13: Expectation failed: (span → 3) == ((name == "bool" ? 12 : name == "vec2<bool>" ? 24 : name == "vec3<bool>" ? 32 : 48) → 12)
+􀢄  Test boolNestedLayoutAndOverflowAreChecked() recorded an issue at WGSLFrontendTests.swift:231:9: Expectation failed: m.types.values.contains { if case .array(_, .constant(2), 32) = $0.kind { return true }; return false }
+􀢄  Test boolWGSLLayoutWorksOnlyInNonHostAddressSpaces() recorded an issue at FrontendIntegrationTests.swift:135:13: Expectation failed: (fields.map(\.offset) → [0, 4, 12]) == [0, 16, 48]
+􀅺  inserted [4, 12], removed [16, 48]
+􀢄  Test boolWGSLLayoutWorksOnlyInNonHostAddressSpaces() recorded an issue at FrontendIntegrationTests.swift:135:59: Expectation failed: (span → 16) == 64
+􀢄  Test boolNaturalLayoutUsesWGSLFootprintWithoutChangingIRWidth() recorded an issue at WGSLFrontendTests.swift:211:13: Expectation failed: (actual → 2) == (stride → 8)
+􀢄  Test boolNaturalLayoutUsesWGSLFootprintWithoutChangingIRWidth() recorded an issue at WGSLFrontendTests.swift:215:13: Expectation failed: (members[1].offset → 2) == (stride → 8)
+􀢄  Test boolNaturalLayoutUsesWGSLFootprintWithoutChangingIRWidth() recorded an issue at WGSLFrontendTests.swift:216:13: Expectation failed: (members[2].offset → 4) == ((name == "vec3<bool>" ? 28 : 2 * stride) → 16)
+􀢄  Test boolNaturalLayoutUsesWGSLFootprintWithoutChangingIRWidth() recorded an issue at WGSLFrontendTests.swift:217:13: Expectation failed: (span → 6) == ((name == "bool" ? 12 : name == "vec2<bool>" ? 24 : name == "vec3<bool>" ? 32 : 48) → 24)
+􀢄  Test boolWGSLLayoutWorksOnlyInNonHostAddressSpaces() recorded an issue at FrontendIntegrationTests.swift:135:13: Expectation failed: (fields.map(\.offset) → [0, 4, 12]) == [0, 16, 48]
+􀅺  inserted [4, 12], removed [16, 48]
+􀢄  Test boolWGSLLayoutWorksOnlyInNonHostAddressSpaces() recorded an issue at FrontendIntegrationTests.swift:135:59: Expectation failed: (span → 16) == 64
+􀢄  Test boolNestedLayoutAndOverflowAreChecked() recorded an issue at WGSLFrontendTests.swift:232:9: Expectation failed: an error was expected but none was thrown and "IRModule(types: SAGAShaderIR.IRTable<SAGAShaderIR.IRType>(values: [SAGAShaderIR.IRType(name: nil, kind: SAGAShaderIR.IRTypeKind.scalar(SAGAShaderIR.IRScalar(kind: SAGAShaderIR.IRScalarKind.bool, width: 1)), location: nil), SAGAShaderIR.IRType(name: nil, kind: SAGAShaderIR.IRTypeKind.array(base: SAGAShaderIR.IRHandle<SAGAShaderIR.IRType>(index: 0), size: SAGAShaderIR.IRArraySize.constant(536870912), stride: 1), location: nil), SAGAShaderIR.IRType(name: Optional("S"), kind: SAGAShaderIR.IRTypeKind.structure(members: [SAGAShaderIR.IRStructMember(name: Optional("huge"), type: SAGAShaderIR.IRHandle<SAGAShaderIR.IRType>(index: 1), binding: nil, offset: 0, location: Optional(SAGAShaderIR.ShaderLocation.source(SAGAShaderIR.SourceSpan(startUTF8: 11, endUTF8: 15))))], span: 536870912), location: Optional(SAGAShaderIR.ShaderLocation.source(SAGAShaderIR.SourceSpan(startUTF8: 7, endUTF8: 8))))]), specialTypes: SAGAShaderIR.IRSpecialTypes(rayDescriptor: nil, rayIntersection: nil, rayVertexReturn: nil, externalTextureParameters: nil, externalTextureTransferFunction: nil, predeclared: []), constants: SAGAShaderIR.IRTable<SAGAShaderIR.IRConstant>(values: []), overrides: SAGAShaderIR.IRTable<SAGAShaderIR.IROverride>(values: []), globalVariables: SAGAShaderIR.IRTable<SAGAShaderIR.IRGlobalVariable>(values: []), globalExpressions: SAGAShaderIR.IRTable<SAGAShaderIR.IRExpression>(values: []), functions: SAGAShaderIR.IRTable<SAGAShaderIR.IRFunction>(values: []), entryPoints: [], diagnosticFilters: SAGAShaderIR.IRTable<SAGAShaderIR.IRDiagnosticFilter>(values: []), diagnosticFilter: nil, documentation: [])" was returned
+􀢄  Test boolNaturalLayoutUsesWGSLFootprintWithoutChangingIRWidth() recorded an issue at WGSLFrontendTests.swift:211:13: Expectation failed: (actual → 4) == (stride → 16)
+􀢄  Test boolNaturalLayoutUsesWGSLFootprintWithoutChangingIRWidth() recorded an issue at WGSLFrontendTests.swift:215:13: Expectation failed: (members[1].offset → 4) == (stride → 16)
+􀢄  Test boolNaturalLayoutUsesWGSLFootprintWithoutChangingIRWidth() recorded an issue at WGSLFrontendTests.swift:216:13: Expectation failed: (members[2].offset → 7) == ((name == "vec3<bool>" ? 28 : 2 * stride) → 28)
+􀢄  Test boolNaturalLayoutUsesWGSLFootprintWithoutChangingIRWidth() recorded an issue at WGSLFrontendTests.swift:217:13: Expectation failed: (span → 8) == ((name == "bool" ? 12 : name == "vec2<bool>" ? 24 : name == "vec3<bool>" ? 32 : 48) → 32)
+􀢄  Test boolNaturalLayoutUsesWGSLFootprintWithoutChangingIRWidth() recorded an issue at WGSLFrontendTests.swift:211:13: Expectation failed: (actual → 4) == (stride → 16)
+􀢄  Test boolNaturalLayoutUsesWGSLFootprintWithoutChangingIRWidth() recorded an issue at WGSLFrontendTests.swift:215:13: Expectation failed: (members[1].offset → 4) == (stride → 16)
+􀢄  Test boolNaturalLayoutUsesWGSLFootprintWithoutChangingIRWidth() recorded an issue at WGSLFrontendTests.swift:216:13: Expectation failed: (members[2].offset → 8) == ((name == "vec3<bool>" ? 28 : 2 * stride) → 32)
+􀢄  Test boolNestedLayoutAndOverflowAreChecked() failed after 0.002 seconds with 4 issues.
+􀢄  Test boolNaturalLayoutUsesWGSLFootprintWithoutChangingIRWidth() recorded an issue at WGSLFrontendTests.swift:217:13: Expectation failed: (span → 12) == ((name == "bool" ? 12 : name == "vec2<bool>" ? 24 : name == "vec3<bool>" ? 32 : 48) → 48)
+􀢄  Test boolNaturalLayoutUsesWGSLFootprintWithoutChangingIRWidth() failed after 0.002 seconds with 16 issues.
+􀢄  Test boolWGSLLayoutWorksOnlyInNonHostAddressSpaces() recorded an issue at FrontendIntegrationTests.swift:135:13: Expectation failed: (fields.map(\.offset) → [0, 4, 12]) == [0, 16, 48]
+􀅺  inserted [4, 12], removed [16, 48]
+􀢄  Test boolWGSLLayoutWorksOnlyInNonHostAddressSpaces() recorded an issue at FrontendIntegrationTests.swift:135:59: Expectation failed: (span → 16) == 64
+􀢄  Suite WGSLFrontendTests failed after 0.002 seconds with 20 issues.
+􀄵  // Independently authored SAGA fixtures; no upstream shader bytes copied.
+􀢄  Test boolWGSLLayoutWorksOnlyInNonHostAddressSpaces() failed after 0.004 seconds with 6 issues.
+􀢄  Suite FrontendIntegrationTests failed after 0.004 seconds with 6 issues.
+􀢄  Test run with 3 tests in 2 suites failed after 0.004 seconds with 26 issues.

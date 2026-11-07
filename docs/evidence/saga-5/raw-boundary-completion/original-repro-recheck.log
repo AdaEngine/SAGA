@@ -1,0 +1,2 @@
+matrix compose: accepted
+raw literal Access: diagnostics([SAGAShaderIR.ShaderDiagnostic(severity: SAGAShaderIR.ShaderDiagnostic.Severity.error, message: "Vector index out of bounds", code: SAGAShaderIR.ShaderDiagnosticCode.typeMismatch, location: nil)])

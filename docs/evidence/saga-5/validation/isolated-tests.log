@@ -1,0 +1,66 @@
+Building for debugging...
+[0/8] /private/var/folders/cp/2pym2k7n6z52p2j9vvxn3_cr0000gn/T/saga-validation-isolation-16p36azx/.build/arm64-apple-macosx/debug/ValidationIsolationPackageTests.derived/runner.swift
+[1/8] Write sources
+[5/8] Write swift-version-3CD7052B146186F2.txt
+[7/16] Emitting module SAGAShaderIR
+[8/16] Compiling SAGAShaderIR Contracts.swift
+[9/16] Compiling SAGAShaderIR BlockWalk.swift
+[10/16] Compiling SAGAShaderIR TypedIR.swift
+[11/16] Compiling SAGAShaderIR Tables.swift
+[12/16] Compiling SAGAShaderIR Diagnostics.swift
+[13/16] Compiling SAGAShaderIR Budgets.swift
+[14/16] Compiling SAGAShaderIR Capabilities.swift
+[15/19] Compiling SAGAValidation ShaderSemanticValidator.swift
+[16/19] Compiling SAGAValidation Validation.swift
+[17/19] Emitting module SAGAValidation
+[18/21] Compiling ValidationTests ShaderSemanticValidationTests.swift
+[19/21] Emitting module ValidationTests
+[20/23] Emitting module ValidationIsolationPackageTests
+[21/23] Compiling ValidationIsolationPackageTests runner.swift
+[21/23] Write Objects.LinkFileList
+[22/23] Linking ValidationIsolationPackageTests
+Build complete! (5.15s)
+Test Suite 'Selected tests' started at 2026-11-07 02:29:46.125.
+Test Suite 'ValidationIsolationPackageTests.xctest' started at 2026-11-07 02:29:46.132.
+Test Suite 'ValidationIsolationPackageTests.xctest' passed at 2026-11-07 02:29:46.132.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+Test Suite 'Selected tests' passed at 2026-11-07 02:29:46.132.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.007) seconds
+􀟈  Test run started.
+􀄵  Testing Library Version: 1902
+􀄵  Target Platform: arm64e-apple-macos14.0
+􀟈  Suite ShaderSemanticValidationTests started.
+􀟈  Test readonlyUniformCannotBeStored() started.
+􀟈  Test adversarialRawHandlesAreDeterministicAndBounded() started.
+􀟈  Test mathOverloadsAndCastTypesCannotBeForged() started.
+􀟈  Test budgetsAndCancellation() started.
+􀟈  Test unsupportedFamiliesRejectInsteadOfIssuingWitness() started.
+􀟈  Test invalidHandlesAndTypeCyclesAreRejected() started.
+􀟈  Test literalTypeIsRecomputedNotTrusted() started.
+􀟈  Test capabilitiesAndUnknownBitsAreChecked() started.
+􀟈  Test binaryResultTypesAreRecomputed() started.
+􀟈  Test builtinStageAndTypeChecked() started.
+􀟈  Test blockCyclesBreakAndMissingReturnAreRejected() started.
+􀟈  Test effectResultsMustBeProducedByMatchingCallAndRecursionRejected() started.
+􀟈  Test derivativeRequiresUniformControlIncludingNestedEarlyExit() started.
+􀟈  Test duplicateBindingsAndBadLayoutsAreRejected() started.
+􀟈  Test emptyComputeModuleValidates() started.
+􀟈  Test actualLoopBreaksAndIllegalContinuingReturn() started.
+􁁛  Test literalTypeIsRecomputedNotTrusted() passed after 0.001 seconds.
+􁁛  Test emptyComputeModuleValidates() passed after 0.001 seconds.
+􁁛  Test capabilitiesAndUnknownBitsAreChecked() passed after 0.001 seconds.
+􁁛  Test unsupportedFamiliesRejectInsteadOfIssuingWitness() passed after 0.001 seconds.
+􁁛  Test binaryResultTypesAreRecomputed() passed after 0.001 seconds.
+􁁛  Test invalidHandlesAndTypeCyclesAreRejected() passed after 0.001 seconds.
+􁁛  Test readonlyUniformCannotBeStored() passed after 0.001 seconds.
+􁁛  Test derivativeRequiresUniformControlIncludingNestedEarlyExit() passed after 0.001 seconds.
+􁁛  Test budgetsAndCancellation() passed after 0.001 seconds.
+􁁛  Test builtinStageAndTypeChecked() passed after 0.001 seconds.
+􁁛  Test actualLoopBreaksAndIllegalContinuingReturn() passed after 0.001 seconds.
+􁁛  Test blockCyclesBreakAndMissingReturnAreRejected() passed after 0.001 seconds.
+􁁛  Test duplicateBindingsAndBadLayoutsAreRejected() passed after 0.001 seconds.
+􁁛  Test effectResultsMustBeProducedByMatchingCallAndRecursionRejected() passed after 0.001 seconds.
+􁁛  Test mathOverloadsAndCastTypesCannotBeForged() passed after 0.001 seconds.
+􁁛  Test adversarialRawHandlesAreDeterministicAndBounded() passed after 0.007 seconds.
+􁁛  Suite ShaderSemanticValidationTests passed after 0.007 seconds.
+􁁛  Test run with 16 tests in 1 suite passed after 0.007 seconds.

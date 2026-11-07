@@ -1,0 +1,40 @@
+[0/1] Planning build
+Building for debugging...
+[0/5] Write sources
+[1/5] Write swift-version-3CD7052B146186F2.txt
+[3/6] Emitting module SAGAFoundationTests
+[4/6] Compiling SAGAFoundationTests WGSLFrontendTests.swift
+[5/6] Compiling SAGAFoundationTests FrontendIntegrationTests.swift
+[5/7] Write Objects.LinkFileList
+[6/7] Linking SAGAPackageTests
+Build complete! (1.63s)
+Test Suite 'Selected tests' started at 2026-11-07 03:11:00.366.
+Test Suite 'SAGAPackageTests.xctest' started at 2026-11-07 03:11:00.373.
+Test Suite 'SAGAPackageTests.xctest' passed at 2026-11-07 03:11:00.373.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+Test Suite 'Selected tests' passed at 2026-11-07 03:11:00.373.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.007) seconds
+􀟈  Test run started.
+􀄵  Testing Library Version: 1902
+􀄵  Target Platform: arm64e-apple-macos14.0
+􀟈  Suite WGSLFrontendTests started.
+􀟈  Suite FrontendIntegrationTests started.
+􀟈  Test runtimeArrayStorageStructGetsWitnessWithMinimumSpan() started.
+􀟈  Test runtimeLayoutOverflowAndBudgetsFailWithoutTraps() started.
+􀟈  Test runtimeArrayStructHasMinimumFootprintAndAlignedOffset() started.
+􀟈  Test unsizedTypesCannotBeNestedOrFollowedByMembers() started.
+􀢄  Test unsizedTypesCannotBeNestedOrFollowedByMembers() recorded an issue at WGSLFrontendTests.swift:186:75: Issue recorded
+􀄵  Unsized aggregate accepted
+􀢄  Test runtimeArrayStructHasMinimumFootprintAndAlignedOffset() recorded an issue at WGSLFrontendTests.swift:174:13: Expectation failed: (span → 0) >= (last.offset + stride → 4)
+􀢄  Test runtimeArrayStructHasMinimumFootprintAndAlignedOffset() recorded an issue at WGSLFrontendTests.swift:175:13: Expectation failed: (span → 0) == (expectedSpan → 4)
+􀢄  Test runtimeArrayStorageStructGetsWitnessWithMinimumSpan() recorded an issue at FrontendIntegrationTests.swift:112:6: Caught error: .diagnostics([SAGAShaderIR.ShaderDiagnostic(severity: SAGAShaderIR.ShaderDiagnostic.Severity.error, message: "Invalid structure span", code: SAGAShaderIR.ShaderDiagnosticCode.invalidType, location: Optional(SAGAShaderIR.ShaderLocation.source(SAGAShaderIR.SourceSpan(startUTF8: 7, endUTF8: 13))))])
+􀢄  Test runtimeArrayStorageStructGetsWitnessWithMinimumSpan() failed after 0.001 seconds with 1 issue.
+􀢄  Suite FrontendIntegrationTests failed after 0.001 seconds with 1 issue.
+􀢄  Test unsizedTypesCannotBeNestedOrFollowedByMembers() failed after 0.001 seconds with 1 issue.
+􀢄  Test runtimeArrayStructHasMinimumFootprintAndAlignedOffset() recorded an issue at WGSLFrontendTests.swift:174:13: Expectation failed: (span → 16) >= (last.offset + stride → 32)
+􀢄  Test runtimeArrayStructHasMinimumFootprintAndAlignedOffset() recorded an issue at WGSLFrontendTests.swift:175:13: Expectation failed: (span → 16) == (expectedSpan → 32)
+􀢄  Test runtimeArrayStructHasMinimumFootprintAndAlignedOffset() failed after 0.002 seconds with 4 issues.
+􁁛  Test runtimeLayoutOverflowAndBudgetsFailWithoutTraps() passed after 0.002 seconds.
+􀢄  Suite WGSLFrontendTests failed after 0.002 seconds with 5 issues.
+􀄵  // Independently authored SAGA fixtures; no upstream shader bytes copied.
+􀢄  Test run with 4 tests in 2 suites failed after 0.002 seconds with 6 issues.

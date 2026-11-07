@@ -1,0 +1,83 @@
+"""Fail-closed foundation dependency/module audit. Not a malicious-code sandbox."""
+import json, pathlib, re, subprocess
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+POLICY = json.loads((ROOT/'docs/runtime-policy.json').read_text())
+WEB_FILES = {'web/index.html','web/reactor.mjs','web/wasi.mjs','web/webgpu.mjs',
+             'scripts/test-web-diagnostic.mjs'}
+WEB_REACTOR = 'Sources/SAGAWebDiagnostic/WebReactor.swift'
+
+def unexpected_project_files(paths):
+    def allowed(p):
+        path=pathlib.PurePosixPath(p)
+        if path.name in {'Cargo.toml','Cargo.lock','Package.resolved','package.json'} or path.suffix in {'.rs','.c','.h','.cpp','.m','.mm','.a','.dylib','.so','.wasm','.modulemap'}: return False
+        if p in {'IDEA.md','README.md','Package.swift','.gitignore'} | WEB_FILES: return True
+        if p.startswith(('docs/','.sloppy/plans/')): return True
+        if p.startswith('.github/workflows/'): return p.endswith(('.yml','.yaml'))
+        if p.startswith('scripts/'): return p.endswith(('.py','.sh','.json'))
+        parts=pathlib.PurePosixPath(p).parts
+        return len(parts)>=3 and parts[0] in {'Sources','Tests'} and parts[1] in POLICY['graph'] and p.endswith('.swift')
+    return [p for p in paths if p and not allowed(p)]
+
+def audit_package(package):
+    errors=[]
+    if package.get('toolsVersion',{}).get('_version') != POLICY['tools_version']+'.0': errors.append('tools version must be 6.2.0')
+    if package.get('swiftLanguageVersions') != ['6']: errors.append('language mode must be 6')
+    if package.get('dependencies'): errors.append('external dependencies forbidden')
+    targets=package.get('targets',[])
+    if {t['name'] for t in targets} != set(POLICY['graph']): errors.append('target graph names differ')
+    for t in targets:
+        name=t['name']; deps=[]
+        for d in t.get('dependencies',[]):
+            if set(d) != {'byName'} or len(d['byName']) != 2 or d['byName'][1] is not None: errors.append('nonlocal/conditional dependency '+name)
+            else: deps.append(d['byName'][0])
+        if deps != POLICY['graph'].get(name): errors.append('dependency edges differ '+name)
+        if t.get('type') != POLICY['target_types'].get(name): errors.append('non-Swift target '+name)
+        for k in ['settings','resources','exclude','providers','pluginUsages']:
+            if t.get(k): errors.append('unexpected target '+k+' '+name)
+        for k in ['path','sources','publicHeadersPath','pkgConfig','url','checksum']:
+            if t.get(k) is not None: errors.append('custom target '+k+' '+name)
+    if {p['name']:p['targets'] for p in package.get('products',[])} != POLICY['products']: errors.append('products differ')
+    for product in package.get('products',[]):
+        if set(product['type']) != {POLICY['product_types'].get(product['name'])}: errors.append('product type differs '+product['name'])
+    return errors
+
+def audit_source(path, text):
+    parts=pathlib.PurePosixPath(path).parts; module=parts[1]
+    allowed=set(POLICY['graph'].get(module,[])) | set(POLICY['extra_imports'].get(module,[]))
+    errors=[]
+    # Comments aren't stripped: suspicious exceptions must be reviewed rather than hidden in comments.
+    for match in re.finditer(r'\bimport\s+(?:(?:struct|class|enum|protocol|func|var|let|typealias)\s+)?([A-Za-z_]\w*)',text):
+        if match[1] not in allowed: errors.append(f'{path}: forbidden import {match[1]}')
+    if path == WEB_REACTOR and text.startswith('#if os(WASI) && compiler(>=6.3)\n') and text.rstrip().endswith('#endif'):
+        text=re.sub(r'^@_extern\(wasm, module: "saga_host", name: "(schedule|request|copyReply|finish)"\)$','',text,flags=re.M)
+        text=re.sub(r'^@_expose\(wasm, "(saga_run_job|saga_reply|saga_start)"\)$','',text,flags=re.M)
+    for pattern in [r'@unchecked\s+Sendable',r'@_?(?:silgen_name|cdecl|extern|expose)\b',r'unsafeBitCast\b',r'\bdlopen\b',r'\bnonisolated\s*\(unsafe\)',r'@preconcurrency\b']:
+        if re.search(pattern,text): errors.append(f'{path}: unsafe escape {pattern}')
+    return errors
+
+def audit(root=ROOT):
+    package=json.loads(subprocess.check_output(['swift','package','--package-path',str(root),'dump-package'],text=True))
+    errors=audit_package(package)
+    paths=subprocess.check_output(['git','-C',str(root),'ls-files','--cached','--others','--exclude-standard','-z'],text=True).rstrip('\0').split('\0')
+    errors += ['unexpected project file '+p for p in unexpected_project_files(paths)]
+    for relative in WEB_FILES:
+        file=root/relative
+        if file.is_symlink() or not file.is_file():
+            errors.append('missing or symlink browser source '+relative)
+    # Walk the actual source tree too, so ignored foreign code cannot evade the git scan.
+    for folder in ['Sources','Tests']:
+        for p in (root/folder).rglob('*'):
+            relative=p.relative_to(root).as_posix()
+            if p.is_symlink():
+                errors.append('symlink source '+relative)
+                continue
+            if p.is_dir(): continue
+            # Finder metadata is never compiled by SwiftPM; do not treat it as a foreign implementation.
+            if p.name == '.DS_Store': continue
+            if p.suffix!='.swift': errors.append('foreign or symlink source '+relative)
+            else: errors += audit_source(relative,p.read_text())
+    manifest=(root/'Package.swift').read_text()
+    if re.search(r'unsafeFlags|linkedLibrary|linkedFramework|binaryTarget|systemLibrary|plugin\s*\(|@_silgen_name',manifest): errors.append('unsafe manifest escape')
+    if errors: raise AssertionError('\n'.join(errors))
+    return {'status':'pass','targets':len(package['targets']),'external_dependencies':0,'scope':'foundation dependency/module policy, not GPU/compiler conformance'}
+if __name__=='__main__': print(json.dumps(audit(),indent=2))

@@ -1,0 +1,135 @@
+{
+  "schema": 1,
+  "tools_version": "6.2",
+  "language_mode": "6",
+  "external_dependencies": [],
+  "graph": {
+    "SAGATypes": [],
+    "SAGABackend": [
+      "SAGATypes",
+      "SAGAShaderIR"
+    ],
+    "SAGACore": [
+      "SAGATypes",
+      "SAGABackend",
+      "SAGAShaderIR"
+    ],
+    "SAGA": [
+      "SAGATypes",
+      "SAGACore",
+      "SAGABackend"
+    ],
+    "SAGAShaderIR": [],
+    "SAGAValidation": [
+      "SAGAShaderIR"
+    ],
+    "SAGAFrontends": [
+      "SAGAShaderIR"
+    ],
+    "SAGABackends": [
+      "SAGAShaderIR",
+      "SAGAValidation"
+    ],
+    "SAGACompiler": [
+      "SAGAShaderIR",
+      "SAGAValidation",
+      "SAGAFrontends",
+      "SAGABackends"
+    ],
+    "SAGAMetal": [
+      "SAGATypes",
+      "SAGABackend",
+      "SAGAShaderIR"
+    ],
+    "SAGAWebGPU": [
+      "SAGATypes",
+      "SAGABackend",
+      "SAGAShaderIR"
+    ],
+    "SAGAFoundationTests": [
+      "SAGA",
+      "SAGATypes",
+      "SAGACore",
+      "SAGABackend",
+      "SAGAShaderIR",
+      "SAGAValidation",
+      "SAGAFrontends",
+      "SAGABackends",
+      "SAGACompiler",
+      "SAGAMetal",
+      "SAGAWebGPU"
+    ],
+    "SAGAMetalDiagnostic": [
+      "SAGATypes",
+      "SAGACore",
+      "SAGAMetal"
+    ],
+    "SAGAWebDiagnostic": [
+      "SAGATypes",
+      "SAGABackend",
+      "SAGACore",
+      "SAGAShaderIR",
+      "SAGACompiler",
+      "SAGAWebGPU"
+    ]
+  },
+  "products": {
+    "SAGA": [
+      "SAGA"
+    ],
+    "SAGACompiler": [
+      "SAGACompiler"
+    ],
+    "SAGAMetal": [
+      "SAGAMetal"
+    ],
+    "SAGAWebGPU": [
+      "SAGAWebGPU"
+    ],
+    "SAGAMetalDiagnostic": [
+      "SAGAMetalDiagnostic"
+    ],
+    "SAGAWebDiagnostic": [
+      "SAGAWebDiagnostic"
+    ]
+  },
+  "extra_imports": {
+    "SAGAMetal": [
+      "Metal"
+    ],
+    "SAGAFoundationTests": [
+      "Testing",
+      "Metal"
+    ],
+    "SAGAMetalDiagnostic": [
+      "Foundation"
+    ],
+    "SAGAWebDiagnostic": [
+      "_Concurrency"
+    ]
+  },
+  "target_types": {
+    "SAGATypes": "regular",
+    "SAGABackend": "regular",
+    "SAGACore": "regular",
+    "SAGA": "regular",
+    "SAGAShaderIR": "regular",
+    "SAGAValidation": "regular",
+    "SAGAFrontends": "regular",
+    "SAGABackends": "regular",
+    "SAGACompiler": "regular",
+    "SAGAMetal": "regular",
+    "SAGAWebGPU": "regular",
+    "SAGAFoundationTests": "test",
+    "SAGAMetalDiagnostic": "executable",
+    "SAGAWebDiagnostic": "executable"
+  },
+  "product_types": {
+    "SAGA": "library",
+    "SAGACompiler": "library",
+    "SAGAMetal": "library",
+    "SAGAWebGPU": "library",
+    "SAGAMetalDiagnostic": "executable",
+    "SAGAWebDiagnostic": "executable"
+  }
+}

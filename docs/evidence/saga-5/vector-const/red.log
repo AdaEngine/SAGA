@@ -1,0 +1,33 @@
+[0/1] Planning build
+Building for debugging...
+[0/5] Write sources
+[1/5] Write swift-version-3CD7052B146186F2.txt
+[3/6] Emitting module SAGAFoundationTests
+[4/6] Compiling SAGAFoundationTests WGSLFrontendTests.swift
+[5/6] Compiling SAGAFoundationTests FrontendIntegrationTests.swift
+[5/7] Write Objects.LinkFileList
+[6/7] Linking SAGAPackageTests
+Build complete! (2.73s)
+Test Suite 'Selected tests' started at 2026-11-07 04:47:08.367.
+Test Suite 'SAGAPackageTests.xctest' started at 2026-11-07 04:47:08.374.
+Test Suite 'SAGAPackageTests.xctest' passed at 2026-11-07 04:47:08.374.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+Test Suite 'Selected tests' passed at 2026-11-07 04:47:08.374.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.007) seconds
+􀟈  Test run started.
+􀄵  Testing Library Version: 1902
+􀄵  Target Platform: arm64e-apple-macos14.0
+􀟈  Suite FrontendIntegrationTests started.
+􀟈  Suite WGSLFrontendTests started.
+􀟈  Test vectorConstantValuesLowerThroughExistingValidatedContracts() started.
+􀟈  Test vectorConstConstructorsAliasesAndBooleanReductions() started.
+􀟈  Test invalidVectorConstructorsValidateWholeSkippedTree() started.
+􀢄  Test vectorConstConstructorsAliasesAndBooleanReductions() recorded an issue at WGSLFrontendTests.swift:691:3: Caught error: .diagnostics([SAGAShaderIR.ShaderDiagnostic(severity: SAGAShaderIR.ShaderDiagnostic.Severity.error, message: "Relational operators do not chain", code: SAGAShaderIR.ShaderDiagnosticCode.unexpectedToken, location: Optional(SAGAShaderIR.ShaderLocation.source(SAGAShaderIR.SourceSpan(startUTF8: 26, endUTF8: 27))))])
+􀢄  Test vectorConstantValuesLowerThroughExistingValidatedContracts() recorded an issue at FrontendIntegrationTests.swift:345:3: Caught error: .diagnostics([SAGAShaderIR.ShaderDiagnostic(severity: SAGAShaderIR.ShaderDiagnostic.Severity.error, message: "Relational operators do not chain", code: SAGAShaderIR.ShaderDiagnosticCode.unexpectedToken, location: Optional(SAGAShaderIR.ShaderLocation.source(SAGAShaderIR.SourceSpan(startUTF8: 17, endUTF8: 18))))])
+􀢄  Test vectorConstConstructorsAliasesAndBooleanReductions() failed after 0.001 seconds with 1 issue.
+􀢄  Test vectorConstantValuesLowerThroughExistingValidatedContracts() failed after 0.001 seconds with 1 issue.
+􀢄  Suite FrontendIntegrationTests failed after 0.001 seconds with 1 issue.
+􁁛  Test invalidVectorConstructorsValidateWholeSkippedTree() passed after 0.005 seconds.
+􀢄  Suite WGSLFrontendTests failed after 0.005 seconds with 1 issue.
+􀄵  // Independently authored SAGA fixtures; no upstream shader bytes copied.
+􀢄  Test run with 3 tests in 2 suites failed after 0.005 seconds with 2 issues.

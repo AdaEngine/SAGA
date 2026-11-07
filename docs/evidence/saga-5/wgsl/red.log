@@ -1,0 +1,48 @@
+[0/1] Planning build
+Building for debugging...
+[0/1] Write swift-version-3CD7052B146186F2.txt
+[2/6] Compiling SAGAFrontends GLSLLexer.swift
+[3/6] Emitting module SAGAFrontends
+[4/6] Compiling SAGAFrontends Lexer.swift
+[5/6] Compiling SAGAFrontends GLSLPreprocessor.swift
+[6/6] Compiling SAGAFrontends WGSLFrontend.swift
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/WGSL/WGSLFrontend.swift:111:36: error: expansion of macro 'function()' requires leading '#'
+109 |             if try eat(";") { continue }
+110 |             let attrs = try attributes()
+111 |             if try eat("fn") { try function(attrs); continue }
+    |                                    `- error: expansion of macro 'function()' requires leading '#'
+112 |             if try eat("struct") { guard attrs.isEmpty else { throw unsupported("struct attributes") }; try structure(); continue }
+113 |             if try eat("alias") {
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/WGSL/WGSLFrontend.swift:111:36: error: generic parameter 'T' could not be inferred
+109 |             if try eat(";") { continue }
+110 |             let attrs = try attributes()
+111 |             if try eat("fn") { try function(attrs); continue }
+    |                                    `- error: generic parameter 'T' could not be inferred
+112 |             if try eat("struct") { guard attrs.isEmpty else { throw unsupported("struct attributes") }; try structure(); continue }
+113 |             if try eat("alias") {
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/WGSL/WGSLFrontend.swift:111:45: error: argument passed to call that takes no arguments
+109 |             if try eat(";") { continue }
+110 |             let attrs = try attributes()
+111 |             if try eat("fn") { try function(attrs); continue }
+    |                                             `- error: argument passed to call that takes no arguments
+112 |             if try eat("struct") { guard attrs.isEmpty else { throw unsupported("struct attributes") }; try structure(); continue }
+113 |             if try eat("alias") {
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/WGSL/WGSLFrontend.swift:297:71: error: use of local variable 'literal' before its declaration
+295 |         let n = try ident(); try reserve(n)
+296 |         let annotation = try eat(":") ? try type() : nil
+297 |         try expect("="); let t = try take(); let (literal,kind) = try literal(t)
+    |                                                   |                   `- error: use of local variable 'literal' before its declaration
+    |                                                   `- note: 'literal' declared here
+298 |         let ty = try annotation ?? intern(.scalar(kind))
+299 |         let value = try convertLiteral(literal,from:kind,to:ty,at:t)
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/WGSL/WGSLFrontend.swift:299:25: error: cannot find 'convertLiteral' in scope
+297 |         try expect("="); let t = try take(); let (literal,kind) = try literal(t)
+298 |         let ty = try annotation ?? intern(.scalar(kind))
+299 |         let value = try convertLiteral(literal,from:kind,to:ty,at:t)
+    |                         `- error: cannot find 'convertLiteral' in scope
+300 |         try expect(";")
+301 |         try node(); let handle = try WExpr(index:globalExpressions.count); globalExpressions.append(IRExpression(type:ty,kind:.literal(value),location:t.location))

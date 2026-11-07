@@ -1,0 +1,192 @@
+test_expectation_mismatches_and_unavailable_never_count_as_pass (test_configured_frontend_corpus.ConfiguredCorpusTests.test_expectation_mismatches_and_unavailable_never_count_as_pass) ... ok
+test_missing_duplicate_extra_and_hash_drift_results_reject (test_configured_frontend_corpus.ConfiguredCorpusTests.test_missing_duplicate_extra_and_hash_drift_results_reject) ... ok
+test_no_validation_and_error_rejection_are_separate_obligations (test_configured_frontend_corpus.ConfiguredCorpusTests.test_no_validation_and_error_rejection_are_separate_obligations) ... ok
+test_options_and_capability_masks_are_not_silently_dropped (test_configured_frontend_corpus.ConfiguredCorpusTests.test_options_and_capability_masks_are_not_silently_dropped) ... ok
+test_pinned_defaults_differ_from_frontend_api_defaults (test_configured_frontend_corpus.ConfiguredCorpusTests.test_pinned_defaults_differ_from_frontend_api_defaults) ... ok
+test_report_rejects_option_or_config_provenance_drift (test_configured_frontend_corpus.ConfiguredCorpusTests.test_report_rejects_option_or_config_provenance_drift) ... 
+  test_report_rejects_option_or_config_provenance_drift (test_configured_frontend_corpus.ConfiguredCorpusTests.test_report_rejects_option_or_config_provenance_drift) (field='capabilities') ... FAIL
+  test_report_rejects_option_or_config_provenance_drift (test_configured_frontend_corpus.ConfiguredCorpusTests.test_report_rejects_option_or_config_provenance_drift) (missing='capabilities') ... FAIL
+  test_report_rejects_option_or_config_provenance_drift (test_configured_frontend_corpus.ConfiguredCorpusTests.test_report_rejects_option_or_config_provenance_drift) (field='parse_doc_comments') ... FAIL
+  test_report_rejects_option_or_config_provenance_drift (test_configured_frontend_corpus.ConfiguredCorpusTests.test_report_rejects_option_or_config_provenance_drift) (missing='parse_doc_comments') ... FAIL
+  test_report_rejects_option_or_config_provenance_drift (test_configured_frontend_corpus.ConfiguredCorpusTests.test_report_rejects_option_or_config_provenance_drift) (field='strict_capabilities') ... FAIL
+  test_report_rejects_option_or_config_provenance_drift (test_configured_frontend_corpus.ConfiguredCorpusTests.test_report_rejects_option_or_config_provenance_drift) (missing='strict_capabilities') ... FAIL
+  test_report_rejects_option_or_config_provenance_drift (test_configured_frontend_corpus.ConfiguredCorpusTests.test_report_rejects_option_or_config_provenance_drift) (field='adjust_coordinate_space') ... FAIL
+  test_report_rejects_option_or_config_provenance_drift (test_configured_frontend_corpus.ConfiguredCorpusTests.test_report_rejects_option_or_config_provenance_drift) (missing='adjust_coordinate_space') ... FAIL
+  test_report_rejects_option_or_config_provenance_drift (test_configured_frontend_corpus.ConfiguredCorpusTests.test_report_rejects_option_or_config_provenance_drift) (field='stage') ... FAIL
+  test_report_rejects_option_or_config_provenance_drift (test_configured_frontend_corpus.ConfiguredCorpusTests.test_report_rejects_option_or_config_provenance_drift) (missing='stage') ... FAIL
+  test_report_rejects_option_or_config_provenance_drift (test_configured_frontend_corpus.ConfiguredCorpusTests.test_report_rejects_option_or_config_provenance_drift) (field='format') ... FAIL
+  test_report_rejects_option_or_config_provenance_drift (test_configured_frontend_corpus.ConfiguredCorpusTests.test_report_rejects_option_or_config_provenance_drift) (missing='format') ... FAIL
+  test_report_rejects_option_or_config_provenance_drift (test_configured_frontend_corpus.ConfiguredCorpusTests.test_report_rejects_option_or_config_provenance_drift) (field='config_source') ... FAIL
+  test_report_rejects_option_or_config_provenance_drift (test_configured_frontend_corpus.ConfiguredCorpusTests.test_report_rejects_option_or_config_provenance_drift) (missing='config_source') ... FAIL
+  test_report_rejects_option_or_config_provenance_drift (test_configured_frontend_corpus.ConfiguredCorpusTests.test_report_rejects_option_or_config_provenance_drift) (field='config_sha256') ... FAIL
+  test_report_rejects_option_or_config_provenance_drift (test_configured_frontend_corpus.ConfiguredCorpusTests.test_report_rejects_option_or_config_provenance_drift) (missing='config_sha256') ... FAIL
+  test_report_rejects_option_or_config_provenance_drift (test_configured_frontend_corpus.ConfiguredCorpusTests.test_report_rejects_option_or_config_provenance_drift) (field='validation') ... FAIL
+  test_report_rejects_option_or_config_provenance_drift (test_configured_frontend_corpus.ConfiguredCorpusTests.test_report_rejects_option_or_config_provenance_drift) (missing='validation') ... FAIL
+test_unknown_configs_and_wrong_option_types_fail_closed (test_configured_frontend_corpus.ConfiguredCorpusTests.test_unknown_configs_and_wrong_option_types_fail_closed) ... ok
+
+======================================================================
+FAIL: test_report_rejects_option_or_config_provenance_drift (test_configured_frontend_corpus.ConfiguredCorpusTests.test_report_rejects_option_or_config_provenance_drift) (field='capabilities')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/vlad-prusakov/Developer/saga/docs/tools/test_configured_frontend_corpus.py", line 48, in test_report_rejects_option_or_config_provenance_drift
+    with self.subTest(field=field), self.assertRaises(ValueError):
+                                    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^
+AssertionError: ValueError not raised
+
+======================================================================
+FAIL: test_report_rejects_option_or_config_provenance_drift (test_configured_frontend_corpus.ConfiguredCorpusTests.test_report_rejects_option_or_config_provenance_drift) (missing='capabilities')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/vlad-prusakov/Developer/saga/docs/tools/test_configured_frontend_corpus.py", line 51, in test_report_rejects_option_or_config_provenance_drift
+    with self.subTest(missing=field), self.assertRaises(ValueError):
+                                      ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^
+AssertionError: ValueError not raised
+
+======================================================================
+FAIL: test_report_rejects_option_or_config_provenance_drift (test_configured_frontend_corpus.ConfiguredCorpusTests.test_report_rejects_option_or_config_provenance_drift) (field='parse_doc_comments')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/vlad-prusakov/Developer/saga/docs/tools/test_configured_frontend_corpus.py", line 48, in test_report_rejects_option_or_config_provenance_drift
+    with self.subTest(field=field), self.assertRaises(ValueError):
+                                    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^
+AssertionError: ValueError not raised
+
+======================================================================
+FAIL: test_report_rejects_option_or_config_provenance_drift (test_configured_frontend_corpus.ConfiguredCorpusTests.test_report_rejects_option_or_config_provenance_drift) (missing='parse_doc_comments')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/vlad-prusakov/Developer/saga/docs/tools/test_configured_frontend_corpus.py", line 51, in test_report_rejects_option_or_config_provenance_drift
+    with self.subTest(missing=field), self.assertRaises(ValueError):
+                                      ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^
+AssertionError: ValueError not raised
+
+======================================================================
+FAIL: test_report_rejects_option_or_config_provenance_drift (test_configured_frontend_corpus.ConfiguredCorpusTests.test_report_rejects_option_or_config_provenance_drift) (field='strict_capabilities')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/vlad-prusakov/Developer/saga/docs/tools/test_configured_frontend_corpus.py", line 48, in test_report_rejects_option_or_config_provenance_drift
+    with self.subTest(field=field), self.assertRaises(ValueError):
+                                    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^
+AssertionError: ValueError not raised
+
+======================================================================
+FAIL: test_report_rejects_option_or_config_provenance_drift (test_configured_frontend_corpus.ConfiguredCorpusTests.test_report_rejects_option_or_config_provenance_drift) (missing='strict_capabilities')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/vlad-prusakov/Developer/saga/docs/tools/test_configured_frontend_corpus.py", line 51, in test_report_rejects_option_or_config_provenance_drift
+    with self.subTest(missing=field), self.assertRaises(ValueError):
+                                      ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^
+AssertionError: ValueError not raised
+
+======================================================================
+FAIL: test_report_rejects_option_or_config_provenance_drift (test_configured_frontend_corpus.ConfiguredCorpusTests.test_report_rejects_option_or_config_provenance_drift) (field='adjust_coordinate_space')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/vlad-prusakov/Developer/saga/docs/tools/test_configured_frontend_corpus.py", line 48, in test_report_rejects_option_or_config_provenance_drift
+    with self.subTest(field=field), self.assertRaises(ValueError):
+                                    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^
+AssertionError: ValueError not raised
+
+======================================================================
+FAIL: test_report_rejects_option_or_config_provenance_drift (test_configured_frontend_corpus.ConfiguredCorpusTests.test_report_rejects_option_or_config_provenance_drift) (missing='adjust_coordinate_space')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/vlad-prusakov/Developer/saga/docs/tools/test_configured_frontend_corpus.py", line 51, in test_report_rejects_option_or_config_provenance_drift
+    with self.subTest(missing=field), self.assertRaises(ValueError):
+                                      ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^
+AssertionError: ValueError not raised
+
+======================================================================
+FAIL: test_report_rejects_option_or_config_provenance_drift (test_configured_frontend_corpus.ConfiguredCorpusTests.test_report_rejects_option_or_config_provenance_drift) (field='stage')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/vlad-prusakov/Developer/saga/docs/tools/test_configured_frontend_corpus.py", line 48, in test_report_rejects_option_or_config_provenance_drift
+    with self.subTest(field=field), self.assertRaises(ValueError):
+                                    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^
+AssertionError: ValueError not raised
+
+======================================================================
+FAIL: test_report_rejects_option_or_config_provenance_drift (test_configured_frontend_corpus.ConfiguredCorpusTests.test_report_rejects_option_or_config_provenance_drift) (missing='stage')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/vlad-prusakov/Developer/saga/docs/tools/test_configured_frontend_corpus.py", line 51, in test_report_rejects_option_or_config_provenance_drift
+    with self.subTest(missing=field), self.assertRaises(ValueError):
+                                      ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^
+AssertionError: ValueError not raised
+
+======================================================================
+FAIL: test_report_rejects_option_or_config_provenance_drift (test_configured_frontend_corpus.ConfiguredCorpusTests.test_report_rejects_option_or_config_provenance_drift) (field='format')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/vlad-prusakov/Developer/saga/docs/tools/test_configured_frontend_corpus.py", line 48, in test_report_rejects_option_or_config_provenance_drift
+    with self.subTest(field=field), self.assertRaises(ValueError):
+                                    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^
+AssertionError: ValueError not raised
+
+======================================================================
+FAIL: test_report_rejects_option_or_config_provenance_drift (test_configured_frontend_corpus.ConfiguredCorpusTests.test_report_rejects_option_or_config_provenance_drift) (missing='format')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/vlad-prusakov/Developer/saga/docs/tools/test_configured_frontend_corpus.py", line 51, in test_report_rejects_option_or_config_provenance_drift
+    with self.subTest(missing=field), self.assertRaises(ValueError):
+                                      ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^
+AssertionError: ValueError not raised
+
+======================================================================
+FAIL: test_report_rejects_option_or_config_provenance_drift (test_configured_frontend_corpus.ConfiguredCorpusTests.test_report_rejects_option_or_config_provenance_drift) (field='config_source')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/vlad-prusakov/Developer/saga/docs/tools/test_configured_frontend_corpus.py", line 48, in test_report_rejects_option_or_config_provenance_drift
+    with self.subTest(field=field), self.assertRaises(ValueError):
+                                    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^
+AssertionError: ValueError not raised
+
+======================================================================
+FAIL: test_report_rejects_option_or_config_provenance_drift (test_configured_frontend_corpus.ConfiguredCorpusTests.test_report_rejects_option_or_config_provenance_drift) (missing='config_source')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/vlad-prusakov/Developer/saga/docs/tools/test_configured_frontend_corpus.py", line 51, in test_report_rejects_option_or_config_provenance_drift
+    with self.subTest(missing=field), self.assertRaises(ValueError):
+                                      ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^
+AssertionError: ValueError not raised
+
+======================================================================
+FAIL: test_report_rejects_option_or_config_provenance_drift (test_configured_frontend_corpus.ConfiguredCorpusTests.test_report_rejects_option_or_config_provenance_drift) (field='config_sha256')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/vlad-prusakov/Developer/saga/docs/tools/test_configured_frontend_corpus.py", line 48, in test_report_rejects_option_or_config_provenance_drift
+    with self.subTest(field=field), self.assertRaises(ValueError):
+                                    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^
+AssertionError: ValueError not raised
+
+======================================================================
+FAIL: test_report_rejects_option_or_config_provenance_drift (test_configured_frontend_corpus.ConfiguredCorpusTests.test_report_rejects_option_or_config_provenance_drift) (missing='config_sha256')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/vlad-prusakov/Developer/saga/docs/tools/test_configured_frontend_corpus.py", line 51, in test_report_rejects_option_or_config_provenance_drift
+    with self.subTest(missing=field), self.assertRaises(ValueError):
+                                      ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^
+AssertionError: ValueError not raised
+
+======================================================================
+FAIL: test_report_rejects_option_or_config_provenance_drift (test_configured_frontend_corpus.ConfiguredCorpusTests.test_report_rejects_option_or_config_provenance_drift) (field='validation')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/vlad-prusakov/Developer/saga/docs/tools/test_configured_frontend_corpus.py", line 48, in test_report_rejects_option_or_config_provenance_drift
+    with self.subTest(field=field), self.assertRaises(ValueError):
+                                    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^
+AssertionError: ValueError not raised
+
+======================================================================
+FAIL: test_report_rejects_option_or_config_provenance_drift (test_configured_frontend_corpus.ConfiguredCorpusTests.test_report_rejects_option_or_config_provenance_drift) (missing='validation')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/vlad-prusakov/Developer/saga/docs/tools/test_configured_frontend_corpus.py", line 51, in test_report_rejects_option_or_config_provenance_drift
+    with self.subTest(missing=field), self.assertRaises(ValueError):
+                                      ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^
+AssertionError: ValueError not raised
+
+----------------------------------------------------------------------
+Ran 7 tests in 0.009s
+
+FAILED (failures=18)

@@ -1,0 +1,117 @@
+                    let condition = self.expression(condition, &mut ctx.as_const())?;
+
+                    let span = ctx.module.global_expressions.get_span(condition);
+                    match ctx
+                        .module
+                        .to_ctx()
+                        .get_const_val_from(condition, &ctx.module.global_expressions)
+                    {
+                        Ok(true) => Ok(()),
+                        Ok(false) => Err(Error::ConstAssertFailed(span)),
+                        Err(proc::ConstValueError::NonConst | proc::ConstValueError::Negative) => {
+                            unreachable!()
+                        }
+                        Err(proc::ConstValueError::InvalidType) => Err(Error::NotBool(span)),
+                    }?;
+                }
+            }
+        }
+
+        // Constant evaluation may leave abstract-typed literals and
+        // compositions in expression arenas, so we need to compact the module
+        // to remove unused expressions and types.
+        crate::compact::compact(&mut module, KeepUnused::Yes);
+
+        Ok(module)
+    }
+
+    /// Obtain (inferred) type and initializer after automatic conversion
+    fn type_and_init(
+        &mut self,
+39:/// - abstract-typed constants
+59:/// resulting module should have all the named objects (except abstract-typed
+233:    // abstract type as we do not want those reaching the validator.
+236:        if constant.name.is_none() || module.types[constant.ty].inner.is_abstract(&module.types) {
+304:    module.constants.retain_mut(|handle, constant| {
+pub fn compact(module: &mut crate::Module, keep_unused: KeepUnused) {
+    // The trickiest part of compaction is determining what is used and what is
+    // not. Once we have computed that correctly, it's easy enough to call
+    // `retain_mut` on each arena, drop unused elements, and fix up the handles
+    // in what's left.
+    //
+    // For every compactable arena in a `Module`, whether global to the `Module`
+    // or local to a function or entry point, the `ModuleTracer` type holds a
+    // bitmap indicating which elements of that arena are used. Our task is to
+    // populate those bitmaps correctly.
+    //
+    // First, we mark everything that is considered used by definition, as
+    // described in this function's documentation.
+    //
+    // Since functions and entry points are considered used by definition, we
+    // traverse their statement trees, and mark the referents of all handles
+    // appearing in those statements as used.
+    //
+    // Once we've marked which elements of an arena are referred to directly by
+    // handles elsewhere (for example, which of a function's expressions are
+    // referred to by handles in its body statements), we can mark all the other
+    // arena elements that are used indirectly in a single pass, traversing the
+    // arena from back to front. Since Naga allows arena elements to refer only
+    // to prior elements, we know that by the time we reach an element, all
+    // other elements that could possibly refer to it have already been visited.
+    // Thus, if the present element has not been marked as used, then it is
+    // definitely unused, and compaction can remove it. Otherwise, the element
+    // is used and must be retained, so we must mark everything it refers to.
+    //
+    // The final step is to mark the global expressions and types, which must be
+    // traversed simultaneously; see `ModuleTracer::type_expression_tandem`'s
+    // documentation for details.
+    //
+public struct IRFunction: Sendable, Equatable {
+    public let name: String?
+    public let arguments: [IRFunctionArgument]
+    public let result: IRFunctionResult?
+    public let localVariables: IRTable<IRLocalVariable>
+    public let expressions: IRTable<IRExpression>
+    public let namedExpressions: [IRNamedExpression]
+    public let statements: IRTable<IRStatement>
+    public let blocks: IRTable<IRBlock>
+    public let body: IRHandle<IRBlock>
+    public let diagnosticFilter: IRHandle<IRDiagnosticFilter>?
+    public let location: ShaderLocation?
+    public init(name: String? = nil, arguments: [IRFunctionArgument] = [], result: IRFunctionResult? = nil, localVariables: IRTable<IRLocalVariable> = IRTable(), expressions: IRTable<IRExpression> = IRTable(), namedExpressions: [IRNamedExpression] = [], statements: IRTable<IRStatement> = IRTable(), blocks: IRTable<IRBlock> = IRTable(), body: IRHandle<IRBlock>, diagnosticFilter: IRHandle<IRDiagnosticFilter>? = nil, location: ShaderLocation? = nil) {
+        self.name = name
+        self.arguments = arguments
+        self.result = result
+        self.localVariables = localVariables
+        self.expressions = expressions
+        self.namedExpressions = namedExpressions
+        self.statements = statements
+        self.blocks = blocks
+        self.body = body
+        self.diagnosticFilter = diagnosticFilter
+        self.location = location
+    }
+}
+
+public enum IRConservativeDepth: String, Sendable, Equatable, CaseIterable {
+    case greaterEqual
+    case lessEqual
+    case unchanged
+        switch types[v.type.index].kind {
+        case .scalar(.abstractInt): return try coerce(v,to:intern(.scalar(.i32)),at:t)
+        case .scalar(.abstractFloat): return try coerce(v,to:intern(.scalar(.f32)),at:t)
+        default: return v
+        }
+    }
+    func lookup(_ name: WGSLToken) throws -> WGSLValue {
+        try budget.consume(.work,amount:name.text.utf8.count)
+        for scope in body.scopes.reversed() {
+            try budget.consume(.work)
+            if let v = scope[wgslKey(name.text)] { return v }
+        }
+        if let i = constantNames[wgslKey(name.text)] {
+            return try expressionNode(.constant(try IRHandle(index:i)),type:constants[i].type,at:name,emit:false)
+        }
+        if let i = globalNames[wgslKey(name.text)] {
+            let g = globals[i], pointerType = try intern(.pointer(base:globals[i].type,space:globals[i].space))
+            let reference = try expressionNode(.globalVariable(try IRHandle(index:i)),type:pointerType,at:name,emit:false)

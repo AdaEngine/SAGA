@@ -1,0 +1,309 @@
+Test Suite 'All tests' started at 2026-11-07 03:13:01.873.
+Test Suite 'All tests' passed at 2026-11-07 03:13:01.880.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.007) seconds
+􀟈  Test run started.
+􀄵  Testing Library Version: 1902
+􀄵  Target Platform: arm64e-apple-macos14.0
+􀟈  Suite GLSLFrontendTests started.
+􀟈  Test acceptedWorkPinsResourcesAndQueueCompletesInOrder() started.
+􀟈  Suite FrontendIntegrationTests started.
+􀟈  Suite FrontendContractsTests started.
+􀟈  Suite SPIRVFrontendTests started.
+􀟈  Suite ShaderSemanticValidationTests started.
+􀟈  Suite WGSLFrontendTests started.
+􀟈  Test fullMatchingScopeDoesNotLeakLaterErrorsToOuterScope() started.
+􀟈  Test repeatedCoreCloseReleasesPipelineHandlesOnRetainedBackend() started.
+􀟈  Test backendDeviceLossDuringAllocationIsTerminal() started.
+􀟈  Test cancelledWaiterDoesNotCancelCommittedWork() started.
+􀟈  Test cancelledBeforeSubmitNeverEnqueuesWork() started.
+􀟈  Test closeWaitsForPendingAllocationRollback() started.
+􀟈  Test commandBuffersStayPinnedAfterDestroyAndWaiterCancellation() started.
+􀟈  Test commandTimeoutMakesCoreTerminalAndCloseDoesNotHang() started.
+􀟈  Test metalReadbacksAreZeroInitializedAndSnapshotOrdered() started.
+􀟈  Test cancelledCompilerDoesNotEnterPipeline() started.
+􀟈  Test backendDeviceLossIsTerminalForAllocationAndQueue() started.
+􀟈  Test completionDeadlineAndLateCallbackResolveOnlyOnce() started.
+􀟈  Test pipelineRejectsWrongOutputContainer() started.
+􀟈  Test completionTimerActuallyExpiresWithoutCallback() started.
+􀟈  Test containersDistinguishTextAndBinary() started.
+􀟈  Test errorScopesCaptureFirstMatchingErrorAndEnforceLIFO() started.
+􀟈  Test legacyBrowserHostRejectsCommandsInsteadOfFallingBack() started.
+􀟈  Test unimplementedCompilerNeverReportsSuccessfulTranslation(input:output:) started.
+􀟈  Test rejectsUnknownAndIncompatibleBufferUsage() started.
+􀟈  Test scopePopWaitsForOperationsStartedInsideScope() started.
+􀟈  Test metalFactoryRejectsMissingAdapterWithoutFallback() started.
+􀟈  Test browserBoundaryForwardsOnlyThroughExplicitHost() started.
+􀟈  Test metalDiagnosticComputesEveryElementOnGPU() started.
+􀟈  Test commandValidationRejectsSizeUsageAlignmentAndForeignIDsBeforeBackend() started.
+􀟈  Test cancelledAllocationRollsBack() started.
+􀟈  Test invalidDescriptorsNeverReachBackend() started.
+􀟈  Test pipelineRequiresValidatedIRBeforeCodegen() started.
+􀟈  Test deviceLossDuringAllocationCannotPublishResource() started.
+􀟈  Test overlappingCloseWaitsForWholeTeardownBatch(firstIsLoss:) started.
+􀟈  Test metalTimeoutQuarantinesNativeResourcesThroughCoreCloseAndLateRetirement() started.
+􀟈  Test metalRejectsUnknownPipelineAndQueueRemainsUsable() started.
+􀟈  Test asyncErrorKeepsOriginalScopeAndDoesNotLeakIntoNewScope() started.
+􀟈  Test diagnosticSpansRejectInvalidRanges() started.
+􀟈  Test resourceIdentityRejectsForeignForgedAndDestroyedIDs() started.
+􀟈  Test failedSubmissionDoesNotPoisonQueueAndReleasesPins() started.
+􀟈  Test validatesLimitsAndMappingAlignmentWithoutOverflow() started.
+􀟈  Test featuresMustBeAdvertised() started.
+􀟈  Test rejectsMalformedNamesTypesAndUnsupportedRatherThanSkipping() started.
+􀟈  Test storageBlockAndForLoopHaveRealAccessAndContinuing() started.
+􀟈  Test closeWaitsForAcceptedWorkAndReleasesAllResources() started.
+􀟈  Test versionStageAndOptionErrors() started.
+􀟈  Test boundedTokensWorkDepthAndCancellation() started.
+􀟈  Test deterministicMalformedFuzzIsBoundedAndOnlyTypedFailures() started.
+􀟈  Test objectAndFunctionMacrosAndConditionalDefines() started.
+􀟈  Test parserSuccessDoesNotBypassSemanticValidation() started.
+􀟈  Test preprocessorShortCircuitDoesNotDivideByZero() started.
+􀟈  Test case passing 2 arguments input → .wgsl, output → .wgsl to unimplementedCompilerNeverReportsSuccessfulTranslation(input:output:) started.
+􀟈  Test case passing 2 arguments input → .wgsl, output → .glsl to unimplementedCompilerNeverReportsSuccessfulTranslation(input:output:) started.
+􀟈  Test runtimeArrayStorageStructGetsWitnessWithMinimumSpan() started.
+􀟈  Test wgslAtomicAndRuntimeArrayLegalityReachesConcreteValidator() started.
+􀟈  Test case passing 2 arguments input → .wgsl, output → .spirv to unimplementedCompilerNeverReportsSuccessfulTranslation(input:output:) started.
+􀟈  Test rejectsReadOnlyAndNonconstantConst() started.
+􀟈  Test vertexOutputWrapperAndHelperCall() started.
+􀟈  Test threeActualFrontendModulesAcquireWitnessOnlyAfterBuiltInValidation() started.
+􀟈  Test wgslStructEntryPointInputsUseCheckedMemberBindings() started.
+􀟈  Test case passing 2 arguments input → .wgsl, output → .msl to unimplementedCompilerNeverReportsSuccessfulTranslation(input:output:) started.
+􀟈  Test invalidInputAndBudgetNeverReturnValidatedWitness() started.
+􀟈  Test computeHasRealTypedArithmeticAndControlFlow() started.
+􀟈  Test case passing 2 arguments input → .glsl, output → .glsl to unimplementedCompilerNeverReportsSuccessfulTranslation(input:output:) started.
+􀟈  Test case passing 2 arguments input → .wgsl, output → .dot to unimplementedCompilerNeverReportsSuccessfulTranslation(input:output:) started.
+􀟈  Test case passing 2 arguments input → .wgsl, output → .hlsl to unimplementedCompilerNeverReportsSuccessfulTranslation(input:output:) started.
+􀟈  Test uniformAggregateLayoutIsCheckedAfterWGSLParsing() started.
+􀟈  Test case passing 2 arguments input → .glsl, output → .wgsl to unimplementedCompilerNeverReportsSuccessfulTranslation(input:output:) started.
+􀟈  Test case passing 2 arguments input → .glsl, output → .hlsl to unimplementedCompilerNeverReportsSuccessfulTranslation(input:output:) started.
+􀟈  Test case passing 2 arguments input → .glsl, output → .dot to unimplementedCompilerNeverReportsSuccessfulTranslation(input:output:) started.
+􀟈  Test case passing 2 arguments input → .glsl, output → .msl to unimplementedCompilerNeverReportsSuccessfulTranslation(input:output:) started.
+􀟈  Test uniformArrayRulesDoNotRejectStorageLayout() started.
+􀟈  Test case passing 2 arguments input → .spirv, output → .wgsl to unimplementedCompilerNeverReportsSuccessfulTranslation(input:output:) started.
+􀟈  Test case passing 2 arguments input → .glsl, output → .spirv to unimplementedCompilerNeverReportsSuccessfulTranslation(input:output:) started.
+􀟈  Test case passing 2 arguments input → .spirv, output → .glsl to unimplementedCompilerNeverReportsSuccessfulTranslation(input:output:) started.
+􀟈  Test effectResultsMustBeProducedByMatchingCallAndRecursionRejected() started.
+􀟈  Test case passing 2 arguments input → .spirv, output → .spirv to unimplementedCompilerNeverReportsSuccessfulTranslation(input:output:) started.
+􀟈  Test uniformVectorsMatricesAndPaddedArraysAreAccepted() started.
+􀟈  Test uniformAtomicDoesNotAcquireWitness() started.
+􀟈  Test case passing 2 arguments input → .spirv, output → .msl to unimplementedCompilerNeverReportsSuccessfulTranslation(input:output:) started.
+􀟈  Test typeLegalityCoversScalarVectorMatrixAndPointerAggregates() started.
+􀟈  Test literalTypeIsRecomputedNotTrusted() started.
+􀟈  Test originalUTF8DiagnosticAndMacroUseSite() started.
+􀟈  Test case passing 2 arguments input → .spirv, output → .dot to unimplementedCompilerNeverReportsSuccessfulTranslation(input:output:) started.
+􀟈  Test atomicAggregatesHaveAddressSpaceSpecificLegality() started.
+􀟈  Test boundedAccountingNeverOverflowsAndFailsClosed() started.
+􀟈  Test budgetsAndCancellation() started.
+􀟈  Test uniformViolationsPropagateThroughArraysAndStructures() started.
+􀟈  Test cancellationIsCheckedBeforeAnyBudgetWork() started.
+􀟈  Test malformedBlockGraphsRejectCyclesDanglingIndicesAndDepth() started.
+􀟈  Test actualLoopBreaksAndIllegalContinuingReturn() started.
+􀟈  Test blockTraversalPreservesOrderAndRejectsWorkExhaustion() started.
+􀟈  Test immutableCrossFormatModuleAndCheckedHandles() started.
+􀟈  Test deterministicBoundaryFuzzDoesNotTrap() started.
+􀟈  Test case passing 2 arguments input → .spirv, output → .hlsl to unimplementedCompilerNeverReportsSuccessfulTranslation(input:output:) started.
+􀟈  Test nestedUniformStructRequiresMemberAlignmentAndFollowingGap() started.
+􀟈  Test shortCircuitCallIsOnlyInConditionalBranch() started.
+􀟈  Test unsizedTypesCannotBeNestedOrFollowedByMembers() started.
+􀟈  Test boundedBuilderAndScopedDepthRestoreState() started.
+􀟈  Test duplicateBindingsAndBadLayoutsAreRejected() started.
+􀟈  Test case passing 1 argument firstIsLoss → false to overlappingCloseWaitsForWholeTeardownBatch(firstIsLoss:) started.
+􀟈  Test deterministicMalformedWordFuzz() started.
+􀟈  Test case passing 1 argument firstIsLoss → true to overlappingCloseWaitsForWholeTeardownBatch(firstIsLoss:) started.
+􀟈  Test budgetsAndUnsupportedAreNotSuccess() started.
+􀟈  Test canonicalLoopPhiBecomesLoopAndContinuingStores() started.
+􀟈  Test aliasesStructuresConstructorsAndNaturalLayout() started.
+􀟈  Test deterministicBoundedFuzz() started.
+􀟈  Test adversarialRawHandlesAreDeterministicAndBounded() started.
+􀟈  Test unicodeScalarIdentityDoesNotNormalizeIdentifiers() started.
+􀟈  Test nonconstructibleValuesCannotBeZeroedOrPassedByValue() started.
+􀟈  Test frontendOptionsAndBudgetDispatchRemainExplicit() started.
+􀟈  Test flatBlocksAndAdvancedIRAreRepresentableWithoutRecursiveValues() started.
+􀟈  Test aggregateEntryPointBindingsAreValidatedAcrossMembersAndArguments() started.
+􀟈  Test resourceAccessChainPreservesBindingAndMemberStore() started.
+􀟈  Test structuredSelectionPhiHasRealEdgeStores() started.
+􀟈  Test runtimeLayoutOverflowAndBudgetsFailWithoutTraps() started.
+􀟈  Test blockCyclesBreakAndMissingReturnAreRejected() started.
+􀟈  Test functionCallsBranchesScopesAndReturns() started.
+􀟈  Test formatCapabilitiesAndDocOptionsAreNotIgnored() started.
+􀟈  Test diagnosticsPreserveExactUnitsAndLegacyInitializer() started.
+􀟈  Test derivativeRequiresUniformControlIncludingNestedEarlyExit() started.
+􀟈  Test readonlyUniformCannotBeStored() started.
+􀟈  Test failClosedLexicalAndSemanticBoundaries() started.
+􀟈  Test nestedCommentsUnicodeAndExactUTF8Diagnostics() started.
+􀟈  Test compositeConstructAndExtractAreTyped() started.
+􀟈  Test cancellationBeforeScan() started.
+􀟈  Test exactUnknownOpcodeDiagnosticAndDepthBudget() started.
+􀟈  Test wrapperEnforcesPreflightBeforeSyntheticConsumer() started.
+􀟈  Test atomicAggregateCannotBeLoadedAsOrdinaryValue() started.
+􀟈  Test invalidHandlesAndTypeCyclesAreRejected() started.
+􀟈  Test computeLowersStorageEffectsAndTypedExpressions() started.
+􀟈  Test headerWordCountsIDsAndOrderRejected() started.
+􀟈  Test canonicalLoopHasLoopContinuingBreakAndPhiStores() started.
+􀟈  Test scalarMaterializationAndConstantArithmetic() started.
+􀟈  Test malformedUTF8NamesAndMissingFragmentOriginAreRejected() started.
+􀟈  Test actualArithmeticAndPrivateStore() started.
+􀟈  Test rejectsNamesTypesAndMalformedSyntax() started.
+􀟈  Test runtimeArrayStructHasMinimumFootprintAndAlignedOffset() started.
+􀟈  Test loopsSwitchAndContinuingProduceStructuredIR() started.
+􀟈  Test pointerTargetsRespectAddressSpaceEvenWhenUnused() started.
+􀟈  Test builtinStageAndTypeChecked() started.
+􀟈  Test malformedPhiCFGAndUndefinedValuesRejected() started.
+􀟈  Test unsupportedFamiliesRejectInsteadOfIssuingWitness() started.
+􀟈  Test relaxedCapabilityPolicyIsExplicitlyRejected() started.
+􀟈  Test unsupportedNeverReturnsDummyAndCoordinateNotIgnored() started.
+􀟈  Test sparseHugeBoundAndBudgetsCancellation() started.
+􀟈  Test aggregateVertexPositionAndBuiltinIdentityAreChecked() started.
+􀟈  Test resourceWrongPointeeOrIndexRejects() started.
+􀟈  Test invalidDecorationTargetsAndModesAreNotSilentlyIgnored() started.
+􀟈  Test binaryResultTypesAreRecomputed() started.
+􀟈  Test emptyComputeModuleValidates() started.
+􀟈  Test mathOverloadsAndCastTypesCannotBeForged() started.
+􀟈  Test boundedAdversarialStructuredInputs() started.
+􀟈  Test capabilitiesAndUnknownBitsAreChecked() started.
+􀟈  Test compositeExtractionAndBackwardFunctionCalls() started.
+􀟈  Test runtimeArraysCannotBeHiddenInsideNestedUnsizedStructures() started.
+􀟈  Test ioTraversalBudgetAndNestedShapesAreChecked() started.
+􀟈  Test boolIsConstructibleButNeverHostShareableTransitively() started.
+􀟈  Test actualComputeHeaderEntrySizeAndEndian() started.
+􁁛  Test legacyBrowserHostRejectsCommandsInsteadOfFallingBack() passed after 0.002 seconds.
+􁁛  Test pipelineRejectsWrongOutputContainer() passed after 0.002 seconds.
+􁁛  Test completionDeadlineAndLateCallbackResolveOnlyOnce() passed after 0.002 seconds.
+􁁛  Test containersDistinguishTextAndBinary() passed after 0.002 seconds.
+􁁛  Test errorScopesCaptureFirstMatchingErrorAndEnforceLIFO() passed after 0.003 seconds.
+􁁛  Test backendDeviceLossDuringAllocationIsTerminal() passed after 0.003 seconds.
+􁁛  Test unimplementedCompilerNeverReportsSuccessfulTranslation(input:output:) with 18 test cases passed after 0.004 seconds.
+􁁛  Test fullMatchingScopeDoesNotLeakLaterErrorsToOuterScope() passed after 0.006 seconds.
+􁁛  Test metalFactoryRejectsMissingAdapterWithoutFallback() passed after 0.006 seconds.
+􁁛  Test rejectsUnknownAndIncompatibleBufferUsage() passed after 0.007 seconds.
+􁁛  Test invalidDescriptorsNeverReachBackend() passed after 0.007 seconds.
+􁁛  Test pipelineRequiresValidatedIRBeforeCodegen() passed after 0.009 seconds.
+􁁛  Test diagnosticSpansRejectInvalidRanges() passed after 0.018 seconds.
+􁁛  Test validatesLimitsAndMappingAlignmentWithoutOverflow() passed after 0.020 seconds.
+􁁛  Test featuresMustBeAdvertised() passed after 0.020 seconds.
+􁁛  Test resourceIdentityRejectsForeignForgedAndDestroyedIDs() passed after 0.021 seconds.
+􁁛  Test storageBlockAndForLoopHaveRealAccessAndContinuing() passed after 0.021 seconds.
+􁁛  Test parserSuccessDoesNotBypassSemanticValidation() passed after 0.021 seconds.
+􁁛  Test objectAndFunctionMacrosAndConditionalDefines() passed after 0.021 seconds.
+􁁛  Test runtimeArrayStorageStructGetsWitnessWithMinimumSpan() passed after 0.021 seconds.
+􁁛  Test preprocessorShortCircuitDoesNotDivideByZero() passed after 0.021 seconds.
+􁁛  Test versionStageAndOptionErrors() passed after 0.021 seconds.
+􁁛  Test vertexOutputWrapperAndHelperCall() passed after 0.021 seconds.
+􁁛  Test threeActualFrontendModulesAcquireWitnessOnlyAfterBuiltInValidation() passed after 0.021 seconds.
+􁁛  Test rejectsMalformedNamesTypesAndUnsupportedRatherThanSkipping() passed after 0.021 seconds.
+􁁛  Test rejectsReadOnlyAndNonconstantConst() passed after 0.021 seconds.
+􁁛  Test invalidInputAndBudgetNeverReturnValidatedWitness() passed after 0.021 seconds.
+􁁛  Test uniformArrayRulesDoNotRejectStorageLayout() passed after 0.021 seconds.
+􁁛  Test computeHasRealTypedArithmeticAndControlFlow() passed after 0.021 seconds.
+􁁛  Test uniformVectorsMatricesAndPaddedArraysAreAccepted() passed after 0.021 seconds.
+􁁛  Test uniformAtomicDoesNotAcquireWitness() passed after 0.021 seconds.
+􁁛  Test wgslStructEntryPointInputsUseCheckedMemberBindings() passed after 0.021 seconds.
+􁁛  Test literalTypeIsRecomputedNotTrusted() passed after 0.021 seconds.
+􁁛  Test effectResultsMustBeProducedByMatchingCallAndRecursionRejected() passed after 0.021 seconds.
+􁁛  Test originalUTF8DiagnosticAndMacroUseSite() passed after 0.021 seconds.
+􁁛  Test typeLegalityCoversScalarVectorMatrixAndPointerAggregates() passed after 0.021 seconds.
+􁁛  Test boundedAccountingNeverOverflowsAndFailsClosed() passed after 0.021 seconds.
+􁁛  Test blockTraversalPreservesOrderAndRejectsWorkExhaustion() passed after 0.021 seconds.
+􁁛  Test malformedBlockGraphsRejectCyclesDanglingIndicesAndDepth() passed after 0.021 seconds.
+􁁛  Test immutableCrossFormatModuleAndCheckedHandles() passed after 0.021 seconds.
+􁁛  Test uniformViolationsPropagateThroughArraysAndStructures() passed after 0.021 seconds.
+􁁛  Test actualLoopBreaksAndIllegalContinuingReturn() passed after 0.021 seconds.
+􁁛  Test nestedUniformStructRequiresMemberAlignmentAndFollowingGap() passed after 0.021 seconds.
+􁁛  Test boundedBuilderAndScopedDepthRestoreState() passed after 0.021 seconds.
+􁁛  Test shortCircuitCallIsOnlyInConditionalBranch() passed after 0.021 seconds.
+􁁛  Test uniformAggregateLayoutIsCheckedAfterWGSLParsing() passed after 0.021 seconds.
+􁁛  Test duplicateBindingsAndBadLayoutsAreRejected() passed after 0.021 seconds.
+􁁛  Test unsizedTypesCannotBeNestedOrFollowedByMembers() passed after 0.021 seconds.
+􁁛  Test canonicalLoopPhiBecomesLoopAndContinuingStores() passed after 0.021 seconds.
+􁁛  Test wgslAtomicAndRuntimeArrayLegalityReachesConcreteValidator() passed after 0.022 seconds.
+􁁛  Test budgetsAndUnsupportedAreNotSuccess() passed after 0.021 seconds.
+􁁛  Test atomicAggregatesHaveAddressSpaceSpecificLegality() passed after 0.021 seconds.
+􁁛  Test frontendOptionsAndBudgetDispatchRemainExplicit() passed after 0.021 seconds.
+􁁛  Test nonconstructibleValuesCannotBeZeroedOrPassedByValue() passed after 0.021 seconds.
+􁁛  Test flatBlocksAndAdvancedIRAreRepresentableWithoutRecursiveValues() passed after 0.021 seconds.
+􁁛  Test unicodeScalarIdentityDoesNotNormalizeIdentifiers() passed after 0.021 seconds.
+􁁛  Test aliasesStructuresConstructorsAndNaturalLayout() passed after 0.021 seconds.
+􁁛  Test aggregateEntryPointBindingsAreValidatedAcrossMembersAndArguments() passed after 0.021 seconds.
+􁁛  Test resourceAccessChainPreservesBindingAndMemberStore() passed after 0.021 seconds.
+􁁛  Test structuredSelectionPhiHasRealEdgeStores() passed after 0.021 seconds.
+􁁛  Test blockCyclesBreakAndMissingReturnAreRejected() passed after 0.021 seconds.
+􁁛  Test deterministicBoundaryFuzzDoesNotTrap() passed after 0.021 seconds.
+􁁛  Test functionCallsBranchesScopesAndReturns() passed after 0.021 seconds.
+􁁛  Test diagnosticsPreserveExactUnitsAndLegacyInitializer() passed after 0.021 seconds.
+􁁛  Test readonlyUniformCannotBeStored() passed after 0.021 seconds.
+􁁛  Test formatCapabilitiesAndDocOptionsAreNotIgnored() passed after 0.021 seconds.
+􁁛  Test derivativeRequiresUniformControlIncludingNestedEarlyExit() passed after 0.021 seconds.
+􁁛  Test compositeConstructAndExtractAreTyped() passed after 0.021 seconds.
+􁁛  Test exactUnknownOpcodeDiagnosticAndDepthBudget() passed after 0.021 seconds.
+􁁛  Test nestedCommentsUnicodeAndExactUTF8Diagnostics() passed after 0.021 seconds.
+􁁛  Test wrapperEnforcesPreflightBeforeSyntheticConsumer() passed after 0.021 seconds.
+􁁛  Test invalidHandlesAndTypeCyclesAreRejected() passed after 0.021 seconds.
+􁁛  Test canonicalLoopHasLoopContinuingBreakAndPhiStores() passed after 0.021 seconds.
+􁁛  Test atomicAggregateCannotBeLoadedAsOrdinaryValue() passed after 0.021 seconds.
+􁁛  Test computeLowersStorageEffectsAndTypedExpressions() passed after 0.021 seconds.
+􁁛  Test actualArithmeticAndPrivateStore() passed after 0.021 seconds.
+􁁛  Test malformedUTF8NamesAndMissingFragmentOriginAreRejected() passed after 0.021 seconds.
+􁁛  Test headerWordCountsIDsAndOrderRejected() passed after 0.021 seconds.
+􁁛  Test scalarMaterializationAndConstantArithmetic() passed after 0.021 seconds.
+􁁛  Test failClosedLexicalAndSemanticBoundaries() passed after 0.021 seconds.
+􁁛  Test runtimeArrayStructHasMinimumFootprintAndAlignedOffset() passed after 0.021 seconds.
+􁁛  Test rejectsNamesTypesAndMalformedSyntax() passed after 0.021 seconds.
+􁁛  Test pointerTargetsRespectAddressSpaceEvenWhenUnused() passed after 0.021 seconds.
+􁁛  Test unsupportedFamiliesRejectInsteadOfIssuingWitness() passed after 0.021 seconds.
+􁁛  Test builtinStageAndTypeChecked() passed after 0.021 seconds.
+􁁛  Test unsupportedNeverReturnsDummyAndCoordinateNotIgnored() passed after 0.021 seconds.
+􁁛  Test relaxedCapabilityPolicyIsExplicitlyRejected() passed after 0.021 seconds.
+􁁛  Test malformedPhiCFGAndUndefinedValuesRejected() passed after 0.021 seconds.
+􁁛  Test loopsSwitchAndContinuingProduceStructuredIR() passed after 0.021 seconds.
+􁁛  Test resourceWrongPointeeOrIndexRejects() passed after 0.021 seconds.
+􁁛  Test emptyComputeModuleValidates() passed after 0.021 seconds.
+􁁛  Test invalidDecorationTargetsAndModesAreNotSilentlyIgnored() passed after 0.021 seconds.
+􁁛  Test aggregateVertexPositionAndBuiltinIdentityAreChecked() passed after 0.021 seconds.
+􁁛  Test binaryResultTypesAreRecomputed() passed after 0.021 seconds.
+􁁛  Test capabilitiesAndUnknownBitsAreChecked() passed after 0.021 seconds.
+􁁛  Test cancelledBeforeSubmitNeverEnqueuesWork() passed after 0.023 seconds.
+􁁛  Test compositeExtractionAndBackwardFunctionCalls() passed after 0.021 seconds.
+􁁛  Test boolIsConstructibleButNeverHostShareableTransitively() passed after 0.021 seconds.
+􁁛  Test backendDeviceLossIsTerminalForAllocationAndQueue() passed after 0.023 seconds.
+􁁛  Test cancelledCompilerDoesNotEnterPipeline() passed after 0.023 seconds.
+􁁛  Test commandTimeoutMakesCoreTerminalAndCloseDoesNotHang() passed after 0.023 seconds.
+􁁛  Test actualComputeHeaderEntrySizeAndEndian() passed after 0.021 seconds.
+􁁛  Test ioTraversalBudgetAndNestedShapesAreChecked() passed after 0.021 seconds.
+􁁛  Test mathOverloadsAndCastTypesCannotBeForged() passed after 0.021 seconds.
+􁁛  Test commandValidationRejectsSizeUsageAlignmentAndForeignIDsBeforeBackend() passed after 0.023 seconds.
+􁁛  Test browserBoundaryForwardsOnlyThroughExplicitHost() passed after 0.023 seconds.
+􁁛  Test runtimeArraysCannotBeHiddenInsideNestedUnsizedStructures() passed after 0.021 seconds.
+􁁛  Test boundedTokensWorkDepthAndCancellation() passed after 0.023 seconds.
+􁁛  Suite FrontendIntegrationTests passed after 0.024 seconds.
+􁁛  Test budgetsAndCancellation() passed after 0.022 seconds.
+􁁛  Test runtimeLayoutOverflowAndBudgetsFailWithoutTraps() passed after 0.022 seconds.
+􁁛  Test cancellationIsCheckedBeforeAnyBudgetWork() passed after 0.022 seconds.
+􁁛  Test sparseHugeBoundAndBudgetsCancellation() passed after 0.022 seconds.
+􁁛  Test cancellationBeforeScan() passed after 0.022 seconds.
+􁁛  Test cancelledWaiterDoesNotCancelCommittedWork() passed after 0.024 seconds.
+􁁛  Test cancelledAllocationRollsBack() passed after 0.024 seconds.
+􁁛  Test repeatedCoreCloseReleasesPipelineHandlesOnRetainedBackend() passed after 0.024 seconds.
+􁁛  Test completionTimerActuallyExpiresWithoutCallback() passed after 0.024 seconds.
+􁁛  Test asyncErrorKeepsOriginalScopeAndDoesNotLeakIntoNewScope() passed after 0.024 seconds.
+􁁛  Test closeWaitsForPendingAllocationRollback() passed after 0.024 seconds.
+􁁛  Test acceptedWorkPinsResourcesAndQueueCompletesInOrder() passed after 0.024 seconds.
+􁁛  Test failedSubmissionDoesNotPoisonQueueAndReleasesPins() passed after 0.024 seconds.
+􁁛  Test scopePopWaitsForOperationsStartedInsideScope() passed after 0.024 seconds.
+􁁛  Test commandBuffersStayPinnedAfterDestroyAndWaiterCancellation() passed after 0.024 seconds.
+􁁛  Suite FrontendContractsTests passed after 0.024 seconds.
+􁁛  Test closeWaitsForAcceptedWorkAndReleasesAllResources() passed after 0.024 seconds.
+􁁛  Test deviceLossDuringAllocationCannotPublishResource() passed after 0.024 seconds.
+􁁛  Test overlappingCloseWaitsForWholeTeardownBatch(firstIsLoss:) with 2 test cases passed after 0.024 seconds.
+􁁛  Test adversarialRawHandlesAreDeterministicAndBounded() passed after 0.026 seconds.
+􁁛  Suite ShaderSemanticValidationTests passed after 0.027 seconds.
+􁁛  Test metalRejectsUnknownPipelineAndQueueRemainsUsable() passed after 0.028 seconds.
+􁁛  Test metalReadbacksAreZeroInitializedAndSnapshotOrdered() passed after 0.028 seconds.
+􁁛  Test deterministicMalformedWordFuzz() passed after 0.028 seconds.
+􁁛  Suite SPIRVFrontendTests passed after 0.030 seconds.
+􁁛  Test metalDiagnosticComputesEveryElementOnGPU() passed after 0.030 seconds.
+􁁛  Test boundedAdversarialStructuredInputs() passed after 0.031 seconds.
+􁁛  Test metalTimeoutQuarantinesNativeResourcesThroughCoreCloseAndLateRetirement() passed after 0.093 seconds.
+􁁛  Test deterministicMalformedFuzzIsBoundedAndOnlyTypedFailures() passed after 0.099 seconds.
+􁁛  Suite GLSLFrontendTests passed after 0.100 seconds.
+􁁛  Test deterministicBoundedFuzz() passed after 0.108 seconds.
+􁁛  Suite WGSLFrontendTests passed after 0.110 seconds.
+􁁛  Test run with 135 tests in 6 suites passed after 0.111 seconds.

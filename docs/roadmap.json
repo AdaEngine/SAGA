@@ -1,0 +1,80 @@
+{
+  "source": "SAGA-1..11 fetched through task tools 2026-11-06",
+  "nodes": [
+    {
+      "id": "SAGA-2",
+      "title": "Baseline",
+      "depends_on": []
+    },
+    {
+      "id": "SAGA-3",
+      "title": "Foundation",
+      "depends_on": [
+        "SAGA-2"
+      ]
+    },
+    {
+      "id": "SAGA-4",
+      "title": "GPU diagnostic slice",
+      "depends_on": [
+        "SAGA-3"
+      ]
+    },
+    {
+      "id": "SAGA-5",
+      "title": "WGSL frontend",
+      "depends_on": [
+        "SAGA-2",
+        "SAGA-3"
+      ]
+    },
+    {
+      "id": "SAGA-6",
+      "title": "IR and codegen",
+      "depends_on": [
+        "SAGA-5",
+        "SAGA-4"
+      ]
+    },
+    {
+      "id": "SAGA-7",
+      "title": "Resources and commands",
+      "depends_on": [
+        "SAGA-4"
+      ]
+    },
+    {
+      "id": "SAGA-8",
+      "title": "Pipelines and passes",
+      "depends_on": [
+        "SAGA-6",
+        "SAGA-7"
+      ]
+    },
+    {
+      "id": "SAGA-9",
+      "title": "Presentation and device loss",
+      "depends_on": [
+        "SAGA-7",
+        "SAGA-8"
+      ]
+    },
+    {
+      "id": "SAGA-10",
+      "title": "Swift CTS bridge",
+      "depends_on": [
+        "SAGA-2",
+        "SAGA-3"
+      ]
+    },
+    {
+      "id": "SAGA-11",
+      "title": "Release gate",
+      "depends_on": [
+        "SAGA-8",
+        "SAGA-9",
+        "SAGA-10"
+      ]
+    }
+  ]
+}

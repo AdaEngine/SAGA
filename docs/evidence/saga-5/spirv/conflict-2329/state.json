@@ -1,0 +1,31 @@
+{
+  "observed_utc": "2026-11-06T23:29:35.406727+00:00",
+  "session": "session-dc0e5ed5-1cb5-4b1b-8877-4707990c1d64",
+  "status": "blocked-concurrent-execution",
+  "reason": "Second function lowerer appeared in sole-owned scope during implementation; duplicate SPVBlockRecord/SPVValue/SPVFunctionLowerer declarations. Additional tests appeared without this execution writing them. Stop source mutations pending exclusive-owner reconciliation.",
+  "files": {
+    "Sources/SAGAFrontends/SPIRV/SPIRVFunction.swift": {
+      "sha256": "aaca6c1f7b0f097144c43f8f4975e84ea888f12f50ee1d9b936ffc9e0c7fabd5",
+      "bytes": 27032,
+      "mtime_ns": 1794007646579605559
+    },
+    "Sources/SAGAFrontends/SPIRV/FunctionLowering.swift": {
+      "sha256": "0ed1c0e79239b41ad0f805426e606a79efd12213dfb1a849d59fdd71bee1d004",
+      "bytes": 20120,
+      "mtime_ns": 1794007636737235915
+    },
+    "Sources/SAGAFrontends/SPIRV/SPIRVFrontend.swift": {
+      "sha256": "ceabdd1d320eca107044b36221d102d2a755e03747552a72fe4e42158dab95ca",
+      "bytes": 26784,
+      "mtime_ns": 1794007636737063249
+    },
+    "Tests/SAGAFoundationTests/SPIRVFrontendTests.swift": {
+      "sha256": "ff289b4b736c40248f2a8e729c987a2dcfe858dfd278808b3c450c3f14117681",
+      "bytes": 12106,
+      "mtime_ns": 1794007638433398494
+    }
+  },
+  "failed_package_command": "/usr/bin/swift test --filter SPIRVFrontendTests --scratch-path .build-spirv -Xswiftc -warnings-as-errors -Xswiftc -strict-concurrency=complete",
+  "failure_log": "/Users/vlad-prusakov/.sloppy/.sloppy/tool-outputs/3ee4b71c2247295ba03153e9195d77a638ae733c189c9e900353376fe8463484/68c3b423663485b338a63f4b8ee1156ce7b6b994492dd0047452070e871bb122/651a0372-8478-4fe8-ba37-680d26cb2f65.log",
+  "last_execution_tests": "10 tests at23:25:39Z,9 pass1 fail missing fragment origin (fixed in source subsequently, not yet verified). Loop/composite/access enhancements afterward unverified."
+}

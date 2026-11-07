@@ -1,0 +1,73 @@
+[0/1] Planning build
+Building for debugging...
+[0/7] Write sources
+[2/7] Write swift-version-3CD7052B146186F2.txt
+[4/12] Compiling SAGAFrontends Statements.swift
+[5/12] Compiling SAGAFrontends WGSLFrontend.swift
+[6/12] Compiling SAGAFrontends Expressions.swift
+[7/12] Compiling SAGAFrontends ControlExpressions.swift
+[8/12] Compiling SAGAFrontends GLSLLexer.swift
+[9/12] Emitting module SAGAFrontends
+[10/12] Compiling SAGAFrontends GLSLFrontend.swift
+[11/15] Compiling SAGACompiler FrontendValidation.swift
+[12/15] Compiling SAGACompiler Compiler.swift
+[13/15] Emitting module SAGACompiler
+[14/23] Compiling SAGAFoundationTests SPIRVFrontendTests.swift
+[15/23] Compiling SAGAFoundationTests WGSLFrontendTests.swift
+[16/23] Compiling SAGAFoundationTests FrontendContractsTests.swift
+[17/23] Compiling SAGAFoundationTests GLSLFrontendTests.swift
+[18/23] Compiling SAGAFoundationTests FrontendIntegrationTests.swift
+[19/23] Compiling SAGAFoundationTests ShaderSemanticValidationTests.swift
+[20/23] Emitting module SAGAFoundationTests
+[21/23] Compiling SAGAFoundationTests CompilerTests.swift
+[22/25] Compiling SAGAPackageTests runner.swift
+[23/25] Emitting module SAGAPackageTests
+[23/25] Write Objects.LinkFileList
+[24/25] Linking SAGAPackageTests
+Build complete! (3.55s)
+Test Suite 'Selected tests' started at 2026-11-07 02:24:39.461.
+Test Suite 'SAGAPackageTests.xctest' started at 2026-11-07 02:24:39.468.
+Test Suite 'SAGAPackageTests.xctest' passed at 2026-11-07 02:24:39.468.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+Test Suite 'Selected tests' passed at 2026-11-07 02:24:39.468.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.007) seconds
+􀟈  Test run started.
+􀄵  Testing Library Version: 1902
+􀄵  Target Platform: arm64e-apple-macos14.0
+􀟈  Suite ShaderSemanticValidationTests started.
+􀟈  Suite FrontendIntegrationTests started.
+􀟈  Test emptyComputeModuleValidates() started.
+􀟈  Test readonlyUniformCannotBeStored() started.
+􀟈  Test duplicateBindingsAndBadLayoutsAreRejected() started.
+􀟈  Test effectResultsMustBeProducedByMatchingCallAndRecursionRejected() started.
+􀟈  Test threeActualFrontendModulesAcquireWitnessOnlyAfterBuiltInValidation() started.
+􀟈  Test parserSuccessDoesNotBypassSemanticValidation() started.
+􀟈  Test binaryResultTypesAreRecomputed() started.
+􀟈  Test invalidInputAndBudgetNeverReturnValidatedWitness() started.
+􀟈  Test unsupportedFamiliesRejectInsteadOfIssuingWitness() started.
+􀟈  Test blockCyclesBreakAndMissingReturnAreRejected() started.
+􀟈  Test capabilitiesAndUnknownBitsAreChecked() started.
+􀟈  Test literalTypeIsRecomputedNotTrusted() started.
+􀟈  Test builtinStageAndTypeChecked() started.
+􀟈  Test invalidHandlesAndTypeCyclesAreRejected() started.
+􀟈  Test derivativeRequiresUniformControlIncludingNestedEarlyExit() started.
+􀟈  Test budgetsAndCancellation() started.
+􁁛  Test unsupportedFamiliesRejectInsteadOfIssuingWitness() passed after 0.001 seconds.
+􁁛  Test literalTypeIsRecomputedNotTrusted() passed after 0.001 seconds.
+􁁛  Test emptyComputeModuleValidates() passed after 0.001 seconds.
+􁁛  Test readonlyUniformCannotBeStored() passed after 0.001 seconds.
+􁁛  Test binaryResultTypesAreRecomputed() passed after 0.001 seconds.
+􁁛  Test builtinStageAndTypeChecked() passed after 0.001 seconds.
+􁁛  Test budgetsAndCancellation() passed after 0.001 seconds.
+􁁛  Test invalidHandlesAndTypeCyclesAreRejected() passed after 0.001 seconds.
+􁁛  Test effectResultsMustBeProducedByMatchingCallAndRecursionRejected() passed after 0.001 seconds.
+􁁛  Test capabilitiesAndUnknownBitsAreChecked() passed after 0.001 seconds.
+􁁛  Test threeActualFrontendModulesAcquireWitnessOnlyAfterBuiltInValidation() passed after 0.001 seconds.
+􁁛  Test derivativeRequiresUniformControlIncludingNestedEarlyExit() passed after 0.001 seconds.
+􁁛  Test duplicateBindingsAndBadLayoutsAreRejected() passed after 0.001 seconds.
+􁁛  Test blockCyclesBreakAndMissingReturnAreRejected() passed after 0.001 seconds.
+􁁛  Test parserSuccessDoesNotBypassSemanticValidation() passed after 0.001 seconds.
+􁁛  Suite ShaderSemanticValidationTests passed after 0.002 seconds.
+􁁛  Test invalidInputAndBudgetNeverReturnValidatedWitness() passed after 0.002 seconds.
+􁁛  Suite FrontendIntegrationTests passed after 0.002 seconds.
+􁁛  Test run with 16 tests in 2 suites passed after 0.002 seconds.

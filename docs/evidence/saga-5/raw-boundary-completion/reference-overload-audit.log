@@ -1,0 +1,154 @@
+                    _ => return Err(ExpressionError::ExpectedImageType(ty)),
+                }
+                ShaderStages::all()
+            }
+            E::Unary { op, expr } => {
+                use crate::UnaryOperator as Uo;
+                let Some((_, scalar)) = resolver[expr].vector_size_and_scalar() else {
+                    return Err(ExpressionError::InvalidUnaryOperandType(op, expr));
+                };
+                match (op, scalar.kind) {
+                    (Uo::Negate, Sk::Float | Sk::Sint) => {}
+                    (Uo::LogicalNot, Sk::Bool) => {}
+                    (Uo::BitwiseNot, Sk::Sint | Sk::Uint) => {}
+                    _ => return Err(ExpressionError::InvalidUnaryOperandType(op, expr)),
+                }
+                ShaderStages::all()
+            }
+            E::Binary { op, left, right } => {
+                use crate::BinaryOperator as Bo;
+                let left_inner = &resolver[left];
+                let right_inner = &resolver[right];
+                let good = match op {
+                    Bo::Add | Bo::Subtract => match *left_inner {
+                        Ti::Scalar(scalar) | Ti::Vector { scalar, .. } => match scalar.kind {
+                            Sk::Uint | Sk::Sint | Sk::Float => left_inner == right_inner,
+                            Sk::Bool | Sk::AbstractInt | Sk::AbstractFloat => false,
+                        },
+                        Ti::Matrix { .. } | Ti::CooperativeMatrix { .. } => {
+                            left_inner == right_inner
+                        }
+                        _ => false,
+                    },
+                    Bo::Divide | Bo::Modulo => match *left_inner {
+                        Ti::Scalar(scalar) | Ti::Vector { scalar, .. } => match scalar.kind {
+                            Sk::Uint | Sk::Sint | Sk::Float => left_inner == right_inner,
+                            Sk::Bool | Sk::AbstractInt | Sk::AbstractFloat => false,
+                        },
+                        _ => false,
+                    },
+                    Bo::Multiply => {
+                        let kind_allowed = match left_inner.scalar_kind() {
+                            Some(Sk::Uint | Sk::Sint | Sk::Float) => true,
+                            Some(Sk::Bool | Sk::AbstractInt | Sk::AbstractFloat) | None => false,
+                        };
+                        let types_match = match (left_inner, right_inner) {
+                            // Straight scalar and mixed scalar/vector.
+                            (&Ti::Scalar(scalar1), &Ti::Scalar(scalar2))
+                            | (
+                            false
+                        }
+                    },
+                    Bo::And | Bo::InclusiveOr => match *left_inner {
+                        Ti::Scalar(scalar) | Ti::Vector { scalar, .. } => match scalar.kind {
+                            Sk::Bool | Sk::Sint | Sk::Uint => left_inner == right_inner,
+                            Sk::Float | Sk::AbstractInt | Sk::AbstractFloat => false,
+                        },
+                        ref other => {
+                            log::debug!("Op {op:?} left type {other:?}");
+                            false
+                        }
+                    },
+                    Bo::ExclusiveOr => match *left_inner {
+                        Ti::Scalar(scalar) | Ti::Vector { scalar, .. } => match scalar.kind {
+                            Sk::Sint | Sk::Uint => left_inner == right_inner,
+                            Sk::Bool | Sk::Float | Sk::AbstractInt | Sk::AbstractFloat => false,
+                        },
+                        ref other => {
+                            log::debug!("Op {op:?} left type {other:?}");
+                            false
+                        }
+                    },
+                    Bo::ShiftLeft | Bo::ShiftRight => {
+                        let (base_size, base_scalar) = match *left_inner {
+                            Ti::Scalar(scalar) => (Ok(None), scalar),
+                            Ti::Vector { size, scalar } => (Ok(Some(size)), scalar),
+                            ref other => {
+                                log::debug!("Op {op:?} base type {other:?}");
+                                (Err(()), Sc::BOOL)
+                            }
+                        };
+                        let shift_size = match *right_inner {
+                            Ti::Scalar(Sc { kind: Sk::Uint, .. }) => Ok(None),
+                            Ti::Vector {
+                                size,
+                                scalar: Sc { kind: Sk::Uint, .. },
+                            } => Ok(Some(size)),
+                            ref other => {
+                                log::debug!("Op {op:?} shift type {other:?}");
+            }
+            E::Select {
+                condition,
+                accept,
+                reject,
+            } => {
+                let accept_inner = &resolver[accept];
+                let reject_inner = &resolver[reject];
+                let condition_ty = &resolver[condition];
+                let condition_good = match *condition_ty {
+                    Ti::Scalar(Sc {
+                        kind: Sk::Bool,
+                        width: _,
+                    }) => {
+                        // When `condition` is a single boolean, `accept` and
+                        // `reject` can be vectors or scalars.
+                        match *accept_inner {
+                            Ti::Scalar { .. } | Ti::Vector { .. } => true,
+                            _ => false,
+                        }
+                    }
+                    Ti::Vector {
+                        size,
+                        scalar:
+                            Sc {
+                                kind: Sk::Bool,
+                                width: _,
+                            },
+                    } => match *accept_inner {
+                        Ti::Vector {
+                            size: other_size, ..
+                        } => size == other_size,
+                        _ => false,
+                    },
+                    _ => false,
+                };
+                if accept_inner != reject_inner {
+                    return Err(ExpressionError::SelectValuesTypeMismatch {
+                        accept: accept_inner.clone(),
+                        reject: reject_inner.clone(),
+                    });
+                }
+                if !condition_good {
+                    return Err(ExpressionError::SelectConditionNotABool {
+                        actual: condition_ty.clone(),
+                    });
+                }
+                ShaderStages::all()
+            }
+            E::Derivative { expr, .. } => {
+                let Some((_, scalar)) = resolver[expr].vector_size_and_scalar() else {
+                    return Err(ExpressionError::InvalidDerivative);
+                };
+                if scalar.kind != Sk::Float || scalar.width < 4 {
+                    // Derivatives are not supported for `f16`, although support may be added
+                    // in the future, see https://github.com/gpuweb/gpuweb/issues/5482.
+                    return Err(ExpressionError::InvalidDerivative);
+                }
+                ShaderStages::FRAGMENT
+            }
+            E::Relational { fun, argument } => {
+                use crate::RelationalFunction as Rf;
+                let argument_inner = &resolver[argument];
+                match fun {
+                    Rf::All | Rf::Any => match *argument_inner {
+                        Ti::Vector {

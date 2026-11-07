@@ -1,0 +1,55 @@
+Test Suite 'Selected tests' started at 2026-11-07 02:49:26.025.
+Test Suite 'SAGAPackageTests.xctest' started at 2026-11-07 02:49:26.032.
+Test Suite 'SAGAPackageTests.xctest' passed at 2026-11-07 02:49:26.032.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+Test Suite 'Selected tests' passed at 2026-11-07 02:49:26.032.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.008) seconds
+􀟈  Test run started.
+􀄵  Testing Library Version: 1902
+􀄵  Target Platform: arm64e-apple-macos14.0
+􀟈  Suite ShaderSemanticValidationTests started.
+􀟈  Test readonlyUniformCannotBeStored() started.
+􀟈  Test invalidHandlesAndTypeCyclesAreRejected() started.
+􀟈  Test derivativeRequiresUniformControlIncludingNestedEarlyExit() started.
+􀟈  Test duplicateBindingsAndBadLayoutsAreRejected() started.
+􀟈  Test uniformVectorsMatricesAndPaddedArraysAreAccepted() started.
+􀟈  Test mathOverloadsAndCastTypesCannotBeForged() started.
+􀟈  Test blockCyclesBreakAndMissingReturnAreRejected() started.
+􀟈  Test capabilitiesAndUnknownBitsAreChecked() started.
+􀟈  Test nestedUniformStructRequiresMemberAlignmentAndFollowingGap() started.
+􀟈  Test uniformArrayRulesDoNotRejectStorageLayout() started.
+􀟈  Test effectResultsMustBeProducedByMatchingCallAndRecursionRejected() started.
+􀟈  Test budgetsAndCancellation() started.
+􀟈  Test literalTypeIsRecomputedNotTrusted() started.
+􀟈  Test uniformViolationsPropagateThroughArraysAndStructures() started.
+􀟈  Test actualLoopBreaksAndIllegalContinuingReturn() started.
+􀟈  Test builtinStageAndTypeChecked() started.
+􀟈  Test binaryResultTypesAreRecomputed() started.
+􀟈  Test adversarialRawHandlesAreDeterministicAndBounded() started.
+􀟈  Test emptyComputeModuleValidates() started.
+􀟈  Test unsupportedFamiliesRejectInsteadOfIssuingWitness() started.
+􀢄  Test nestedUniformStructRequiresMemberAlignmentAndFollowingGap() recorded an issue at ShaderSemanticValidationTests.swift:322:4: Caught error: .diagnostics([SAGAShaderIR.ShaderDiagnostic(severity: SAGAShaderIR.ShaderDiagnostic.Severity.error, message: "Aggregate uniform address-space layout rules not implemented", code: SAGAShaderIR.ShaderDiagnosticCode.unsupportedConstruct, location: nil)])
+􀢄  Test uniformArrayRulesDoNotRejectStorageLayout() recorded an issue at ShaderSemanticValidationTests.swift:319:49: Expectation failed: (ds.first?.code → .unsupportedConstruct) == .invalidType
+􀢄  Test uniformVectorsMatricesAndPaddedArraysAreAccepted() recorded an issue at ShaderSemanticValidationTests.swift:302:4: Caught error: .diagnostics([SAGAShaderIR.ShaderDiagnostic(severity: SAGAShaderIR.ShaderDiagnostic.Severity.error, message: "Aggregate uniform address-space layout rules not implemented", code: SAGAShaderIR.ShaderDiagnosticCode.unsupportedConstruct, location: nil)])
+􁁛  Test literalTypeIsRecomputedNotTrusted() passed after 0.001 seconds.
+􁁛  Test derivativeRequiresUniformControlIncludingNestedEarlyExit() passed after 0.001 seconds.
+􁁛  Test actualLoopBreaksAndIllegalContinuingReturn() passed after 0.001 seconds.
+􁁛  Test invalidHandlesAndTypeCyclesAreRejected() passed after 0.001 seconds.
+􀢄  Test uniformVectorsMatricesAndPaddedArraysAreAccepted() failed after 0.001 seconds with 1 issue.
+􁁛  Test unsupportedFamiliesRejectInsteadOfIssuingWitness() passed after 0.001 seconds.
+􁁛  Test effectResultsMustBeProducedByMatchingCallAndRecursionRejected() passed after 0.001 seconds.
+􁁛  Test emptyComputeModuleValidates() passed after 0.001 seconds.
+􀢄  Test uniformArrayRulesDoNotRejectStorageLayout() failed after 0.001 seconds with 1 issue.
+􁁛  Test mathOverloadsAndCastTypesCannotBeForged() passed after 0.001 seconds.
+􀢄  Test nestedUniformStructRequiresMemberAlignmentAndFollowingGap() failed after 0.001 seconds with 1 issue.
+􁁛  Test builtinStageAndTypeChecked() passed after 0.001 seconds.
+􁁛  Test binaryResultTypesAreRecomputed() passed after 0.001 seconds.
+􁁛  Test budgetsAndCancellation() passed after 0.001 seconds.
+􁁛  Test duplicateBindingsAndBadLayoutsAreRejected() passed after 0.001 seconds.
+􁁛  Test capabilitiesAndUnknownBitsAreChecked() passed after 0.001 seconds.
+􁁛  Test readonlyUniformCannotBeStored() passed after 0.001 seconds.
+􁁛  Test uniformViolationsPropagateThroughArraysAndStructures() passed after 0.001 seconds.
+􁁛  Test blockCyclesBreakAndMissingReturnAreRejected() passed after 0.001 seconds.
+􁁛  Test adversarialRawHandlesAreDeterministicAndBounded() passed after 0.007 seconds.
+􀢄  Suite ShaderSemanticValidationTests failed after 0.008 seconds with 3 issues.
+􀢄  Test run with 20 tests in 1 suite failed after 0.008 seconds with 3 issues.

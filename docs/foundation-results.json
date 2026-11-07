@@ -1,0 +1,95 @@
+{
+  "status": "pass",
+  "scope": "SAGA-3 foundation only",
+  "observed_date": "2026-11-06",
+  "task": "SAGA-3",
+  "reference_revision": "a55352911bb26a1b33bc8d5fc03bdebb0a967f5a",
+  "package": {
+    "tools_version": "6.2",
+    "language_mode": "6",
+    "library_targets": 11,
+    "test_targets": 1,
+    "external_dependencies": 0
+  },
+  "toolchains": {
+    "apple": "6.3.3 (Xcode 26.6)",
+    "upstream": "6.3.2",
+    "local_swift_6_2_compiler": "not installed",
+    "wasm_sdk": "swift-6.3.2-RELEASE_wasm",
+    "wasm_target": "wasm32-unknown-wasip1"
+  },
+  "checks": [
+    {
+      "name": "Apple native Swift Testing",
+      "passed": 28,
+      "failures": 0,
+      "evidence": "verification-4",
+      "log": "evidence/saga-3/native-swift-6.3.3-tests.log"
+    },
+    {
+      "name": "upstream native Swift Testing",
+      "passed": 28,
+      "failures": 0,
+      "evidence": "verification-7",
+      "log": "evidence/saga-3/native-swift-6.3.2-tests.log"
+    },
+    {
+      "name": "compile-time contract checks",
+      "passed": 6,
+      "positive_controls": 1,
+      "expected_rejections": 5,
+      "log": "evidence/saga-3/typecheck-contracts.log"
+    },
+    {
+      "name": "docs/policy/pinned-reference audit",
+      "passed": 23,
+      "failures": 0,
+      "skipped": 0,
+      "log": "evidence/saga-3/docs-reference-audit.log"
+    },
+    {
+      "name": "native build strict concurrency warnings-as-errors",
+      "status": "pass",
+      "evidence": "verification-6",
+      "log": "evidence/saga-3/native-build.log"
+    },
+    {
+      "name": "matched Wasm build all libraries strict concurrency warnings-as-errors",
+      "status": "pass",
+      "evidence": "verification-5",
+      "log": "evidence/saga-3/wasm-build.log"
+    }
+  ],
+  "compiler_inventory": {
+    "lexical_items": 1418,
+    "fixture_files": 1415,
+    "hashed_source_files": 157,
+    "semantic_completeness": false,
+    "implementation": "not-started",
+    "verification": "not-run"
+  },
+  "regressions": {
+    "scope_pop": "failed before scope-retention fix; passes final suite",
+    "overlapping_teardown": "both parameterized cases failed before batch-count fix; passed final suite",
+    "red_log": "evidence/saga-3/teardown-regression-red.log"
+  },
+  "not_executed": [
+    "hosted CI",
+    "local Swift 6.2.x compiler",
+    "GPU",
+    "CTS",
+    "browser execution",
+    "semantic shader translation",
+    "binary interchange compatibility"
+  ],
+  "executed": {
+    "gpu": false,
+    "cts": false,
+    "browser_execution": false,
+    "shader_translation": false,
+    "hosted_ci": false
+  },
+  "runnable_targets": [],
+  "committed": false,
+  "published": false
+}

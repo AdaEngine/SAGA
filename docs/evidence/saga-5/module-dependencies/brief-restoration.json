@@ -1,0 +1,8 @@
+{
+  "error": "Native update mistakenly sent description empty, erasing brief at00:57:30Z. Restored exact full original from verified pre-turn task snapshot via explicit CLI argument, no summary substitution.",
+  "source_snapshot": "/Users/vlad-prusakov/.sloppy/.sloppy/tool-outputs/3ee4b71c2247295ba03153e9195d77a638ae733c189c9e900353376fe8463484/bbfa596078cbd17a44a4a20dd3accb4f78d402fd8cc7979870afe0d42ffa4aa6/1f96c128-c018-48a1-882b-9dcaca08e5ba.json",
+  "original_utf8_bytes": 8000,
+  "sha256": "9d48b4fe7fe8bc66ffae45a1d76e64a5368fd285aa45fea075b7471a8e1e36ef",
+  "restored_exact_equality_confirmed": true,
+  "fresh_native_task_get_confirmed_full_text": true
+}

@@ -1,0 +1,37 @@
+[0/1] Planning build
+Building for debugging...
+[0/5] Write sources
+[1/5] Write swift-version-3CD7052B146186F2.txt
+[3/6] Compiling SAGAFoundationTests WGSLFrontendTests.swift
+[4/6] Emitting module SAGAFoundationTests
+[5/6] Compiling SAGAFoundationTests FrontendIntegrationTests.swift
+[5/7] Write Objects.LinkFileList
+[6/7] Linking SAGAPackageTests
+Build complete! (1.88s)
+Test Suite 'Selected tests' started at 2026-11-07 03:25:56.787.
+Test Suite 'SAGAPackageTests.xctest' started at 2026-11-07 03:25:56.794.
+Test Suite 'SAGAPackageTests.xctest' passed at 2026-11-07 03:25:56.794.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+Test Suite 'Selected tests' passed at 2026-11-07 03:25:56.794.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.007) seconds
+􀟈  Test run started.
+􀄵  Testing Library Version: 1902
+􀄵  Target Platform: arm64e-apple-macos14.0
+􀟈  Suite WGSLFrontendTests started.
+􀟈  Suite FrontendIntegrationTests started.
+􀟈  Test constantAttributesReachValidatedUniformLayout() started.
+􀟈  Test namedAttributeConstantsAndIntegerPrecedence() started.
+􀟈  Test invalidAttributeExpressionsFailWithTypedRanges() started.
+􀟈  Test attributeExpressionBudgetsAndCancellation() started.
+􀢄  Test namedAttributeConstantsAndIntegerPrecedence() recorded an issue at WGSLFrontendTests.swift:279:6: Caught error: .diagnostics([SAGAShaderIR.ShaderDiagnostic(severity: SAGAShaderIR.ShaderDiagnostic.Severity.error, message: "Expected \')\', found \'*\'", code: SAGAShaderIR.ShaderDiagnosticCode.unexpectedToken, location: Optional(SAGAShaderIR.ShaderLocation.source(SAGAShaderIR.SourceSpan(startUTF8: 43, endUTF8: 44))))])
+􀢄  Test constantAttributesReachValidatedUniformLayout() recorded an issue at FrontendIntegrationTests.swift:155:6: Caught error: .diagnostics([SAGAShaderIR.ShaderDiagnostic(severity: SAGAShaderIR.ShaderDiagnostic.Severity.error, message: "Expected numeric/bool literal", code: SAGAShaderIR.ShaderDiagnosticCode.unexpectedToken, location: Optional(SAGAShaderIR.ShaderLocation.source(SAGAShaderIR.SourceSpan(startUTF8: 29, endUTF8: 30))))])
+􀢄  Test namedAttributeConstantsAndIntegerPrecedence() failed after 0.001 seconds with 1 issue.
+􀢄  Test constantAttributesReachValidatedUniformLayout() failed after 0.001 seconds with 1 issue.
+􀢄  Suite FrontendIntegrationTests failed after 0.001 seconds with 1 issue.
+􁁛  Test attributeExpressionBudgetsAndCancellation() passed after 0.001 seconds.
+􀢄  Test invalidAttributeExpressionsFailWithTypedRanges() recorded an issue at WGSLFrontendTests.swift:303:13: Expectation failed: (ds.first?.code → .unexpectedToken) == .unresolvedName
+􀢄  Test invalidAttributeExpressionsFailWithTypedRanges() recorded an issue at WGSLFrontendTests.swift:305:13: Expectation failed: (String(decoding: Array(source.utf8)[span.startUTF8..<span.endUTF8], as: UTF8.self) → "+") == "missing"
+􀢄  Test invalidAttributeExpressionsFailWithTypedRanges() failed after 0.004 seconds with 2 issues.
+􀢄  Suite WGSLFrontendTests failed after 0.004 seconds with 3 issues.
+􀄵  // Independently authored SAGA fixtures; no upstream shader bytes copied.
+􀢄  Test run with 4 tests in 2 suites failed after 0.005 seconds with 4 issues.

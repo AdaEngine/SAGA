@@ -1,0 +1,557 @@
+[=override-expressions=], for example, to size [=arrays=] in [=function scope=]
+[=variable declaration|variables=].
+A <dfn noexport>runtime expression</dfn> is an expression that is neither a
+[=const-expression=] nor an [=override-expression=].
+A runtime expression is computed on the GPU during shader execution.
+While runtime expressions can be used by fewer grammar elements, they can be
+computed from a larger class of expressions, for example, other runtime values.
+
+## Early Evaluation Expressions ## {#early-eval-exprs}
+
+WGSL defines two types of expressions that can be evaluated before runtime:
+* [=const-expressions=], at [=shader module creation|shader-creation time=]
+* [=override-expressions=], at [=pipeline creation|pipeline-creation time=]
+
+### `const` Expressions ### {#const-expr}
+
+Expressions that can be evaluated at [=shader module creation|shader-creation
+time=] are called <dfn noexport>const-expressions</dfn>.
+An expression is a const-expression if all its [=identifiers=] [=resolve=] to:
+* [=const-declarations=], or
+* [=const-functions=], or
+* [=type aliases=], or
+* [=structure=] names.
+
+The type of a `const` expression [=shader-creation error|must=] [=type rules|resolve=] to a type with a
+[=creation-fixed footprint=].
+
+Note: [=type/abstract|Abstract types=] can be the inferred type of a const-expression.
+
+A const-expression |E| [=behavioral requirement|will=] be evaluated if and only if:
+* |E| is [=top-level expression=],
+* |E| is a [=subexpression=] of an expression |OuterE|, and |OuterE|
+    [=behavioral requirement|will=] be evaluated, and evaluation of |OuterE|
+    requires |E| to be evaluated,
+* |E| is a [=subexpression=] of an expression |OuterE| such that evaluation of
+    |E| is required to determine the [=static type=] of |OuterE|, or
+* |E| is a [=subexpression=] of an expression |OuterE| such that |OuterE| requires
+    |E| to be evaluated to produce a [=shader-creation error=]
+    (e.g. [[#arithmetic-expr|integer division]]).
+
+Note: The evaluation rule implies that short-circuiting operators `&&` and `||` guard evaluation of their right-hand
+side subexpressions unless there is a [=subexpression=] that requires evaluation to determine
+a [=static type=].
+
+A const-expression may be evaluated by the CPU implementing the WebGPU API methods.
+Therefore accuracy requirements for operations on [=AbstractFloat=] values are *no more strict* than
+required for common WebGPU runtime environments, such as WebAssembly [[WASM-CORE-2]] and ECMAScript [[ECMASCRIPT]].
+Accuracy requirements for [=type/concrete=] floating point types (such as f32) are specified in [[#concrete-float-accuracy]].
+
+Example:  `(42)` is analyzed as follows:
+* The term `42` is the [=AbstractInt=] value 42.
+* Surrounding that term with parentheses produces a new expression `(42)` that is
+    of type [=AbstractInt=] with value 42.
+
+Example:  `-5` is analyzed as follows:
+* The term `5` is the [=AbstractInt=] value 5.
+* Preceding that term with '`-`' produces a new expression `-5` that is
+    of type [=AbstractInt=] with value -5.
+
+Example:  `-2147483648` is analyzed as follows:
+* The term `2147483648` is the [=AbstractInt=] value 2147483648.
+    Note that this value does **not** fit in a 32-bit signed integer.
+* Preceding that term with '`-`' produces a new expression `-2147483648` that is
+    of type [=AbstractInt=] with value -2147483648.
+
+Example:  `const minint = -2147483648;` is analyzed as follows:
+* As above, `-2147483648` evaluates to a [=AbstractInt=] value -2147483648.
+* A [=const-declaration=] allows the initializer to be an [=abstract numeric type=].
+* The result is that `minint` is declared to be the [=AbstractInt=] value -2147483648.
+
+Example:  `let minint = -2147483648;` is analyzed as follows:
+* As above, `-2147483648` evaluates to a [=AbstractInt=] value -2147483648.
+* A [=let-declaration=] requires the initializer to be a [=type/concrete=] [=constructible=] type or a pointer type.
+* The let-declaration does not have an explicit type, so [=overload resolution=] is used.
+    The overload candidates that apply use [=feasible automatic conversions=] from [=AbstractInt=] to either [=i32=], [=u32=], or [=f32=].
+    The one of lowest rank is to [=i32=], and so
+    [=AbstractInt=] -2147483648 value is converted to the [=i32=] value -2147483648.
+* The result is that `minint` is declared to be the i32 value -2147483648.
+
+Example:  `false && (10i < i32(5 * 1000 * 1000 * 1000))` is analyzed as follows:
+* The entire expression is a const-expression.
+* However, the short-circuiting rules of the `&&` operator apply:
+    the left-hand side evaluates to `false`, and so the right-hand side is *not evaluated*.
+* Evaluation of i32(5 * 1000 * 1000 * 1000) would have caused a [=shader-creation error=]
+    because the [=AbstractInt=] value 5000000000 overflows the [=i32=] type.
+
+Example: `false && array<u32, 1 + 2>(0, 1, 2)[0] == 0`
+* The entire expression is a const-expression.
+* Type checking requires the `e1 : bool && e2 : bool`:
+    * `false` is a bool value.
+    * Type checking proceeds on the right-hand side and eventually evaluates `1 + 2`
+        in the array element count expression.
+* `1 + 2` evaluates to an i32 value of `3`.
+    * The array is typed `array<u32, 3i>`.
+* Neither the array access expression nor the equality operator are evaluated.
+
+### `override` Expressions ### {#override-expr}
+
+Expressions that can be evaluated at [=pipeline creation=] time are called <dfn
+noexport>override-expressions</dfn>.
+An expression is an override-expression if all its [=identifiers=] [=resolve=] to:
+path: syntax/global_assert.syntax.bs.include
+</pre>
+
+WGSL defines one kind of [=assertion=]: the [[#const-assert-statement|const assertion]].
+
+<pre class=include>
+path: syntax/const_assert.syntax.bs.include
+</pre>
+
+[=Type rule precondition=]:
+The expression [=shader-creation error|must=] be of [=bool=] type.
+
+## Const Assertion Statement ## {#const-assert-statement}
+
+A const assertion statement is an [=assertion=] that
+produces a [=shader-creation error=] if the expression evaluates to `false`.
+The expression [=shader-creation error|must=] be a [=const-expression=].
+The statement can satisfy [=statically accessed|static access=] conditions in
+a shader, but otherwise has no effect on the compiled shader.
+A const assertion can appear at
+[=module scope=] or as a [=function scope=] [=statement=].
+
+<pre class=include>
+path: syntax/assert_statement.syntax.bs.include
+</pre>
+
+<div class='example wgsl global-scope' heading="Static assertion examples">
+  <xmp highlight=wgsl>
+    const x = 1;
+    const y = 2;
+    const_assert x < y; // valid at module-scope.
+    const_assert(y != 0); // parentheses are optional.
+
+    fn foo() {
+      const z = x + y - 2;
+      const_assert z > 0; // valid in functions.
+      let a  = 3;
+      const_assert a != 0; // invalid, the expression must be a const-expression.
+    }
+  </xmp>
+</div>
+
+# Functions # {#functions}
+
+A <dfn dfn-for="function" noexport>function</dfn> performs computational work when invoked.
+
+    <object type="image/svg+xml" data="img/operators_1.mmd.svg"></object>
+  </figure>
+</div>
+
+To promote readability through verbosity, the following groups do not associate with other groups:
+
+* [=syntax/short_circuit_or_expression|Short-circuit OR=]
+    (can associate with [=syntax/short_circuit_or_expression|self=] and [=syntax/relational_expression|relational=] weakly),
+* [=syntax/short_circuit_and_expression|Short-circuit AND=]
+    (can associate with [=syntax/short_circuit_and_expression|self=] and [=syntax/relational_expression|relational=] weakly),
+* [=syntax/binary_or_expression|Binary OR=]
+    (can associate with [=syntax/binary_or_expression|self=] and [=syntax/unary_expression|unary=] weakly),
+* [=syntax/binary_and_expression|Binary AND=]
+    (can associate with [=syntax/binary_and_expression|self=] and [=syntax/unary_expression|unary=] weakly),
+* [=syntax/binary_xor_expression|Binary XOR=]
+    (can associate with [=syntax/binary_xor_expression|self=] and [=syntax/unary_expression|unary=] weakly).
+
+And the following groups do not associate with themselves:
+
+* [=syntax/shift_expression|Shift=]
+    (can associate with [=syntax/unary_expression|unary=] weakly),
+* [=syntax/relational_expression|Relational=]
+    (can associate with [=syntax/additive_expression|additive=] and [=syntax/shift_expression|shift=] weakly).
+
+Associating both group sections above requires parentheses to set the relationship explicitly.
+The following exemplifies where these rules render expressions invalid in comments:
+
+<div class='example wgsl function-scope' heading='Operator precedence corner cases'>
+  <xmp highlight=wgsl>
+    let a = x & (y ^ (z | w)); // Invalid: x & y ^ z | w
+    let b = (x + y) << (z >= w); // Invalid: x + y << z >= w
+    let c = x < (y > z); // Invalid: x < y > z
+    let d = x && (y || z); // Invalid: x && y || z
+  </xmp>
+</div>
+
+Emergent precedence controls the implicit parentheses of an expression, where the stronger
+binding operator will act as if it is surrounded by parentheses when together with operators
+of weaker precedence. For example, stronger binding multiplicative operators than additive will
+infer `(a + (b * c))` from `a + b * c` expression. Similarly, the emergent associativity controls
+the direction of these implicit parentheses. For example, a left-to-right association will
+../wgpu/naga/src/front/wgsl/parse/mod.rs:1528:                (Token::Word("const_assert"), _) => {
+../wgpu/naga/src/front/wgsl/parse/mod.rs:1538:                    ast::StatementKind::ConstAssert(condition)
+../wgpu/naga/src/front/wgsl/parse/mod.rs:2189:            (Token::Word("const_assert"), _) => {
+../wgpu/naga/src/front/wgsl/parse/mod.rs:2190:                ensure_no_diag_attrs("`const_assert`s".into(), diagnostic_filters)?;
+../wgpu/naga/src/front/wgsl/parse/mod.rs:2201:                Some(ast::GlobalDeclKind::ConstAssert(condition))
+../wgpu/naga/src/front/wgsl/lower/mod.rs:1494:                ast::GlobalDeclKind::ConstAssert(condition) => {
+../wgpu/naga/src/front/wgsl/lower/mod.rs:1504:                        Ok(false) => Err(Error::ConstAssertFailed(span)),
+../wgpu/naga/src/front/wgsl/lower/mod.rs:2327:            ast::StatementKind::ConstAssert(condition) => {
+../wgpu/naga/src/front/wgsl/lower/mod.rs:2341:                    Ok(false) => Err(Error::ConstAssertFailed(span)),
+../wgpu/naga/src/front/wgsl/lower/mod.rs:2625:    /// Generate IR for the short-circuiting operators `&&` and `||`.
+../wgpu/naga/src/front/wgsl/lower/mod.rs:2641:            // To simulate short-circuiting behavior, we want to generate IR
+../wgpu/naga/src/front/wgsl/lower/mod.rs:2743:                // expressions that don't short-circuit (handled by the constant evaluator
+import SAGAShaderIR
+
+struct WGSLModuleDeclaration {
+  let start: Int
+  let end: Int
+  let name: WGSLToken
+  let kind: String
+}
+
+extension WGSLParser {
+  // Index immutable token ranges; tokens and source locations are never reordered or rewritten.
+  func indexModuleDeclarations() throws {
+    var i = 0
+    func advance(_ index: inout Int) throws {
+      try budget.consume(.work)
+      guard index < tokens.count - 1 else {
+        throw wgslError(.unexpectedToken, "Incomplete module declaration", tokens[index])
+      }
+      index += 1
+    }
+    while tokens[i].kind != .end {
+      if tokens[i].text == ";" {
+        try advance(&i)
+        continue
+      }
+      let start = i
+      while tokens[i].text == "@" {
+        try advance(&i)
+        try advance(&i)
+        if tokens[i].text == "(" {
+          var depth = 0
+          repeat {
+            if tokens[i].text == "(" {
+              depth += 1
+              guard depth <= min(budget.limits.depth, 128) else {
+                throw ShaderFailure.budgetExceeded(.depth)
+              }
+            }
+            if tokens[i].text == ")" { depth -= 1 }
+            try advance(&i)
+          } while depth > 0
+        }
+      }
+      let kind = tokens[i].text
+      guard ["const", "alias", "struct", "var", "fn"].contains(kind) else {
+        throw unsupported("module declaration/directive '\(kind)'", at: tokens[i])
+      }
+      try advance(&i)
+      if kind == "var", tokens[i].text == "<" {
+        repeat { try advance(&i) } while tokens[i].text != ">"
+        try advance(&i)
+      }
+      let name = tokens[i]
+      guard name.kind == .word else {
+        throw wgslError(.unexpectedToken, "Expected declaration name", name)
+      }
+      try budget.consume(.work, amount: name.text.utf8.count)
+      let key = wgslKey(name.text)
+      guard declarationNames[key] == nil else {
+        throw wgslError(.duplicateName, "Duplicate module declaration '\(name.text)'", name)
+      }
+      var brace = 0
+      if kind == "struct" || kind == "fn" {
+        while tokens[i].text != "{" { try advance(&i) }
+        repeat {
+          if tokens[i].text == "{" {
+            brace += 1
+            guard brace <= min(budget.limits.depth, 128) else {
+              throw ShaderFailure.budgetExceeded(.depth)
+            }
+          }
+          if tokens[i].text == "}" { brace -= 1 }
+          try advance(&i)
+        } while brace > 0
+      } else {
+        while tokens[i].text != ";" { try advance(&i) }
+        try advance(&i)
+      }
+      try node()
+      declarationNames[key] = declarations.count
+      declarations.append(.init(start: start, end: i, name: name, kind: kind))
+      declarationStates.append(0)
+      declarationEdges.append([])
+    }
+  }
+  func resolveDeclaration(_ index: Int, at use: WGSLToken) throws {
+    try budget.consume(.work)
+    if let parent = declarationStack.last {
+      try budget.consume(.work)
+      if declarationEdges[parent].insert(index).inserted { try node() }
+    }
+    if declarationStates[index] == 2 { return }
+    guard declarationStates[index] != 1 else {
+      throw wgslError(.invalidReference, "Cyclic module declaration dependency", use)
+    }
+    // Separate, conservative recursive resolver cap, preserving the caller's lower limit.
+    guard dependencyDepth < min(budget.limits.depth, 24) else {
+      throw ShaderFailure.budgetExceeded(.depth)
+    }
+    dependencyDepth += 1
+    let saved = cursor
+    let savedBody = body
+    declarationStack.append(index)
+    defer {
+      cursor = saved
+      body = savedBody
+      dependencyDepth -= 1
+      declarationStack.removeLast()
+    }
+    declarationStates[index] = 1
+    let d = declarations[index]
+    // Resolve const initializer edges before invoking the evaluator, rather than suspending
+    // one recursive expression evaluator per declaration in a multi-hop graph.
+    if d.kind == "const" {
+      var initializer = false
+      for i in d.start..<d.end {
+        try budget.consume(.work)
+        let token = tokens[i]
+        if token.text == "=" {
+          initializer = true
+          continue
+        }
+        if initializer, token.kind == .word,
+          let dependency = declarationNames[wgslKey(token.text)],
+          declarations[dependency].kind == "const"
+        {
+          try resolveDeclaration(dependency, at: token)
+        }
+      }
+    }
+    cursor = d.start
+    try lowerModuleDeclaration()
+    guard cursor == d.end else {
+      throw wgslError(
+        .unexpectedToken, "Declaration did not consume its indexed token range", token)
+    }
+    declarationStates[index] = 2
+  }
+  func resolveTypeDeclarationIfIndexed(_ name: WGSLToken) throws {
+    if declarationNames[wgslKey(name.text)] != nil { try resolveTypeDeclaration(name) }
+  }
+  func resolveTypeDeclaration(_ name: WGSLToken) throws {
+    try budget.consume(.work, amount: name.text.utf8.count)
+    if let index = declarationNames[wgslKey(name.text)] {
+      guard ["alias", "struct"].contains(declarations[index].kind) else {
+        throw wgslError(.typeMismatch, "Name is not a type", name)
+      }
+      try resolveDeclaration(index, at: name)
+    }
+  }
+  func resolveConstantDeclaration(_ name: WGSLToken) throws {
+    try budget.consume(.work, amount: name.text.utf8.count)
+    if let index = declarationNames[wgslKey(name.text)] {
+      guard declarations[index].kind == "const" else {
+        throw wgslError(.typeMismatch, "Name is not a creation-fixed constant", name)
+      }
+      try resolveDeclaration(index, at: name)
+    }
+  }
+  func resolveValueDeclaration(_ name: WGSLToken) throws {
+    try budget.consume(.work, amount: name.text.utf8.count)
+    if let i = declarationNames[wgslKey(name.text)],
+      ["const", "var"].contains(declarations[i].kind)
+    {
+      try resolveDeclaration(i, at: name)
+    }
+  }
+  func resolveFunctionDeclaration(_ name: WGSLToken) throws {
+    for scope in body.scopes.reversed() {
+      try budget.consume(.work)
+      if scope[wgslKey(name.text)] != nil {
+        throw wgslError(.typeMismatch, "Local value shadows callable name", name)
+      }
+    }
+    try budget.consume(.work, amount: name.text.utf8.count)
+    if let i = declarationNames[wgslKey(name.text)] {
+      guard declarations[i].kind == "fn" else {
+        throw wgslError(.typeMismatch, "Value/type cannot be called", name)
+      }
+      try resolveDeclaration(i, at: name)
+    }
+  }
+  func lowerModuleDeclaration() throws {
+    let attrs = try attributes()
+    if try eat("fn") {
+      try function(attrs)
+      return
+    }
+    if try eat("struct") {
+      guard attrs.isEmpty else { throw unsupported("struct attributes") }
+      try structure()
+      return
+    }
+    if try eat("alias") {
+      guard attrs.isEmpty else { throw unsupported("alias attributes") }
+      let n = try ident()
+      try reserve(n)
+      try expect("=")
+      typeNames[wgslKey(n.text)] = try type()
+      try expect(";")
+      return
+    }
+    if try eat("var") {
+      try global(attrs)
+      return
+    }
+    if try eat("const") {
+      try constant(attrs)
+      return
+    }
+    throw unsupported("indexed declaration")
+  }
+}
+        try expect(";")
+        var bind: IRResourceBinding?
+        if let group = attrs["group"], let b = attrs["binding"] { bind = IRResourceBinding(group:try attributeUInt(group),binding:try attributeUInt(b)) }
+        else if !attrs.isEmpty { throw wgslError(.invalidBinding,"group and binding must occur together",n) }
+        if space == .uniform || { if case .storage = space { true } else { false } }() {
+            guard bind != nil else { throw wgslError(.invalidBinding,"Resource requires binding",n) }
+        } else if bind != nil { throw wgslError(.invalidBinding,"Non-resource cannot have binding",n) }
+        try node(); globalNames[wgslKey(n.text)] = globals.count; globals.append(IRGlobalVariable(name:n.text,space:space,binding:bind,type:ty,location:n.location))
+    }
+    func constant(_ attrs: [String: Attribute]) throws {
+        guard attrs.isEmpty else { throw unsupported("constant attributes") }
+        let n = try ident(); try reserve(n)
+        let annotation = try eat(":") ? try type() : nil
+        try expect("="); let t = token
+        var expression: [WGSLToken] = []
+        while !isNext(";") {
+            guard token.kind != .end else { throw wgslError(.unexpectedToken,"Unterminated const declaration",t) }
+            try node(); expression.append(try take())
+        }
+        let literal: IRLiteral; let kind: IRScalar
+        let integer: WGSLIntegerConstant?
+        if expression.count == 1, let value=abstractFloatConstants[wgslKey(t.text)] {
+            literal = .abstractFloat(value);kind = .abstractFloat;integer=nil
+        } else if expression.count == 2, t.text == "-", expression[1].kind == .number,
+                    expression[1].text.contains(".") || (!expression[1].text.lowercased().hasPrefix("0x") && expression[1].text.lowercased().contains("e")) {
+            let (positive,scalar) = try self.literal(expression[1])
+            switch positive {
+            case .abstractFloat(let value):literal = .abstractFloat(-value)
+            case .f32(let value):literal = .f32(-value)
+            default:throw wgslError(.typeMismatch,"Invalid negative float constant",t)
+            }
+            kind=scalar;integer=nil
+        } else if expression.count == 1 && (t.text == "true" || t.text == "false" || (t.kind == .number && (t.text.contains(".") || (!t.text.lowercased().hasPrefix("0x") && (t.text.hasSuffix("f") || t.text.lowercased().contains("e")))))) {
+            (literal,kind) = try self.literal(t); integer=nil
+        } else {
+            var evaluated = try integerConstant(expression,at:t)
+            if let annotation {
+                guard case .scalar(let scalar) = types[annotation.index].kind, scalar == .i32 || scalar == .u32 || (scalar == .f32 && evaluated.kind == .abstract) else {
+                    throw wgslError(.typeMismatch,"Integer const annotation must be i32/u32 in this profile",t)
+                }
+                if scalar != .f32 {
+                let target: WGSLIntegerConstant.Kind = scalar == .i32 ? .sint : .uint
+                guard evaluated.kind == .abstract || evaluated.kind == target else { throw wgslError(.typeMismatch,"Concrete const annotation type mismatch",t) }
+                let evaluator = WGSLIntegerEvaluator(parser:self,tokens:[],fallback:t)
+                evaluated = try evaluator.checked(evaluated.value,target,at:t)
+                }
+            }
+            literal=evaluated.literal;kind=evaluated.scalar;integer=evaluated
+        }
+        // Abstract declarations live in the frontend value environment, never in concrete runtime IR.
+        if annotation == nil, case .abstractFloat(let value) = literal {
+            abstractFloatConstants[wgslKey(n.text)] = value
+            try expect(";")
+            return
+        }
+        if annotation == nil, let integer, integer.kind == .abstract {
+            integerConstants[wgslKey(n.text)] = integer
+            try expect(";")
+            return
+        }
+        let ty = try annotation ?? intern(.scalar(kind))
+        let value = try convertLiteral(literal,from:kind,to:ty,at:t)
+        try expect(";")
+        if let integer, case .scalar(let scalar) = types[ty.index].kind, scalar.kind != .float { integerConstants[wgslKey(n.text)] = integer }
+        try node(); let handle = try WExpr(index:globalExpressions.count); globalExpressions.append(IRExpression(type:ty,kind:.literal(value),location:t.location))
+        try node(); constantNames[wgslKey(n.text)] = constants.count; constants.append(IRConstant(name:n.text,type:ty,initializer:handle,location:n.location))
+    }
+}
+    }
+    func block(newScope: Bool = true) throws -> IRHandle<IRBlock> {
+        try enter(); defer { nesting -= 1 }
+        let start = try expect("{")
+        let previous = body.current; body.current = []
+        if newScope { body.scopes.append([:]) }
+        defer { body.current = previous; if newScope { body.scopes.removeLast() } }
+        var terminated = false
+        while !isNext("}") {
+            guard token.kind != .end else { throw wgslError(.unexpectedToken,"Unterminated block",token) }
+            if terminated && !isNext(";") { throw unsupported("unreachable statement",at:token) }
+            try parseStatement()
+            if let last = body.current.last { terminated = try statementTerminates(last) }
+        }
+        try expect("}")
+        return try saveBlock(body.current,at:start)
+    }
+    func saveBlock(_ statements: [IRHandle<IRStatement>], at t: WGSLToken) throws -> IRHandle<IRBlock> {
+        try node(); let h = try IRHandle<IRBlock>(index:body.blocks.count)
+        body.blocks.append(IRBlock(statements:statements,location:t.location)); return h
+    }
+    func terminates(_ block: IRHandle<IRBlock>) throws -> Bool {
+        try enter(); defer { nesting -= 1 }
+        guard let last = body.blocks[block.index].statements.last else { return false }
+        return try statementTerminates(last)
+    }
+    func statementTerminates(_ h: IRHandle<IRStatement>) throws -> Bool {
+        try budget.consume(.work)
+        switch body.statements[h.index].kind {
+        case .returnValue,.kill,.break,.continue: return true
+        case .block(let b):return try terminates(b)
+        case .ifCondition(_,let a,let b):return try terminates(a) && terminates(b)
+        default:return false
+        }
+    }
+    func parseStatement() throws {
+        try budget.consume(.work)
+        let start = token
+        if try eat(";") { return }
+        if isNext("{") { let b = try block(); try statement(.block(b),at:start); return }
+        if try eat("let") { try local(mutable:false,at:start); return }
+        if try eat("var") { try local(mutable:true,at:start); return }
+        if try eat("return") {
+            if try eat(";") {
+                guard body.result == nil else { throw wgslError(.typeMismatch,"Missing return value",start) }
+                try statement(.returnValue(nil),at:start)
+            } else {
+                guard let result = body.result else { throw wgslError(.typeMismatch,"Void function cannot return value",start) }
+                let v = try coerce(expression(),to:result.type,at:start); try expect(";"); try statement(.returnValue(v.handle),at:start)
+            }; return
+        }
+        if try eat("if") { try ifStatement(at:start); return }
+        if try eat("while") { try whileStatement(at:start); return }
+        if try eat("loop") { try loopStatement(at:start); return }
+        if try eat("for") { try forStatement(at:start); return }
+        if try eat("switch") { try switchStatement(at:start); return }
+        if try eat("break") {
+            guard (body.loopDepth > 0 || body.switchDepth > 0) && !body.continuing else { throw wgslError(.invalidControlFlow,"Invalid break context",start) }
+            try expect(";"); try statement(.break,at:start); return
+        }
+        if try eat("continue") {
+            guard body.loopDepth > 0 && !body.continuing else { throw wgslError(.invalidControlFlow,"Invalid continue context",start) }
+            try expect(";"); try statement(.continue,at:start); return
+        }
+        if try eat("discard") { try expect(";"); try statement(.kill,at:start); return }
+        if ["continuing","const_assert","const"].contains(start.text) { throw unsupported("statement '\(start.text)'",at:start) }
+        if try eat("_") { try expect("="); _ = try loaded(expression(),at:start); try expect(";"); return }
+        if token.kind == .word && cursor+1 < tokens.count && tokens[cursor+1].text == "(" {
+            try resolveFunctionDeclaration(start)
+            if ["workgroupBarrier","storageBarrier","textureBarrier"].contains(start.text) {
+                _ = try take(); try expect("("); try expect(")"); try expect(";")
+                let flag: IRBarrier = start.text == "workgroupBarrier" ? .workgroup : start.text == "storageBarrier" ? .storage : .texture
+                try statement(.controlBarrier(flag),at:start); return
+            }
+            if let i = functionNames[wgslKey(start.text)], functions[i].result == nil {
+                _ = try take(); try expect("("); var args = try arguments(); let fn = functions[i]

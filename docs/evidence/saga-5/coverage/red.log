@@ -1,0 +1,20 @@
+test_frontend_coverage (unittest.loader._FailedTest) ... ERROR
+
+======================================================================
+ERROR: test_frontend_coverage (unittest.loader._FailedTest)
+----------------------------------------------------------------------
+ImportError: Failed to import test module: test_frontend_coverage
+Traceback (most recent call last):
+  File "/Applications/Xcode-26.6.0.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/unittest/loader.py", line 436, in _find_test_path
+    module = self._get_module_from_name(name)
+  File "/Applications/Xcode-26.6.0.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/unittest/loader.py", line 377, in _get_module_from_name
+    __import__(name)
+  File "/Users/vlad-prusakov/Developer/saga/docs/tools/test_frontend_coverage.py", line 9, in <module>
+    import frontend_coverage as fc
+ModuleNotFoundError: No module named 'frontend_coverage'
+
+
+----------------------------------------------------------------------
+Ran 1 test in 0.000s
+
+FAILED (errors=1)

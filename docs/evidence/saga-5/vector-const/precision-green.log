@@ -1,0 +1,22 @@
+Building for debugging...
+[0/5] Write sources
+[1/5] Write swift-version-3CD7052B146186F2.txt
+[3/5] Emitting module SAGAFoundationTests
+[4/5] Compiling SAGAFoundationTests WGSLFrontendTests.swift
+[4/6] Write Objects.LinkFileList
+[5/6] Linking SAGAPackageTests
+Build complete! (2.46s)
+Test Suite 'Selected tests' started at 2026-11-07 04:52:28.145.
+Test Suite 'SAGAPackageTests.xctest' started at 2026-11-07 04:52:28.152.
+Test Suite 'SAGAPackageTests.xctest' passed at 2026-11-07 04:52:28.152.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+Test Suite 'Selected tests' passed at 2026-11-07 04:52:28.152.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.007) seconds
+􀟈  Test run started.
+􀄵  Testing Library Version: 1902
+􀄵  Target Platform: arm64e-apple-macos14.0
+􀟈  Suite WGSLFrontendTests started.
+􀟈  Test vectorComponentsPrecisionLazyValidationAndBudgets() started.
+􁁛  Test vectorComponentsPrecisionLazyValidationAndBudgets() passed after 0.004 seconds.
+􁁛  Suite WGSLFrontendTests passed after 0.005 seconds.
+􁁛  Test run with 1 test in 1 suite passed after 0.005 seconds.

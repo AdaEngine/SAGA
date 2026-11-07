@@ -1,0 +1,124 @@
+import SAGAShaderIR
+
+extension WGSLParser {
+    func forStatement(at t: WGSLToken) throws {
+        try enter(); defer { nesting -= 1 }
+        body.scopes.append([:]); body.constScopes.append([:]); defer { body.scopes.removeLast(); body.constScopes.removeLast() }
+        try expect("(")
+        if try eat(";") {} else if try eat("var") { try local(mutable:true,at:t) }
+        else if try eat("let") { try local(mutable:false,at:t) }
+        else { try simpleStatement(end:";") }
+        let saved = body.current; body.current = []
+        if !(try eat(";")) {
+            let empty = try saveBlock([],at:t)
+            let cond = try loaded(expression(),at:t); try expect(";")
+            guard types[cond.type.index].kind == .scalar(.bool) else { throw wgslError(.typeMismatch,"for condition must be bool",t) }
+            let savedCond = body.current; body.current = []
+            try statement(.break,at:t); let exit = try saveBlock(body.current,at:t); body.current = savedCond
+            try statement(.ifCondition(condition:cond.handle,accept:empty,reject:exit),at:t)
+        }
+        let condition = body.current; body.current = []
+        if !(try eat(")")) { try simpleStatement(end:")") }
+        let continuing = try saveBlock(body.current,at:t)
+        body.current = condition
+        body.loopDepth += 1; defer { body.loopDepth -= 1 }
+        let inner = try block(); try statement(.block(inner),at:t)
+        let whole = try saveBlock(body.current,at:t); body.current = saved
+        try statement(.loop(body:whole,continuing:continuing,breakIf:nil),at:t)
+    }
+    func loopStatement(at t: WGSLToken) throws {
+        try enter(); defer { nesting -= 1 }
+        try expect("{")
+        body.loopDepth += 1; body.scopes.append([:]); body.constScopes.append([:])
+        let declarationScope = body.scopes.count - 1
+        body.loopScopes.append(.init(depth: body.loopDepth, declarations: declarationScope))
+        defer {
+            body.loopScopes.removeLast()
+            body.loopDepth -= 1; body.scopes.removeLast(); body.constScopes.removeLast()
+        }
+        let saved = body.current; body.current = []
+        var terminal = false
+        while !isNext("}") && !isNext("continuing") {
+            if terminal && !isNext("const_assert") && !isNext("const") { throw unsupported("unreachable loop statement") }
+            try parseStatement()
+            if let last = body.current.last { terminal = try statementTerminates(last) }
+        }
+        let inner = try saveBlock(body.current,at:t); body.current = []
+        var breakIf: WExpr?
+        if try eat("continuing") {
+            try expect("{")
+            let wasContinuing = body.continuing
+            body.continuing = true
+            body.continuingVisibility[declarationScope] = body.loopScopes.last?.visibleAtFirstContinue
+            body.scopes.append([:]); body.constScopes.append([:])
+            defer {
+                body.scopes.removeLast(); body.constScopes.removeLast()
+                body.continuingVisibility.removeValue(forKey: declarationScope)
+                body.continuing = wasContinuing
+            }
+            while !isNext("}") {
+                guard token.kind != .end else { throw wgslError(.unexpectedToken,"Unterminated continuing",token) }
+                if try eat("break") {
+                    try expect("if"); let v = try loaded(expression(),at:t)
+                    guard types[v.type.index].kind == .scalar(.bool) else { throw wgslError(.typeMismatch,"break if needs bool",t) }
+                    breakIf = v.handle; try expect(";"); guard isNext("}") else { throw wgslError(.invalidControlFlow,"break if must be final",token) }; break
+                }
+                if ["return","discard","continue"].contains(token.text) { throw wgslError(.invalidControlFlow,"Invalid continuing exit",token) }
+                try parseStatement()
+            }
+            try expect("}")
+            if terminal && !body.current.isEmpty && body.loopScopes.last?.visibleAtFirstContinue == nil {
+                throw unsupported("runtime continuing after unconditional loop termination")
+            }
+        }
+        let continuing = try saveBlock(body.current,at:t); try expect("}"); body.current = saved
+        try statement(.loop(body:inner,continuing:continuing,breakIf:breakIf),at:t)
+    }
+
+    func noteContinue() throws {
+        guard let index = body.loopScopes.indices.last,
+              body.loopScopes[index].depth == body.loopDepth,
+              body.loopScopes[index].visibleAtFirstContinue == nil
+        else { return }
+        let scope = body.loopScopes[index].declarations
+        try budget.consume(.work, amount: body.scopes[scope].count)
+        body.loopScopes[index].visibleAtFirstContinue = Set(body.scopes[scope].keys)
+    }
+
+    func requireVisibleToContinuing(_ key: String, scope: Int, at token: WGSLToken) throws {
+        if let visible = body.continuingVisibility[scope], !visible.contains(key) {
+            throw wgslError(.invalidControlFlow, "Continue bypasses declaration used in continuing", token)
+        }
+    }
+
+    func switchStatement(at t: WGSLToken) throws {
+        try enter(); defer { nesting -= 1 }
+        let v = try defaultMaterialize(expression(),at:t)
+        let kind = types[v.type.index].kind
+        guard kind == .scalar(.u32) || kind == .scalar(.i32) else { throw wgslError(.typeMismatch,"switch selector must be integer",t) }
+        try expect("{"); body.switchDepth += 1; defer { body.switchDepth -= 1 }
+        var cases: [IRSwitchCase] = [], seen: Set<String> = []; var hasDefault = false
+        while !isNext("}") {
+            var selectors: [IRSwitchValue] = []
+            if try eat("default") {
+                guard !hasDefault else { throw wgslError(.duplicateName,"Duplicate default",token) }
+                hasDefault = true; selectors.append(.default)
+            } else {
+                try expect("case")
+                repeat {
+                    let n = try take(), value = try uint(n)
+                    guard seen.insert(String(value)).inserted else { throw wgslError(.duplicateName,"Duplicate switch selector",n) }
+                    if kind == .scalar(.u32) { selectors.append(.u32(value)) }
+                    else { guard let signed = Int32(exactly:value) else { throw wgslError(.typeMismatch,"switch i32 overflow",n) }; selectors.append(.i32(signed)) }
+                    try node()
+                } while try eat(",")
+            }
+            _ = try eat(":")
+            let b = try block()
+            for selector in selectors { try node(); cases.append(IRSwitchCase(value:selector,body:b)) }
+        }
+        try expect("}")
+        guard hasDefault else { throw wgslError(.invalidControlFlow,"switch requires default",t) }
+        try statement(.switchValue(selector:v.handle,cases:cases),at:t)
+    }
+}

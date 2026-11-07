@@ -1,0 +1,86 @@
+{
+  "date": "2026-11-07T01:39:50.248139+00:00",
+  "full_saga5_complete": false,
+  "requested_slice_verified": true,
+  "native_tests": 184,
+  "new_test_functions": 8,
+  "current_turn_checks": {
+    "full_strict_native_tests": "verification-1",
+    "full_strict_native_build": "verification-2",
+    "matched_swift632_wasm_compiler_closure": "verification-3",
+    "docs_reference_dependency": "verification-4"
+  },
+  "implementation": [
+    "WGSLFloatKind abstract/f32, scalar floating typed tree values; Double for IEEE binary64 abstract, Float arithmetic per f32 node then lossless widening for storage",
+    "unified module/local scalar const evaluator and annotation conversion; no literal-specific bypass",
+    "unary -, arithmetic +-*/%, equality/ordering, scalar f32/bool/int conversions and float min/max/clamp/select",
+    "forward scalar bool/i32/u32/f32 alias constructors with existing DAG and nearest local/module binding; alias cycles and value shadowing fail, scalar zero constructors",
+    "direct Float(text) parsing of f32 suffix literals avoids decimalDouble->Float double rounding; Int64->Float conversion directly for f32",
+    "f32 implicit/explicit conversion range checked; float->integer uses clamped/truncated closest integer ALSO representable by source format (f32 upper bounds4294967040/2147483520)",
+    "whole syntax/name/type validation+implicit representability still applies to unselected RHS; existing integer division/shift/clamp creation obligations preserved separately; ordinary floating overflow/nonfinite during actually evaluated arithmetic rejects, unselected ordinary arithmetic is not evaluated",
+    "bare float still rejected for integer attributes/counts/workgroup dimensions; only explicit integer conversion can feed integer sites"
+  ],
+  "rounding_contract": "f32 Float32 operations at every node; not Double arithmetic plus final Float cast. AbstractFloat uses binary64 as pinned WGSL permits. Native nearest rounding is one permitted rounding choice, not proof all WGSL accuracy/builtin/device modes implemented.",
+  "numerical_tests": [
+    "binary32 vs64 at2^24 and binades24...30",
+    "overflow/nonfinite/zero and NaN division/modulo",
+    "source-representability saturated float->integer boundaries",
+    "forwardfloatconst+local lexicalscopes, lazy type/name/conversion checks and eager select/clamp",
+    "UTF8 error spans and wrong literal suffix",
+    "budgets/cancellation/depth256 preserved; original signal5 loop-localconst regression remains in full suite"
+  ],
+  "unchanged": {
+    "validator_sha256": "2240426e6f836d0beb7c5c45e2c73038e61e05a0eb817c5f0844625ec18539de",
+    "shared_ir_hashes": {
+      "Sources/SAGAShaderIR/TypedIR.swift": "fb46b19c546306dedcbf412e8be009a9c50038e563ad00163d3cc49e49a3bce5",
+      "Sources/SAGAShaderIR/BlockWalk.swift": "5c90afb8d51c003aef0da14be3b82409db7257e3126304ae8d3a8296a78851f5",
+      "Sources/SAGAShaderIR/Capabilities.swift": "03e3779b7fdf62437729255ca731bd853106ff0957834490f378c4fc77abaab5",
+      "Sources/SAGAShaderIR/Contracts.swift": "49273f626cd1b25e530206a168850ebe308bb609f9dc8b3b89e4003632f37529",
+      "Sources/SAGAShaderIR/Tables.swift": "478ceb7991b633f22cb4c0fb04736a6d10040a74c2cf28aafdff363321413c3f",
+      "Sources/SAGAShaderIR/Diagnostics.swift": "eacbb4adf49273251a6237af7288207f5f3f4005c930bd1525b7347592b943dd",
+      "Sources/SAGAShaderIR/Budgets.swift": "4341c2005120441e2d31cac3cf14de0cebbd0d5322ba10c89cd1d36b197ae0b0"
+    },
+    "frozen_baseline_hashes": {
+      "docs/baseline/saga-2/verification-results.json": "9dc3535a477fdbe29f732d14a2959433c4237611244a54357820a89c3d8c42c0",
+      "docs/baseline/saga-2/test_docs.py": "f93250f18c2f107d0c045f9639405bdc2403e71d6631fb500522e0bd61e58acd",
+      "docs/baseline/saga-2/hashes.json": "5cedb71961d313a35de4c522fe79dd72314dc97154a2b5f12f0b0f29b574b034",
+      "docs/baseline/saga-2/test_naga_scope.py": "1b75ed57d3cb3b3fae90d7658fa77dc7862d96a2b021800f14aa5e31dcef4bbf",
+      "docs/baseline/saga-2/verify_docs.py": "3a6ece4c57b8babb6ccb1854b56aa00b3eda85ddb5bdd9432082086874b0dad8"
+    },
+    "IRbool1_WGSLmemory4": true,
+    "private_witness": true
+  },
+  "source_hashes": {
+    "Sources/SAGAFrontends/WGSL/Lexer.swift": "44aeb5ec2cfd082d33a62bcc1e634cb5e43f4ef93c43ddeedbaa49050dbfbb3c",
+    "Sources/SAGAFrontends/WGSL/ControlExpressions.swift": "9094c2300373a36b4e485269f221d26408d449818444d222fcc85c9fa391801e",
+    "Sources/SAGAFrontends/WGSL/FloatingConstants.swift": "b500604260d09493a37024e03201e40dc4b89e85877db25344e47a222f5fb6b5",
+    "Sources/SAGAFrontends/WGSL/Expressions.swift": "11d8c959cdcd4d7385ae73aa47a6bb6b728a96505cfdfcf9600ca8a45e57108d",
+    "Sources/SAGAFrontends/WGSL/Materialization.swift": "1715723a35cd8ef3a9021860aa1dae7361929944d513ff0b0e07d3a96c32dcf2",
+    "Sources/SAGAFrontends/WGSL/Statements.swift": "21b7fd047df3c25a9d31ef78a257e83b05b3364370f14c998c5823ddbe1dbfe5",
+    "Sources/SAGAFrontends/WGSL/ModuleDeclarations.swift": "7f8b523a57285838ce546199b400de64c966f71802d3a1fec0c591eaf45b0195",
+    "Sources/SAGAFrontends/WGSL/ScalarConstantExpressions.swift": "2d9057b0486c689dfadbf64a7ee78e888bc872057c8fc4850976849162d064e4",
+    "Sources/SAGAFrontends/WGSL/Loops.swift": "739e6f247868fe28b80b226a20fa11741476a02429949a5052dba54361faf50d",
+    "Sources/SAGAFrontends/WGSL/ConstantExpressions.swift": "91ca229f90f4e81a986334dd62391d9046cc1be89741cc88a96cf6e01b1f2efc",
+    "Sources/SAGAFrontends/WGSL/WGSLFrontend.swift": "abddf6827a69e97c000fa19e7d194309868dc4d3a252bbc9bce3181fcd3447f4",
+    "Tests/SAGAFoundationTests/WGSLFrontendTests.swift": "37dd9898cdc469bd674a122ae6ce6bf5c292a8386abc6f0f3452b5dee81e2eb4",
+    "Tests/SAGAFoundationTests/FrontendIntegrationTests.swift": "7903e4cf9b1f2027a874db6cfa9e586a4427774b0af00513851415cdec19a73f"
+  },
+  "next_exact_gaps": [
+    "const_assert all(vec2<bool>(true,true)); generic vector const constructor/tree unsupported",
+    "alias V=vec2<bool>; const_assert all(V(true,true)); aggregate alias constructor unsupported",
+    "const_assert sqrt(4.0)==2.0; additional floating builtin evaluator unsupported",
+    "const_assert 0x1p0<2.0; hexadecimal float literal syntax unsupported",
+    "f16 constants/constructors/feature validation still unsupported, not represented as f32 silently"
+  ],
+  "residual_repro": "docs/evidence/saga-5/float-const/residuals.swift/log",
+  "reference_pin": "a55352911bb26a1b33bc8d5fc03bdebb0a967f5a",
+  "reference_clean": true,
+  "children_runs_board_payloads_policy_changes_commits_publication_reference_writes": 0,
+  "launch": "Compiler libraries only; no runnable target/new Play configuration",
+  "conformance": "No corpus/browser/CTS/WGSL-producedGPU execution; existing native Metal regression is not shader compiler parity.",
+  "docs_tests": {
+    "pass": 59,
+    "skip": 0
+  },
+  "source_hashes_rechecked": true
+}

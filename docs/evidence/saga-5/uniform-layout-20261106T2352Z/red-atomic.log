@@ -1,0 +1,19 @@
+Test Suite 'Selected tests' started at 2026-11-07 02:50:55.760.
+Test Suite 'SAGAPackageTests.xctest' started at 2026-11-07 02:50:55.767.
+Test Suite 'SAGAPackageTests.xctest' passed at 2026-11-07 02:50:55.767.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+Test Suite 'Selected tests' passed at 2026-11-07 02:50:55.767.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.007) seconds
+􀟈  Test run started.
+􀄵  Testing Library Version: 1902
+􀄵  Target Platform: arm64e-apple-macos14.0
+􀟈  Suite FrontendIntegrationTests started.
+􀟈  Suite ShaderSemanticValidationTests started.
+􀟈  Test uniformAggregateLayoutIsCheckedAfterWGSLParsing() started.
+􀟈  Test uniformAtomicDoesNotAcquireWitness() started.
+􀢄  Test uniformAtomicDoesNotAcquireWitness() recorded an issue at ShaderSemanticValidationTests.swift:357:5: Expectation failed: an error was expected but none was thrown and "ValidatedModule<IRModule>(module: SAGAShaderIR.IRModule(types: SAGAShaderIR.IRTable<SAGAShaderIR.IRType>(values: [SAGAShaderIR.IRType(name: nil, kind: SAGAShaderIR.IRTypeKind.atomic(SAGAShaderIR.IRScalar(kind: SAGAShaderIR.IRScalarKind.uint, width: 4)), location: nil)]), specialTypes: SAGAShaderIR.IRSpecialTypes(rayDescriptor: nil, rayIntersection: nil, rayVertexReturn: nil, externalTextureParameters: nil, externalTextureTransferFunction: nil, predeclared: []), constants: SAGAShaderIR.IRTable<SAGAShaderIR.IRConstant>(values: []), overrides: SAGAShaderIR.IRTable<SAGAShaderIR.IROverride>(values: []), globalVariables: SAGAShaderIR.IRTable<SAGAShaderIR.IRGlobalVariable>(values: [SAGAShaderIR.IRGlobalVariable(name: Optional("buffer"), space: SAGAShaderIR.IRAddressSpace.uniform, binding: Optional(SAGAShaderIR.IRResourceBinding(group: 0, binding: 0)), type: SAGAShaderIR.IRHandle<SAGAShaderIR.IRType>(index: 0), initializer: nil, memoryDecorations: SAGAShaderIR.IRMemoryDecorations(rawValue: 0), location: nil)]), globalExpressions: SAGAShaderIR.IRTable<SAGAShaderIR.IRExpression>(values: []), functions: SAGAShaderIR.IRTable<SAGAShaderIR.IRFunction>(values: []), entryPoints: [], diagnosticFilters: SAGAShaderIR.IRTable<SAGAShaderIR.IRDiagnosticFilter>(values: []), diagnosticFilter: nil, documentation: []))" was returned
+􀢄  Test uniformAtomicDoesNotAcquireWitness() failed after 0.001 seconds with 1 issue.
+􀢄  Suite ShaderSemanticValidationTests failed after 0.001 seconds with 1 issue.
+􁁛  Test uniformAggregateLayoutIsCheckedAfterWGSLParsing() passed after 0.001 seconds.
+􁁛  Suite FrontendIntegrationTests passed after 0.002 seconds.
+􀢄  Test run with 2 tests in 2 suites failed after 0.002 seconds with 1 issue.

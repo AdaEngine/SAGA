@@ -1,0 +1,117 @@
+{
+  "date": "2026-11-07T06:16:51.207800+00:00",
+  "session": "session-e26a2eeb-8007-4c5e-a65a-5eccd466c9e6",
+  "full_saga5_complete": false,
+  "task_status": "open; latest readback ready at06:14:48Z after successful in_progress update06:13:50Z",
+  "verification": {
+    "native_tests": {
+      "status": "pass",
+      "count": 214,
+      "evidence": "verification-1"
+    },
+    "strict_native_build": {
+      "status": "pass",
+      "evidence": "verification-2"
+    },
+    "matched_swift632_wasm_compiler": {
+      "status": "pass compile-only",
+      "evidence": "verification-3"
+    },
+    "docs_reference_dependency": {
+      "status": "pass",
+      "tests": 59,
+      "skip": 0,
+      "evidence": "verification-4"
+    }
+  },
+  "new_test_functions": 10,
+  "resolved": [
+    "Raw Access bounds for literal/zero/named-constant index, negative/oversize rejection, static vector/matrix/fixed-array and pointer bounds; preserves runtime-array unknown length and dynamic indices",
+    "Struct Access opcode still forbidden; AccessIndex remains static member opcode",
+    "Raw matrix compose exact column count/row shape/scalar rules all9shapes; raw vector mixed-component compose uses total lanes",
+    "Module/local matrix constants and concrete/abstract contextual runtime lowering, scalar/column constructors and pure constant column extraction",
+    "Raw unary/derivative restricted to scalar/vector; f16 derivative rejected; boolxor and matrixselect rejected; vector-bool-condition select supported"
+  ],
+  "important_boundary_change": "Raw validator has deliberately changed to implement and harden rules; old unchanged-validator hashes in historical reports are superseded for CURRENT validator only. SharedIR/private witness/legacy trusted validation SPI and frozen baseline unchanged. No valid witness issued by parser alone.",
+  "implementation_limits": [
+    "Known constant Access matches pinned get_const_val_from literal/zero/named initializer profile; raw arithmetic expression trees not folded here. Frontend const-eval folds supported expressions before IR validation; dynamic/nonleaf IR access remains dynamic, not a conformance claim for a general raw constant evaluator.",
+    "Matrix arithmetic/extended resource/atomic/subgroup/ray/mesh/override/complete IO+uniformity/type equivalence/full frontend grammar and configured fixture parity still incomplete.",
+    "Concrete vector/matrix constant names inline, not full reflection/interchange retention."
+  ],
+  "corpus_default_observations": {
+    "executed": 232,
+    "parse": {
+      "rejected": 204,
+      "accepted": 28
+    },
+    "semantic": {
+      "not-run": 204,
+      "accepted": 23,
+      "rejected": 5
+    },
+    "configured_upstream_expected_results": false,
+    "conformance_score": null,
+    "report": "docs/evidence/saga-5/raw-boundary-completion/corpus-default-observations.json",
+    "assembly_inputs_not_run": 36,
+    "spirv_as_available": false
+  },
+  "compiler_denominator": {
+    "units": 2841,
+    "overlap": true,
+    "expectation_based_semantic_results_imported": 0,
+    "statuses": "Manifest historical not-run/not-implemented records not silently upgraded from unit-test count or exploratory acceptance."
+  },
+  "source_hashes": {
+    "Sources/SAGAValidation/ShaderSemanticValidator.swift": "1d2195ed29d58e40cd413b1ff7d6c97ee13a47c91ec5156bdcef5bd040e6d6b2",
+    "Sources/SAGAValidation/Validation.swift": "afa1d9e4716cc054f9002df795ed679d42aa6fb4f22a3a549a00ddcb1d588d68",
+    "Sources/SAGAFrontends/WGSL/ConstantExpressions.swift": "91ca229f90f4e81a986334dd62391d9046cc1be89741cc88a96cf6e01b1f2efc",
+    "Sources/SAGAFrontends/WGSL/ControlExpressions.swift": "9094c2300373a36b4e485269f221d26408d449818444d222fcc85c9fa391801e",
+    "Sources/SAGAFrontends/WGSL/Expressions.swift": "8afe91f93cfbda240e3563c6240394748cac38919120099a62613a2e53459557",
+    "Sources/SAGAFrontends/WGSL/FloatingConstants.swift": "12a99099b449e665bc0efef9432a5237f3a748f05a2f4cd2b09c5d70a08d1ccc",
+    "Sources/SAGAFrontends/WGSL/HexFloatLiterals.swift": "4cad6cf01a454d59af398726b5558b7b542bfa54bd56cc0773cc5abce9836508",
+    "Sources/SAGAFrontends/WGSL/Lexer.swift": "44aeb5ec2cfd082d33a62bcc1e634cb5e43f4ef93c43ddeedbaa49050dbfbb3c",
+    "Sources/SAGAFrontends/WGSL/Loops.swift": "739e6f247868fe28b80b226a20fa11741476a02429949a5052dba54361faf50d",
+    "Sources/SAGAFrontends/WGSL/Materialization.swift": "68b0d6789419f867a35127f78c2393b37be18c1585ac19bc3568d2c3e6e3f87b",
+    "Sources/SAGAFrontends/WGSL/MatrixConstants.swift": "35dcb019a0ce2e76c81366f5b2e1d74f2a177299b3a5df0e26d537deac82f42c",
+    "Sources/SAGAFrontends/WGSL/ModuleDeclarations.swift": "7f8b523a57285838ce546199b400de64c966f71802d3a1fec0c591eaf45b0195",
+    "Sources/SAGAFrontends/WGSL/ScalarConstantExpressions.swift": "cbc601e61fac1e40e8c9b5a85c8482ce06f076b14e7d70abf28fbed4ee4abe95",
+    "Sources/SAGAFrontends/WGSL/Statements.swift": "21b7fd047df3c25a9d31ef78a257e83b05b3364370f14c998c5823ddbe1dbfe5",
+    "Sources/SAGAFrontends/WGSL/VectorConstants.swift": "2df42adff12c4061328abf557db3cdbc892c793a838f72c83149847e657c4c94",
+    "Sources/SAGAFrontends/WGSL/VectorOperations.swift": "344aebd4250807dddcfcbe52a7026d5c30ffab21f3d2f4789ecdc6d84d68e312",
+    "Sources/SAGAFrontends/WGSL/WGSLFrontend.swift": "2bf2da1ecf2b9bdc4aa416087fc7f71e0261bfc75cb4545ed44c197f68a4556e",
+    "Tests/SAGAFoundationTests/CommandTests.swift": "eb3642c49c5935da6f16b755c2ec6515688689d698d18ef6e0a087af401addd5",
+    "Tests/SAGAFoundationTests/CompilerTests.swift": "a96debd0584ae900b7f96a05b17f3fed63d6c6eca2aacf8f1fe679c40579f2b8",
+    "Tests/SAGAFoundationTests/DescriptorTests.swift": "527ab29ddbdaf23af2e1024f3fd9b304d8384e525b6b1716a8bd1016342a969f",
+    "Tests/SAGAFoundationTests/DeviceTests.swift": "7e5f041a8a157c193057558390cf0493d27a2b4ab1b13cc2e392c8e6e9f7432f",
+    "Tests/SAGAFoundationTests/FrontendContractsTests.swift": "082cffa91f67d497beae85e5494c6ba0b2e21ef8bc30b9ee843529595ea65515",
+    "Tests/SAGAFoundationTests/FrontendIntegrationTests.swift": "644172a47d9cd71ead98dcbfdba60d2732675fd2c671ae6cf6c8782b5aa66c3e",
+    "Tests/SAGAFoundationTests/GLSLFrontendTests.swift": "44a52f81d70df77e1925232fe9abc990813323377bed46189cb5ac586142a539",
+    "Tests/SAGAFoundationTests/MetalComputeTests.swift": "0dbfe79592ac32ea0d3c632acd387d292f92538e6da9d5384afb0f2ecf0dc7c8",
+    "Tests/SAGAFoundationTests/SPIRVFrontendTests.swift": "ff289b4b736c40248f2a8e729c987a2dcfe858dfd278808b3c450c3f14117681",
+    "Tests/SAGAFoundationTests/ShaderSemanticValidationTests.swift": "6a582f294bc97f7dd08dea205935e49e9f9ac55bc18183d7d8ef500949f46bbe",
+    "Tests/SAGAFoundationTests/TestBackend.swift": "237529a89a09382c2d11df8cc32318e509f99506d43cab45bb3c825a98e32326",
+    "Tests/SAGAFoundationTests/WGSLFrontendTests.swift": "1ee5637a9ae1bda07dcb1031392daeacdca87483b51bc9b564bf7307ed35252f"
+  },
+  "shared_ir_hashes": {
+    "Sources/SAGAShaderIR/TypedIR.swift": "fb46b19c546306dedcbf412e8be009a9c50038e563ad00163d3cc49e49a3bce5",
+    "Sources/SAGAShaderIR/BlockWalk.swift": "5c90afb8d51c003aef0da14be3b82409db7257e3126304ae8d3a8296a78851f5",
+    "Sources/SAGAShaderIR/Capabilities.swift": "03e3779b7fdf62437729255ca731bd853106ff0957834490f378c4fc77abaab5",
+    "Sources/SAGAShaderIR/Contracts.swift": "49273f626cd1b25e530206a168850ebe308bb609f9dc8b3b89e4003632f37529",
+    "Sources/SAGAShaderIR/Tables.swift": "478ceb7991b633f22cb4c0fb04736a6d10040a74c2cf28aafdff363321413c3f",
+    "Sources/SAGAShaderIR/Diagnostics.swift": "eacbb4adf49273251a6237af7288207f5f3f4005c930bd1525b7347592b943dd",
+    "Sources/SAGAShaderIR/Budgets.swift": "4341c2005120441e2d31cac3cf14de0cebbd0d5322ba10c89cd1d36b197ae0b0"
+  },
+  "frozen_baseline_hashes": {
+    "docs/baseline/saga-2/verification-results.json": "9dc3535a477fdbe29f732d14a2959433c4237611244a54357820a89c3d8c42c0",
+    "docs/baseline/saga-2/test_docs.py": "f93250f18c2f107d0c045f9639405bdc2403e71d6631fb500522e0bd61e58acd",
+    "docs/baseline/saga-2/hashes.json": "5cedb71961d313a35de4c522fe79dd72314dc97154a2b5f12f0b0f29b574b034",
+    "docs/baseline/saga-2/test_naga_scope.py": "1b75ed57d3cb3b3fae90d7658fa77dc7862d96a2b021800f14aa5e31dcef4bbf",
+    "docs/baseline/saga-2/verify_docs.py": "3a6ece4c57b8babb6ccb1854b56aa00b3eda85ddb5bdd9432082086874b0dad8"
+  },
+  "reference_pin": "a55352911bb26a1b33bc8d5fc03bdebb0a967f5a",
+  "reference_clean": true,
+  "new_children_runs_policies_commits_publication_reference_writes": 0,
+  "runtime_scope": "Library compiler changes; no newly runnable application or Play recipe. Native tests include existing Metal regression, not new WGSL-produced GPU/browser/CTS proof.",
+  "readback": "Native update returned in_progress with full original description/deps; fresh task_get later returned ready with same full brief. No done/acceptance; do not infer completion from scheduler labels.",
+  "source_hashes_rechecked_after_all_gates": true
+}

@@ -1,0 +1,6 @@
+{
+  "status": "pass",
+  "targets": 13,
+  "external_dependencies": 0,
+  "scope": "foundation dependency/module policy, not GPU/compiler conformance"
+}

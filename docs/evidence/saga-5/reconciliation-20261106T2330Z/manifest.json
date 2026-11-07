@@ -1,0 +1,114 @@
+{
+  "observed_at": "2026-11-06T23:29:12.613276+00:00",
+  "reason": "Concurrent same-session source replacement reported by GLSL and SPIRV children; duplicated SPVFunctionLowerer definitions block integrated compilation. Snapshots preserve all variants, not choosing/deleting active writers.",
+  "records": [
+    {
+      "source": "Sources/SAGAFrontends/Frontend.swift",
+      "snapshot": "docs/evidence/saga-5/reconciliation-20261106T2330Z/Sources__SAGAFrontends__Frontend.swift.snapshot",
+      "sha256": "4f877532f798fab97309ef26ea1fcd1fbd12990a6e019b72aa5d7fd5e944d117",
+      "bytes": 1939
+    },
+    {
+      "source": "Sources/SAGAFrontends/GLSL/GLSLControl.swift",
+      "snapshot": "docs/evidence/saga-5/reconciliation-20261106T2330Z/Sources__SAGAFrontends__GLSL__GLSLControl.swift.snapshot",
+      "sha256": "a8ebfd6da35b226459fa8855ae0638f31b25ef9285aa8f4b4c7ea6e13c40e37c",
+      "bytes": 1160
+    },
+    {
+      "source": "Sources/SAGAFrontends/GLSL/GLSLDeclarations.swift",
+      "snapshot": "docs/evidence/saga-5/reconciliation-20261106T2330Z/Sources__SAGAFrontends__GLSL__GLSLDeclarations.swift.snapshot",
+      "sha256": "69e0c68b1e57df692da9f11f7b7bafbbde4c9354c6e979f85e31ea945df3b055",
+      "bytes": 14097
+    },
+    {
+      "source": "Sources/SAGAFrontends/GLSL/GLSLFrontend.swift",
+      "snapshot": "docs/evidence/saga-5/reconciliation-20261106T2330Z/Sources__SAGAFrontends__GLSL__GLSLFrontend.swift.snapshot",
+      "sha256": "4a2e69c6c6139d4e2f84bd074444256782ef98e179d4e8e414fd8887ff08b8ac",
+      "bytes": 31582
+    },
+    {
+      "source": "Sources/SAGAFrontends/GLSL/GLSLLexer.swift",
+      "snapshot": "docs/evidence/saga-5/reconciliation-20261106T2330Z/Sources__SAGAFrontends__GLSL__GLSLLexer.swift.snapshot",
+      "sha256": "2f81ef284e0fb3135de157f99404d3e80d8795b686532d6b52ba0e21417f64ad",
+      "bytes": 3793
+    },
+    {
+      "source": "Sources/SAGAFrontends/GLSL/GLSLPreprocessor.swift",
+      "snapshot": "docs/evidence/saga-5/reconciliation-20261106T2330Z/Sources__SAGAFrontends__GLSL__GLSLPreprocessor.swift.snapshot",
+      "sha256": "c2f17013368b7f8b88c67a7df243afd2bf8f01429b61a94c4185c56906c002a8",
+      "bytes": 14060
+    },
+    {
+      "source": "Sources/SAGAFrontends/SPIRV/FunctionLowering.swift",
+      "snapshot": "docs/evidence/saga-5/reconciliation-20261106T2330Z/Sources__SAGAFrontends__SPIRV__FunctionLowering.swift.snapshot",
+      "sha256": "0ed1c0e79239b41ad0f805426e606a79efd12213dfb1a849d59fdd71bee1d004",
+      "bytes": 20120
+    },
+    {
+      "source": "Sources/SAGAFrontends/SPIRV/SPIRVFrontend.swift",
+      "snapshot": "docs/evidence/saga-5/reconciliation-20261106T2330Z/Sources__SAGAFrontends__SPIRV__SPIRVFrontend.swift.snapshot",
+      "sha256": "ceabdd1d320eca107044b36221d102d2a755e03747552a72fe4e42158dab95ca",
+      "bytes": 26784
+    },
+    {
+      "source": "Sources/SAGAFrontends/SPIRV/SPIRVFunction.swift",
+      "snapshot": "docs/evidence/saga-5/reconciliation-20261106T2330Z/Sources__SAGAFrontends__SPIRV__SPIRVFunction.swift.snapshot",
+      "sha256": "aaca6c1f7b0f097144c43f8f4975e84ea888f12f50ee1d9b936ffc9e0c7fabd5",
+      "bytes": 27032
+    },
+    {
+      "source": "Sources/SAGAFrontends/WGSL/ControlExpressions.swift",
+      "snapshot": "docs/evidence/saga-5/reconciliation-20261106T2330Z/Sources__SAGAFrontends__WGSL__ControlExpressions.swift.snapshot",
+      "sha256": "9094c2300373a36b4e485269f221d26408d449818444d222fcc85c9fa391801e",
+      "bytes": 3809
+    },
+    {
+      "source": "Sources/SAGAFrontends/WGSL/Expressions.swift",
+      "snapshot": "docs/evidence/saga-5/reconciliation-20261106T2330Z/Sources__SAGAFrontends__WGSL__Expressions.swift.snapshot",
+      "sha256": "71a28e696e6f2d3816d366bb6635b6b275c77418dc4fa4c8bc04db420e168b19",
+      "bytes": 20818
+    },
+    {
+      "source": "Sources/SAGAFrontends/WGSL/Lexer.swift",
+      "snapshot": "docs/evidence/saga-5/reconciliation-20261106T2330Z/Sources__SAGAFrontends__WGSL__Lexer.swift.snapshot",
+      "sha256": "44aeb5ec2cfd082d33a62bcc1e634cb5e43f4ef93c43ddeedbaa49050dbfbb3c",
+      "bytes": 6421
+    },
+    {
+      "source": "Sources/SAGAFrontends/WGSL/Loops.swift",
+      "snapshot": "docs/evidence/saga-5/reconciliation-20261106T2330Z/Sources__SAGAFrontends__WGSL__Loops.swift.snapshot",
+      "sha256": "a761f305ca2b3688b830a3232073a6a099149766d837417392773e5707d9ae66",
+      "bytes": 5174
+    },
+    {
+      "source": "Sources/SAGAFrontends/WGSL/Statements.swift",
+      "snapshot": "docs/evidence/saga-5/reconciliation-20261106T2330Z/Sources__SAGAFrontends__WGSL__Statements.swift.snapshot",
+      "sha256": "bb59ab8182593fb6b44e4c4d46f96f61e3057fc5a9bc48a93b381153adce7b81",
+      "bytes": 14551
+    },
+    {
+      "source": "Sources/SAGAFrontends/WGSL/WGSLFrontend.swift",
+      "snapshot": "docs/evidence/saga-5/reconciliation-20261106T2330Z/Sources__SAGAFrontends__WGSL__WGSLFrontend.swift.snapshot",
+      "sha256": "7e2babe706fce60eabf9f2e6df7467ee6d65c1419097666518886b7c4d52a090",
+      "bytes": 17585
+    },
+    {
+      "source": "Tests/SAGAFoundationTests/WGSLFrontendTests.swift",
+      "snapshot": "docs/evidence/saga-5/reconciliation-20261106T2330Z/Tests__SAGAFoundationTests__WGSLFrontendTests.swift.snapshot",
+      "sha256": "f9a0fecf4f00212abcc9d92cf4d949f87bbb4a4b4917a5cc187803a57f28f8f7",
+      "bytes": 10043
+    },
+    {
+      "source": "Tests/SAGAFoundationTests/GLSLFrontendTests.swift",
+      "snapshot": "docs/evidence/saga-5/reconciliation-20261106T2330Z/Tests__SAGAFoundationTests__GLSLFrontendTests.swift.snapshot",
+      "sha256": "44a52f81d70df77e1925232fe9abc990813323377bed46189cb5ac586142a539",
+      "bytes": 6004
+    },
+    {
+      "source": "Tests/SAGAFoundationTests/SPIRVFrontendTests.swift",
+      "snapshot": "docs/evidence/saga-5/reconciliation-20261106T2330Z/Tests__SAGAFoundationTests__SPIRVFrontendTests.swift.snapshot",
+      "sha256": "ff289b4b736c40248f2a8e729c987a2dcfe858dfd278808b3c450c3f14117681",
+      "bytes": 12106
+    }
+  ]
+}

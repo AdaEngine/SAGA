@@ -1,0 +1,3646 @@
+{
+  "glsl_defines" : {
+
+  },
+  "limits" : "ShaderLimits.default",
+  "reference_revision" : "a55352911bb26a1b33bc8d5fc03bdebb0a967f5a",
+  "rows" : [
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "Only std430 storage blocks with explicit binding implemented",
+      "format" : "glsl",
+      "location" : {
+        "end" : 194,
+        "start" : 175,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "6a28d050100f17f78261959c9a44e6cf6fb321299370c1dc7f6cba1d37cd78fc",
+      "source" : "naga\/tests\/in\/glsl\/210-bevy-2d-shader.frag",
+      "stage" : "fragment"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "Only std430 storage blocks with explicit binding implemented",
+      "format" : "glsl",
+      "location" : {
+        "end" : 272,
+        "start" : 266,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "4b302ca87bff92afcfca5961dcdb03a90288b4a28ee95a67637f842ff0eea172",
+      "source" : "naga\/tests\/in\/glsl\/210-bevy-2d-shader.vert",
+      "stage" : "vertex"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "Only std430 storage blocks with explicit binding implemented",
+      "format" : "glsl",
+      "location" : {
+        "end" : 353,
+        "start" : 347,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "de0f07f46cc3c9d22f70421384d34d9cd561e96fa1aee7e47eaa94979c1f2c06",
+      "source" : "naga\/tests\/in\/glsl\/210-bevy-shader.vert",
+      "stage" : "vertex"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "Only std430 storage blocks with explicit binding implemented",
+      "format" : "glsl",
+      "location" : {
+        "end" : 159,
+        "start" : 147,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "dfefb7757dcff8cd5c2c67bedd58f19c6c123ad54eea83b6094f666de0a3abe0",
+      "source" : "naga\/tests\/in\/glsl\/246-collatz.comp",
+      "stage" : "compute"
+    },
+    {
+      "format" : "glsl",
+      "parse" : "accepted",
+      "reference_configuration_executed" : false,
+      "semantic" : "accepted",
+      "sha256" : "f1d6cdd02c8a808a8bd83e7b2ed20ff101d0254d1404b96110c786cc2802b1f3",
+      "source" : "naga\/tests\/in\/glsl\/277-casting.frag",
+      "stage" : "fragment"
+    },
+    {
+      "diagnostic_code" : "SAGA3001",
+      "diagnostic_message" : "Unresolved GLSL name: mat4",
+      "format" : "glsl",
+      "location" : {
+        "end" : 80,
+        "start" : 76,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "f5c1eb3d96df6ddc4aaba99e919a97e0eee60e6a9c1c0d6178d7b9073eba1cfe",
+      "source" : "naga\/tests\/in\/glsl\/280-matrix-cast.frag",
+      "stage" : "fragment"
+    },
+    {
+      "format" : "glsl",
+      "parse" : "accepted",
+      "reference_configuration_executed" : false,
+      "semantic" : "accepted",
+      "sha256" : "c76b35a6348672023a26a271aad21c91c729ba76d7bc13780ba5fd65518e3d89",
+      "source" : "naga\/tests\/in\/glsl\/484-preprocessor-if.frag",
+      "stage" : "fragment"
+    },
+    {
+      "diagnostic_code" : "SAGA2001",
+      "diagnostic_message" : "Missing version directive",
+      "format" : "glsl",
+      "location" : {
+        "end" : 45,
+        "start" : 41,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "2938237aa4cf2781bb394ac455ef4bb007c030f715bcc7b0446e611103d9543a",
+      "source" : "naga\/tests\/in\/glsl\/5246-dual-iteration.frag",
+      "stage" : "fragment"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "Only std430 storage blocks with explicit binding implemented",
+      "format" : "glsl",
+      "location" : {
+        "end" : 124,
+        "start" : 117,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "afb5e2f1d553e983c9f34b368af7cba9702ba5fdc2fb90fb21ecb960f20fda02",
+      "source" : "naga\/tests\/in\/glsl\/800-out-of-bounds-panic.vert",
+      "stage" : "vertex"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "Only std430 storage blocks with explicit binding implemented",
+      "format" : "glsl",
+      "location" : {
+        "end" : 103,
+        "start" : 90,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "f93161672a82624762348bfe2b8973b091a5bfdb565673fd7a90166523f5d2dc",
+      "source" : "naga\/tests\/in\/glsl\/896-push-constant.frag",
+      "stage" : "fragment"
+    },
+    {
+      "diagnostic_code" : "SAGA3002",
+      "diagnostic_message" : "Duplicate\/reserved function",
+      "format" : "glsl",
+      "location" : {
+        "end" : 106,
+        "start" : 101,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "7037362d07a1d673c3f33c7d4d0d5c0faeab6ebe5be1e7a5697e3ebd93457dc6",
+      "source" : "naga\/tests\/in\/glsl\/900-implicit-conversions.frag",
+      "stage" : "fragment"
+    },
+    {
+      "format" : "glsl",
+      "parse" : "accepted",
+      "reference_configuration_executed" : false,
+      "semantic" : "accepted",
+      "sha256" : "1bf7558b538b9827256a8eb86eded7eca7a39ddca4abadcbb11ef42ad5b60ec4",
+      "source" : "naga\/tests\/in\/glsl\/901-lhs-field-select.frag",
+      "stage" : "fragment"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "Unsupported GLSL type const",
+      "format" : "glsl",
+      "location" : {
+        "end" : 74,
+        "start" : 69,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "cac4f3382d9c483d9d352c477ccb926220b3220cf4fb64e61a0303caf84e843e",
+      "source" : "naga\/tests\/in\/glsl\/931-constant-emitting.frag",
+      "stage" : "fragment"
+    },
+    {
+      "diagnostic_code" : "SAGA5005",
+      "diagnostic_message" : "Orphan blocks\/statements not accepted",
+      "format" : "glsl",
+      "location" : {
+        "end" : 78,
+        "start" : 74,
+        "unit" : "utf8"
+      },
+      "parse" : "accepted",
+      "reference_configuration_executed" : false,
+      "semantic" : "rejected",
+      "sha256" : "6fb86f831b0afe53fdcb47cb229f5769e71229d0bfa8490a38435dd7cad0b6ae",
+      "source" : "naga\/tests\/in\/glsl\/932-for-loop-if.frag",
+      "stage" : "fragment"
+    },
+    {
+      "diagnostic_code" : "SAGA2001",
+      "diagnostic_message" : "Missing version directive",
+      "format" : "glsl",
+      "location" : {
+        "end" : 6,
+        "start" : 0,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "e11c8bee8d8231b7d5d2acaff0d6df4e822668f961254ba88f15369dd1bd7a9c",
+      "source" : "naga\/tests\/in\/glsl\/anonymous-entry-point-type.frag",
+      "stage" : "fragment"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "Unsupported GLSL type const",
+      "format" : "glsl",
+      "location" : {
+        "end" : 1187,
+        "start" : 1182,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "b752dd023992e80f68291763261fbe21e0ea48147373632ed670838008a2b5f1",
+      "source" : "naga\/tests\/in\/glsl\/bevy-pbr.frag",
+      "stage" : "fragment"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "Only std430 storage blocks with explicit binding implemented",
+      "format" : "glsl",
+      "location" : {
+        "end" : 1539,
+        "start" : 1525,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "ed719051d08f22dd0ef2563380e1e92d83c72e3da72ab941f08127d807688e7e",
+      "source" : "naga\/tests\/in\/glsl\/bevy-pbr.vert",
+      "stage" : "vertex"
+    },
+    {
+      "diagnostic_code" : "SAGA4001",
+      "diagnostic_message" : "Initializer type mismatch",
+      "format" : "glsl",
+      "location" : {
+        "end" : 128,
+        "start" : 127,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "5ed0a4fd2517fb8c93b85d927952a2347215cc1846c656a44c3c4956860abcfe",
+      "source" : "naga\/tests\/in\/glsl\/bits.frag",
+      "stage" : "fragment"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "Unsupported GLSL type precision",
+      "format" : "glsl",
+      "location" : {
+        "end" : 27,
+        "start" : 18,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "4175b258add555f5ea986a0c1c05ce0ec119a771b999cd24db2c75e484835388",
+      "source" : "naga\/tests\/in\/glsl\/bool-select.frag",
+      "stage" : "fragment"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "Only std430 storage blocks with explicit binding implemented",
+      "format" : "glsl",
+      "location" : {
+        "end" : 65,
+        "start" : 50,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "4e1db93ab156995ce31688261e6344dd4852b9961b0169a2a3465146f8c1f864",
+      "source" : "naga\/tests\/in\/glsl\/buffer.frag",
+      "stage" : "fragment"
+    },
+    {
+      "diagnostic_code" : "SAGA4001",
+      "diagnostic_message" : "Builtin argument types",
+      "format" : "glsl",
+      "location" : {
+        "end" : 90,
+        "start" : 85,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "cb34a73c837a796b107cf4978d73ffab1346452bf3d4987756d92f6a969630df",
+      "source" : "naga\/tests\/in\/glsl\/clamp-splat.vert",
+      "stage" : "vertex"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "Unsupported GLSL type const",
+      "format" : "glsl",
+      "location" : {
+        "end" : 134,
+        "start" : 129,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "ac756e26d675fa5e126a49bd91bd46f5052532927a1aa4c25829484b624059c9",
+      "source" : "naga\/tests\/in\/glsl\/const-global-swizzle.frag",
+      "stage" : "fragment"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "Unsupported GLSL type const",
+      "format" : "glsl",
+      "location" : {
+        "end" : 19,
+        "start" : 14,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "3dfa5482b53feb252a077a2b1b32f1709e6252c67708ff9992fe6ffbd31adbf7",
+      "source" : "naga\/tests\/in\/glsl\/constant-array-size.frag",
+      "stage" : "fragment"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "Unsupported GLSL type VertexData",
+      "format" : "glsl",
+      "location" : {
+        "end" : 48,
+        "start" : 38,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "065049c2e1a74d9a43ad4aa0156334546dda7650287e4a9277c509c46f150c50",
+      "source" : "naga\/tests\/in\/glsl\/declarations.frag",
+      "stage" : "fragment"
+    },
+    {
+      "diagnostic_code" : "SAGA3001",
+      "diagnostic_message" : "Unresolved GLSL name: dmat4",
+      "format" : "glsl",
+      "location" : {
+        "end" : 89,
+        "start" : 84,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "7c0c6d416c27ebb7325976f19883560f4ab9b13271db93fa5b444ebe2e92b955",
+      "source" : "naga\/tests\/in\/glsl\/double-math-functions.frag",
+      "stage" : "fragment"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "Only explicit float\/vector location interface implemented",
+      "format" : "glsl",
+      "location" : {
+        "end" : 62,
+        "start" : 55,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "c2b0c96f9ee22670055a3c7e1d923fe0773b87ef747a5427c4bdc97f0c90bd25",
+      "source" : "naga\/tests\/in\/glsl\/dual-source-blending.frag",
+      "stage" : "fragment"
+    },
+    {
+      "diagnostic_code" : "SAGA4001",
+      "diagnostic_message" : "Binary operand types differ",
+      "format" : "glsl",
+      "location" : {
+        "end" : 84,
+        "start" : 83,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "4587f5b9f0a526a24822df3608436b29aa0d59651fc224fe404b66d2253f54dc",
+      "source" : "naga\/tests\/in\/glsl\/expressions.frag",
+      "stage" : "fragment"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "GLSL extension directives not implemented",
+      "format" : "glsl",
+      "location" : {
+        "end" : 15,
+        "start" : 14,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "ce03523ed3f74d572c2866ec9c8f77965deca532e9a49023fd625d88c224bbd0",
+      "source" : "naga\/tests\/in\/glsl\/f16-glsl.comp",
+      "stage" : "compute"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "Unsupported GLSL type inout",
+      "format" : "glsl",
+      "location" : {
+        "end" : 79,
+        "start" : 74,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "28362b8a47a223b4a338915e5d624f2466cdc27ac4d47bbf7877141a81b425f2",
+      "source" : "naga\/tests\/in\/glsl\/fma.frag",
+      "stage" : "fragment"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "Unsupported GLSL type inout",
+      "format" : "glsl",
+      "location" : {
+        "end" : 38,
+        "start" : 33,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "a54d5e2929a08cf05a18912735cbee09e4db48a2c7d55eb597f92dbd203378ae",
+      "source" : "naga\/tests\/in\/glsl\/functions_call.frag",
+      "stage" : "fragment"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "Unsupported GLSL type const",
+      "format" : "glsl",
+      "location" : {
+        "end" : 32,
+        "start" : 27,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "39c9dfb6dccd9a0d13752787a376a155baaceb528d52b357fce29e1486689ddd",
+      "source" : "naga\/tests\/in\/glsl\/global-constant-array.frag",
+      "stage" : "fragment"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "Only std430 storage blocks with explicit binding implemented",
+      "format" : "glsl",
+      "location" : {
+        "end" : 134,
+        "start" : 127,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "b6e28d9e667fdef9a3b074d26c860b0773331b358c2f147720c97335eecf654c",
+      "source" : "naga\/tests\/in\/glsl\/images.frag",
+      "stage" : "fragment"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "Unsupported GLSL type flat",
+      "format" : "glsl",
+      "location" : {
+        "end" : 79,
+        "start" : 75,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "42a4fcae93b8c5926aaa66059b225735fb4f084c92c79f2be2bca9cb8e04848d",
+      "source" : "naga\/tests\/in\/glsl\/interpolate.frag",
+      "stage" : "fragment"
+    },
+    {
+      "diagnostic_code" : "SAGA3001",
+      "diagnostic_message" : "Unresolved GLSL name: mat4",
+      "format" : "glsl",
+      "location" : {
+        "end" : 86,
+        "start" : 82,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "f402b3fe28f1eca42d28ad4b4770296e5ac27cf8818ae16c0b7260fc87fa5790",
+      "source" : "naga\/tests\/in\/glsl\/inverse-polyfill.frag",
+      "stage" : "fragment"
+    },
+    {
+      "diagnostic_code" : "SAGA2001",
+      "diagnostic_message" : "Missing version directive",
+      "format" : "glsl",
+      "location" : {
+        "end" : 4,
+        "start" : 0,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "d4d48473d30b685b5e97db95cc7071464921770d757b99c103ba18c34232d29a",
+      "source" : "naga\/tests\/in\/glsl\/local-var-init-in-loop.comp",
+      "stage" : "compute"
+    },
+    {
+      "diagnostic_code" : "SAGA3001",
+      "diagnostic_message" : "Unresolved GLSL name: mat2",
+      "format" : "glsl",
+      "location" : {
+        "end" : 87,
+        "start" : 83,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "e89b755eb8ed562fbb77e40a688c21a7f6cd0dfa635107b5b57e65d149e6a9e1",
+      "source" : "naga\/tests\/in\/glsl\/long-form-matrix.frag",
+      "stage" : "fragment"
+    },
+    {
+      "diagnostic_code" : "SAGA3001",
+      "diagnostic_message" : "Unresolved GLSL name: mat4",
+      "format" : "glsl",
+      "location" : {
+        "end" : 84,
+        "start" : 80,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "ab7d8683022135f600e410068e1fdf3428af2b8a34d094f8eaa2e8ffc50d29bc",
+      "source" : "naga\/tests\/in\/glsl\/math-functions.frag",
+      "stage" : "fragment"
+    },
+    {
+      "diagnostic_code" : "SAGA2001",
+      "diagnostic_message" : "Expected ';', got ','",
+      "format" : "glsl",
+      "location" : {
+        "end" : 298,
+        "start" : 297,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "1b66a8763f9443997cf885a42a1525378e3767b810ba35309a106a272d284844",
+      "source" : "naga\/tests\/in\/glsl\/multipart-for-loop.frag",
+      "stage" : "fragment"
+    },
+    {
+      "diagnostic_code" : "SAGA2001",
+      "diagnostic_message" : "Expected ';', got '++'",
+      "format" : "glsl",
+      "location" : {
+        "end" : 95,
+        "start" : 93,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "99843afa385c2885a4f301de4c0917f9c275aaef0d600e74ebe01b71424e7f6f",
+      "source" : "naga\/tests\/in\/glsl\/prepostfix.frag",
+      "stage" : "fragment"
+    },
+    {
+      "format" : "glsl",
+      "parse" : "accepted",
+      "reference_configuration_executed" : false,
+      "semantic" : "accepted",
+      "sha256" : "5bfc6b6b79b242e352248b7c19fc1f0a8d7cd3eb6edb0c7cb7e89724278b8335",
+      "source" : "naga\/tests\/in\/glsl\/quad_glsl.frag",
+      "stage" : "fragment"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "Unsupported GLSL type const",
+      "format" : "glsl",
+      "location" : {
+        "end" : 18,
+        "start" : 13,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "2f16b3dfd51111ae3bbf505cdda26d8d8fa8e5b46cf3c3625a5abfeae58c4240",
+      "source" : "naga\/tests\/in\/glsl\/quad_glsl.vert",
+      "stage" : "vertex"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "Unsupported GLSL type precision",
+      "format" : "glsl",
+      "location" : {
+        "end" : 22,
+        "start" : 13,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "e2fbb23af2837c91e8c300c1f785e877ff6da7661c4e05717eb746c839a53c83",
+      "source" : "naga\/tests\/in\/glsl\/sampler-functions.frag",
+      "stage" : "fragment"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "Unsupported GLSL type precision",
+      "format" : "glsl",
+      "location" : {
+        "end" : 27,
+        "start" : 18,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "598220668a84ac3c9a81cbcea8b11709494e7e040317e191d65ee41a6c85ffab",
+      "source" : "naga\/tests\/in\/glsl\/samplers.frag",
+      "stage" : "fragment"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "Unsupported GLSL type const",
+      "format" : "glsl",
+      "location" : {
+        "end" : 105,
+        "start" : 100,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "369c6252b92d016021e3b1f4a3a7496769a2244af6b12cdd008c0da02d2c9532",
+      "source" : "naga\/tests\/in\/glsl\/spec-constant.frag",
+      "stage" : "fragment"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "Unsupported GLSL statement: switch",
+      "format" : "glsl",
+      "location" : {
+        "end" : 55,
+        "start" : 49,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "71bc199e816650627cb730ae263c166bc9cfa1e56c3312b88fefb4fff7b27fdc",
+      "source" : "naga\/tests\/in\/glsl\/statements.frag",
+      "stage" : "fragment"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "Only std430 storage blocks with explicit binding implemented",
+      "format" : "glsl",
+      "location" : {
+        "end" : 67,
+        "start" : 56,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "56eeab26dbeea4e7391c2aa41e38f7f9aa919a0ca63c1e5be1a0d5a66734ab19",
+      "source" : "naga\/tests\/in\/glsl\/variations.frag",
+      "stage" : "fragment"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "Unimplemented function\/builtin: lessThan",
+      "format" : "glsl",
+      "location" : {
+        "end" : 62,
+        "start" : 54,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "09402be78b00c947036f5d77e9ccba5cefdd78caea560496abbad038ba4f2b0a",
+      "source" : "naga\/tests\/in\/glsl\/vector-functions.frag",
+      "stage" : "fragment"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "GLSL extension directives not implemented",
+      "format" : "glsl",
+      "location" : {
+        "end" : 15,
+        "start" : 14,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "ce03523ed3f74d572c2866ec9c8f77965deca532e9a49023fd625d88c224bbd0",
+      "source" : "naga\/tests\/in\/spv\/f16-spv.comp",
+      "stage" : "compute"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "Unsupported GLSL type const",
+      "format" : "glsl",
+      "location" : {
+        "end" : 44,
+        "start" : 39,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "52645df5ba9528890b896fc1e88f3659e6c27dbe41b48b60c72982cbd57a48a0",
+      "source" : "naga\/tests\/in\/spv\/spec-constants.vert",
+      "stage" : "vertex"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: void function used as expression",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 1453,
+        "start" : 1438,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "ca5c79eba0e5467e4f8d092934796e26b8f010525bec736a48903d668f3a60ce",
+      "source" : "naga\/tests\/in\/wgsl\/6220-break-from-loop.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: type 'vec4f' (or forward type reference)",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 69,
+        "start" : 64,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "37fc9eb7c75cc9b116b698312d0206d3e703de909f49a3590a72fb0f4ea76b0b",
+      "source" : "naga\/tests\/in\/wgsl\/6438-conflicting-idents.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: builtin or forward function 'unpack4xI8'",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 78,
+        "start" : 68,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "9fb5262525903fd036b490d5b368f719da178227d8a6221c350bd060147ac166",
+      "source" : "naga\/tests\/in\/wgsl\/6772-unpack-expr-accesses.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: type 'vec3f' (or forward type reference)",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 60,
+        "start" : 55,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "baa9c2811d16c71e30a8287b47fcefcd27d3d66189581cb305e011081e084fdb",
+      "source" : "naga\/tests\/in\/wgsl\/7048-multiple-dynamic-1.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: type 'vec4f' (or forward type reference)",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 44,
+        "start" : 39,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "688b6d90912d688bc390a8693a908c5e8fef3efffc234b7d2220494017ddab15",
+      "source" : "naga\/tests\/in\/wgsl\/7048-multiple-dynamic-2.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: type 'vec3f' (or forward type reference)",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 90,
+        "start" : 85,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "4dc01f3539b31fad3c599cffc76e2b5df1468c1ab56b4d895aeea42e6d52440e",
+      "source" : "naga\/tests\/in\/wgsl\/7048-multiple-dynamic-3.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "Abstract scalar validation requires concretization",
+      "format" : "wgsl",
+      "parse" : "accepted",
+      "reference_configuration_executed" : false,
+      "semantic" : "rejected",
+      "sha256" : "043f2f7c3c3db0d600e794d287258518a61a68e75eca0875d8b0a9e2bb0c6321",
+      "source" : "naga\/tests\/in\/wgsl\/7995-unicode-idents.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "Structure member bindings require interface validation not yet implemented",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 101,
+        "start" : 82,
+        "unit" : "utf8"
+      },
+      "parse" : "accepted",
+      "reference_configuration_executed" : false,
+      "semantic" : "rejected",
+      "sha256" : "b09e307c0553e5026dc230d3ca550003beb505f951f9a06102a4de15b1131ad3",
+      "source" : "naga\/tests\/in\/wgsl\/8820-multiple-local-invocation-index-id.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: module declaration\/directive 'enable'",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 189,
+        "start" : 183,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "9c9b664851c7341eb79a9908fd76f8a6d94eb9b8ac419ec322a87327866ed0aa",
+      "source" : "naga\/tests\/in\/wgsl\/9105-primitive-index-ordering.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: compound assignment overload",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 1120,
+        "start" : 1118,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "9d1abb1db9f49e295f116a82da39f9165a93da205601c8505e426bc98e5fe4d1",
+      "source" : "naga\/tests\/in\/wgsl\/9489-loop-local-var-init.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: type 'texture_1d' (or forward type reference)",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 56,
+        "start" : 46,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "153a07606839760f8a7bb24438a699dd73b2ca5b556a5ac18620e3f1d942d883",
+      "source" : "naga\/tests\/in\/wgsl\/9717-texture-sample-level-offset.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA2001",
+      "diagnostic_message" : "Expected expression",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 163,
+        "start" : 162,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "ae8f3651191d9c074a19e732f623e85eeb3ba5b21968650dce82f8fe5c5d7615",
+      "source" : "naga\/tests\/in\/wgsl\/9883-atomic_sub-negative.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: module declaration\/directive 'enable'",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 6,
+        "start" : 0,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "4f8a9903e0a8b29ef2c1e7fadf94b5d0f00711b356c2390c7f7d7c78c0275e4f",
+      "source" : "naga\/tests\/in\/wgsl\/9890-no-rq-hoist.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA2001",
+      "diagnostic_message" : "Expected expression",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 181,
+        "start" : 180,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "ccdbdb5a028014a84e7a6d704579c99d44463c796630e3c8653205cfdff79183",
+      "source" : "naga\/tests\/in\/wgsl\/abstract-types-atomic.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA4001",
+      "diagnostic_message" : "Literal cannot be materialized as requested type",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 348,
+        "start" : 343,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "50a6d2392606672953dc59d2a3c0a7144be047759ec44e929b58e8b9f7a54f2a",
+      "source" : "naga\/tests\/in\/wgsl\/abstract-types-builtins.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA2001",
+      "diagnostic_message" : "Expected numeric\/bool literal",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 533,
+        "start" : 529,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "76f0c2a4edd2039b35f93123bd8258f9762a0ee30da1af9189e878afc6d30814",
+      "source" : "naga\/tests\/in\/wgsl\/abstract-types-const.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA2001",
+      "diagnostic_message" : "Expected numeric\/bool literal",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 374,
+        "start" : 370,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "c9e0c5ab0ab6c4ada3708b33243ed94c68258b1a8f5aa3917bf41e782fddde4b",
+      "source" : "naga\/tests\/in\/wgsl\/abstract-types-function-calls.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA2001",
+      "diagnostic_message" : "Expected '<', found '('",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 566,
+        "start" : 565,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "e08a784f4ebf5170a795fdef9917327bbf23dee449e87318ffe70da164fe5f53",
+      "source" : "naga\/tests\/in\/wgsl\/abstract-types-let.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA2001",
+      "diagnostic_message" : "Expected ';', found '+'",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 29,
+        "start" : 28,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "de7d55ecde56e30fe71ec959d74b376493d82f602145cdd68e33f975c4df2411",
+      "source" : "naga\/tests\/in\/wgsl\/abstract-types-operators.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA2001",
+      "diagnostic_message" : "Expected '<', found '('",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 236,
+        "start" : 235,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "df0e0fa6e76f8dca7e06e5425a7775452c1c22cfb6fbf35358a463153760f52f",
+      "source" : "naga\/tests\/in\/wgsl\/abstract-types-return.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: type 'texture_2d' (or forward type reference)",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 39,
+        "start" : 29,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "880be122673e6b6adb80a449f20427e74127201589cf8d5dc79589402b758ecf",
+      "source" : "naga\/tests\/in\/wgsl\/abstract-types-texture.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: global variable initializer",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 540,
+        "start" : 536,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "25c804097c2a38caa98868d89d987a573534d768aaecbb8d8dbce5dc71a35861",
+      "source" : "naga\/tests\/in\/wgsl\/abstract-types-var.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: global variable initializer",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 259,
+        "start" : 248,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "07e5190a2e2ac11ac26edc71d6c1c5ad757f4d5de782752e1c8f100b56b5beec",
+      "source" : "naga\/tests\/in\/wgsl\/access.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: module declaration\/directive 'enable'",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 6,
+        "start" : 0,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "19fbf2622353b6bf6c9c38696f439446102897bda85953c71b00f4dcbc67005d",
+      "source" : "naga\/tests\/in\/wgsl\/aliased-ray-query.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "format" : "wgsl",
+      "parse" : "accepted",
+      "reference_configuration_executed" : false,
+      "semantic" : "accepted",
+      "sha256" : "06943f910b13fde094b4ee91f976caeb41850f2df63a37a8a19401ba9bfdc123",
+      "source" : "naga\/tests\/in\/wgsl\/array-in-ctor.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "Abstract scalar validation requires concretization",
+      "format" : "wgsl",
+      "parse" : "accepted",
+      "reference_configuration_executed" : false,
+      "semantic" : "rejected",
+      "sha256" : "9da9d604a8f3225ed100426df1477aac3c308a489c7e1630b36839ea6bffa727",
+      "source" : "naga\/tests\/in\/wgsl\/array-in-function-return-type.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA1001",
+      "diagnostic_message" : "Invalid numeric suffix",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 452,
+        "start" : 449,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "82c7585119132eb18de9e6276d9d99895e299eeea2aef37fbd50dd1ee59a8bab",
+      "source" : "naga\/tests\/in\/wgsl\/atomicCompareExchange-int64.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA4002",
+      "diagnostic_message" : "Expected u32 constant",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 103,
+        "start" : 99,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "d50abe2ed5e2c0ee5ff563e32d309e00bbfc421d55194c6dd10f8e47e14dc797",
+      "source" : "naga\/tests\/in\/wgsl\/atomicCompareExchange.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA4002",
+      "diagnostic_message" : "Atomic needs i32\/u32",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 41,
+        "start" : 35,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "70f03676deab7d0954bdd68b10a780e5722f9b54905a10378b4aad57f55582da",
+      "source" : "naga\/tests\/in\/wgsl\/atomicOps-float32.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA1001",
+      "diagnostic_message" : "Invalid numeric suffix",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 611,
+        "start" : 609,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "3c4f068ca47d6afa069b933cd4f80ba5a2948e93b970459e7035de1884c17459",
+      "source" : "naga\/tests\/in\/wgsl\/atomicOps-int64-min-max.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA1001",
+      "diagnostic_message" : "Invalid numeric suffix",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 806,
+        "start" : 804,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "8f7a8fbe5241623194a4169c79ae9a9b01ad081a2aba3b804559954dbb71396b",
+      "source" : "naga\/tests\/in\/wgsl\/atomicOps-int64.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA2001",
+      "diagnostic_message" : "Expected expression",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 775,
+        "start" : 774,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "a5466a648d7ef3420f050c550f75987df4d911c9c757947461165292d894fa6c",
+      "source" : "naga\/tests\/in\/wgsl\/atomicOps.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA1001",
+      "diagnostic_message" : "Invalid numeric suffix",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 204,
+        "start" : 202,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "9f55a10dea1b810989a7bd41f9df04a869f628cf72df79747756b856359158eb",
+      "source" : "naga\/tests\/in\/wgsl\/atomicTexture-int64.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: type 'texture_storage_2d' (or forward type reference)",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 53,
+        "start" : 35,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "7e49ea4ddefeab60a6a46b99a97fb225f7c9836ce9ae838f7ddb086a169e6a23",
+      "source" : "naga\/tests\/in\/wgsl\/atomicTexture.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: builtin 'barycentric'",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 41,
+        "start" : 30,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "663fdba53e02ddd304f7e135a155e31d6814034f8e0e87f03a5f7996d6e5e062",
+      "source" : "naga\/tests\/in\/wgsl\/barycentrics.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: module declaration\/directive 'enable'",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 6,
+        "start" : 0,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "99edc247636063609a66f64bcde1daeeffe96639698367a822037e2274e91f27",
+      "source" : "naga\/tests\/in\/wgsl\/binding-arrays.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: module declaration\/directive 'enable'",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 6,
+        "start" : 0,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "499094ba59e2877c7c0f0c55aa528289fdeafdbe1e0bddb05b4d6dc60d3bf518",
+      "source" : "naga\/tests\/in\/wgsl\/binding-buffer-arrays.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: module declaration\/directive 'enable'",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 6,
+        "start" : 0,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "b52cb2074c259b09dbacce64743897d8afcfeeafe2506dac59760c2187f63bc8",
+      "source" : "naga\/tests\/in\/wgsl\/bitcast-f16.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: module declaration\/directive 'enable'",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 6,
+        "start" : 0,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "48238e90414a2e8ea7526cfd02d5973f4fa5021e1907239374c9c7547ae6bac1",
+      "source" : "naga\/tests\/in\/wgsl\/bitcast-i16-f16.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA3001",
+      "diagnostic_message" : "Unknown name 'bitcast'",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 311,
+        "start" : 304,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "3a4bad93e4bc379733d1f75a54cdf96529300c7cac8a1e2597947ca1558c44b9",
+      "source" : "naga\/tests\/in\/wgsl\/bitcast.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: builtin or forward function 'pack4x8snorm'",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 380,
+        "start" : 368,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "263f363dbbd0d7153833fadb565f0974217f7d617e8eb815e8038106c3cc0988",
+      "source" : "naga\/tests\/in\/wgsl\/bits-optimized-msl.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: builtin or forward function 'pack4x8snorm'",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 380,
+        "start" : 368,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "263f363dbbd0d7153833fadb565f0974217f7d617e8eb815e8038106c3cc0988",
+      "source" : "naga\/tests\/in\/wgsl\/bits.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: builtin or forward function 'pack4xI8'",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 505,
+        "start" : 497,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "e93cd803b0f8ab7d960458dbfcbb15e98dda4b3bc4a784102eb5addd5a39a765",
+      "source" : "naga\/tests\/in\/wgsl\/bits_downlevel.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: builtin or forward function 'pack4xI8'",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 505,
+        "start" : 497,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "44e1ff08c9798be4190ef77a8d53d155d46624790412d103faa085d0ea738316",
+      "source" : "naga\/tests\/in\/wgsl\/bits_downlevel_webgl.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: builtin or forward function 'distance'",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 1331,
+        "start" : 1323,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "0302e79efd2d691eabfe841839cc7d6edebe82f3a2aae5e280c190401cfe29e3",
+      "source" : "naga\/tests\/in\/wgsl\/boids.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: attribute @size",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 141,
+        "start" : 137,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "2c9c83ac798a88d17fd9d0e5843fd8d5e588f48f2717a806bde4b1c2d4ed786f",
+      "source" : "naga\/tests\/in\/wgsl\/bounds-check-dynamic-buffer.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: type 'texture_depth_2d' (or forward type reference)",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 133,
+        "start" : 117,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "8e6f0a24e7ad0f2af5202f75c21ab77c7a66d77c1eb344d348306643325efed2",
+      "source" : "naga\/tests\/in\/wgsl\/bounds-check-image-restrict-depth.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: type 'texture_2d_array' (or forward type reference)",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 142,
+        "start" : 126,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "7f228dd3c818b7cbead9a95718d958b4afde117a74588d3bcd50115e8acae9b5",
+      "source" : "naga\/tests\/in\/wgsl\/bounds-check-image-restrict-unsigned.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: type 'texture_1d' (or forward type reference)",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 46,
+        "start" : 36,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "c8aafbb5fd9e461f63cff65b4a3f3ef020b069457d8241263e4569b4e061c7a0",
+      "source" : "naga\/tests\/in\/wgsl\/bounds-check-image-restrict.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: type 'texture_depth_2d' (or forward type reference)",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 133,
+        "start" : 117,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "8e6f0a24e7ad0f2af5202f75c21ab77c7a66d77c1eb344d348306643325efed2",
+      "source" : "naga\/tests\/in\/wgsl\/bounds-check-image-rzsw-depth.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: type 'texture_2d_array' (or forward type reference)",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 142,
+        "start" : 126,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "7f228dd3c818b7cbead9a95718d958b4afde117a74588d3bcd50115e8acae9b5",
+      "source" : "naga\/tests\/in\/wgsl\/bounds-check-image-rzsw-unsigned.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: type 'texture_1d' (or forward type reference)",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 46,
+        "start" : 36,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "c8aafbb5fd9e461f63cff65b4a3f3ef020b069457d8241263e4569b4e061c7a0",
+      "source" : "naga\/tests\/in\/wgsl\/bounds-check-image-rzsw.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: builtin or forward function 'vec4f'",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 1590,
+        "start" : 1585,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "402484155162fb1f5f59fab179d6fb2709f8b1c777f1cb4fb9831ffa2ae32a10",
+      "source" : "naga\/tests\/in\/wgsl\/bounds-check-restrict.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA2001",
+      "diagnostic_message" : "Expected expression",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 474,
+        "start" : 473,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "2525ec1170610aab8bb4a13a256396483c919d8fdd29fb0355ebfccbbefafca9",
+      "source" : "naga\/tests\/in\/wgsl\/bounds-check-zero-atomic.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: builtin or forward function 'vec4f'",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 1599,
+        "start" : 1594,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "fc4f1322c78179a13313928182b1e17b7c2c2c6f64213a519cdf375600960f0b",
+      "source" : "naga\/tests\/in\/wgsl\/bounds-check-zero.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: void function used as expression",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 628,
+        "start" : 616,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "1a88801ec2150c4f02492490eca562c77abe7bf563cd268ea941d0826291010a",
+      "source" : "naga\/tests\/in\/wgsl\/break-if.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: module declaration\/directive 'enable'",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 6,
+        "start" : 0,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "21064188cca78654b0657161596eeeebdbacd136c71b1c6370e3d3b838e1be1f",
+      "source" : "naga\/tests\/in\/wgsl\/clip-distances.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA4002",
+      "diagnostic_message" : "Invalid structure span",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 19,
+        "start" : 7,
+        "unit" : "utf8"
+      },
+      "parse" : "accepted",
+      "reference_configuration_executed" : false,
+      "semantic" : "rejected",
+      "sha256" : "59f070bbbca63fe58039c5422184fbe9f654e9b5e0f2750ef8d700790fcd461f",
+      "source" : "naga\/tests\/in\/wgsl\/collatz.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA2001",
+      "diagnostic_message" : "Expected ')', found '-'",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 127,
+        "start" : 126,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "077cac688f03646f872c4f539be9c975e2b21d16296d7a4961f72aef5ba218a3",
+      "source" : "naga\/tests\/in\/wgsl\/const-exprs.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: module declaration\/directive 'const_assert'",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 118,
+        "start" : 106,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "37529fb6a481fc54aab1f12edcd777f080c6a171c4a72f2b583b422384ef23e9",
+      "source" : "naga\/tests\/in\/wgsl\/const_assert.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA2001",
+      "diagnostic_message" : "Expected numeric\/bool literal",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 65,
+        "start" : 61,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "22f24f709c390bd36a49e3633a56af909095a4b1f8dd0ae614cc9c7c94079b80",
+      "source" : "naga\/tests\/in\/wgsl\/constructors.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA4002",
+      "diagnostic_message" : "Expected u32 constant",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 644,
+        "start" : 637,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "1c4f1da91cfcd0340b47fcb3b281a4a8157dc3fca16a3b9bb915cfd3bc04e311",
+      "source" : "naga\/tests\/in\/wgsl\/control-flow.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: module declaration\/directive 'enable'",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 123,
+        "start" : 117,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "72d91eaa1b932d40c909cf1eb4567b396a9c8153356753d889c4ece9398b77e0",
+      "source" : "naga\/tests\/in\/wgsl\/conversion-float-to-int-no-f64.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA1001",
+      "diagnostic_message" : "Invalid numeric suffix",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 170,
+        "start" : 146,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "a586ba331e8f0093632827082cb1d303abdaccd7619b49a2bfe90401ea9734d2",
+      "source" : "naga\/tests\/in\/wgsl\/conversion-float-to-int.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: type 'vec2f' (or forward type reference)",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 117,
+        "start" : 112,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "b0a5c6de74b021ba5dbce39d6c91a0fe3639a7ece11435983f1fbade8a8c3ed2",
+      "source" : "naga\/tests\/in\/wgsl\/conversions.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: module declaration\/directive 'enable'",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 6,
+        "start" : 0,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "0ab8b553a6a6e54cacc425aa53d962ec24a9ff88e5081b88bae956d175311c07",
+      "source" : "naga\/tests\/in\/wgsl\/cooperative-matrix-mixed-accumulator.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: module declaration\/directive 'enable'",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 6,
+        "start" : 0,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "939c82be19aefb3aa20f747d806179eadbc9f7389732133239f66fa50c351a7f",
+      "source" : "naga\/tests\/in\/wgsl\/cooperative-matrix.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA2001",
+      "diagnostic_message" : "Expected '<', found '('",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 154,
+        "start" : 153,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "713f87eb72b87e962ad71f7c8a1d26c8eeaa865c9005291859bba712a3304193",
+      "source" : "naga\/tests\/in\/wgsl\/cross.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: type 'texture_depth_cube_array' (or forward type reference)",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 73,
+        "start" : 49,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "0b40890cb10a558b78c25bb527f8dd4bd226879ca2e6b7c7d2a5e9f3052025cd",
+      "source" : "naga\/tests\/in\/wgsl\/cubeArrayShadow.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA1001",
+      "diagnostic_message" : "Invalid or unsupported token",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 128,
+        "start" : 127,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "1ef837a4016d4df164e9d40c446fcaf38f565725d57b0904ba931f3925a56a49",
+      "source" : "naga\/tests\/in\/wgsl\/debug-printf.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA4001",
+      "diagnostic_message" : "Scalar literal incompatible with type",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 1196377,
+        "start" : 1196376,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "10cbea4d013f4b8f56e95333050dc5d0b615a59a4342eb9a8128745ab96aa382",
+      "source" : "naga\/tests\/in\/wgsl\/debug-symbol-large-source.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: mixed vector constructor",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 356,
+        "start" : 352,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "3f630768e5705a49e0d326d191356b26f34e11d82d16deee10dc85831b630e34",
+      "source" : "naga\/tests\/in\/wgsl\/debug-symbol-simple.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA4001",
+      "diagnostic_message" : "Scalar literal incompatible with type",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 544,
+        "start" : 543,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "57463d4c5da934956a189ea483a9424b3b1e36782e04c45b515163448e8b5b50",
+      "source" : "naga\/tests\/in\/wgsl\/debug-symbol-terrain.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: module declaration\/directive 'diagnostic'",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 10,
+        "start" : 0,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "7df7818285abc907d6a3ccbe13e994a811c5527d38e4cc812683422088a19f4c",
+      "source" : "naga\/tests\/in\/wgsl\/diagnostic-filter.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: module declaration\/directive 'enable'",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 6,
+        "start" : 0,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "1c11f0361f7303f79e651259c5e61bb93aba5e4cb13a330af29c616b94089fab",
+      "source" : "naga\/tests\/in\/wgsl\/draw-index.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: module declaration\/directive 'enable'",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 6,
+        "start" : 0,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "6c1c1e8338663a2972de9d4ef838889994494c76671233e6dc4dd25fc614158e",
+      "source" : "naga\/tests\/in\/wgsl\/dualsource.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: attribute @early_depth_test",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 27,
+        "start" : 11,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "9bdc47a1e5efc0e6af3244dc0ac92f5f8afe2bed1b37b8d0bddb998322c28b5d",
+      "source" : "naga\/tests\/in\/wgsl\/early-depth-test-conservative-greater.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: attribute @early_depth_test",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 118,
+        "start" : 102,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "94b168569906a5e799e4bf82aac3e680c24042475c35340ceba8758843236470",
+      "source" : "naga\/tests\/in\/wgsl\/early-depth-test-conservative-struct.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: attribute @early_depth_test",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 27,
+        "start" : 11,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "421efd377534e497e7f85582f637f580307f4e9c775b82df89099e8984a673b1",
+      "source" : "naga\/tests\/in\/wgsl\/early-depth-test-conservative-unchanged.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: attribute @early_depth_test",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 27,
+        "start" : 11,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "6c75cbe56b13df4be2ab3b3fb6f2dcde38163bc2c208ad3d61b83637d7093b8a",
+      "source" : "naga\/tests\/in\/wgsl\/early-depth-test-conservative.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: attribute @early_depth_test",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 125,
+        "start" : 109,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "5e34c35890980d4be1e6d6d02463d993c4e209f0da665e3629f568bb9f1682be",
+      "source" : "naga\/tests\/in\/wgsl\/early-depth-test-force-depth.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: attribute @early_depth_test",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 27,
+        "start" : 11,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "ca70292073eec4ac402175b4a39e6e1dcbf112310a35f527aab5af905f8be92e",
+      "source" : "naga\/tests\/in\/wgsl\/early-depth-test-force.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: attribute @early_depth_test",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 184,
+        "start" : 168,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "ccca5e68a5cac8fad1a192788251e47fc63a08f85118d3f77a80f38d183a6fc7",
+      "source" : "naga\/tests\/in\/wgsl\/early-depth-test-unchanged-struct.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "Abstract scalar validation requires concretization",
+      "format" : "wgsl",
+      "parse" : "accepted",
+      "reference_configuration_executed" : false,
+      "semantic" : "rejected",
+      "sha256" : "5af76159c91e0995482147fc070ae56435ebd22cc153a981da3065b657a216aa",
+      "source" : "naga\/tests\/in\/wgsl\/empty-if.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "format" : "wgsl",
+      "parse" : "accepted",
+      "reference_configuration_executed" : false,
+      "semantic" : "accepted",
+      "sha256" : "0e88698096320b7a1e81a4ebe37897aebb71c3e6c9cfd085624e287e3c673073",
+      "source" : "naga\/tests\/in\/wgsl\/empty.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: module declaration\/directive 'enable'",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 6,
+        "start" : 0,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "66d80388783a635c54862169e371b8db4456a25086e0360a2f15709b80638a66",
+      "source" : "naga\/tests\/in\/wgsl\/extra.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: module declaration\/directive 'enable'",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 6,
+        "start" : 0,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "80374b23251457923756151eb05b5d5ec9a99b3b5406623cea3d48e6857c865e",
+      "source" : "naga\/tests\/in\/wgsl\/f16-native.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: module declaration\/directive 'enable'",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 6,
+        "start" : 0,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "80374b23251457923756151eb05b5d5ec9a99b3b5406623cea3d48e6857c865e",
+      "source" : "naga\/tests\/in\/wgsl\/f16-polyfill.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: module declaration\/directive 'enable'",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 6,
+        "start" : 0,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "f7d7c3b6b6ab190deb4088e7ff2a454da5d3616e2b2d88c89eb3666835a29bb7",
+      "source" : "naga\/tests\/in\/wgsl\/f16.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA1001",
+      "diagnostic_message" : "Invalid numeric suffix",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 24,
+        "start" : 22,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "f6882f4b7f74a06f06591607731460a3d1b1862dfcc709a6e401f3e276b548f0",
+      "source" : "naga\/tests\/in\/wgsl\/f64.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: builtin or forward function 'sign'",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 568,
+        "start" : 564,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "1cfa2823a557db8d57a19d3c94875825badddb567fd4874d543014f269974508",
+      "source" : "naga\/tests\/in\/wgsl\/float-sign.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "Abstract scalar validation requires concretization",
+      "format" : "wgsl",
+      "parse" : "accepted",
+      "reference_configuration_executed" : false,
+      "semantic" : "rejected",
+      "sha256" : "80b87c05c4e1302d9e9811b42f567e8708a00a2b61439df2ba2cc867eb6f7bdb",
+      "source" : "naga\/tests\/in\/wgsl\/force_point_size_vertex_shader_webgl.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "Structure member bindings require interface validation not yet implemented",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 128,
+        "start" : 123,
+        "unit" : "utf8"
+      },
+      "parse" : "accepted",
+      "reference_configuration_executed" : false,
+      "semantic" : "rejected",
+      "sha256" : "3cd3da263cb5164cd60f122975f5d1c6bc5ac4127c66e7d8bdb910f6aeca4503",
+      "source" : "naga\/tests\/in\/wgsl\/fragment-output.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: builtin or forward function 'dot4I8Packed'",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 113,
+        "start" : 101,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "d0936c58f75c6d50bb2add1ab1f51c3c3ddf964667b0fdd28bf5a8dd8af5d614",
+      "source" : "naga\/tests\/in\/wgsl\/functions-optimized-by-capability.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: builtin or forward function 'dot4I8Packed'",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 113,
+        "start" : 101,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "d0936c58f75c6d50bb2add1ab1f51c3c3ddf964667b0fdd28bf5a8dd8af5d614",
+      "source" : "naga\/tests\/in\/wgsl\/functions-optimized-by-version.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: builtin or forward function 'dot4I8Packed'",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 113,
+        "start" : 101,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "d0936c58f75c6d50bb2add1ab1f51c3c3ddf964667b0fdd28bf5a8dd8af5d614",
+      "source" : "naga\/tests\/in\/wgsl\/functions-unoptimized.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: builtin or forward function 'fma'",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 143,
+        "start" : 140,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "b91c3e68d6700f6d64c5b29a3874a3252c9a60d50b4886ec4247202b2befdf2e",
+      "source" : "naga\/tests\/in\/wgsl\/functions-webgl.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: builtin or forward function 'fma'",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 271,
+        "start" : 268,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "710dd7de49282ed952ac1d822ce6bd2cd6c0d9bece503d6b15a7e9102fcdcf73",
+      "source" : "naga\/tests\/in\/wgsl\/functions.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: void function used as expression",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 1130,
+        "start" : 1103,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "8a182a3804e6e2f89ce05f8f76b3e92beca7f909d44829cbb39b73030574cc9a",
+      "source" : "naga\/tests\/in\/wgsl\/globals.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: type 'vec4f' (or forward type reference)",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 44,
+        "start" : 39,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "eea88756f14c26a4a109ab17539176f1c39ad64786e59cd9710be2f540a1513a",
+      "source" : "naga\/tests\/in\/wgsl\/hlsl-keyword.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: type 'texture_2d' (or forward type reference)",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 57,
+        "start" : 47,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "942316e48903d47d63265f6f552e2e9acbf8024c7531cdb5facbcdc498ce30d1",
+      "source" : "naga\/tests\/in\/wgsl\/image.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: global address space",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 575,
+        "start" : 566,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "93ffec03d6dc571914541f9d4bec56a145b822c4e0168f695a272cfd3629ede2",
+      "source" : "naga\/tests\/in\/wgsl\/immediates-layout.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA2001",
+      "diagnostic_message" : "Expected '<', found '('",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 158,
+        "start" : 157,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "c3b3de46a0f99e8ceb635f2dfba17357edc8a0150c39c0f7845ae1a01022aaf8",
+      "source" : "naga\/tests\/in\/wgsl\/index-by-value.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "format" : "wgsl",
+      "parse" : "accepted",
+      "reference_configuration_executed" : false,
+      "semantic" : "accepted",
+      "sha256" : "79fedb8881457aaf1c7fd2f34ba5715d06d90a20ac1e6238ad57c1de6e860bfd",
+      "source" : "naga\/tests\/in\/wgsl\/int-div-unchecked.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA2001",
+      "diagnostic_message" : "Expected '<', found '('",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 437,
+        "start" : 436,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "2d1764655594c8f47a66c164aee60796d6c828caa7d42254fe3a8b926bd8f5fb",
+      "source" : "naga\/tests\/in\/wgsl\/int-signed-remainder.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: module declaration\/directive 'enable'",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 6,
+        "start" : 0,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "8cdd777eed77e3ffa100d41f440ec4874e9073da82ba9d08dc60fb484ebcb167",
+      "source" : "naga\/tests\/in\/wgsl\/int16.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA1001",
+      "diagnostic_message" : "Invalid numeric suffix",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 39,
+        "start" : 37,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "9fa3a1289b662a64b8561bff2d1c95a120c4ee3f9dedd8dadaac5fa69623e761",
+      "source" : "naga\/tests\/in\/wgsl\/int64.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: attribute @invariant",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 147,
+        "start" : 138,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "1a736f27da22805c781345dba392897cdf8d5e3c5d83c2ad7cc1a06c6fa82e43",
+      "source" : "naga\/tests\/in\/wgsl\/interface.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: attribute @interpolate",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 242,
+        "start" : 231,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "e3390489ebb4182662b156a83175a2140f51e6206aa0151e40a0159a8830bb04",
+      "source" : "naga\/tests\/in\/wgsl\/interpolate.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: attribute @interpolate",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 370,
+        "start" : 359,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "fe7b34e5440cb6cc3d24b795ce6e2aa834fa4d1a69a87f167f4e86db4e016e0d",
+      "source" : "naga\/tests\/in\/wgsl\/interpolate_compat.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: attribute @invariant",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 48,
+        "start" : 39,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "4985fd9aa00a329098b92b5a9ba2713e99061a25be18379bd577272c7e979b07",
+      "source" : "naga\/tests\/in\/wgsl\/invariant.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: void function used as expression",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 880,
+        "start" : 863,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "aefbd41e9d5db2ccf9fb984ff958fd35dcd54e12b547035980c9519399d971fa",
+      "source" : "naga\/tests\/in\/wgsl\/lexical-scopes.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA2001",
+      "diagnostic_message" : "Expected numeric\/bool literal",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 251,
+        "start" : 247,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "a60fcefb26bc3271a0ada00a9cdf3f2c17da9ac76b24c36ebc9102b17993ea9e",
+      "source" : "naga\/tests\/in\/wgsl\/local-const.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA2001",
+      "diagnostic_message" : "Expected expression",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 1082,
+        "start" : 1081,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "d8dde39595b7081f031b1aedf406a90682b34237c118970f856b683c682566fd",
+      "source" : "naga\/tests\/in\/wgsl\/loop-continuing-block.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "Aggregate uniform address-space layout rules not implemented",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 80,
+        "start" : 79,
+        "unit" : "utf8"
+      },
+      "parse" : "accepted",
+      "reference_configuration_executed" : false,
+      "semantic" : "rejected",
+      "sha256" : "878749ace4ef795edbdc624f4338146c072add7786a0d4c85f695f51b899b286",
+      "source" : "naga\/tests\/in\/wgsl\/mat2-uniform-alignment.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: void function used as expression",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 6231,
+        "start" : 6223,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "ac2800eb5bb91ab338fa2360a5b34c7406faee1ea0c2808dddd59ff377b43ff0",
+      "source" : "naga\/tests\/in\/wgsl\/mat_cx2.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: module declaration\/directive 'enable'",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 436,
+        "start" : 430,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "4a4fb170054d503428ce476835faab19bf9d430deb10e711c1271f9752fa8abd",
+      "source" : "naga\/tests\/in\/wgsl\/mat_cx2_f16.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: void function used as expression",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 6136,
+        "start" : 6128,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "7926579b0ce61b6f1ca8002b29387e660e7c971fa03a3bea78871f919dcc9565",
+      "source" : "naga\/tests\/in\/wgsl\/mat_cx3.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: builtin or forward function 'degrees'",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 138,
+        "start" : 131,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "c0741c3d1844447f0b9edb7ef46e6df1cd129ed596257a13dcdf0561fa05dbd9",
+      "source" : "naga\/tests\/in\/wgsl\/math-functions.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: attribute @coherent",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 72,
+        "start" : 64,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "0586495a8c27156c622fe6cbc138b4e8267966931624fedb0680b1d9197a27b3",
+      "source" : "naga\/tests\/in\/wgsl\/memory-decorations-coherent.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: attribute @coherent",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 72,
+        "start" : 64,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "c70e8e54e4afe65e393dabcc98588d7dc413bb688cce95b7ea6476b26fb8e9ba",
+      "source" : "naga\/tests\/in\/wgsl\/memory-decorations.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: module declaration\/directive 'enable'",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 133,
+        "start" : 127,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "0615ce2d4d42162780b1b87b06ca3bd7464421fac2797781d19d1dde23ea4347",
+      "source" : "naga\/tests\/in\/wgsl\/mesh-shader-empty.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: module declaration\/directive 'enable'",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 133,
+        "start" : 127,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "2cbf2bb7272841bb25aa7c280d2c2f71b0cfdb0aef643674e0167e9487f2dac5",
+      "source" : "naga\/tests\/in\/wgsl\/mesh-shader-lines.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: module declaration\/directive 'enable'",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 133,
+        "start" : 127,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "b267e81c5124ff39a787948cc6d1cce3a1d109994df1b7194cece921171fb069",
+      "source" : "naga\/tests\/in\/wgsl\/mesh-shader-points.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: module declaration\/directive 'enable'",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 6,
+        "start" : 0,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "84497c78f4bfa069f4be2b336b83102d0baa496000f533b0c266b096ae0cfb36",
+      "source" : "naga\/tests\/in\/wgsl\/mesh-shader.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: builtin or forward function 'statement'",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 25,
+        "start" : 16,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "09f4d54c51c3553538eb5cbd1eeaad28a95784a1296be63ef57605bd002c45cf",
+      "source" : "naga\/tests\/in\/wgsl\/module-scope.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: builtin or forward function 'vec4f'",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 113,
+        "start" : 108,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "b3b3ff392a7bc213035b145cc29aa60c67305be95abc90101ffae684a2c1dcf0",
+      "source" : "naga\/tests\/in\/wgsl\/msl-9683-multiple-returns.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: type 'vec2f' (or forward type reference)",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 48,
+        "start" : 43,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "2c3478a8130c6f757305ffae8a208409e9299ed977576ad93ac31a09c1d0e782",
+      "source" : "naga\/tests\/in\/wgsl\/msl-varyings.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: module declaration\/directive 'enable'",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 241,
+        "start" : 235,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "7b89e59f3d2631bb9eff2537e8c383d51fbb0ff964da42f65ec04f4afc11b5e6",
+      "source" : "naga\/tests\/in\/wgsl\/msl-vpt-formats-x1.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: module declaration\/directive 'enable'",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 239,
+        "start" : 233,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "026bd20098feb684296d66e2d84562fe2dab64373fecddd74222cdf69a132202",
+      "source" : "naga\/tests\/in\/wgsl\/msl-vpt-formats-x2.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: module declaration\/directive 'enable'",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 239,
+        "start" : 233,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "c1475e69cf845402f795d055c915274ac830baeb4f66d19339c6a26207899315",
+      "source" : "naga\/tests\/in\/wgsl\/msl-vpt-formats-x3.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: module declaration\/directive 'enable'",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 239,
+        "start" : 233,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "a1d492e03c9d5ecc1947518a8202996cad4e04ef169383b8842e6693f8273a7c",
+      "source" : "naga\/tests\/in\/wgsl\/msl-vpt-formats-x4.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA4001",
+      "diagnostic_message" : "Binary operands must match",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 563,
+        "start" : 562,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "e0e5f9e6da120d53994051d6ccb406580a5e4a77aa48a83986e3d3c86233ab06",
+      "source" : "naga\/tests\/in\/wgsl\/msl-vpt.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: builtin 'view_index'",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 37,
+        "start" : 27,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "e227e99b77ec425260dd9b902d56aeb76527b9729e810bef72cf309756560919",
+      "source" : "naga\/tests\/in\/wgsl\/multiview.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: builtin 'view_index'",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 37,
+        "start" : 27,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "e227e99b77ec425260dd9b902d56aeb76527b9729e810bef72cf309756560919",
+      "source" : "naga\/tests\/in\/wgsl\/multiview_webgl.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: attribute @must_use",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 9,
+        "start" : 1,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "5ca3014574f06016dbb2036683c8c44094fb3ecb0ed61608ddfa42a34d386b20",
+      "source" : "naga\/tests\/in\/wgsl\/must-use.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA2001",
+      "diagnostic_message" : "Expected numeric\/bool literal",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 22,
+        "start" : 18,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "56751020804ce3719f9182cc4b44912c1f4ac1ee9e1cbafcd023e7aa0a4c1509",
+      "source" : "naga\/tests\/in\/wgsl\/operators.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: module declaration\/directive 'override'",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 8,
+        "start" : 0,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "0dece5bb208915ed13dca6c074724b13ba0201ac82584da93c5108b8a18769cf",
+      "source" : "naga\/tests\/in\/wgsl\/overrides-atomicCompareExchangeWeak.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: module declaration\/directive 'enable'",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 6,
+        "start" : 0,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "ac08d487d502622b9ef6170c98e35ec74d346b87dc46f668e640c373a1fcc8ee",
+      "source" : "naga\/tests\/in\/wgsl\/overrides-ray-query.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: module declaration\/directive 'override'",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 18,
+        "start" : 10,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "9202a6c59b50d5542368851074299c7a81e891b5785d9e6800e4183018457c89",
+      "source" : "naga\/tests\/in\/wgsl\/overrides.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: vector\/matrix binary overload",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 301,
+        "start" : 300,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "3418567682497de2b0a921b4facf394dc2e964c2787eb132e59e40a63ee56143",
+      "source" : "naga\/tests\/in\/wgsl\/packed-vec3-bitcast.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA4001",
+      "diagnostic_message" : "Binary operands must match",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 455,
+        "start" : 454,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "8a02836cb71c4a9750a4c0f6ab96dd4fb2713dbe2687ddf2d3f020c613fe5d83",
+      "source" : "naga\/tests\/in\/wgsl\/padding.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: module declaration\/directive 'enable'",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 6,
+        "start" : 0,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "ea80f4b41d40dd87d01873718f65d894d800a05dcfa4600e888b0c0c27b777c6",
+      "source" : "naga\/tests\/in\/wgsl\/per-vertex.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "Abstract scalar validation requires concretization",
+      "format" : "wgsl",
+      "parse" : "accepted",
+      "reference_configuration_executed" : false,
+      "semantic" : "rejected",
+      "sha256" : "45987c973470592a91005a0e59eab8b1af0fcbb6ebbf59a11d63bd6d62d620c0",
+      "source" : "naga\/tests\/in\/wgsl\/phony_assignment.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: type 'ptr' (or forward type reference)",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 19,
+        "start" : 16,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "379c36ea7d5c182c7d2a5467d3313ffdb123f1803a4408747729ad99f5b6d992",
+      "source" : "naga\/tests\/in\/wgsl\/pointer-function-arg-restrict.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: type 'ptr' (or forward type reference)",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 19,
+        "start" : 16,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "379c36ea7d5c182c7d2a5467d3313ffdb123f1803a4408747729ad99f5b6d992",
+      "source" : "naga\/tests\/in\/wgsl\/pointer-function-arg-rzsw.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: type 'ptr' (or forward type reference)",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 19,
+        "start" : 16,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "379c36ea7d5c182c7d2a5467d3313ffdb123f1803a4408747729ad99f5b6d992",
+      "source" : "naga\/tests\/in\/wgsl\/pointer-function-arg.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA2001",
+      "diagnostic_message" : "Expected expression",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 45,
+        "start" : 44,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "a0f5b986a58ecfe32a1f7d93dbae1b3892a4b5caa73fde304676621c65df0b88",
+      "source" : "naga\/tests\/in\/wgsl\/pointers.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: type 'texture_2d_array' (or forward type reference)",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 471,
+        "start" : 455,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "6ebf84d29e9b4b0beb57aca5cb7e8de62031c207f6732f50d282bf6e77da5ae9",
+      "source" : "naga\/tests\/in\/wgsl\/policy-mix.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: module declaration\/directive 'enable'",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 6,
+        "start" : 0,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "759812a71a5bb298472f3b5ef1f1d12ffd1d6d60149f6ef703ef94619eda0fa6",
+      "source" : "naga\/tests\/in\/wgsl\/primitive-index-gles.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: module declaration\/directive 'enable'",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 6,
+        "start" : 0,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "13ee206e0b4f2fe998edf544892fb1f69b822fbdf3bab05393455de9eca0fde5",
+      "source" : "naga\/tests\/in\/wgsl\/primitive-index-mesh-shader.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: module declaration\/directive 'enable'",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 6,
+        "start" : 0,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "759812a71a5bb298472f3b5ef1f1d12ffd1d6d60149f6ef703ef94619eda0fa6",
+      "source" : "naga\/tests\/in\/wgsl\/primitive-index.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: global address space",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 780,
+        "start" : 771,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "4580d77a9a7c66596a450f95776439be79e3309dd03b85c9f2539031c1f3866b",
+      "source" : "naga\/tests\/in\/wgsl\/push-constant-dynamic-vector-index.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: global address space",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 91,
+        "start" : 82,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "1fb72709df8c94506bd95e951bccd3765ef9f0adef2669e14ca5b8ae945c4f5e",
+      "source" : "naga\/tests\/in\/wgsl\/push-constants.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA4001",
+      "diagnostic_message" : "Binary operands must match",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 286,
+        "start" : 285,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "526634a350d312a537ab4efa5adf6834a516d7217173419aec0b0d7cfa275e16",
+      "source" : "naga\/tests\/in\/wgsl\/quad.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: module declaration\/directive 'enable'",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 1028,
+        "start" : 1022,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "9adcdbcaeccbd5cd319a3f7e2730518d15c095bedfa4e77d130ce0f3b5d2ec87",
+      "source" : "naga\/tests\/in\/wgsl\/ray-query-no-init-tracking.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: module declaration\/directive 'enable'",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 1028,
+        "start" : 1022,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "9adcdbcaeccbd5cd319a3f7e2730518d15c095bedfa4e77d130ce0f3b5d2ec87",
+      "source" : "naga\/tests\/in\/wgsl\/ray-query.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: module declaration\/directive 'enable'",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 6,
+        "start" : 0,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "2a2adee9a3fa47bec530a4f6bc18f717c4e85d3b942d62d37ad94c7c5860741b",
+      "source" : "naga\/tests\/in\/wgsl\/ray-tracing-pipeline.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: type 'texture_2d' (or forward type reference)",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 40,
+        "start" : 30,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "7a476b9415d953dc65af1aac5c6bdb9a589d92359b9ce497480944665b7c113e",
+      "source" : "naga\/tests\/in\/wgsl\/resource-binding-map.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: type 'texture_depth_cube_array' (or forward type reference)",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 110,
+        "start" : 86,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "5aa458111701110ffb293e4264d8895728eeffc84cb19b23f30ac591cd7fcf37",
+      "source" : "naga\/tests\/in\/wgsl\/sample-cube-array-depth-lod.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: module declaration\/directive 'const_assert'",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 12,
+        "start" : 0,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "8f373a2cd900d46297424dfec131bd805508a2ae7d7d4207762358b40c718172",
+      "source" : "naga\/tests\/in\/wgsl\/select.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: builtin or forward function 'dpdx'",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 75,
+        "start" : 71,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "1016e7b6c875ec969b4c6c7506397ab60f789f153b9c1f35743167e6ab7085b8",
+      "source" : "naga\/tests\/in\/wgsl\/separate-entry-points.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: mixed vector constructor",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 783,
+        "start" : 779,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "266eb93735dff8f4e762cbad3ada008a3ba12e66e0de4e7d097d9c50a7b7c80f",
+      "source" : "naga\/tests\/in\/wgsl\/shadow.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: constructor overload",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 576,
+        "start" : 570,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "42fb22f76eb8291b1cf8df4322b37cef10519318dd521ce929129c55708b583e",
+      "source" : "naga\/tests\/in\/wgsl\/skybox.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: type 'texture_2d' (or forward type reference)",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 48,
+        "start" : 38,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "64dddb696fb799d4a726658c1b7af28ac20efe82442a82aadb6cde7146c2d559",
+      "source" : "naga\/tests\/in\/wgsl\/sprite.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: builtin or forward function 'any'",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 80,
+        "start" : 77,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "b7b9e56cbbc9c0075ebdf2960ad795e662cecb06248468bc4b20eb8af2187739",
+      "source" : "naga\/tests\/in\/wgsl\/standard.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: type 'texture_storage_2d' (or forward type reference)",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 51,
+        "start" : 33,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "6fb4b37636db0f0c35789192478bd32158abeb7cfbf1d075af009bda4aeba14c",
+      "source" : "naga\/tests\/in\/wgsl\/storage-textures.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: type 'vec3f' (or forward type reference)",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 114,
+        "start" : 109,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "0491b3d6b7bf374cefcacc912908454f39c3022542de2f89d8eaf625ad604614",
+      "source" : "naga\/tests\/in\/wgsl\/struct-layout.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: builtin or forward function 'subgroupBarrier'",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 59,
+        "start" : 44,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "35a338b7dee23573759b9e4c2605d223925487a291a1f650e53a2cb1965e2637",
+      "source" : "naga\/tests\/in\/wgsl\/subgroup-barrier.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: builtin 'num_subgroups'",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 45,
+        "start" : 32,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "0e2cd424abfd1644c3df30650797b23d5e8d912d640fc6432dcca7ef68d2eb67",
+      "source" : "naga\/tests\/in\/wgsl\/subgroup-operations.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA2001",
+      "diagnostic_message" : "Expected '>', found '<'",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 135,
+        "start" : 134,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "8658baa1412e20c607559cff7a3ab570a0e44b54a7fa87f80758546b3799926c",
+      "source" : "naga\/tests\/in\/wgsl\/template-list-ge.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA2001",
+      "diagnostic_message" : "Expected '>', found ','",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 41,
+        "start" : 40,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "6693c03fdca09ecbbfc8af55f8b02ed1c5023fed32844b04e261bffc2d0766b1",
+      "source" : "naga\/tests\/in\/wgsl\/template-list-trailing-comma.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: type 'texture_2d' (or forward type reference)",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 45,
+        "start" : 35,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "a6fd61039b88e07b8015cdfe5c36c52d5e2ac0f3bb3daa31decb183a5611262a",
+      "source" : "naga\/tests\/in\/wgsl\/texture-arg.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: type 'texture_external' (or forward type reference)",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 47,
+        "start" : 31,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "bb32941c4d6ffa266bd6ec40d1848523190c742cf98b8e8ca2e9079c7bd35cf3",
+      "source" : "naga\/tests\/in\/wgsl\/texture-external.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: type 'vec3i' (or forward type reference)",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 44,
+        "start" : 39,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "aff0c536cddddf6efa1354cbf00176ccff1014b85070272168a25110a1c2adf1",
+      "source" : "naga\/tests\/in\/wgsl\/type-alias.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA2001",
+      "diagnostic_message" : "Expected numeric\/bool literal",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 77,
+        "start" : 73,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "b9b841fb79a2476de32b32695d12aa242273d718e9266b03bae5ca2f31f3ecd8",
+      "source" : "naga\/tests\/in\/wgsl\/type-inference.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: zero composite constructor",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 1089,
+        "start" : 1084,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "87c60f975b514c29d29637a4723f56453a6e9e3c38a34d3674e6515d4113aa59",
+      "source" : "naga\/tests\/in\/wgsl\/types_with_comments.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "Structure member bindings require interface validation not yet implemented",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 75,
+        "start" : 70,
+        "unit" : "utf8"
+      },
+      "parse" : "accepted",
+      "reference_configuration_executed" : false,
+      "semantic" : "rejected",
+      "sha256" : "1982e7587afdbe190ce3dc21445874796de55892c6d7daf4f1f580e3503d1388",
+      "source" : "naga\/tests\/in\/wgsl\/unconsumed_vertex_outputs_frag.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA2001",
+      "diagnostic_message" : "Expected '<', found '('",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 299,
+        "start" : 298,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "db7d62b98b4ffc9fb694d157be8cbe5b57954a25d8ebc833a217be6bab12de77",
+      "source" : "naga\/tests\/in\/wgsl\/unconsumed_vertex_outputs_vert.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: type 'texture_depth_2d_array' (or forward type reference)",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 106,
+        "start" : 84,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "0a95ce96a65e3f668e36db820c086c8695b59979ab73b798d9da8b24c50feb64",
+      "source" : "naga\/tests\/in\/wgsl\/use-gl-ext-over-grad-workaround-if-instructed.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA6002",
+      "diagnostic_message" : "WGSL construct not implemented: type 'vec3u' (or forward type reference)",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 393,
+        "start" : 388,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "b81a6bd3bbfa1cf117fc16902b7f1527db04961fffdc01c9be0f575a51bf4dbf",
+      "source" : "naga\/tests\/in\/wgsl\/workgroup-uniform-load-atomic.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA4002",
+      "diagnostic_message" : "Expected u32 constant",
+      "format" : "wgsl",
+      "location" : {
+        "end" : 64,
+        "start" : 60,
+        "unit" : "utf8"
+      },
+      "parse" : "rejected",
+      "reference_configuration_executed" : false,
+      "semantic" : "not-run",
+      "sha256" : "4a329e67c5d3308c90fb200a8803f587873adb2e8dcbc63e2c5c34501d1e981a",
+      "source" : "naga\/tests\/in\/wgsl\/workgroup-uniform-load.wgsl",
+      "stage" : "source-declared"
+    },
+    {
+      "diagnostic_code" : "SAGA4002",
+      "diagnostic_message" : "Invalid array stride\/base",
+      "format" : "wgsl",
+      "parse" : "accepted",
+      "reference_configuration_executed" : false,
+      "semantic" : "rejected",
+      "sha256" : "a230a7c6fdb1f98bd95079857a2e581b24996049920dfd5717ea7081964c278d",
+      "source" : "naga\/tests\/in\/wgsl\/workgroup-var-init.wgsl",
+      "stage" : "source-declared"
+    }
+  ],
+  "scope" : "Raw input fixture file executions at explicit default options, NOT configured upstream expected outcomes or parity",
+  "shader_bytes_copied" : 0,
+  "validator_capabilities" : "referenceDefault",
+  "wgsl_options" : "parseDocComments=false,capabilities=allKnown"
+}

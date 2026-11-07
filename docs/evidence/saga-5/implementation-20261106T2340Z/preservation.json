@@ -1,0 +1,12 @@
+{
+  "reference_head": "a55352911bb26a1b33bc8d5fc03bdebb0a967f5a",
+  "reference_porcelain": "",
+  "baseline_fingerprints": {
+    "docs/baseline/saga-2/hashes.json": "5cedb71961d313a35de4c522fe79dd72314dc97154a2b5f12f0b0f29b574b034",
+    "docs/baseline/saga-2/test_docs.py": "f93250f18c2f107d0c045f9639405bdc2403e71d6631fb500522e0bd61e58acd",
+    "docs/baseline/saga-2/test_naga_scope.py": "1b75ed57d3cb3b3fae90d7658fa77dc7862d96a2b021800f14aa5e31dcef4bbf",
+    "docs/baseline/saga-2/verification-results.json": "9dc3535a477fdbe29f732d14a2959433c4237611244a54357820a89c3d8c42c0",
+    "docs/baseline/saga-2/verify_docs.py": "3a6ece4c57b8babb6ccb1854b56aa00b3eda85ddb5bdd9432082086874b0dad8"
+  },
+  "original_inventory_sha256": "8bc5d084f42e6bc641a96bd6a67c808e3c9ca727a373653b5d1d249821f68084"
+}

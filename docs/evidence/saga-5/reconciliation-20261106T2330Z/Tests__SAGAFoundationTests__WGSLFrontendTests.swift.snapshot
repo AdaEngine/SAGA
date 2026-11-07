@@ -1,0 +1,163 @@
+import Testing
+import SAGAShaderIR
+import SAGAFrontends
+
+// Independently authored SAGA fixtures; no upstream shader bytes copied.
+@Suite struct WGSLFrontendTests {
+    @Test func computeLowersStorageEffectsAndTypedExpressions() throws {
+        let m = try WGSLFrontend().parse(.wgsl("""
+        @group(0) @binding(0) var<storage, read_write> values: array<u32>;
+        @compute @workgroup_size(8) fn main(@builtin(global_invocation_id) id: vec3<u32>) {
+            let i = id.x;
+            values[i] = values[i] + 1u;
+        }
+        """))
+        #expect(m.entryPoints.count == 1)
+        #expect(m.entryPoints[0].workgroupSize.x == 8)
+        #expect(m.globalVariables.count == 1)
+        let fn = m.functions.values[0]
+        #expect(fn.statements.values.contains { if case .store = $0.kind { true } else { false } })
+        #expect(fn.statements.values.contains { if case .emit = $0.kind { true } else { false } })
+    }
+    @Test func functionCallsBranchesScopesAndReturns() throws {
+        let m = try WGSLFrontend().parse(.wgsl("""
+        fn twice(x: u32) -> u32 { return x * 2u; }
+        @compute @workgroup_size(1) fn main() {
+            var x: u32 = twice(3u);
+            if x > 2u { x = twice(x); } else { x = 1u; }
+        }
+        """))
+        #expect(m.functions.count == 2)
+        #expect(m.functions.values[1].statements.values.contains { if case .call = $0.kind { true } else { false } })
+    }
+    @Test func rejectsNamesTypesAndMalformedSyntax() throws {
+        for source in ["fn f() { missing = 1u; }", "fn f() { let a: bool = 1u; }", "fn f() { let a = ; }", "fn f() { let x = 1u; x = 2u; }", "fn f() { break; }", "fn f() { let x=1u; let x=2u; }"] {
+            #expect(throws: ShaderFailure.self) { try WGSLFrontend().parse(.wgsl(source)) }
+        }
+    }
+    @Test func nestedCommentsUnicodeAndExactUTF8Diagnostics() throws {
+        _ = try WGSLFrontend().parse(.wgsl("/* outer /* inner */ done */ fn café() { let α = 2u; }"))
+        let source = "fn café() { let α = missing; }"
+        do { _ = try WGSLFrontend().parse(.wgsl(source)); Issue.record("expected error") }
+        catch ShaderFailure.diagnostics(let ds) {
+            #expect(ds[0].code == .unresolvedName)
+            let bytes = Array(source.utf8)
+            let span = try #require(ds[0].span)
+            #expect(String(decoding: bytes[span.startUTF8..<span.endUTF8], as: UTF8.self) == "missing")
+        }
+    }
+    @Test func budgetsAndUnsupportedAreNotSuccess() throws {
+        for limits in [try ShaderLimits(tokens: 1), try ShaderLimits(nodes: 1), try ShaderLimits(depth: 1), try ShaderLimits(work: 1)] {
+            #expect(throws: ShaderFailure.self) { try WGSLFrontend(limits: limits).parse(.wgsl("fn main() { let a = ((1u+2u)); }")) }
+        }
+        #expect(throws: ShaderFailure.self) { try WGSLFrontend().parse(.wgsl("enable made_up; fn f() {}")) }
+        #expect(throws: ShaderFailure.self) { try WGSLFrontend().parse(.wgsl("fn f() { textureStore(); }")) }
+    }
+    @Test func deterministicBoundedFuzz() throws {
+        var seed: UInt64 = 0x53414741
+        let alphabet = Array("fn abc0123u{}()[];:+-*/=@<>!\n".utf8)
+        let frontend = WGSLFrontend(limits: try ShaderLimits(sourceBytes: 512, tokens: 256, nodes: 512, depth: 24, work: 10000))
+        for _ in 0..<256 {
+            var bytes: [UInt8] = []
+            for _ in 0..<64 { seed = seed &* 6364136223846793005 &+ 1; bytes.append(alphabet[Int(seed >> 32) % alphabet.count]) }
+            let input = ShaderInput.wgsl(String(decoding: bytes, as: UTF8.self))
+            let first = Result { try frontend.parse(input) }
+            let second = Result { try frontend.parse(input) }
+            switch (first, second) {
+            case (.success(let a), .success(let b)): #expect(a == b)
+            case (.failure(let a as ShaderFailure), .failure(let b as ShaderFailure)): #expect(a == b)
+            default: Issue.record("nondeterministic result")
+            }
+        }
+    }
+    @Test func cancellationBeforeScan() async throws {
+        let task = Task {
+            while !Task.isCancelled { await Task.yield() }
+            return try WGSLFrontend().parse(.wgsl("fn f() {}"))
+        }
+        task.cancel()
+        await #expect(throws: CancellationError.self) { try await task.value }
+    }
+    @Test func shortCircuitCallIsOnlyInConditionalBranch() throws {
+        let m = try WGSLFrontend().parse(.wgsl("fn flag() -> bool { return true; } fn f(a: bool) -> bool { return a && flag(); }"))
+        let f = m.functions.values[1]
+        let root = f.blocks.values[f.body.index]
+        #expect(!root.statements.contains { if case .call = f.statements.values[$0.index].kind { true } else { false } })
+        let conditional = try #require(root.statements.first { if case .ifCondition = f.statements.values[$0.index].kind { true } else { false } })
+        if case .ifCondition(_,let accept,let reject) = f.statements.values[conditional.index].kind {
+            #expect(f.blocks.values[accept.index].statements.contains { if case .call = f.statements.values[$0.index].kind { true } else { false } })
+            #expect(f.blocks.values[reject.index].statements.isEmpty)
+        }
+    }
+    @Test func loopsSwitchAndContinuingProduceStructuredIR() throws {
+        let module = try WGSLFrontend().parse(.wgsl("""
+        fn f() {
+            var total = 0u;
+            for (var i = 0u; i < 4u; i++) { total += i; }
+            while total < 10u { total++; }
+            loop { total++; continuing { break if total > 12u; } }
+            switch total { case 1u, 2u: { total = 3u; } default: { total = 4u; } }
+        }
+        """))
+        let function = module.functions.values[0]
+        #expect(function.statements.values.filter { if case .loop = $0.kind { true } else { false } }.count == 3)
+        #expect(function.statements.values.contains { if case .switchValue = $0.kind { true } else { false } })
+        var budget = ShaderBudget()
+        try function.walkBlocks(budget:&budget) { _ in }
+    }
+    @Test func aliasesStructuresConstructorsAndNaturalLayout() throws {
+        let m = try WGSLFrontend().parse(.wgsl("""
+        alias Index = u32;
+        struct Data { x: Index, position: vec3<f32>, tail: array<vec2<f32>, 2>, }
+        @group(1) @binding(2) var<storage, read_write> data: Data;
+        fn f() { let d = Data(1u, vec3<f32>(2.0f), array<vec2<f32>, 2>(vec2<f32>(0.0f),vec2<f32>(1.0f))); data.x = d.x; }
+        """))
+        let d = try #require(m.types.values.first { $0.name == "Data" })
+        if case .structure(let members,let span) = d.kind {
+            #expect(members.map(\.offset) == [0,16,32]); #expect(span == 48)
+        } else { Issue.record("missing structured type") }
+    }
+    @Test func scalarMaterializationAndConstantArithmetic() throws {
+        let m = try WGSLFrontend().parse(.wgsl("const N = 7; fn f() { let x: i32 = -2; let y = 2+3*4; let z: u32 = N; let b = bool(true); }"))
+        #expect(m.functions.values[0].expressions.values.contains { $0.kind == .literal(.i32(14)) })
+        #expect(m.functions.values[0].expressions.values.contains { $0.kind == .literal(.i32(-2)) })
+        #expect(m.functions.values[0].expressions.values.contains { $0.kind == .literal(.u32(7)) })
+        for bad in ["fn f() { let n = 9223372036854775807+1; }", "fn f() { let n = 1/0; }", "fn f() { let n: u32 = -1; }"] {
+            #expect(throws:ShaderFailure.self) { try WGSLFrontend().parse(.wgsl(bad)) }
+        }
+    }
+    @Test func unicodeScalarIdentityDoesNotNormalizeIdentifiers() throws {
+        let composed = String(decoding:[0xc3,0xa9],as:UTF8.self)
+        let decomposed = String(decoding:[0x65,0xcc,0x81],as:UTF8.self)
+        #expect(!composed.utf8.elementsEqual(decomposed.utf8))
+        let source = "fn f() { let " + composed + " = 1u; let " + decomposed + " = 2u; let x = " + composed + " + " + decomposed + "; }"
+        let m = try WGSLFrontend().parse(.wgsl(source))
+        #expect(m.functions.count == 1)
+    }
+    @Test func failClosedLexicalAndSemanticBoundaries() throws {
+        for s in [
+            "/* unterminated", "fn f() { let x = 00; }", "fn f() { let x = 1e+; }", "fn f() { let x = 4294967296u; }",
+            "fn f() { let x = 1.0 & 2.0; }", "fn f() { let x = 1u + true; }", "fn f() -> u32 { if true { return 1u; } }",
+            "@group(0) var<storage> a: array<u32>;", "fn f() { let<function> x = 1u; }", "var<private, read> a: u32;",
+            "fn f() { { let x = 1u; } let y=x; }", "fn f() { loop { continuing { continue; } } }",
+            "fn f() { switch 1u { case 1u: {} case 1u: {} default: {} } }"
+        ] { #expect(throws:ShaderFailure.self) { try WGSLFrontend().parse(.wgsl(s)) } }
+    }
+    @Test func formatCapabilitiesAndDocOptionsAreNotIgnored() throws {
+        #expect(throws:ShaderFailure.self) { try WGSLFrontend().parse(.spirv([])) }
+        let without = WGSLFrontend(options:WGSLFrontendOptions(capabilities:[]))
+        #expect(throws:ShaderFailure.self) { try without.parse(.wgsl("@fragment fn f(@builtin(sample_index) i: u32) {}")) }
+        #expect(throws:ShaderFailure.self) { try WGSLFrontend(options:WGSLFrontendOptions(parseDocComments:true)).parse(.wgsl("/// doc\nfn f() {}")) }
+        _ = try WGSLFrontend(options:WGSLFrontendOptions(parseDocComments:true)).parse(.wgsl("// regular\nfn f() {}"))
+    }
+    @Test func boundedAdversarialStructuredInputs() throws {
+        let f = WGSLFrontend(limits:try ShaderLimits(sourceBytes:20000,tokens:3000,nodes:5000,depth:24,work:100000))
+        for source in [String(repeating:"/*",count:200)+String(repeating:"*/",count:200),
+                       "fn f(){let x="+String(repeating:"(",count:200)+"1u"+String(repeating:")",count:200)+";}",
+                       "fn f(){"+String(repeating:"if true {",count:100)+String(repeating:"}",count:100)+"}",
+                       "alias T = "+String(repeating:"array<",count:100)+"u32"+String(repeating:",1>",count:100)+";"] {
+            #expect(throws:ShaderFailure.self) { try f.parse(.wgsl(source)) }
+        }
+    }
+
+}

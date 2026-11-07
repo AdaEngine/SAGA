@@ -1,0 +1,27 @@
+Building for debugging...
+[0/5] Write sources
+[1/5] Write swift-version-3CD7052B146186F2.txt
+[3/5] Emitting module SAGAFoundationTests
+[4/5] Compiling SAGAFoundationTests WGSLFrontendTests.swift
+[4/6] Write Objects.LinkFileList
+[5/6] Linking SAGAPackageTests
+Build complete! (1.69s)
+Test Suite 'Selected tests' started at 2026-11-07 03:29:11.379.
+Test Suite 'SAGAPackageTests.xctest' started at 2026-11-07 03:29:11.386.
+Test Suite 'SAGAPackageTests.xctest' passed at 2026-11-07 03:29:11.386.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+Test Suite 'Selected tests' passed at 2026-11-07 03:29:11.386.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.007) seconds
+􀟈  Test run started.
+􀄵  Testing Library Version: 1902
+􀄵  Target Platform: arm64e-apple-macos14.0
+􀟈  Suite WGSLFrontendTests started.
+􀟈  Test workgroupConstantExpressionsHaveCommonTypeAndPositiveValues() started.
+􀟈  Test constIntegerWrappingAndGrammarMatchPinnedRules() started.
+􀢄  Test workgroupConstantExpressionsHaveCommonTypeAndPositiveValues() recorded an issue at WGSLFrontendTests.swift:333:6: Caught error: .diagnostics([SAGAShaderIR.ShaderDiagnostic(severity: SAGAShaderIR.ShaderDiagnostic.Severity.error, message: "Compute needs workgroup_size with 1...3 dimensions", code: SAGAShaderIR.ShaderDiagnosticCode.invalidBinding, location: Optional(SAGAShaderIR.ShaderLocation.source(SAGAShaderIR.SourceSpan(startUTF8: 61, endUTF8: 65))))])
+􀢄  Test constIntegerWrappingAndGrammarMatchPinnedRules() recorded an issue at WGSLFrontendTests.swift:322:6: Caught error: .diagnostics([SAGAShaderIR.ShaderDiagnostic(severity: SAGAShaderIR.ShaderDiagnostic.Severity.error, message: "Integer constant overflow or unrepresentable conversion", code: SAGAShaderIR.ShaderDiagnosticCode.invalidType, location: Optional(SAGAShaderIR.ShaderLocation.source(SAGAShaderIR.SourceSpan(startUTF8: 29, endUTF8: 30))))])
+􀢄  Test workgroupConstantExpressionsHaveCommonTypeAndPositiveValues() failed after 0.001 seconds with 1 issue.
+􀢄  Test constIntegerWrappingAndGrammarMatchPinnedRules() failed after 0.001 seconds with 1 issue.
+􀢄  Suite WGSLFrontendTests failed after 0.001 seconds with 2 issues.
+􀄵  // Independently authored SAGA fixtures; no upstream shader bytes copied.
+􀢄  Test run with 2 tests in 1 suite failed after 0.001 seconds with 2 issues.

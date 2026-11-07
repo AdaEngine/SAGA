@@ -1,0 +1,44 @@
+[0/1] Planning build
+Building for debugging...
+[0/6] Write sources
+[1/6] Write swift-version-3CD7052B146186F2.txt
+[3/9] Compiling SAGAFrontends HexFloatLiterals.swift
+[4/9] Emitting module SAGAFrontends
+[5/9] Compiling SAGAFrontends FloatingConstants.swift
+[6/9] Compiling SAGAFrontends Expressions.swift
+[7/9] Compiling SAGAFrontends ScalarConstantExpressions.swift
+[8/17] Compiling SAGAFrontends Materialization.swift
+[9/17] Compiling SAGAFrontends ControlExpressions.swift
+[10/17] Compiling SAGAFrontends Statements.swift
+[11/17] Compiling SAGAFrontends VectorConstants.swift
+[12/17] Compiling SAGAFrontends ConstantExpressions.swift
+[13/17] Compiling SAGAFrontends ModuleDeclarations.swift
+[14/17] Compiling SAGAFrontends WGSLFrontend.swift
+[15/17] Compiling SAGAFrontends Loops.swift
+[16/20] Compiling SAGACompiler FrontendValidation.swift
+[17/20] Compiling SAGACompiler Compiler.swift
+[18/20] Emitting module SAGACompiler
+[19/27] Emitting module SAGAFoundationTests
+[20/27] Compiling SAGAFoundationTests FrontendIntegrationTests.swift
+[21/27] Compiling SAGAFoundationTests CompilerTests.swift
+[22/27] Compiling SAGAFoundationTests FrontendContractsTests.swift
+[23/27] Compiling SAGAFoundationTests WGSLFrontendTests.swift
+[24/27] Compiling SAGAFoundationTests GLSLFrontendTests.swift
+[25/27] Compiling SAGAFoundationTests SPIRVFrontendTests.swift
+[25/27] Write Objects.LinkFileList
+[26/27] Linking SAGAPackageTests
+Build complete! (3.76s)
+Test Suite 'Selected tests' started at 2026-11-07 04:53:53.854.
+Test Suite 'SAGAPackageTests.xctest' started at 2026-11-07 04:53:53.861.
+Test Suite 'SAGAPackageTests.xctest' passed at 2026-11-07 04:53:53.861.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+Test Suite 'Selected tests' passed at 2026-11-07 04:53:53.861.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.007) seconds
+􀟈  Test run started.
+􀄵  Testing Library Version: 1902
+􀄵  Target Platform: arm64e-apple-macos14.0
+􀟈  Suite WGSLFrontendTests started.
+􀟈  Test floatingSqrtBuiltinsAndHexLiteralsHaveTypedPrecision() started.
+􁁛  Test floatingSqrtBuiltinsAndHexLiteralsHaveTypedPrecision() passed after 0.004 seconds.
+􁁛  Suite WGSLFrontendTests passed after 0.004 seconds.
+􁁛  Test run with 1 test in 1 suite passed after 0.004 seconds.

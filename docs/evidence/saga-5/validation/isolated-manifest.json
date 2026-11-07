@@ -1,0 +1,16 @@
+{
+  "temporary_checkout": "/var/folders/cp/2pym2k7n6z52p2j9vvxn3_cr0000gn/T/saga-validation-isolation-16p36azx",
+  "scope": "Exact copied shader IR and semantic sources + same raw validation tests ONLY; excludes conflicting frontend sources. This is not an integrated project pass.",
+  "sha256": {
+    "Sources/SAGAShaderIR/TypedIR.swift": "fb46b19c546306dedcbf412e8be009a9c50038e563ad00163d3cc49e49a3bce5",
+    "Sources/SAGAShaderIR/BlockWalk.swift": "5c90afb8d51c003aef0da14be3b82409db7257e3126304ae8d3a8296a78851f5",
+    "Sources/SAGAShaderIR/Capabilities.swift": "03e3779b7fdf62437729255ca731bd853106ff0957834490f378c4fc77abaab5",
+    "Sources/SAGAShaderIR/Contracts.swift": "49273f626cd1b25e530206a168850ebe308bb609f9dc8b3b89e4003632f37529",
+    "Sources/SAGAShaderIR/Tables.swift": "478ceb7991b633f22cb4c0fb04736a6d10040a74c2cf28aafdff363321413c3f",
+    "Sources/SAGAShaderIR/Diagnostics.swift": "eacbb4adf49273251a6237af7288207f5f3f4005c930bd1525b7347592b943dd",
+    "Sources/SAGAShaderIR/Budgets.swift": "4341c2005120441e2d31cac3cf14de0cebbd0d5322ba10c89cd1d36b197ae0b0",
+    "Sources/SAGAValidation/ShaderSemanticValidator.swift": "9834bc9002c6721cd29abcb985f916d87ff0f3f8e7d6f8f0b0b9bde202fd71d8",
+    "Sources/SAGAValidation/Validation.swift": "afa1d9e4716cc054f9002df795ed679d42aa6fb4f22a3a549a00ddcb1d588d68",
+    "Tests/SAGAFoundationTests/ShaderSemanticValidationTests.swift": "a3b892ed2af733740ac889dda68c46b0c19e4dd2b2a2fb6a78a732337ca7cf6f"
+  }
+}

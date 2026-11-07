@@ -1,0 +1,141 @@
+{
+  "scope": "SAGA-16 partial semantic checker; full DoD incomplete",
+  "reference_revision": "a55352911bb26a1b33bc8d5fc03bdebb0a967f5a",
+  "implemented_families": [
+    "ordered checked type/expression/function handles and cycle rejection",
+    "scalar widths and capability requirements (f16/f64/i16/i64)",
+    "vector/matrix/array/structure layout size/stride/alignment core rules",
+    "literal result type recomputation and finite value checks",
+    "core unary/binary/select/compose/access/swizzle/cast/bitcast/math overload checks",
+    "local/global pointers, read/write permissions and initializer restrictions",
+    "entrypoint stage/builtin/type/resource-binding collisions",
+    "explicit emit scope and unique call-result producer",
+    "return paths, break/continue/continuing restrictions, conservative loops",
+    "transitive stage and uniformity requirements, divergent nested early exit regression",
+    "input/name bytes, node/work/depth budgets and cancellation",
+    "uniform aggregate natural/required alignment, 16-byte array stride, nested-struct following-member gap and transitive compatibility; atomic uniform rejection",
+    "transitive plain/constructible/host-shareable/contains-atomic properties; private/function/workgroup/uniform/storage store legality and pointer targets",
+    "direct final runtime array vs forbidden nested-unsized forms; atomic read-write storage/workgroup only; ordinary aggregate atomic copy rejected",
+    "entrypoint struct member bindings, shared member+argument collision sets, canonical position builtin identity, bounded traversal with member diagnostics; nested IO structs rejected per pinned interface rules",
+    "literal/zero/named-constant raw Access static bounds, runtime unknown length/dynamic index preservation",
+    "exact matrix column compose and raw vector scalar/vector mixed lane compose",
+    "scalar/vector-only unary/select/derivative domain checks, integer-only xor, matching vector bool select condition"
+  ],
+  "unsupported_or_incomplete": [
+    "full Naga type equivalence/interning and extended IO (dual-source/per-primitive), regular pointer function parameters and extended type/address-space rules",
+    "images/textures/samplers/binding arrays and image/atomic operation semantics",
+    "remaining math/relational/constructor and packed bitcast overloads",
+    "full constant evaluation, overrides/specialization and dependent arrays",
+    "full control-flow analysis for switch/fallthrough/complex loops and uniformity precision",
+    "subgroup/cooperative matrix/ray query/mesh/task/ray pipeline rules",
+    "diagnostic filter/documentation/special-type handle semantics",
+    "complete detailed per-rule capability/options/fixture denominator and upstream fixture execution"
+  ],
+  "policy": "Unimplemented rule families rejected with unsupportedConstruct; no metadata-only accept. Conservative rejects are not parity.",
+  "verification": {
+    "isolated_raw_ir_tests": 16,
+    "integrated_snapshot_tests": 16,
+    "integrated_snapshot_note": "Earlier13 raw+3 integration passed. After reconciliation, actual full native113 tests PASS; isolated16 raw tests are supplemental, not replacement.",
+    "fuzz": "300 deterministic malformed raw-handle cases, independently authored; not full upstream corpus",
+    "latest_integrated_full_suite": 214,
+    "uniform_continuation": {
+      "time": "2026-11-06T23:52Z",
+      "new_tests": 6,
+      "semantic_suite": 21,
+      "full_native_suite": 119,
+      "native_test_evidence": "verification-2",
+      "strict_native_build_evidence": "verification-3",
+      "matched_wasm_compile_evidence": "verification-4",
+      "evidence_scope": "IDs are scoped to the uniform continuation turn, not the previous113-test turn",
+      "red_green": true,
+      "log_directory": "docs/evidence/saga-5/uniform-layout-20261106T2352Z",
+      "spec_anchor": "address-space-layout-constraints",
+      "reference_paths": [
+        "naga/src/valid/type.rs",
+        "docs/sources/wgsl-spec.bs"
+      ],
+      "profile": "Pinned legacy uniform constraints; uniform_buffer_standard_layout extension is not enabled/implemented."
+    }
+  },
+  "production_sha256": "1d2195ed29d58e40cd413b1ff7d6c97ee13a47c91ec5156bdcef5bd040e6d6b2",
+  "type_legality_continuation": {
+    "date": "2026-11-07T00:05Z",
+    "new_test_functions": 12,
+    "raw_type_and_io_tests": 10,
+    "wgsl_integration_tests": 2,
+    "full_suite": 131,
+    "red_green_logs": "docs/evidence/saga-5/type-legality/",
+    "policy": "Direct runtime storage array and final direct runtime member of root storage struct accepted in raw IR; nested unsized aggregates forbidden. Default32-bit atomic profile only; other capability-gated atomic widths still unsupported.",
+    "pinned_sources": [
+      "WGSL #host-shareable-types #var-decls #struct-types #entry-point-decl",
+      "naga/src/valid/type.rs TypeFlags and member rules",
+      "naga/src/valid/interface.rs global/interface rules"
+    ],
+    "cross_scope_blocker": "WGSL frontend runtime-array struct layout returns span0 instead of minimum stride; corrected raw IR passes, current WGSL source rejected. Frontend excluded from current edit ownership; no validator weakening."
+  },
+  "runtime_array_frontend_blocker_resolution": {
+    "resolved": true,
+    "validator_unchanged": true,
+    "evidence": "docs/evidence/saga-5/runtime-array-layout/handoff.json",
+    "note": "Old span0 cross-scope blocker is historical. End-to-end storage structs now pass with span>=offset+stride; no semantic validator relaxation. Other full-scope residuals unchanged."
+  },
+  "wgsl_bool_memory_layout": {
+    "resolved_source_layout": true,
+    "validator_unchanged": true,
+    "ir_width": 1,
+    "source_memory_width": 4,
+    "raw_ir_bool_layout": "Still pinned width-based profile, NOT normative WGSL source memory; not globally replaced.",
+    "explicit_member_layout": "Literal align/size attributes including nested array source alignment; expression arguments incomplete.",
+    "handoff": "docs/evidence/saga-5/bool-layout/handoff.json"
+  },
+  "wgsl_attribute_integer_consteval": {
+    "implemented": "bounded scalar integer frontend evaluation, folded literals; no validator changes",
+    "handoff": "docs/evidence/saga-5/attribute-consteval/handoff.json",
+    "full_consteval_parity": false,
+    "abstract_constant_ir_semantics": "Existing raw validator still rejects abstract scalar declarations; do not claim all integer const modules validate."
+  },
+  "wgsl_declaration_materialization": {
+    "implemented": "bounded module index/DAG+cycle detection; frontend compile-time abstract values, contextual concrete literals and pruning/remapping before immutable IR",
+    "raw_validator_unchanged": true,
+    "abstract_integer_module_gap_resolved": true,
+    "scope_boundary": "Frontend lowering boundary ONLY, not general IR compaction/serialization/transform parity. Extended constant expressions still incomplete.",
+    "handoff": "docs/evidence/saga-5/module-dependencies/handoff.json"
+  },
+  "wgsl_boolean_const_assert": {
+    "implemented_profile": "frontend scalar integer/bool comparisons/logical operations and module/function assertions incl local const lexical scopes",
+    "raw_validator_changed": false,
+    "full_constant_expression_parity": false,
+    "assertion_runtime_statements": 0,
+    "normative_short_circuit_validation": "all RHS syntax/name/type validation, ordinary lazy evaluation and separate required creation-time checks; known pinned Naga RHS TODO not reproduced",
+    "handoff": "docs/evidence/saga-5/boolean-const/handoff.json"
+  },
+  "wgsl_floating_const_and_scalar_alias": {
+    "implemented": "frontend scalar abstract-float/f32 const tree and annotations plus scalar alias constructors; integer-only attribute types preserved",
+    "raw_validator_changed": false,
+    "full_consteval_parity": false,
+    "handoff": "docs/evidence/saga-5/float-const/handoff.json"
+  },
+  "wgsl_vector_const": {
+    "implemented": "bounded generic/alias/inferred vector constructors/reductions/comparison/unary +contextual checked compose lowering; continued sqrt/inverseSqrt and checked hex literal support",
+    "raw_validator_changed": false,
+    "full_consteval_parity": false,
+    "handoff": "docs/evidence/saga-5/vector-const/handoff.json"
+  },
+  "wgsl_vector_operations_const_matrix": {
+    "implemented": "typed vector arithmetic/select/swizzle/index and bounded const-only matrix constructors/column access",
+    "raw_validator_changed": false,
+    "raw_literal_access_bounds": "RESOLVED by raw Access bounds rule, current handoff raw-boundary-completion/handoff.json; historical audit remains retained.",
+    "matrix_runtime_compose": "Core matrix compose + checked WGSL runtime/local lowering implemented; matrix arithmetic/extended conversion overloads still incomplete.",
+    "full_consteval_parity": false,
+    "handoff": "docs/evidence/saga-5/vector-operations/handoff.json"
+  },
+  "raw_access_matrix_boundary_followup": {
+    "status": "implemented and verified for pinned literal/zero/named-constant Access and core matrix/vector compose rules",
+    "prior_raw_access_defect_resolved": true,
+    "prior_matrix_runtime_boundary_resolved": true,
+    "source_validator_changed": true,
+    "private_witness_and_shared_ir_unchanged": true,
+    "full_semantic_DoD": false,
+    "handoff": "docs/evidence/saga-5/raw-boundary-completion/handoff.json"
+  }
+}

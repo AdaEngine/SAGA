@@ -1,0 +1,45 @@
+[0/1] Planning build
+Building for debugging...
+[0/6] Write sources
+[1/6] Write swift-version-3CD7052B146186F2.txt
+[3/7] Compiling SAGAFrontends ScalarConstantExpressions.swift
+[4/7] Compiling SAGAFrontends VectorOperations.swift
+[5/7] Emitting module SAGAFrontends
+[6/9] Compiling SAGAFrontends FloatingConstants.swift
+[7/9] Compiling SAGAFrontends VectorConstants.swift
+[8/12] Compiling SAGACompiler Compiler.swift
+[9/12] Compiling SAGACompiler FrontendValidation.swift
+[10/12] Emitting module SAGACompiler
+[11/19] Compiling SAGAFoundationTests CompilerTests.swift
+[12/19] Compiling SAGAFoundationTests WGSLFrontendTests.swift
+[13/19] Compiling SAGAFoundationTests GLSLFrontendTests.swift
+[14/19] Compiling SAGAFoundationTests FrontendIntegrationTests.swift
+[15/19] Emitting module SAGAFoundationTests
+[16/19] Compiling SAGAFoundationTests FrontendContractsTests.swift
+[17/19] Compiling SAGAFoundationTests SPIRVFrontendTests.swift
+[17/19] Write Objects.LinkFileList
+[18/19] Linking SAGAPackageTests
+Build complete! (3.75s)
+Test Suite 'Selected tests' started at 2026-11-07 05:09:04.786.
+Test Suite 'SAGAPackageTests.xctest' started at 2026-11-07 05:09:04.793.
+Test Suite 'SAGAPackageTests.xctest' passed at 2026-11-07 05:09:04.793.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+Test Suite 'Selected tests' passed at 2026-11-07 05:09:04.793.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.007) seconds
+􀟈  Test run started.
+􀄵  Testing Library Version: 1902
+􀄵  Target Platform: arm64e-apple-macos14.0
+􀟈  Suite FrontendIntegrationTests started.
+􀟈  Suite WGSLFrontendTests started.
+􀟈  Test vectorConstOperationsMaterializeThroughExistingWitness() started.
+􀟈  Test constVectorPostfixAccessHasExactBoundsAndSwizzleRules() started.
+􀟈  Test vectorArithmeticAndSelectHaveNormativeShapesAndPrecision() started.
+􀢄  Test vectorConstOperationsMaterializeThroughExistingWitness() recorded an issue at FrontendIntegrationTests.swift:372:3: Caught error: .diagnostics([SAGAShaderIR.ShaderDiagnostic(severity: SAGAShaderIR.ShaderDiagnostic.Severity.error, message: "WGSL construct not implemented: materialization of nonliteral abstract expression", code: SAGAShaderIR.ShaderDiagnosticCode.unsupportedConstruct, location: Optional(SAGAShaderIR.ShaderLocation.source(SAGAShaderIR.SourceSpan(startUTF8: 35, endUTF8: 41))))])
+􀢄  Test vectorConstOperationsMaterializeThroughExistingWitness() failed after 0.002 seconds with 1 issue.
+􀢄  Suite FrontendIntegrationTests failed after 0.002 seconds with 1 issue.
+􁁛  Test constVectorPostfixAccessHasExactBoundsAndSwizzleRules() passed after 0.006 seconds.
+􀢄  Test vectorArithmeticAndSelectHaveNormativeShapesAndPrecision() recorded an issue at WGSLFrontendTests.swift:821:4: Expectation failed: an error was expected but none was thrown and "IRModule(types: SAGAShaderIR.IRTable<SAGAShaderIR.IRType>(values: [SAGAShaderIR.IRType(name: nil, kind: SAGAShaderIR.IRTypeKind.scalar(SAGAShaderIR.IRScalar(kind: SAGAShaderIR.IRScalarKind.bool, width: 1)), location: nil)]), specialTypes: SAGAShaderIR.IRSpecialTypes(rayDescriptor: nil, rayIntersection: nil, rayVertexReturn: nil, externalTextureParameters: nil, externalTextureTransferFunction: nil, predeclared: []), constants: SAGAShaderIR.IRTable<SAGAShaderIR.IRConstant>(values: [SAGAShaderIR.IRConstant(name: Optional("A"), type: SAGAShaderIR.IRHandle<SAGAShaderIR.IRType>(index: 0), initializer: SAGAShaderIR.IRHandle<SAGAShaderIR.IRExpression>(index: 0), location: Optional(SAGAShaderIR.ShaderLocation.source(SAGAShaderIR.SourceSpan(startUTF8: 6, endUTF8: 7))))]), overrides: SAGAShaderIR.IRTable<SAGAShaderIR.IROverride>(values: []), globalVariables: SAGAShaderIR.IRTable<SAGAShaderIR.IRGlobalVariable>(values: []), globalExpressions: SAGAShaderIR.IRTable<SAGAShaderIR.IRExpression>(values: [SAGAShaderIR.IRExpression(type: SAGAShaderIR.IRHandle<SAGAShaderIR.IRType>(index: 0), kind: SAGAShaderIR.IRExpressionKind.literal(SAGAShaderIR.IRLiteral.bool(true)), location: Optional(SAGAShaderIR.ShaderLocation.source(SAGAShaderIR.SourceSpan(startUTF8: 8, endUTF8: 12))))]), functions: SAGAShaderIR.IRTable<SAGAShaderIR.IRFunction>(values: []), entryPoints: [], diagnosticFilters: SAGAShaderIR.IRTable<SAGAShaderIR.IRDiagnosticFilter>(values: []), diagnosticFilter: nil, documentation: [])" was returned
+􀢄  Test vectorArithmeticAndSelectHaveNormativeShapesAndPrecision() failed after 0.009 seconds with 1 issue.
+􀢄  Suite WGSLFrontendTests failed after 0.009 seconds with 1 issue.
+􀄵  // Independently authored SAGA fixtures; no upstream shader bytes copied.
+􀢄  Test run with 3 tests in 2 suites failed after 0.010 seconds with 2 issues.

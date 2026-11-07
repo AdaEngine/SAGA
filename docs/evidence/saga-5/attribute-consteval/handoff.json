@@ -1,0 +1,75 @@
+{
+  "date": "2026-11-07T00:38Z",
+  "scope": "Bounded scalar integer WGSL const expressions; not entire WGSL const evaluator or full SAGA-5",
+  "original_named_const_gap_resolved": true,
+  "full_saga5_complete": false,
+  "native_suite": 152,
+  "new_test_functions": 10,
+  "red_green": true,
+  "evidence_ids_turn_scoped": {
+    "native_tests": "verification-4",
+    "native_build": "verification-5",
+    "matched_wasm_compiler": "verification-6"
+  },
+  "syntax": [
+    "named previous integer const declarations and arithmetic const initializers",
+    "parentheses; unary - and ~; + - * / %; shifts and bitwise operators with WGSL group restrictions",
+    "i32/u32 integer constructors and scalar integer min/max/clamp",
+    "single optional trailing comma; exact per-argument splitting"
+  ],
+  "types": [
+    "abstract integer Int64 checked arithmetic",
+    "concrete i32/u32 modulo32 arithmetic and signed unary negate",
+    "abstract conversion representability; concrete signed/unsigned bit reinterpretation",
+    "mixed concrete types rejected; checked zero/minus1 division and shift width/sign overflow"
+  ],
+  "applicability": [
+    "align,size member-only with previous minimum/fixed-footprint/power2/alignment cache checks",
+    "group,binding,location existing integer-parameter sites only",
+    "workgroup_size const dimensions with common i32/u32 and positive values; override still unsupported not silently accepted",
+    "creation-fixed array counts via same evaluator; unparenthesized right shift next to template close remains unsupported"
+  ],
+  "safety": {
+    "work_node_depth_cancellation_accounting": true,
+    "local_evaluator_depth_cap": 24,
+    "deep_regression": "Added256 unary/parenthesis depth input; first run exited signal10. Same unchanged test now throws budgetExceeded after evaluator-local recursion/grammar-depth cap24; failure and successful retry logs preserved. No full no-trap fuzz proof claimed.",
+    "deterministic_arithmetic_property_cases": 128
+  },
+  "validator_unchanged": true,
+  "shared_ir_unchanged": true,
+  "preserved_bool_memory4_irwidth1": true,
+  "source_hashes": {
+    "Sources/SAGAFrontends/WGSL/ConstantExpressions.swift": "d36bf7f97c808eecc31b5ab0e38bdfc8fae3d1a7d4ab571609003ffcc5899631",
+    "Sources/SAGAFrontends/WGSL/WGSLFrontend.swift": "97d5c23db4ebfaf6e5e612a435343cfb2f6f0e40167acd5b2685eade7b658495",
+    "Sources/SAGAFrontends/WGSL/Statements.swift": "f88c0063fe0b60fd7532ca133666f80dcc520fc5da47efb44b5addc886e5548a",
+    "Tests/SAGAFoundationTests/WGSLFrontendTests.swift": "71a07b62c196e9739f2792705e5170d0a58d7e721cf4979b03f96d52cd1c4fb6",
+    "Tests/SAGAFoundationTests/FrontendIntegrationTests.swift": "15e77d50655bf645bf1da59f996929fd5e3bdc10c1de3f68b439fe803f6e3092",
+    "Sources/SAGAValidation/ShaderSemanticValidator.swift": "2240426e6f836d0beb7c5c45e2c73038e61e05a0eb817c5f0844625ec18539de"
+  },
+  "reference_pin": "a55352911bb26a1b33bc8d5fc03bdebb0a967f5a",
+  "reference_porcelain": "",
+  "baseline_hashes": {
+    "docs/baseline/saga-2/verification-results.json": "9dc3535a477fdbe29f732d14a2959433c4237611244a54357820a89c3d8c42c0",
+    "docs/baseline/saga-2/test_docs.py": "f93250f18c2f107d0c045f9639405bdc2403e71d6631fb500522e0bd61e58acd",
+    "docs/baseline/saga-2/hashes.json": "5cedb71961d313a35de4c522fe79dd72314dc97154a2b5f12f0b0f29b574b034",
+    "docs/baseline/saga-2/test_naga_scope.py": "1b75ed57d3cb3b3fae90d7658fa77dc7862d96a2b021800f14aa5e31dcef4bbf",
+    "docs/baseline/saga-2/verify_docs.py": "3a6ece4c57b8babb6ccb1854b56aa00b3eda85ddb5bdd9432082086874b0dad8"
+  },
+  "next_gaps": [
+    "Module forward-reference dependency resolution: struct S{@align(A)x:f32,} const A=16u; still unresolvedName",
+    "Module abstract constants remain abstract in IR; const A=16; @align(A) parses but concrete validator rejects Abstract scalar validation requires concretization",
+    "Remaining const-expression builtins/types/comparisons/boolean/vector/float expressions and override specialization; not full const parity",
+    "Other full frontend/semantic/resource/corpus DoD unchanged"
+  ],
+  "runnable_target": "library only; no launch config needed",
+  "new_children_runs_or_policies": 0,
+  "corpus_browser_gpu_cts": "No new corpus/browser/CTS/WGSL-generated GPU execution; existing native Metal regression tests ran, not compiler parity.",
+  "baseline_unchanged": true,
+  "docs_tests": {
+    "pass": 59,
+    "skip": 0,
+    "evidence": "verification-7"
+  },
+  "next_gap_repro_log": "docs/evidence/saga-5/attribute-consteval/next-gaps.log",
+  "source_hashes_verified_after_checks": true
+}

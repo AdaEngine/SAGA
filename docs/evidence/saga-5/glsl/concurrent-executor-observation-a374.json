@@ -1,0 +1,36 @@
+{
+  "schema": 1,
+  "session": "session-a37419a7-5473-4f51-b728-500f9d424e9a",
+  "status": "blocked-concurrent-executor-reconciliation",
+  "observation": "GLSLFrontend.swift was replaced with distinct implementation while this active executor was modifying its previous version. Own session history contains additional runtime.exec calls not issued by this turn. Stopped source edits; parent notified. No full GLSL DoD or final source verification claimed.",
+  "parent_message_id": "b74b0ccf-9be7-4c55-aa31-3d6c31daf661",
+  "distinct_recorded_tool_call": "call_c342830361fd45dab5af95b27fb2dae3",
+  "previous_own_implementation": "private GT/GE aliases and GLSLFunctionBody/f; function entryWrapper",
+  "current_implementation": "GLSLFunctionContext/context and wrap; different parser implementation",
+  "checks_this_executor": {
+    "test_first": "expected GLSLFrontend missing compile failure saved red.log",
+    "scoped_swiftc_typecheck": "passed for earlier own version, stale after concurrent replacement",
+    "three_shader_smoke": "passed earlier own version, stale after replacement; not authoritative filtered suite",
+    "package_build": "failed on unfinished siblings WGSL and SPIRV in build-first.log/tests-first.log; other editors later changed those sources",
+    "latest_typecheck": "failed at current GLSLFrontend.swift requireBool kind(value.type)==.scalar(.bool) (current writer may still edit)"
+  },
+  "files": {
+    "Sources/SAGAFrontends/GLSL/GLSLFrontend.swift": {
+      "sha256": "a550deabc3fd167fe67a15a447510022c7d48c1199e63546a629a006f71a729e",
+      "bytes": 33813
+    },
+    "Sources/SAGAFrontends/GLSL/GLSLLexer.swift": {
+      "sha256": "2f81ef284e0fb3135de157f99404d3e80d8795b686532d6b52ba0e21417f64ad",
+      "bytes": 3793
+    },
+    "Sources/SAGAFrontends/GLSL/GLSLPreprocessor.swift": {
+      "sha256": "36f0281fb0d080133a5e10c951075e1a8ad6ba6eeab0fb72d59ab89c31da1189",
+      "bytes": 13428
+    },
+    "Tests/SAGAFoundationTests/GLSLFrontendTests.swift": {
+      "sha256": "afa1abb05601d7b53ccd1d03af6778baa8f5e512aac54c358102806b8b7a985b",
+      "bytes": 5978
+    }
+  },
+  "action_required": "Parent reconcile duplicate active executions of this SAME session before further source edits; retain current files and tool history. Do not create replacement SAGA-14 worker or mark full task done."
+}

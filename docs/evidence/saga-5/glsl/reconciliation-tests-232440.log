@@ -1,0 +1,28 @@
+Test Suite 'Selected tests' started at 2026-11-07 02:24:39.796.
+Test Suite 'SAGAPackageTests.xctest' started at 2026-11-07 02:24:39.803.
+Test Suite 'SAGAPackageTests.xctest' passed at 2026-11-07 02:24:39.803.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+Test Suite 'Selected tests' passed at 2026-11-07 02:24:39.803.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.007) seconds
+􀟈  Test run started.
+􀄵  Testing Library Version: 1902
+􀄵  Target Platform: arm64e-apple-macos14.0
+􀟈  Suite GLSLFrontendTests started.
+􀟈  Test vertexOutputWrapperAndHelperCall() started.
+􀟈  Test rejectsMalformedNamesTypesAndUnsupportedRatherThanSkipping() started.
+􀟈  Test versionStageAndOptionErrors() started.
+􀟈  Test computeHasRealTypedArithmeticAndControlFlow() started.
+􀟈  Test originalUTF8DiagnosticAndMacroUseSite() started.
+􀟈  Test deterministicMalformedFuzzIsBoundedAndOnlyTypedFailures() started.
+􀟈  Test boundedTokensWorkDepthAndCancellation() started.
+􀟈  Test objectAndFunctionMacrosAndConditionalDefines() started.
+􁁛  Test originalUTF8DiagnosticAndMacroUseSite() passed after 0.001 seconds.
+􁁛  Test vertexOutputWrapperAndHelperCall() passed after 0.001 seconds.
+􁁛  Test computeHasRealTypedArithmeticAndControlFlow() passed after 0.001 seconds.
+􁁛  Test objectAndFunctionMacrosAndConditionalDefines() passed after 0.001 seconds.
+􁁛  Test boundedTokensWorkDepthAndCancellation() passed after 0.002 seconds.
+􁁛  Test versionStageAndOptionErrors() passed after 0.002 seconds.
+􁁛  Test rejectsMalformedNamesTypesAndUnsupportedRatherThanSkipping() passed after 0.003 seconds.
+􁁛  Test deterministicMalformedFuzzIsBoundedAndOnlyTypedFailures() passed after 0.080 seconds.
+􁁛  Suite GLSLFrontendTests passed after 0.081 seconds.
+􁁛  Test run with 8 tests in 1 suite passed after 0.081 seconds.

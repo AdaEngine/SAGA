@@ -1,0 +1,59 @@
+{
+  "date": "2026-11-07T00:21Z",
+  "slice_complete": true,
+  "full_saga5_complete": false,
+  "native_suite": 142,
+  "new_test_functions": 7,
+  "evidence_ids_turn_scoped": [
+    "verification-1",
+    "verification-2",
+    "verification-3"
+  ],
+  "validator_unchanged": true,
+  "shared_ir_unchanged": true,
+  "ir_bool_width": 1,
+  "wgsl_bool_memory_width": 4,
+  "wgsl_bool_array_strides": {
+    "bool": 4,
+    "vec2<bool>": 8,
+    "vec3<bool>": 16,
+    "vec4<bool>": 16
+  },
+  "normative_sources": [
+    "docs/sources/wgsl-spec.bs #alignment-and-size #structure-member-layout",
+    "#why-is-bool-4-bytes"
+  ],
+  "pinned_reference_sources": [
+    "naga/src/lib.rs BOOL_WIDTH=1",
+    "naga/src/proc/type_methods.rs try_size width-based",
+    "naga/src/proc/layouter.rs update width-based",
+    "naga/src/front/wgsl/lower/mod.rs member_size/member_alignment"
+  ],
+  "contract": "Normative WGSL source-memory layout intentionally separate from pinned reference internal width layout; no global IR width change or claim that Naga internal bool offsets match normative source offsets. Concrete semantic checker remains IR-profile-based and non-host-shareable bool remains prohibited.",
+  "source_hashes": {
+    "Sources/SAGAFrontends/WGSL/WGSLFrontend.swift": "3bc28cfd209778e0f368fe4fe01b293bfef37b90e61c7f877c16864cf1cc7ae7",
+    "Tests/SAGAFoundationTests/WGSLFrontendTests.swift": "bed6baa932da72d00ca933c688de2a7587c64e6b5f8f47feb5864b5e5a9c3579",
+    "Tests/SAGAFoundationTests/FrontendIntegrationTests.swift": "32a50c6c850b8610bfcd1570e20f7f5d25bc980fb8b2ff3cbc4d2b80cd7c246a",
+    "Sources/SAGAValidation/ShaderSemanticValidator.swift": "2240426e6f836d0beb7c5c45e2c73038e61e05a0eb817c5f0844625ec18539de"
+  },
+  "next_gap": {
+    "source": "Sources/SAGAFrontends/WGSL/WGSLFrontend.swift attributes/attributeUInt/constant",
+    "witness": "const A = 16u; struct S { @align(A) x: f32, }",
+    "behavior": "attributeUInt requires numeric token, rejects valid const name; full constant-expression grammar, evaluation/overflow/creation-time rules remain unsupported. This handoff is incomplete parent work, not an external blocker.",
+    "followup": "Test-first named const and full bounded attribute const-expression evaluation, preserving exact UTF8 diagnostics and literal layout tests.",
+    "actual_repro_log": "docs/evidence/saga-5/bool-layout/next-gap.log",
+    "actual_diagnostic": "diagnostics([SAGAShaderIR.ShaderDiagnostic(severity: SAGAShaderIR.ShaderDiagnostic.Severity.error, message: \"Expected u32 constant\", code: SAGAShaderIR.ShaderDiagnosticCode.invalidType, location: Optional(SAGAShaderIR.ShaderLocation.source(SAGAShaderIR.SourceSpan(startUTF8: 33, endUTF8: 34))))])"
+  },
+  "limitations": [
+    "Only literal @align/@size arguments supported; full attribute consteval not implemented.",
+    "Explicit source over-alignment cached in current WGSL parser; raw IR retains offsets/span/stride, not new alignment schema. Re-parsing/reflection/serialization must not infer WGSL source alignment solely from IR bool width.",
+    "No exploratory corpus rerun or browser/CTS/frontend-produced GPU execution. Existing Metal regression tests passed as part of full native suite, not WGSL conformance."
+  ],
+  "reference_pin": "a55352911bb26a1b33bc8d5fc03bdebb0a967f5a",
+  "reference_porcelain": "",
+  "docs_tests": {
+    "pass": 59,
+    "skips": 0,
+    "evidence": "verification-4"
+  }
+}

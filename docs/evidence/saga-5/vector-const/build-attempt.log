@@ -1,0 +1,26 @@
+[0/1] Planning build
+Building for debugging...
+[0/1] Write swift-version-3CD7052B146186F2.txt
+[1/2] Write sources
+[3/8] Compiling SAGAFrontends WGSLFrontend.swift
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/WGSL/WGSLFrontend.swift:404:62: error: property access can throw but is not marked with 'try'
+402 |         let ty = try annotation ?? intern(.scalar(value.scalar))
+403 |         try node();let initializer=try WExpr(index:globalExpressions.count)
+404 |         globalExpressions.append(.init(type:ty,kind:.literal(value.literal),location:t.location))
+    |                                                              |- error: property access can throw but is not marked with 'try'
+    |                                                              |- note: did you mean to use 'try'?
+    |                                                              |- note: did you mean to handle error as optional value?
+    |                                                              `- note: did you mean to disable error propagation?
+405 |         try node();constantNames[key]=constants.count
+406 |         constants.append(.init(name:n.text,type:ty,initializer:initializer,location:n.location))
+[4/8] Compiling SAGAFrontends VectorConstants.swift
+[5/8] Emitting module SAGAFrontends
+[6/8] Compiling SAGAFrontends FloatingConstants.swift
+[7/8] Compiling SAGAFrontends ScalarConstantExpressions.swift
+[8/8] Compiling SAGAFrontends Expressions.swift
+[9/14] Compiling SAGAFrontends Loops.swift
+[10/14] Compiling SAGAFrontends ModuleDeclarations.swift
+[11/14] Compiling SAGAFrontends ControlExpressions.swift
+[12/14] Compiling SAGAFrontends Materialization.swift
+[13/14] Compiling SAGAFrontends Statements.swift
+[14/14] Compiling SAGAFrontends ConstantExpressions.swift

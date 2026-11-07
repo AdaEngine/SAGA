@@ -1,0 +1,36 @@
+Building for debugging...
+[0/5] Write sources
+[1/5] Write swift-version-3CD7052B146186F2.txt
+[3/5] Emitting module SAGAValidation
+[4/5] Compiling SAGAValidation ShaderSemanticValidator.swift
+[4/6] Write Objects.LinkFileList
+[5/6] Linking SAGAPackageTests
+Build complete! (1.30s)
+Test Suite 'Selected tests' started at 2026-11-07 09:05:38.915.
+Test Suite 'SAGAPackageTests.xctest' started at 2026-11-07 09:05:38.922.
+Test Suite 'SAGAPackageTests.xctest' passed at 2026-11-07 09:05:38.922.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+Test Suite 'Selected tests' passed at 2026-11-07 09:05:38.922.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.007) seconds
+􀟈  Test run started.
+􀄵  Testing Library Version: 1902
+􀄵  Target Platform: arm64e-apple-macos14.0
+􀟈  Suite ShaderSemanticValidationTests started.
+􀟈  Suite FrontendIntegrationTests started.
+􀟈  Test rawMatrixComposeRequiresExactColumnTypeAndCount() started.
+􀟈  Test rawAccessLiteralAndNamedConstantBoundsCannotForgeWitness() started.
+􀟈  Test rawAccessOpcodeStillRejectsStructsEvenWithKnownIndex() started.
+􀟈  Test matrixValuesNowLowerToCheckedRuntimeColumnCompose() started.
+􀟈  Test runtimeMatrixConstructorsUseColumnMajorShapeAndContext() started.
+􀟈  Test rawAccessValidConstantZeroAndDynamicIndicesStillValidate() started.
+􀟈  Test rawAccessAndMatrixValidationBudgetsAndCancellation() started.
+􁁛  Test rawAccessAndMatrixValidationBudgetsAndCancellation() passed after 0.001 seconds.
+􁁛  Test rawAccessOpcodeStillRejectsStructsEvenWithKnownIndex() passed after 0.001 seconds.
+􁁛  Test rawAccessLiteralAndNamedConstantBoundsCannotForgeWitness() passed after 0.002 seconds.
+􁁛  Test rawAccessValidConstantZeroAndDynamicIndicesStillValidate() passed after 0.002 seconds.
+􁁛  Test matrixValuesNowLowerToCheckedRuntimeColumnCompose() passed after 0.004 seconds.
+􁁛  Test runtimeMatrixConstructorsUseColumnMajorShapeAndContext() passed after 0.004 seconds.
+􁁛  Suite FrontendIntegrationTests passed after 0.004 seconds.
+􁁛  Test rawMatrixComposeRequiresExactColumnTypeAndCount() passed after 0.005 seconds.
+􁁛  Suite ShaderSemanticValidationTests passed after 0.005 seconds.
+􁁛  Test run with 7 tests in 2 suites passed after 0.005 seconds.

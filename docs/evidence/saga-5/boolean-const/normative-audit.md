@@ -1,0 +1,34 @@
+# Boolean const expression and const_assert audit
+
+Date:2026-11-07. Independent Swift implementation; reference pinned a55352911bb26a1b33bc8d5fc03bdebb0a967f5a, read-only. All tests in this slice are independently authored Swift literals/raw assertions; no upstream shader bytes copied. Existing notices and frozen baseline unchanged.
+
+## Rules audited before grammar edits
+
+- Pinned WGSL `docs/sources/wgsl-spec.bs` [const expressions](https://gpuweb.github.io/gpuweb/wgsl/#const-expr), [operator grouping](https://gpuweb.github.io/gpuweb/wgsl/#operator-precedence-associativity), logical/comparison/arithmetic/bit-shift rules, [const assertions](https://gpuweb.github.io/gpuweb/wgsl/#const-assert-statement), bool/i32/u32 constructors, scalar all/any/select and clamp. Module assertions and function statements require a bool const-expression; false is a shader-creation error, with no runtime effects. A local let/variable/parameter is NOT a const declaration even if initialized with a literal. Local const scope and shadowing are lexical, while module references can be forward and must not capture the function caller's local scope.
+- `naga/src/front/wgsl/parse/mod.rs` parses optional parentheses for both assertion forms. `lower/mod.rs` handles GlobalDeclKind::ConstAssert and StatementKind::ConstAssert via const expression contexts and get_const_val<bool>; false reports ConstAssertFailed. This confirms no new shared IR assertion statement or raw witness exception is needed.
+- **Reference defect, not a normative requirement:** pinned `lower/mod.rs` logical() has TODO wgpu issue8440 explicitly admitting it skips the RHS entirely in const short circuit instead of type-checking it. The new Swift implementation follows normative syntax/name/type validation of BOTH operands, not that admitted reference limitation. See [archived reference](reference-short-circuit-todo.log). This intentional difference must not be hidden as bit-for-bit reference behavior.
+
+## Validation is not ordinary evaluation
+
+A flat frontend-only typed tree is built first. Syntax/operator groups, symbol lookup, arity and scalar type agreement are checked throughout, including in an unselected RHS. Integer/bool literals and prior/forward module const values have types; normal runtime or let operands are rejected. Local function const declarations have parallel scope values and emitted literal references only when needed; function scope is isolated from lazy module declaration resolution.
+
+Then implicit abstract-to-concrete representability checks required to resolve static types are evaluated. Integer division/remainder, shift and clamp constraints can demand value evaluation independently of ordinary short-circuit evaluation, per WGSL #const-expr:
+
+- For division/remainder, evaluate the divisor to reject zero; evaluate the signed numerator when divisor is -1 to detect MIN/-1. Do not arbitrarily evaluate an unused numerator when the denominator makes that check unnecessary.
+- For shifts, validate the constant count against this bounded integer profile; left shift also evaluates the operand for significant-bit overflow. Right shift does not ordinarily need the skipped left operand. The inherited Int64 abstract-count limit64 is a documented implementation profile, not general spec-depth/precision parity.
+- For clamp, low/high must be evaluated to reject reversed constant bounds; a skipped ordinary first argument is not unnecessarily evaluated.
+- `&&`/`||` then lazily evaluate only the needed operands. `&`/`|` on bool and scalar select are eager, not substitutes for short circuit. Boolean xor is NOT a bool overload in WGSL and is rejected.
+
+Tests distinguish the official skipped explicit conversion example from a mandatory zero denominator, overflowing left shift, reversed clamp bounds, unknown identifier, mixed concrete type and malformed RHS. `true || (i32(5000000000)==0)` succeeds; `true || (1/0==0)` fails. An unused explicit bad numerator under a safe divisor/right shift is not mistaken for a required check. Concrete i32/u32 wrapping and abstract checked arithmetic reuse the previously audited integer arithmetic helpers; there is now one shared scalar expression tree for module/local initializers, assertions and integer attribute/count sites, not two diverging grammar implementations.
+
+## Function assertions and safety
+
+True assertions emit no runtime statement, even following a return or in compile-time-only continuing after a loop break. False assertions in statically false runtime branches or after runtime terminators still fail at shader creation. This does not enable arbitrary unreachable runtime statements. Error location for false assertions spans the original expression (parentheses included), with original UTF8 byte offsets; name/type errors retain the offending token location. No abstract bool type enters raw IR: bool literals/constants are concrete bool width1 and existing host-shareability rules remain unchanged.
+
+Recursive parse/evaluation obeys the existing conservative24-frame cap plus caller work/node/depth quotas and cancellation; syntax/typing also charges work on skipped branches. Generated properties128 and malformed boolean trees256 run in addition to existing adversarial/dependency/layout tests. New loop-scope regression first trapped signal5 Index out of range because the parallel const table was not pushed for for/loop scopes. This test remains; synchronized scope lifetimes and defensive const-table bounds checks fix the trap. [Failed run](validation-red.log) and [successful run](validation-green.log) retained. No test disabled, no global policy or task/runner mutation.
+
+## Explicit fail-closed residuals
+
+This is scalar bool plus the existing scalar integer profile, not all WGSL const evaluation. Floating comparison/assertion expressions and local float const expressions, vector/aggregate constructors and overloads, alias constructors, override specialization and extended const builtins still reject; module/function assertions using them are NOT silently ignored. [Executable current repro](residuals.swift) and [observed diagnostics](residuals.log) demonstrate the exact next implementation gap (`const_assert 1.0<2.0;` and the function analogue), while the previous integer comparison/module+local assertions succeed. Generic template syntax is still unsupported in this const tree; its parser error is not a complete vector diagnostic/parity claim.
+
+Final full native175+1=176 tests, strict native and matched Wasm checks are recorded in [handoff](handoff.json); compile-only Wasm, old Metal regression, generated WGSL GPU execution, browser and CTS are distinct. No new latter3 evidence. Full SAGA-5/root and full3-format semantic/options/corpus DoD remain open; no accept_result or SAGA-6 transition. Libraries add no runnable target/Play recipe.

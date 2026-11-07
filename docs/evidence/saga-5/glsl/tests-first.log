@@ -1,0 +1,57 @@
+[0/1] Planning build
+Building for debugging...
+[0/7] Write sources
+[2/7] Write swift-version-3CD7052B146186F2.txt
+[4/14] Emitting module SAGAFrontends
+[5/14] Compiling SAGAFrontends ControlExpressions.swift
+[6/14] Compiling SAGAFrontends WGSLFrontend.swift
+[7/14] Compiling SAGAFrontends Expressions.swift
+[8/14] Compiling SAGAFrontends Statements.swift
+[9/14] Compiling SAGAFrontends GLSLLexer.swift
+[10/14] Compiling SAGAFrontends GLSLFrontend.swift
+[11/14] Emitting module SAGAValidation
+[12/14] Compiling SAGAValidation ShaderSemanticValidator.swift
+[13/17] Emitting module SAGACompiler
+[14/17] Compiling SAGACompiler FrontendValidation.swift
+[15/17] Compiling SAGACompiler Compiler.swift
+[16/25] Compiling SAGAFoundationTests WGSLFrontendTests.swift
+[17/25] Compiling SAGAFoundationTests CompilerTests.swift
+[18/25] Compiling SAGAFoundationTests GLSLFrontendTests.swift
+[19/25] Compiling SAGAFoundationTests SPIRVFrontendTests.swift
+[20/25] Compiling SAGAFoundationTests FrontendIntegrationTests.swift
+[21/25] Emitting module SAGAFoundationTests
+[22/25] Compiling SAGAFoundationTests FrontendContractsTests.swift
+[23/25] Compiling SAGAFoundationTests ShaderSemanticValidationTests.swift
+[24/27] Emitting module SAGAPackageTests
+[25/27] Compiling SAGAPackageTests runner.swift
+[25/27] Write Objects.LinkFileList
+[26/27] Linking SAGAPackageTests
+Build complete! (3.85s)
+Test Suite 'Selected tests' started at 2026-11-07 02:24:38.933.
+Test Suite 'SAGAPackageTests.xctest' started at 2026-11-07 02:24:38.941.
+Test Suite 'SAGAPackageTests.xctest' passed at 2026-11-07 02:24:38.941.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+Test Suite 'Selected tests' passed at 2026-11-07 02:24:38.941.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.008) seconds
+􀟈  Test run started.
+􀄵  Testing Library Version: 1902
+􀄵  Target Platform: arm64e-apple-macos14.0
+􀟈  Suite GLSLFrontendTests started.
+􀟈  Test rejectsMalformedNamesTypesAndUnsupportedRatherThanSkipping() started.
+􀟈  Test objectAndFunctionMacrosAndConditionalDefines() started.
+􀟈  Test vertexOutputWrapperAndHelperCall() started.
+􀟈  Test computeHasRealTypedArithmeticAndControlFlow() started.
+􀟈  Test versionStageAndOptionErrors() started.
+􀟈  Test boundedTokensWorkDepthAndCancellation() started.
+􀟈  Test deterministicMalformedFuzzIsBoundedAndOnlyTypedFailures() started.
+􀟈  Test originalUTF8DiagnosticAndMacroUseSite() started.
+􁁛  Test originalUTF8DiagnosticAndMacroUseSite() passed after 0.001 seconds.
+􁁛  Test objectAndFunctionMacrosAndConditionalDefines() passed after 0.001 seconds.
+􁁛  Test computeHasRealTypedArithmeticAndControlFlow() passed after 0.002 seconds.
+􁁛  Test boundedTokensWorkDepthAndCancellation() passed after 0.002 seconds.
+􁁛  Test vertexOutputWrapperAndHelperCall() passed after 0.002 seconds.
+􁁛  Test versionStageAndOptionErrors() passed after 0.003 seconds.
+􁁛  Test rejectsMalformedNamesTypesAndUnsupportedRatherThanSkipping() passed after 0.004 seconds.
+􁁛  Test deterministicMalformedFuzzIsBoundedAndOnlyTypedFailures() passed after 0.080 seconds.
+􁁛  Suite GLSLFrontendTests passed after 0.080 seconds.
+􁁛  Test run with 8 tests in 1 suite passed after 0.080 seconds.

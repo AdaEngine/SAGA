@@ -1,0 +1,94 @@
+                expr = crate::Expression::As {
+                    expr: component,
+                    target: scalar,
+                };
+            }
+
+            // Vector conversion (vector -> vector)
+            (
+                Components::One {
+                    component,
+                    ty_inner: &crate::TypeInner::Vector { size: src_size, .. },
+                    ..
+                },
+                Constructor::Type((
+                    _,
+                    &crate::TypeInner::Vector {
+                        size: dst_size,
+                        scalar: dst_scalar,
+                    },
+                )),
+            ) if dst_size == src_size => {
+                expr = crate::Expression::As {
+                    expr: component,
+                    target: dst_scalar,
+                };
+            }
+
+            // Vector conversion (vector -> vector) - partial
+            (
+                Components::One {
+                    component,
+            // Vector constructor (splat) - infer type
+            (
+                Components::One {
+                    component,
+                    ty_inner: &crate::TypeInner::Scalar { .. },
+                    ..
+                },
+                Constructor::PartialVector { size },
+            ) => {
+                expr = crate::Expression::Splat {
+                    size,
+                    value: component,
+                };
+            }
+
+            // Vector constructor (splat)
+            (
+                Components::One {
+                    mut component,
+                    ty_inner: &crate::TypeInner::Scalar(component_scalar),
+                    span,
+                },
+                Constructor::Type((
+                    type_handle,
+                    &crate::TypeInner::Vector {
+                        size,
+                        scalar: vec_scalar,
+                    },
+                )),
+            ) => {
+                // Splat only allows automatic conversions of the component's scalar.
+                if !component_scalar.automatically_converts_to(vec_scalar) {
+                    let component_ty = &ctx.typifier()[component];
+                    let arg_ty = ctx.type_resolution_to_string(component_ty);
+                    return Err(Box::new(Error::WrongArgumentType {
+                        function: ctx.type_to_string(type_handle),
+                        call_span: ty_span,
+                        arg_span: span,
+                        arg_index: 0,
+                        arg_ty,
+                        allowed: vec![vec_scalar.to_wgsl_for_diagnostics()],
+                    }));
+                }
+                ctx.convert_slice_to_common_leaf_scalar(
+                    core::slice::from_mut(&mut component),
+                    vec_scalar,
+                )?;
+                expr = crate::Expression::Splat {
+                    size,
+                    value: component,
+1164:path: syntax/hex_int_literal.syntax.bs.include
+1167:<div class='example wgsl hexadecimal-int-literals' heading='hexadecimal integer literals'>
+1176:or a [=hexadecimal floating point literal=].
+1238:A <dfn noexport>hexadecimal floating point literal</dfn> is:
+1250:path: syntax/hex_float_literal.syntax.bs.include
+1253:<div class='example wgsl hexadecimal-float-literals' heading='hexadecimal floating point literals'>
+1264:<div algorithm="mathematical value of hexadecimal floating point literal">
+1265:The mathematical value of a [=hexadecimal floating point literal=] is computed as follows:
+1307:* A [=hexadecimal floating point literal=] with a `f` or `h` suffix overflows or cannot be exactly represented by the target type.
+1314:Note: If you want to use an `f` suffix to force a hexadecimal float literal to be of type, the literal must also
+1315:use a binary exponent.  For example, write `0x1p0f`.  In comparison, `0x1f` is a hexadecimal integer literal.
+17184:### `inverseSqrt` ### {#inverseSqrt-builtin}
+17919:### `sqrt` ### {#sqrt-builtin}

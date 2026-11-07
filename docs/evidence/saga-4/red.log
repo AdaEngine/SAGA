@@ -1,0 +1,54 @@
+[0/1] Planning build
+Building for debugging...
+[0/4] Write sources
+[1/4] Write swift-version-3CD7052B146186F2.txt
+[3/6] Emitting module SAGAFoundationTests
+[4/6] Compiling SAGAFoundationTests MetalComputeTests.swift
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/MetalComputeTests.swift:11:42: error: value of type 'any BackendDevice' has no member 'makeDiagnosticPipeline'
+ 9 |     let device = try await Device.make(backend: backend)
+10 |     do {
+11 |         let pipeline = try await backend.makeDiagnosticPipeline(owner: device.identity)
+   |                                          `- error: value of type 'any BackendDevice' has no member 'makeDiagnosticPipeline'
+12 |         for count in [1, 63, 64, 65, 4099] {
+13 |             let input = (0..<count).map { UInt32(truncatingIfNeeded: $0 &* 104729) ^ UInt32.max }
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/MetalComputeTests.swift:18:43: error: value of type 'Device' has no member 'submitCommands'
+16 |             let b = try await device.createBuffer(.init(size: size, usage: [.storage, .copySource]))
+17 |             let r = try await device.createBuffer(.init(size: size, usage: [.copyDestination, .mapRead]))
+18 |             let ticket = try await device.submitCommands([
+   |                                           `- error: value of type 'Device' has no member 'submitCommands'
+19 |                 .write(buffer: a, offset: 0, words: input),
+20 |                 .dispatch(pipeline: pipeline, input: a, output: b, count: UInt32(count)),
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/MetalComputeTests.swift:19:18: error: type 'Any' has no member 'write'
+17 |             let r = try await device.createBuffer(.init(size: size, usage: [.copyDestination, .mapRead]))
+18 |             let ticket = try await device.submitCommands([
+19 |                 .write(buffer: a, offset: 0, words: input),
+   |                  `- error: type 'Any' has no member 'write'
+20 |                 .dispatch(pipeline: pipeline, input: a, output: b, count: UInt32(count)),
+21 |                 .copy(source: b, destination: r, byteCount: size),
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/MetalComputeTests.swift:20:18: error: type 'Any' has no member 'dispatch'
+18 |             let ticket = try await device.submitCommands([
+19 |                 .write(buffer: a, offset: 0, words: input),
+20 |                 .dispatch(pipeline: pipeline, input: a, output: b, count: UInt32(count)),
+   |                  `- error: type 'Any' has no member 'dispatch'
+21 |                 .copy(source: b, destination: r, byteCount: size),
+22 |                 .read(buffer: r, byteCount: size),
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/MetalComputeTests.swift:21:18: error: type 'Any' has no member 'copy'
+19 |                 .write(buffer: a, offset: 0, words: input),
+20 |                 .dispatch(pipeline: pipeline, input: a, output: b, count: UInt32(count)),
+21 |                 .copy(source: b, destination: r, byteCount: size),
+   |                  `- error: type 'Any' has no member 'copy'
+22 |                 .read(buffer: r, byteCount: size),
+23 |             ])
+
+/Users/vlad-prusakov/Developer/saga/Tests/SAGAFoundationTests/MetalComputeTests.swift:22:18: error: type 'Any' has no member 'read'
+20 |                 .dispatch(pipeline: pipeline, input: a, output: b, count: UInt32(count)),
+21 |                 .copy(source: b, destination: r, byteCount: size),
+22 |                 .read(buffer: r, byteCount: size),
+   |                  `- error: type 'Any' has no member 'read'
+23 |             ])
+24 |             let result = try await ticket.wait()
+error: fatalError

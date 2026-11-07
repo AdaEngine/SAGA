@@ -1,0 +1,28 @@
+[0/1] Planning build
+Building for debugging...
+[0/4] Write sources
+[3/4] Write swift-version-3CD7052B146186F2.txt
+[5/14] Compiling SAGAFrontends Statements.swift
+[6/14] Compiling SAGAFrontends Expressions.swift
+[7/14] Compiling SAGAFrontends WGSLFrontend.swift
+[8/14] Compiling SAGAFrontends Lexer.swift
+[9/14] Compiling SAGAFrontends SPIRVFunction.swift
+[10/14] Emitting module SAGAFrontends
+[11/14] Compiling SAGAFrontends SPIRVFrontend.swift
+[12/14] Compiling SAGAFrontends GLSLFrontend.swift
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/GLSL/GLSLFrontend.swift:291:31: error: '==' is not a postfix unary operator
+289 |     }
+290 |     func requireBool(_ value:GLSLValue,at t:GLSLToken) throws {
+291 |         guard kind(value.type)==.scalar(.bool) else { throw glslError(t,.typeMismatch,"Expected scalar bool") }
+    |                               `- error: '==' is not a postfix unary operator
+292 |     }
+293 |     func symbol(_ name:GLSLToken) throws -> GLSLValue {
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/GLSL/GLSLFrontend.swift:291:42: error: cannot infer contextual base in reference to member 'bool'
+289 |     }
+290 |     func requireBool(_ value:GLSLValue,at t:GLSLToken) throws {
+291 |         guard kind(value.type)==.scalar(.bool) else { throw glslError(t,.typeMismatch,"Expected scalar bool") }
+    |                                          `- error: cannot infer contextual base in reference to member 'bool'
+292 |     }
+293 |     func symbol(_ name:GLSLToken) throws -> GLSLValue {
+[13/14] Emitting module SAGAValidation

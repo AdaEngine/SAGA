@@ -1,0 +1,5272 @@
+{
+  "schema": 1,
+  "reference_revision": "a55352911bb26a1b33bc8d5fc03bdebb0a967f5a",
+  "status": "blocked-concurrent-execution",
+  "full_reference_parity": false,
+  "observed_utc": "2026-11-06T23:30:13.754109+00:00",
+  "note": "Source-level intended surface only; two concurrent lowerers now collide. No complete verified SAGA-15. Do not count grammar rows as semantic assertions.",
+  "grammar": {
+    "url": "https://raw.githubusercontent.com/KhronosGroup/SPIRV-Headers/vulkan-sdk-1.4.341.0/include/spirv/unified1/spirv.core.grammar.json",
+    "sha256": "508e6677e27b0b58eac8395aa49a90ac1766a8d392c247a0aba7b03f4fdd85b9",
+    "major_version": 1,
+    "minor_version": 6,
+    "revision": 4,
+    "copyright": [
+      "Copyright: 2014-2024 The Khronos Group Inc.",
+      "License: MIT",
+      "",
+      "MODIFICATIONS TO THIS FILE MAY MEAN IT NO LONGER ACCURATELY REFLECTS",
+      "KHRONOS STANDARDS. THE UNMODIFIED, NORMATIVE VERSIONS OF KHRONOS",
+      "SPECIFICATIONS AND HEADER INFORMATION ARE LOCATED AT",
+      "https://www.khronos.org/registry/"
+    ]
+  },
+  "reference_source_hashes": {
+    "../wgpu/naga/src/front/spv/convert.rs": "14aeac182cb742eaf79c6ba49f3a577735d684550a33e749fb594b79591bb77c",
+    "../wgpu/naga/src/front/spv/error.rs": "72397b185fe791ec126616b1cf40ab732cf5aeabf273f93e0703eb7a1de9b7de",
+    "../wgpu/naga/src/front/spv/function.rs": "fb9ecf96c1773531bea89804834aebe2c6fed61509051072f37a7fac2035e91e",
+    "../wgpu/naga/src/front/spv/image.rs": "4c59ea2e95a263d04d4225d0f456f22b237e54d98e254c4c60af16e98335931f",
+    "../wgpu/naga/src/front/spv/mod.rs": "1fa9c94cec2d6f00f2c4f215016bf3c0be0b209dbb7ddd6b6523c1b6139ebd44",
+    "../wgpu/naga/src/front/spv/next_block.rs": "190d7a92b2740bb915275eca2eca083596f21092362a4e76de6c2493a53ecf56",
+    "../wgpu/naga/src/front/spv/null.rs": "ee20287365e025e8bcc91f29df930ff8b63cb6d7f26db0b1789d54de614a7353"
+  },
+  "grammar_license": {
+    "url": "https://raw.githubusercontent.com/KhronosGroup/SPIRV-Headers/vulkan-sdk-1.4.341.0/LICENSE",
+    "sha256": "ea43b1de38a6f90c488800d66dec1ed671e68cda530266bc96951fb5b6307613",
+    "path": "docs/evidence/saga-5/spirv/SPIRV-Headers-LICENSE.txt"
+  },
+  "opcodes": [
+    {
+      "name": "OpNop",
+      "opcode": 0,
+      "status": "implemented-intent-unverified-current-tree",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpUndef",
+      "opcode": 1,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSourceContinued",
+      "opcode": 2,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSource",
+      "opcode": 3,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSourceExtension",
+      "opcode": 4,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpName",
+      "opcode": 5,
+      "status": "implemented-intent-unverified-current-tree",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpMemberName",
+      "opcode": 6,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpString",
+      "opcode": 7,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpLine",
+      "opcode": 8,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpExtension",
+      "opcode": 10,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpExtInstImport",
+      "opcode": 11,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpExtInst",
+      "opcode": 12,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpMemoryModel",
+      "opcode": 14,
+      "status": "implemented-intent-unverified-current-tree",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpEntryPoint",
+      "opcode": 15,
+      "status": "implemented-intent-unverified-current-tree",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpExecutionMode",
+      "opcode": 16,
+      "status": "implemented-intent-unverified-current-tree",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpCapability",
+      "opcode": 17,
+      "status": "implemented-intent-unverified-current-tree",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpTypeVoid",
+      "opcode": 19,
+      "status": "implemented-intent-unverified-current-tree",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpTypeBool",
+      "opcode": 20,
+      "status": "implemented-intent-unverified-current-tree",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpTypeInt",
+      "opcode": 21,
+      "status": "implemented-intent-unverified-current-tree",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpTypeFloat",
+      "opcode": 22,
+      "status": "implemented-intent-unverified-current-tree",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpTypeVector",
+      "opcode": 23,
+      "status": "implemented-intent-unverified-current-tree",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpTypeMatrix",
+      "opcode": 24,
+      "status": "implemented-intent-unverified-current-tree",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpTypeImage",
+      "opcode": 25,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpTypeSampler",
+      "opcode": 26,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpTypeSampledImage",
+      "opcode": 27,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpTypeArray",
+      "opcode": 28,
+      "status": "implemented-intent-unverified-current-tree",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpTypeRuntimeArray",
+      "opcode": 29,
+      "status": "implemented-intent-unverified-current-tree",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpTypeStruct",
+      "opcode": 30,
+      "status": "implemented-intent-unverified-current-tree",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpTypeOpaque",
+      "opcode": 31,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpTypePointer",
+      "opcode": 32,
+      "status": "implemented-intent-unverified-current-tree",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpTypeFunction",
+      "opcode": 33,
+      "status": "implemented-intent-unverified-current-tree",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpTypeEvent",
+      "opcode": 34,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpTypeDeviceEvent",
+      "opcode": 35,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpTypeReserveId",
+      "opcode": 36,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpTypeQueue",
+      "opcode": 37,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpTypePipe",
+      "opcode": 38,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpTypeForwardPointer",
+      "opcode": 39,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpConstantTrue",
+      "opcode": 41,
+      "status": "implemented-intent-unverified-current-tree",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpConstantFalse",
+      "opcode": 42,
+      "status": "implemented-intent-unverified-current-tree",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpConstant",
+      "opcode": 43,
+      "status": "implemented-intent-unverified-current-tree",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpConstantComposite",
+      "opcode": 44,
+      "status": "implemented-intent-unverified-current-tree",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpConstantSampler",
+      "opcode": 45,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpConstantNull",
+      "opcode": 46,
+      "status": "implemented-intent-unverified-current-tree",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSpecConstantTrue",
+      "opcode": 48,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSpecConstantFalse",
+      "opcode": 49,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSpecConstant",
+      "opcode": 50,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSpecConstantComposite",
+      "opcode": 51,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSpecConstantOp",
+      "opcode": 52,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpFunction",
+      "opcode": 54,
+      "status": "implemented-intent-unverified-current-tree",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpFunctionParameter",
+      "opcode": 55,
+      "status": "implemented-intent-unverified-current-tree",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpFunctionEnd",
+      "opcode": 56,
+      "status": "implemented-intent-unverified-current-tree",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpFunctionCall",
+      "opcode": 57,
+      "status": "implemented-intent-unverified-current-tree",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpVariable",
+      "opcode": 59,
+      "status": "implemented-intent-unverified-current-tree",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpImageTexelPointer",
+      "opcode": 60,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpLoad",
+      "opcode": 61,
+      "status": "implemented-intent-unverified-current-tree",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpStore",
+      "opcode": 62,
+      "status": "implemented-intent-unverified-current-tree",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpCopyMemory",
+      "opcode": 63,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpCopyMemorySized",
+      "opcode": 64,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpAccessChain",
+      "opcode": 65,
+      "status": "implemented-intent-unverified-current-tree",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpInBoundsAccessChain",
+      "opcode": 66,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpPtrAccessChain",
+      "opcode": 67,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpArrayLength",
+      "opcode": 68,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpGenericPtrMemSemantics",
+      "opcode": 69,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpInBoundsPtrAccessChain",
+      "opcode": 70,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpDecorate",
+      "opcode": 71,
+      "status": "implemented-intent-unverified-current-tree",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpMemberDecorate",
+      "opcode": 72,
+      "status": "implemented-intent-unverified-current-tree",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpDecorationGroup",
+      "opcode": 73,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpGroupDecorate",
+      "opcode": 74,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpGroupMemberDecorate",
+      "opcode": 75,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpVectorExtractDynamic",
+      "opcode": 77,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpVectorInsertDynamic",
+      "opcode": 78,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpVectorShuffle",
+      "opcode": 79,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpCompositeConstruct",
+      "opcode": 80,
+      "status": "implemented-intent-unverified-current-tree",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpCompositeExtract",
+      "opcode": 81,
+      "status": "implemented-intent-unverified-current-tree",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpCompositeInsert",
+      "opcode": 82,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpCopyObject",
+      "opcode": 83,
+      "status": "implemented-intent-unverified-current-tree",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpTranspose",
+      "opcode": 84,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSampledImage",
+      "opcode": 86,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpImageSampleImplicitLod",
+      "opcode": 87,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpImageSampleExplicitLod",
+      "opcode": 88,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpImageSampleDrefImplicitLod",
+      "opcode": 89,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpImageSampleDrefExplicitLod",
+      "opcode": 90,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpImageSampleProjImplicitLod",
+      "opcode": 91,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpImageSampleProjExplicitLod",
+      "opcode": 92,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpImageSampleProjDrefImplicitLod",
+      "opcode": 93,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpImageSampleProjDrefExplicitLod",
+      "opcode": 94,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpImageFetch",
+      "opcode": 95,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpImageGather",
+      "opcode": 96,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpImageDrefGather",
+      "opcode": 97,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpImageRead",
+      "opcode": 98,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpImageWrite",
+      "opcode": 99,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpImage",
+      "opcode": 100,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpImageQueryFormat",
+      "opcode": 101,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpImageQueryOrder",
+      "opcode": 102,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpImageQuerySizeLod",
+      "opcode": 103,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpImageQuerySize",
+      "opcode": 104,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpImageQueryLod",
+      "opcode": 105,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpImageQueryLevels",
+      "opcode": 106,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpImageQuerySamples",
+      "opcode": 107,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpConvertFToU",
+      "opcode": 109,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpConvertFToS",
+      "opcode": 110,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpConvertSToF",
+      "opcode": 111,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpConvertUToF",
+      "opcode": 112,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpUConvert",
+      "opcode": 113,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSConvert",
+      "opcode": 114,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpFConvert",
+      "opcode": 115,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpQuantizeToF16",
+      "opcode": 116,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpConvertPtrToU",
+      "opcode": 117,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSatConvertSToU",
+      "opcode": 118,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSatConvertUToS",
+      "opcode": 119,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpConvertUToPtr",
+      "opcode": 120,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpPtrCastToGeneric",
+      "opcode": 121,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpGenericCastToPtr",
+      "opcode": 122,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpGenericCastToPtrExplicit",
+      "opcode": 123,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpBitcast",
+      "opcode": 124,
+      "status": "implemented-intent-unverified-current-tree",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSNegate",
+      "opcode": 126,
+      "status": "implemented-intent-unverified-current-tree",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpFNegate",
+      "opcode": 127,
+      "status": "implemented-intent-unverified-current-tree",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpIAdd",
+      "opcode": 128,
+      "status": "implemented-intent-unverified-current-tree",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpFAdd",
+      "opcode": 129,
+      "status": "implemented-intent-unverified-current-tree",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpISub",
+      "opcode": 130,
+      "status": "implemented-intent-unverified-current-tree",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpFSub",
+      "opcode": 131,
+      "status": "implemented-intent-unverified-current-tree",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpIMul",
+      "opcode": 132,
+      "status": "implemented-intent-unverified-current-tree",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpFMul",
+      "opcode": 133,
+      "status": "implemented-intent-unverified-current-tree",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpUDiv",
+      "opcode": 134,
+      "status": "implemented-intent-unverified-current-tree",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSDiv",
+      "opcode": 135,
+      "status": "implemented-intent-unverified-current-tree",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpFDiv",
+      "opcode": 136,
+      "status": "implemented-intent-unverified-current-tree",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpUMod",
+      "opcode": 137,
+      "status": "implemented-intent-unverified-current-tree",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSRem",
+      "opcode": 138,
+      "status": "implemented-intent-unverified-current-tree",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSMod",
+      "opcode": 139,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpFRem",
+      "opcode": 140,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpFMod",
+      "opcode": 141,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpVectorTimesScalar",
+      "opcode": 142,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpMatrixTimesScalar",
+      "opcode": 143,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpVectorTimesMatrix",
+      "opcode": 144,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpMatrixTimesVector",
+      "opcode": 145,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpMatrixTimesMatrix",
+      "opcode": 146,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpOuterProduct",
+      "opcode": 147,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpDot",
+      "opcode": 148,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpIAddCarry",
+      "opcode": 149,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpISubBorrow",
+      "opcode": 150,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpUMulExtended",
+      "opcode": 151,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSMulExtended",
+      "opcode": 152,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpAny",
+      "opcode": 154,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpAll",
+      "opcode": 155,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpIsNan",
+      "opcode": 156,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpIsInf",
+      "opcode": 157,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpIsFinite",
+      "opcode": 158,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpIsNormal",
+      "opcode": 159,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSignBitSet",
+      "opcode": 160,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpLessOrGreater",
+      "opcode": 161,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpOrdered",
+      "opcode": 162,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpUnordered",
+      "opcode": 163,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpLogicalEqual",
+      "opcode": 164,
+      "status": "implemented-intent-unverified-current-tree",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpLogicalNotEqual",
+      "opcode": 165,
+      "status": "implemented-intent-unverified-current-tree",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpLogicalOr",
+      "opcode": 166,
+      "status": "implemented-intent-unverified-current-tree",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpLogicalAnd",
+      "opcode": 167,
+      "status": "implemented-intent-unverified-current-tree",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpLogicalNot",
+      "opcode": 168,
+      "status": "implemented-intent-unverified-current-tree",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSelect",
+      "opcode": 169,
+      "status": "implemented-intent-unverified-current-tree",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpIEqual",
+      "opcode": 170,
+      "status": "implemented-intent-unverified-current-tree",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpINotEqual",
+      "opcode": 171,
+      "status": "implemented-intent-unverified-current-tree",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpUGreaterThan",
+      "opcode": 172,
+      "status": "implemented-intent-unverified-current-tree",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSGreaterThan",
+      "opcode": 173,
+      "status": "implemented-intent-unverified-current-tree",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpUGreaterThanEqual",
+      "opcode": 174,
+      "status": "implemented-intent-unverified-current-tree",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSGreaterThanEqual",
+      "opcode": 175,
+      "status": "implemented-intent-unverified-current-tree",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpULessThan",
+      "opcode": 176,
+      "status": "implemented-intent-unverified-current-tree",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSLessThan",
+      "opcode": 177,
+      "status": "implemented-intent-unverified-current-tree",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpULessThanEqual",
+      "opcode": 178,
+      "status": "implemented-intent-unverified-current-tree",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSLessThanEqual",
+      "opcode": 179,
+      "status": "implemented-intent-unverified-current-tree",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpFOrdEqual",
+      "opcode": 180,
+      "status": "implemented-intent-unverified-current-tree",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpFUnordEqual",
+      "opcode": 181,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpFOrdNotEqual",
+      "opcode": 182,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpFUnordNotEqual",
+      "opcode": 183,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpFOrdLessThan",
+      "opcode": 184,
+      "status": "implemented-intent-unverified-current-tree",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpFUnordLessThan",
+      "opcode": 185,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpFOrdGreaterThan",
+      "opcode": 186,
+      "status": "implemented-intent-unverified-current-tree",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpFUnordGreaterThan",
+      "opcode": 187,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpFOrdLessThanEqual",
+      "opcode": 188,
+      "status": "implemented-intent-unverified-current-tree",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpFUnordLessThanEqual",
+      "opcode": 189,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpFOrdGreaterThanEqual",
+      "opcode": 190,
+      "status": "implemented-intent-unverified-current-tree",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpFUnordGreaterThanEqual",
+      "opcode": 191,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpShiftRightLogical",
+      "opcode": 194,
+      "status": "implemented-intent-unverified-current-tree",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpShiftRightArithmetic",
+      "opcode": 195,
+      "status": "implemented-intent-unverified-current-tree",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpShiftLeftLogical",
+      "opcode": 196,
+      "status": "implemented-intent-unverified-current-tree",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpBitwiseOr",
+      "opcode": 197,
+      "status": "implemented-intent-unverified-current-tree",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpBitwiseXor",
+      "opcode": 198,
+      "status": "implemented-intent-unverified-current-tree",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpBitwiseAnd",
+      "opcode": 199,
+      "status": "implemented-intent-unverified-current-tree",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpNot",
+      "opcode": 200,
+      "status": "implemented-intent-unverified-current-tree",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpBitFieldInsert",
+      "opcode": 201,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpBitFieldSExtract",
+      "opcode": 202,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpBitFieldUExtract",
+      "opcode": 203,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpBitReverse",
+      "opcode": 204,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpBitCount",
+      "opcode": 205,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpDPdx",
+      "opcode": 207,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpDPdy",
+      "opcode": 208,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpFwidth",
+      "opcode": 209,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpDPdxFine",
+      "opcode": 210,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpDPdyFine",
+      "opcode": 211,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpFwidthFine",
+      "opcode": 212,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpDPdxCoarse",
+      "opcode": 213,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpDPdyCoarse",
+      "opcode": 214,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpFwidthCoarse",
+      "opcode": 215,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpEmitVertex",
+      "opcode": 218,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpEndPrimitive",
+      "opcode": 219,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpEmitStreamVertex",
+      "opcode": 220,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpEndStreamPrimitive",
+      "opcode": 221,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpControlBarrier",
+      "opcode": 224,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpMemoryBarrier",
+      "opcode": 225,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpAtomicLoad",
+      "opcode": 227,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpAtomicStore",
+      "opcode": 228,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpAtomicExchange",
+      "opcode": 229,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpAtomicCompareExchange",
+      "opcode": 230,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpAtomicCompareExchangeWeak",
+      "opcode": 231,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpAtomicIIncrement",
+      "opcode": 232,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpAtomicIDecrement",
+      "opcode": 233,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpAtomicIAdd",
+      "opcode": 234,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpAtomicISub",
+      "opcode": 235,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpAtomicSMin",
+      "opcode": 236,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpAtomicUMin",
+      "opcode": 237,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpAtomicSMax",
+      "opcode": 238,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpAtomicUMax",
+      "opcode": 239,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpAtomicAnd",
+      "opcode": 240,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpAtomicOr",
+      "opcode": 241,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpAtomicXor",
+      "opcode": 242,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpPhi",
+      "opcode": 245,
+      "status": "implemented-intent-unverified-current-tree",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpLoopMerge",
+      "opcode": 246,
+      "status": "implemented-intent-unverified-current-tree",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSelectionMerge",
+      "opcode": 247,
+      "status": "implemented-intent-unverified-current-tree",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpLabel",
+      "opcode": 248,
+      "status": "implemented-intent-unverified-current-tree",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpBranch",
+      "opcode": 249,
+      "status": "implemented-intent-unverified-current-tree",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpBranchConditional",
+      "opcode": 250,
+      "status": "implemented-intent-unverified-current-tree",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSwitch",
+      "opcode": 251,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpKill",
+      "opcode": 252,
+      "status": "implemented-intent-unverified-current-tree",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpReturn",
+      "opcode": 253,
+      "status": "implemented-intent-unverified-current-tree",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpReturnValue",
+      "opcode": 254,
+      "status": "implemented-intent-unverified-current-tree",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpUnreachable",
+      "opcode": 255,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpLifetimeStart",
+      "opcode": 256,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpLifetimeStop",
+      "opcode": 257,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpGroupAsyncCopy",
+      "opcode": 259,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpGroupWaitEvents",
+      "opcode": 260,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpGroupAll",
+      "opcode": 261,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpGroupAny",
+      "opcode": 262,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpGroupBroadcast",
+      "opcode": 263,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpGroupIAdd",
+      "opcode": 264,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpGroupFAdd",
+      "opcode": 265,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpGroupFMin",
+      "opcode": 266,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpGroupUMin",
+      "opcode": 267,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpGroupSMin",
+      "opcode": 268,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpGroupFMax",
+      "opcode": 269,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpGroupUMax",
+      "opcode": 270,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpGroupSMax",
+      "opcode": 271,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpReadPipe",
+      "opcode": 274,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpWritePipe",
+      "opcode": 275,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpReservedReadPipe",
+      "opcode": 276,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpReservedWritePipe",
+      "opcode": 277,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpReserveReadPipePackets",
+      "opcode": 278,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpReserveWritePipePackets",
+      "opcode": 279,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpCommitReadPipe",
+      "opcode": 280,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpCommitWritePipe",
+      "opcode": 281,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpIsValidReserveId",
+      "opcode": 282,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpGetNumPipePackets",
+      "opcode": 283,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpGetMaxPipePackets",
+      "opcode": 284,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpGroupReserveReadPipePackets",
+      "opcode": 285,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpGroupReserveWritePipePackets",
+      "opcode": 286,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpGroupCommitReadPipe",
+      "opcode": 287,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpGroupCommitWritePipe",
+      "opcode": 288,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpEnqueueMarker",
+      "opcode": 291,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpEnqueueKernel",
+      "opcode": 292,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpGetKernelNDrangeSubGroupCount",
+      "opcode": 293,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpGetKernelNDrangeMaxSubGroupSize",
+      "opcode": 294,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpGetKernelWorkGroupSize",
+      "opcode": 295,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpGetKernelPreferredWorkGroupSizeMultiple",
+      "opcode": 296,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpRetainEvent",
+      "opcode": 297,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpReleaseEvent",
+      "opcode": 298,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpCreateUserEvent",
+      "opcode": 299,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpIsValidEvent",
+      "opcode": 300,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSetUserEventStatus",
+      "opcode": 301,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpCaptureEventProfilingInfo",
+      "opcode": 302,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpGetDefaultQueue",
+      "opcode": 303,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpBuildNDRange",
+      "opcode": 304,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpImageSparseSampleImplicitLod",
+      "opcode": 305,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpImageSparseSampleExplicitLod",
+      "opcode": 306,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpImageSparseSampleDrefImplicitLod",
+      "opcode": 307,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpImageSparseSampleDrefExplicitLod",
+      "opcode": 308,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpImageSparseSampleProjImplicitLod",
+      "opcode": 309,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpImageSparseSampleProjExplicitLod",
+      "opcode": 310,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpImageSparseSampleProjDrefImplicitLod",
+      "opcode": 311,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpImageSparseSampleProjDrefExplicitLod",
+      "opcode": 312,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpImageSparseFetch",
+      "opcode": 313,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpImageSparseGather",
+      "opcode": 314,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpImageSparseDrefGather",
+      "opcode": 315,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpImageSparseTexelsResident",
+      "opcode": 316,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpNoLine",
+      "opcode": 317,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpAtomicFlagTestAndSet",
+      "opcode": 318,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpAtomicFlagClear",
+      "opcode": 319,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpImageSparseRead",
+      "opcode": 320,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSizeOf",
+      "opcode": 321,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpTypePipeStorage",
+      "opcode": 322,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpConstantPipeStorage",
+      "opcode": 323,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpCreatePipeFromPipeStorage",
+      "opcode": 324,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpGetKernelLocalSizeForSubgroupCount",
+      "opcode": 325,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpGetKernelMaxNumSubgroups",
+      "opcode": 326,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpTypeNamedBarrier",
+      "opcode": 327,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpNamedBarrierInitialize",
+      "opcode": 328,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpMemoryNamedBarrier",
+      "opcode": 329,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpModuleProcessed",
+      "opcode": 330,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpExecutionModeId",
+      "opcode": 331,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpDecorateId",
+      "opcode": 332,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpGroupNonUniformElect",
+      "opcode": 333,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpGroupNonUniformAll",
+      "opcode": 334,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpGroupNonUniformAny",
+      "opcode": 335,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpGroupNonUniformAllEqual",
+      "opcode": 336,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpGroupNonUniformBroadcast",
+      "opcode": 337,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpGroupNonUniformBroadcastFirst",
+      "opcode": 338,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpGroupNonUniformBallot",
+      "opcode": 339,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpGroupNonUniformInverseBallot",
+      "opcode": 340,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpGroupNonUniformBallotBitExtract",
+      "opcode": 341,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpGroupNonUniformBallotBitCount",
+      "opcode": 342,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpGroupNonUniformBallotFindLSB",
+      "opcode": 343,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpGroupNonUniformBallotFindMSB",
+      "opcode": 344,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpGroupNonUniformShuffle",
+      "opcode": 345,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpGroupNonUniformShuffleXor",
+      "opcode": 346,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpGroupNonUniformShuffleUp",
+      "opcode": 347,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpGroupNonUniformShuffleDown",
+      "opcode": 348,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpGroupNonUniformIAdd",
+      "opcode": 349,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpGroupNonUniformFAdd",
+      "opcode": 350,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpGroupNonUniformIMul",
+      "opcode": 351,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpGroupNonUniformFMul",
+      "opcode": 352,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpGroupNonUniformSMin",
+      "opcode": 353,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpGroupNonUniformUMin",
+      "opcode": 354,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpGroupNonUniformFMin",
+      "opcode": 355,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpGroupNonUniformSMax",
+      "opcode": 356,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpGroupNonUniformUMax",
+      "opcode": 357,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpGroupNonUniformFMax",
+      "opcode": 358,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpGroupNonUniformBitwiseAnd",
+      "opcode": 359,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpGroupNonUniformBitwiseOr",
+      "opcode": 360,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpGroupNonUniformBitwiseXor",
+      "opcode": 361,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpGroupNonUniformLogicalAnd",
+      "opcode": 362,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpGroupNonUniformLogicalOr",
+      "opcode": 363,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpGroupNonUniformLogicalXor",
+      "opcode": 364,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpGroupNonUniformQuadBroadcast",
+      "opcode": 365,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpGroupNonUniformQuadSwap",
+      "opcode": 366,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpCopyLogical",
+      "opcode": 400,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpPtrEqual",
+      "opcode": 401,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpPtrNotEqual",
+      "opcode": 402,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpPtrDiff",
+      "opcode": 403,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpColorAttachmentReadEXT",
+      "opcode": 4160,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpDepthAttachmentReadEXT",
+      "opcode": 4161,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpStencilAttachmentReadEXT",
+      "opcode": 4162,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpTypeTensorARM",
+      "opcode": 4163,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpTensorReadARM",
+      "opcode": 4164,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpTensorWriteARM",
+      "opcode": 4165,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpTensorQuerySizeARM",
+      "opcode": 4166,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpGraphConstantARM",
+      "opcode": 4181,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpGraphEntryPointARM",
+      "opcode": 4182,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpGraphARM",
+      "opcode": 4183,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpGraphInputARM",
+      "opcode": 4184,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpGraphSetOutputARM",
+      "opcode": 4185,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpGraphEndARM",
+      "opcode": 4186,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpTypeGraphARM",
+      "opcode": 4190,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpTerminateInvocation",
+      "opcode": 4416,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpTypeUntypedPointerKHR",
+      "opcode": 4417,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpUntypedVariableKHR",
+      "opcode": 4418,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpUntypedAccessChainKHR",
+      "opcode": 4419,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpUntypedInBoundsAccessChainKHR",
+      "opcode": 4420,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupBallotKHR",
+      "opcode": 4421,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupFirstInvocationKHR",
+      "opcode": 4422,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpUntypedPtrAccessChainKHR",
+      "opcode": 4423,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpUntypedInBoundsPtrAccessChainKHR",
+      "opcode": 4424,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpUntypedArrayLengthKHR",
+      "opcode": 4425,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpUntypedPrefetchKHR",
+      "opcode": 4426,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpFmaKHR",
+      "opcode": 4427,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupAllKHR",
+      "opcode": 4428,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupAnyKHR",
+      "opcode": 4429,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupAllEqualKHR",
+      "opcode": 4430,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpGroupNonUniformRotateKHR",
+      "opcode": 4431,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupReadInvocationKHR",
+      "opcode": 4432,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpExtInstWithForwardRefsKHR",
+      "opcode": 4433,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpUntypedGroupAsyncCopyKHR",
+      "opcode": 4434,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpTraceRayKHR",
+      "opcode": 4445,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpExecuteCallableKHR",
+      "opcode": 4446,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpConvertUToAccelerationStructureKHR",
+      "opcode": 4447,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpIgnoreIntersectionKHR",
+      "opcode": 4448,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpTerminateRayKHR",
+      "opcode": 4449,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSDot",
+      "opcode": 4450,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpUDot",
+      "opcode": 4451,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSUDot",
+      "opcode": 4452,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSDotAccSat",
+      "opcode": 4453,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpUDotAccSat",
+      "opcode": 4454,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSUDotAccSat",
+      "opcode": 4455,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpTypeCooperativeMatrixKHR",
+      "opcode": 4456,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpCooperativeMatrixLoadKHR",
+      "opcode": 4457,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpCooperativeMatrixStoreKHR",
+      "opcode": 4458,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpCooperativeMatrixMulAddKHR",
+      "opcode": 4459,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpCooperativeMatrixLengthKHR",
+      "opcode": 4460,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpConstantCompositeReplicateEXT",
+      "opcode": 4461,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSpecConstantCompositeReplicateEXT",
+      "opcode": 4462,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpCompositeConstructReplicateEXT",
+      "opcode": 4463,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpTypeRayQueryKHR",
+      "opcode": 4472,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpRayQueryInitializeKHR",
+      "opcode": 4473,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpRayQueryTerminateKHR",
+      "opcode": 4474,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpRayQueryGenerateIntersectionKHR",
+      "opcode": 4475,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpRayQueryConfirmIntersectionKHR",
+      "opcode": 4476,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpRayQueryProceedKHR",
+      "opcode": 4477,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpRayQueryGetIntersectionTypeKHR",
+      "opcode": 4479,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpImageSampleWeightedQCOM",
+      "opcode": 4480,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpImageBoxFilterQCOM",
+      "opcode": 4481,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpImageBlockMatchSSDQCOM",
+      "opcode": 4482,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpImageBlockMatchSADQCOM",
+      "opcode": 4483,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpBitCastArrayQCOM",
+      "opcode": 4497,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpImageBlockMatchWindowSSDQCOM",
+      "opcode": 4500,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpImageBlockMatchWindowSADQCOM",
+      "opcode": 4501,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpImageBlockMatchGatherSSDQCOM",
+      "opcode": 4502,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpImageBlockMatchGatherSADQCOM",
+      "opcode": 4503,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpCompositeConstructCoopMatQCOM",
+      "opcode": 4540,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpCompositeExtractCoopMatQCOM",
+      "opcode": 4541,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpExtractSubArrayQCOM",
+      "opcode": 4542,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpGroupIAddNonUniformAMD",
+      "opcode": 5000,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpGroupFAddNonUniformAMD",
+      "opcode": 5001,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpGroupFMinNonUniformAMD",
+      "opcode": 5002,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpGroupUMinNonUniformAMD",
+      "opcode": 5003,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpGroupSMinNonUniformAMD",
+      "opcode": 5004,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpGroupFMaxNonUniformAMD",
+      "opcode": 5005,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpGroupUMaxNonUniformAMD",
+      "opcode": 5006,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpGroupSMaxNonUniformAMD",
+      "opcode": 5007,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpFragmentMaskFetchAMD",
+      "opcode": 5011,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpFragmentFetchAMD",
+      "opcode": 5012,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpReadClockKHR",
+      "opcode": 5056,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpAllocateNodePayloadsAMDX",
+      "opcode": 5074,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpEnqueueNodePayloadsAMDX",
+      "opcode": 5075,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpTypeNodePayloadArrayAMDX",
+      "opcode": 5076,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpFinishWritingNodePayloadAMDX",
+      "opcode": 5078,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpNodePayloadArrayLengthAMDX",
+      "opcode": 5090,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpIsNodePayloadValidAMDX",
+      "opcode": 5101,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpConstantStringAMDX",
+      "opcode": 5103,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSpecConstantStringAMDX",
+      "opcode": 5104,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpGroupNonUniformQuadAllKHR",
+      "opcode": 5110,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpGroupNonUniformQuadAnyKHR",
+      "opcode": 5111,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpTypeBufferEXT",
+      "opcode": 5115,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpBufferPointerEXT",
+      "opcode": 5119,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpUntypedImageTexelPointerEXT",
+      "opcode": 5126,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpMemberDecorateIdEXT",
+      "opcode": 5127,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpConstantSizeOfEXT",
+      "opcode": 5129,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpHitObjectRecordHitMotionNV",
+      "opcode": 5249,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpHitObjectRecordHitWithIndexMotionNV",
+      "opcode": 5250,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpHitObjectRecordMissMotionNV",
+      "opcode": 5251,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpHitObjectGetWorldToObjectNV",
+      "opcode": 5252,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpHitObjectGetObjectToWorldNV",
+      "opcode": 5253,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpHitObjectGetObjectRayDirectionNV",
+      "opcode": 5254,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpHitObjectGetObjectRayOriginNV",
+      "opcode": 5255,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpHitObjectTraceRayMotionNV",
+      "opcode": 5256,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpHitObjectGetShaderRecordBufferHandleNV",
+      "opcode": 5257,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpHitObjectGetShaderBindingTableRecordIndexNV",
+      "opcode": 5258,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpHitObjectRecordEmptyNV",
+      "opcode": 5259,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpHitObjectTraceRayNV",
+      "opcode": 5260,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpHitObjectRecordHitNV",
+      "opcode": 5261,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpHitObjectRecordHitWithIndexNV",
+      "opcode": 5262,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpHitObjectRecordMissNV",
+      "opcode": 5263,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpHitObjectExecuteShaderNV",
+      "opcode": 5264,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpHitObjectGetCurrentTimeNV",
+      "opcode": 5265,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpHitObjectGetAttributesNV",
+      "opcode": 5266,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpHitObjectGetHitKindNV",
+      "opcode": 5267,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpHitObjectGetPrimitiveIndexNV",
+      "opcode": 5268,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpHitObjectGetGeometryIndexNV",
+      "opcode": 5269,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpHitObjectGetInstanceIdNV",
+      "opcode": 5270,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpHitObjectGetInstanceCustomIndexNV",
+      "opcode": 5271,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpHitObjectGetWorldRayDirectionNV",
+      "opcode": 5272,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpHitObjectGetWorldRayOriginNV",
+      "opcode": 5273,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpHitObjectGetRayTMaxNV",
+      "opcode": 5274,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpHitObjectGetRayTMinNV",
+      "opcode": 5275,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpHitObjectIsEmptyNV",
+      "opcode": 5276,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpHitObjectIsHitNV",
+      "opcode": 5277,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpHitObjectIsMissNV",
+      "opcode": 5278,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpReorderThreadWithHitObjectNV",
+      "opcode": 5279,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpReorderThreadWithHintNV",
+      "opcode": 5280,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpTypeHitObjectNV",
+      "opcode": 5281,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpImageSampleFootprintNV",
+      "opcode": 5283,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpTypeVectorIdEXT",
+      "opcode": 5288,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpCooperativeVectorMatrixMulNV",
+      "opcode": 5289,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpCooperativeVectorOuterProductAccumulateNV",
+      "opcode": 5290,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpCooperativeVectorReduceSumAccumulateNV",
+      "opcode": 5291,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpCooperativeVectorMatrixMulAddNV",
+      "opcode": 5292,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpCooperativeMatrixConvertNV",
+      "opcode": 5293,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpEmitMeshTasksEXT",
+      "opcode": 5294,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSetMeshOutputsEXT",
+      "opcode": 5295,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpGroupNonUniformPartitionEXT",
+      "opcode": 5296,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpWritePackedPrimitiveIndices4x8NV",
+      "opcode": 5299,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpFetchMicroTriangleVertexPositionNV",
+      "opcode": 5300,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpFetchMicroTriangleVertexBarycentricNV",
+      "opcode": 5301,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpCooperativeVectorLoadNV",
+      "opcode": 5302,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpCooperativeVectorStoreNV",
+      "opcode": 5303,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpHitObjectRecordFromQueryEXT",
+      "opcode": 5304,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpHitObjectRecordMissEXT",
+      "opcode": 5305,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpHitObjectRecordMissMotionEXT",
+      "opcode": 5306,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpHitObjectGetIntersectionTriangleVertexPositionsEXT",
+      "opcode": 5307,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpHitObjectGetRayFlagsEXT",
+      "opcode": 5308,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpHitObjectSetShaderBindingTableRecordIndexEXT",
+      "opcode": 5309,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpHitObjectReorderExecuteShaderEXT",
+      "opcode": 5310,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpHitObjectTraceReorderExecuteEXT",
+      "opcode": 5311,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpHitObjectTraceMotionReorderExecuteEXT",
+      "opcode": 5312,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpTypeHitObjectEXT",
+      "opcode": 5313,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpReorderThreadWithHintEXT",
+      "opcode": 5314,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpReorderThreadWithHitObjectEXT",
+      "opcode": 5315,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpHitObjectTraceRayEXT",
+      "opcode": 5316,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpHitObjectTraceRayMotionEXT",
+      "opcode": 5317,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpHitObjectRecordEmptyEXT",
+      "opcode": 5318,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpHitObjectExecuteShaderEXT",
+      "opcode": 5319,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpHitObjectGetCurrentTimeEXT",
+      "opcode": 5320,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpHitObjectGetAttributesEXT",
+      "opcode": 5321,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpHitObjectGetHitKindEXT",
+      "opcode": 5322,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpHitObjectGetPrimitiveIndexEXT",
+      "opcode": 5323,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpHitObjectGetGeometryIndexEXT",
+      "opcode": 5324,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpHitObjectGetInstanceIdEXT",
+      "opcode": 5325,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpHitObjectGetInstanceCustomIndexEXT",
+      "opcode": 5326,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpHitObjectGetObjectRayOriginEXT",
+      "opcode": 5327,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpHitObjectGetObjectRayDirectionEXT",
+      "opcode": 5328,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpHitObjectGetWorldRayDirectionEXT",
+      "opcode": 5329,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpHitObjectGetWorldRayOriginEXT",
+      "opcode": 5330,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpHitObjectGetObjectToWorldEXT",
+      "opcode": 5331,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpHitObjectGetWorldToObjectEXT",
+      "opcode": 5332,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpHitObjectGetRayTMaxEXT",
+      "opcode": 5333,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpReportIntersectionKHR",
+      "opcode": 5334,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpIgnoreIntersectionNV",
+      "opcode": 5335,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpTerminateRayNV",
+      "opcode": 5336,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpTraceNV",
+      "opcode": 5337,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpTraceMotionNV",
+      "opcode": 5338,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpTraceRayMotionNV",
+      "opcode": 5339,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpRayQueryGetIntersectionTriangleVertexPositionsKHR",
+      "opcode": 5340,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpTypeAccelerationStructureKHR",
+      "opcode": 5341,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpExecuteCallableNV",
+      "opcode": 5344,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpRayQueryGetIntersectionClusterIdNV",
+      "opcode": 5345,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpHitObjectGetClusterIdNV",
+      "opcode": 5346,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpHitObjectGetRayTMinEXT",
+      "opcode": 5347,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpHitObjectGetShaderBindingTableRecordIndexEXT",
+      "opcode": 5348,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpHitObjectGetShaderRecordBufferHandleEXT",
+      "opcode": 5349,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpHitObjectIsEmptyEXT",
+      "opcode": 5350,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpHitObjectIsHitEXT",
+      "opcode": 5351,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpHitObjectIsMissEXT",
+      "opcode": 5352,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpTypeCooperativeMatrixNV",
+      "opcode": 5358,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpCooperativeMatrixLoadNV",
+      "opcode": 5359,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpCooperativeMatrixStoreNV",
+      "opcode": 5360,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpCooperativeMatrixMulAddNV",
+      "opcode": 5361,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpCooperativeMatrixLengthNV",
+      "opcode": 5362,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpBeginInvocationInterlockEXT",
+      "opcode": 5364,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpEndInvocationInterlockEXT",
+      "opcode": 5365,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpCooperativeMatrixReduceNV",
+      "opcode": 5366,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpCooperativeMatrixLoadTensorNV",
+      "opcode": 5367,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpCooperativeMatrixStoreTensorNV",
+      "opcode": 5368,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpCooperativeMatrixPerElementOpNV",
+      "opcode": 5369,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpTypeTensorLayoutNV",
+      "opcode": 5370,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpTypeTensorViewNV",
+      "opcode": 5371,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpCreateTensorLayoutNV",
+      "opcode": 5372,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpTensorLayoutSetDimensionNV",
+      "opcode": 5373,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpTensorLayoutSetStrideNV",
+      "opcode": 5374,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpTensorLayoutSliceNV",
+      "opcode": 5375,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpTensorLayoutSetClampValueNV",
+      "opcode": 5376,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpCreateTensorViewNV",
+      "opcode": 5377,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpTensorViewSetDimensionNV",
+      "opcode": 5378,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpTensorViewSetStrideNV",
+      "opcode": 5379,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpDemoteToHelperInvocation",
+      "opcode": 5380,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpIsHelperInvocationEXT",
+      "opcode": 5381,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpTensorViewSetClipNV",
+      "opcode": 5382,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpTensorLayoutSetBlockSizeNV",
+      "opcode": 5384,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpCooperativeMatrixTransposeNV",
+      "opcode": 5390,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpConvertUToImageNV",
+      "opcode": 5391,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpConvertUToSamplerNV",
+      "opcode": 5392,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpConvertImageToUNV",
+      "opcode": 5393,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpConvertSamplerToUNV",
+      "opcode": 5394,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpConvertUToSampledImageNV",
+      "opcode": 5395,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpConvertSampledImageToUNV",
+      "opcode": 5396,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSamplerImageAddressingModeNV",
+      "opcode": 5397,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpRawAccessChainNV",
+      "opcode": 5398,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpRayQueryGetIntersectionSpherePositionNV",
+      "opcode": 5427,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpRayQueryGetIntersectionSphereRadiusNV",
+      "opcode": 5428,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpRayQueryGetIntersectionLSSPositionsNV",
+      "opcode": 5429,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpRayQueryGetIntersectionLSSRadiiNV",
+      "opcode": 5430,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpRayQueryGetIntersectionLSSHitValueNV",
+      "opcode": 5431,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpHitObjectGetSpherePositionNV",
+      "opcode": 5432,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpHitObjectGetSphereRadiusNV",
+      "opcode": 5433,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpHitObjectGetLSSPositionsNV",
+      "opcode": 5434,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpHitObjectGetLSSRadiiNV",
+      "opcode": 5435,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpHitObjectIsSphereHitNV",
+      "opcode": 5436,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpHitObjectIsLSSHitNV",
+      "opcode": 5437,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpRayQueryIsSphereHitNV",
+      "opcode": 5438,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpRayQueryIsLSSHitNV",
+      "opcode": 5439,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupShuffleINTEL",
+      "opcode": 5571,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupShuffleDownINTEL",
+      "opcode": 5572,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupShuffleUpINTEL",
+      "opcode": 5573,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupShuffleXorINTEL",
+      "opcode": 5574,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupBlockReadINTEL",
+      "opcode": 5575,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupBlockWriteINTEL",
+      "opcode": 5576,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupImageBlockReadINTEL",
+      "opcode": 5577,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupImageBlockWriteINTEL",
+      "opcode": 5578,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupImageMediaBlockReadINTEL",
+      "opcode": 5580,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupImageMediaBlockWriteINTEL",
+      "opcode": 5581,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpUCountLeadingZerosINTEL",
+      "opcode": 5585,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpUCountTrailingZerosINTEL",
+      "opcode": 5586,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpAbsISubINTEL",
+      "opcode": 5587,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpAbsUSubINTEL",
+      "opcode": 5588,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpIAddSatINTEL",
+      "opcode": 5589,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpUAddSatINTEL",
+      "opcode": 5590,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpIAverageINTEL",
+      "opcode": 5591,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpUAverageINTEL",
+      "opcode": 5592,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpIAverageRoundedINTEL",
+      "opcode": 5593,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpUAverageRoundedINTEL",
+      "opcode": 5594,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpISubSatINTEL",
+      "opcode": 5595,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpUSubSatINTEL",
+      "opcode": 5596,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpIMul32x16INTEL",
+      "opcode": 5597,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpUMul32x16INTEL",
+      "opcode": 5598,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpConstantFunctionPointerINTEL",
+      "opcode": 5600,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpFunctionPointerCallINTEL",
+      "opcode": 5601,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpAsmTargetINTEL",
+      "opcode": 5609,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpAsmINTEL",
+      "opcode": 5610,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpAsmCallINTEL",
+      "opcode": 5611,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpAtomicFMinEXT",
+      "opcode": 5614,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpAtomicFMaxEXT",
+      "opcode": 5615,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpAssumeTrueKHR",
+      "opcode": 5630,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpExpectKHR",
+      "opcode": 5631,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpDecorateString",
+      "opcode": 5632,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpMemberDecorateString",
+      "opcode": 5633,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpVmeImageINTEL",
+      "opcode": 5699,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpTypeVmeImageINTEL",
+      "opcode": 5700,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpTypeAvcImePayloadINTEL",
+      "opcode": 5701,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpTypeAvcRefPayloadINTEL",
+      "opcode": 5702,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpTypeAvcSicPayloadINTEL",
+      "opcode": 5703,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpTypeAvcMcePayloadINTEL",
+      "opcode": 5704,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpTypeAvcMceResultINTEL",
+      "opcode": 5705,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpTypeAvcImeResultINTEL",
+      "opcode": 5706,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpTypeAvcImeResultSingleReferenceStreamoutINTEL",
+      "opcode": 5707,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpTypeAvcImeResultDualReferenceStreamoutINTEL",
+      "opcode": 5708,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpTypeAvcImeSingleReferenceStreaminINTEL",
+      "opcode": 5709,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpTypeAvcImeDualReferenceStreaminINTEL",
+      "opcode": 5710,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpTypeAvcRefResultINTEL",
+      "opcode": 5711,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpTypeAvcSicResultINTEL",
+      "opcode": 5712,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupAvcMceGetDefaultInterBaseMultiReferencePenaltyINTEL",
+      "opcode": 5713,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupAvcMceSetInterBaseMultiReferencePenaltyINTEL",
+      "opcode": 5714,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupAvcMceGetDefaultInterShapePenaltyINTEL",
+      "opcode": 5715,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupAvcMceSetInterShapePenaltyINTEL",
+      "opcode": 5716,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupAvcMceGetDefaultInterDirectionPenaltyINTEL",
+      "opcode": 5717,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupAvcMceSetInterDirectionPenaltyINTEL",
+      "opcode": 5718,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupAvcMceGetDefaultIntraLumaShapePenaltyINTEL",
+      "opcode": 5719,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupAvcMceGetDefaultInterMotionVectorCostTableINTEL",
+      "opcode": 5720,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupAvcMceGetDefaultHighPenaltyCostTableINTEL",
+      "opcode": 5721,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupAvcMceGetDefaultMediumPenaltyCostTableINTEL",
+      "opcode": 5722,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupAvcMceGetDefaultLowPenaltyCostTableINTEL",
+      "opcode": 5723,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupAvcMceSetMotionVectorCostFunctionINTEL",
+      "opcode": 5724,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupAvcMceGetDefaultIntraLumaModePenaltyINTEL",
+      "opcode": 5725,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupAvcMceGetDefaultNonDcLumaIntraPenaltyINTEL",
+      "opcode": 5726,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupAvcMceGetDefaultIntraChromaModeBasePenaltyINTEL",
+      "opcode": 5727,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupAvcMceSetAcOnlyHaarINTEL",
+      "opcode": 5728,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupAvcMceSetSourceInterlacedFieldPolarityINTEL",
+      "opcode": 5729,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupAvcMceSetSingleReferenceInterlacedFieldPolarityINTEL",
+      "opcode": 5730,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupAvcMceSetDualReferenceInterlacedFieldPolaritiesINTEL",
+      "opcode": 5731,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupAvcMceConvertToImePayloadINTEL",
+      "opcode": 5732,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupAvcMceConvertToImeResultINTEL",
+      "opcode": 5733,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupAvcMceConvertToRefPayloadINTEL",
+      "opcode": 5734,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupAvcMceConvertToRefResultINTEL",
+      "opcode": 5735,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupAvcMceConvertToSicPayloadINTEL",
+      "opcode": 5736,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupAvcMceConvertToSicResultINTEL",
+      "opcode": 5737,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupAvcMceGetMotionVectorsINTEL",
+      "opcode": 5738,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupAvcMceGetInterDistortionsINTEL",
+      "opcode": 5739,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupAvcMceGetBestInterDistortionsINTEL",
+      "opcode": 5740,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupAvcMceGetInterMajorShapeINTEL",
+      "opcode": 5741,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupAvcMceGetInterMinorShapeINTEL",
+      "opcode": 5742,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupAvcMceGetInterDirectionsINTEL",
+      "opcode": 5743,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupAvcMceGetInterMotionVectorCountINTEL",
+      "opcode": 5744,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupAvcMceGetInterReferenceIdsINTEL",
+      "opcode": 5745,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupAvcMceGetInterReferenceInterlacedFieldPolaritiesINTEL",
+      "opcode": 5746,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupAvcImeInitializeINTEL",
+      "opcode": 5747,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupAvcImeSetSingleReferenceINTEL",
+      "opcode": 5748,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupAvcImeSetDualReferenceINTEL",
+      "opcode": 5749,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupAvcImeRefWindowSizeINTEL",
+      "opcode": 5750,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupAvcImeAdjustRefOffsetINTEL",
+      "opcode": 5751,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupAvcImeConvertToMcePayloadINTEL",
+      "opcode": 5752,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupAvcImeSetMaxMotionVectorCountINTEL",
+      "opcode": 5753,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupAvcImeSetUnidirectionalMixDisableINTEL",
+      "opcode": 5754,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupAvcImeSetEarlySearchTerminationThresholdINTEL",
+      "opcode": 5755,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupAvcImeSetWeightedSadINTEL",
+      "opcode": 5756,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupAvcImeEvaluateWithSingleReferenceINTEL",
+      "opcode": 5757,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupAvcImeEvaluateWithDualReferenceINTEL",
+      "opcode": 5758,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupAvcImeEvaluateWithSingleReferenceStreaminINTEL",
+      "opcode": 5759,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupAvcImeEvaluateWithDualReferenceStreaminINTEL",
+      "opcode": 5760,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupAvcImeEvaluateWithSingleReferenceStreamoutINTEL",
+      "opcode": 5761,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupAvcImeEvaluateWithDualReferenceStreamoutINTEL",
+      "opcode": 5762,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupAvcImeEvaluateWithSingleReferenceStreaminoutINTEL",
+      "opcode": 5763,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupAvcImeEvaluateWithDualReferenceStreaminoutINTEL",
+      "opcode": 5764,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupAvcImeConvertToMceResultINTEL",
+      "opcode": 5765,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupAvcImeGetSingleReferenceStreaminINTEL",
+      "opcode": 5766,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupAvcImeGetDualReferenceStreaminINTEL",
+      "opcode": 5767,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupAvcImeStripSingleReferenceStreamoutINTEL",
+      "opcode": 5768,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupAvcImeStripDualReferenceStreamoutINTEL",
+      "opcode": 5769,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupAvcImeGetStreamoutSingleReferenceMajorShapeMotionVectorsINTEL",
+      "opcode": 5770,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupAvcImeGetStreamoutSingleReferenceMajorShapeDistortionsINTEL",
+      "opcode": 5771,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupAvcImeGetStreamoutSingleReferenceMajorShapeReferenceIdsINTEL",
+      "opcode": 5772,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupAvcImeGetStreamoutDualReferenceMajorShapeMotionVectorsINTEL",
+      "opcode": 5773,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupAvcImeGetStreamoutDualReferenceMajorShapeDistortionsINTEL",
+      "opcode": 5774,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupAvcImeGetStreamoutDualReferenceMajorShapeReferenceIdsINTEL",
+      "opcode": 5775,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupAvcImeGetBorderReachedINTEL",
+      "opcode": 5776,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupAvcImeGetTruncatedSearchIndicationINTEL",
+      "opcode": 5777,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupAvcImeGetUnidirectionalEarlySearchTerminationINTEL",
+      "opcode": 5778,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupAvcImeGetWeightingPatternMinimumMotionVectorINTEL",
+      "opcode": 5779,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupAvcImeGetWeightingPatternMinimumDistortionINTEL",
+      "opcode": 5780,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupAvcFmeInitializeINTEL",
+      "opcode": 5781,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupAvcBmeInitializeINTEL",
+      "opcode": 5782,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupAvcRefConvertToMcePayloadINTEL",
+      "opcode": 5783,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupAvcRefSetBidirectionalMixDisableINTEL",
+      "opcode": 5784,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupAvcRefSetBilinearFilterEnableINTEL",
+      "opcode": 5785,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupAvcRefEvaluateWithSingleReferenceINTEL",
+      "opcode": 5786,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupAvcRefEvaluateWithDualReferenceINTEL",
+      "opcode": 5787,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupAvcRefEvaluateWithMultiReferenceINTEL",
+      "opcode": 5788,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupAvcRefEvaluateWithMultiReferenceInterlacedINTEL",
+      "opcode": 5789,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupAvcRefConvertToMceResultINTEL",
+      "opcode": 5790,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupAvcSicInitializeINTEL",
+      "opcode": 5791,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupAvcSicConfigureSkcINTEL",
+      "opcode": 5792,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupAvcSicConfigureIpeLumaINTEL",
+      "opcode": 5793,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupAvcSicConfigureIpeLumaChromaINTEL",
+      "opcode": 5794,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupAvcSicGetMotionVectorMaskINTEL",
+      "opcode": 5795,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupAvcSicConvertToMcePayloadINTEL",
+      "opcode": 5796,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupAvcSicSetIntraLumaShapePenaltyINTEL",
+      "opcode": 5797,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupAvcSicSetIntraLumaModeCostFunctionINTEL",
+      "opcode": 5798,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupAvcSicSetIntraChromaModeCostFunctionINTEL",
+      "opcode": 5799,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupAvcSicSetBilinearFilterEnableINTEL",
+      "opcode": 5800,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupAvcSicSetSkcForwardTransformEnableINTEL",
+      "opcode": 5801,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupAvcSicSetBlockBasedRawSkipSadINTEL",
+      "opcode": 5802,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupAvcSicEvaluateIpeINTEL",
+      "opcode": 5803,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupAvcSicEvaluateWithSingleReferenceINTEL",
+      "opcode": 5804,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupAvcSicEvaluateWithDualReferenceINTEL",
+      "opcode": 5805,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupAvcSicEvaluateWithMultiReferenceINTEL",
+      "opcode": 5806,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupAvcSicEvaluateWithMultiReferenceInterlacedINTEL",
+      "opcode": 5807,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupAvcSicConvertToMceResultINTEL",
+      "opcode": 5808,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupAvcSicGetIpeLumaShapeINTEL",
+      "opcode": 5809,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupAvcSicGetBestIpeLumaDistortionINTEL",
+      "opcode": 5810,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupAvcSicGetBestIpeChromaDistortionINTEL",
+      "opcode": 5811,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupAvcSicGetPackedIpeLumaModesINTEL",
+      "opcode": 5812,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupAvcSicGetIpeChromaModeINTEL",
+      "opcode": 5813,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupAvcSicGetPackedSkcLumaCountThresholdINTEL",
+      "opcode": 5814,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupAvcSicGetPackedSkcLumaSumThresholdINTEL",
+      "opcode": 5815,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupAvcSicGetInterRawSadsINTEL",
+      "opcode": 5816,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpVariableLengthArrayINTEL",
+      "opcode": 5818,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSaveMemoryINTEL",
+      "opcode": 5819,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpRestoreMemoryINTEL",
+      "opcode": 5820,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpArbitraryFloatSinCosPiALTERA",
+      "opcode": 5840,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpArbitraryFloatCastALTERA",
+      "opcode": 5841,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpArbitraryFloatCastFromIntALTERA",
+      "opcode": 5842,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpArbitraryFloatCastToIntALTERA",
+      "opcode": 5843,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpArbitraryFloatAddALTERA",
+      "opcode": 5846,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpArbitraryFloatSubALTERA",
+      "opcode": 5847,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpArbitraryFloatMulALTERA",
+      "opcode": 5848,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpArbitraryFloatDivALTERA",
+      "opcode": 5849,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpArbitraryFloatGTALTERA",
+      "opcode": 5850,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpArbitraryFloatGEALTERA",
+      "opcode": 5851,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpArbitraryFloatLTALTERA",
+      "opcode": 5852,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpArbitraryFloatLEALTERA",
+      "opcode": 5853,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpArbitraryFloatEQALTERA",
+      "opcode": 5854,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpArbitraryFloatRecipALTERA",
+      "opcode": 5855,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpArbitraryFloatRSqrtALTERA",
+      "opcode": 5856,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpArbitraryFloatCbrtALTERA",
+      "opcode": 5857,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpArbitraryFloatHypotALTERA",
+      "opcode": 5858,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpArbitraryFloatSqrtALTERA",
+      "opcode": 5859,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpArbitraryFloatLogINTEL",
+      "opcode": 5860,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpArbitraryFloatLog2INTEL",
+      "opcode": 5861,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpArbitraryFloatLog10INTEL",
+      "opcode": 5862,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpArbitraryFloatLog1pINTEL",
+      "opcode": 5863,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpArbitraryFloatExpINTEL",
+      "opcode": 5864,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpArbitraryFloatExp2INTEL",
+      "opcode": 5865,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpArbitraryFloatExp10INTEL",
+      "opcode": 5866,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpArbitraryFloatExpm1INTEL",
+      "opcode": 5867,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpArbitraryFloatSinINTEL",
+      "opcode": 5868,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpArbitraryFloatCosINTEL",
+      "opcode": 5869,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpArbitraryFloatSinCosINTEL",
+      "opcode": 5870,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpArbitraryFloatSinPiINTEL",
+      "opcode": 5871,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpArbitraryFloatCosPiINTEL",
+      "opcode": 5872,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpArbitraryFloatASinINTEL",
+      "opcode": 5873,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpArbitraryFloatASinPiINTEL",
+      "opcode": 5874,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpArbitraryFloatACosINTEL",
+      "opcode": 5875,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpArbitraryFloatACosPiINTEL",
+      "opcode": 5876,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpArbitraryFloatATanINTEL",
+      "opcode": 5877,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpArbitraryFloatATanPiINTEL",
+      "opcode": 5878,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpArbitraryFloatATan2INTEL",
+      "opcode": 5879,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpArbitraryFloatPowINTEL",
+      "opcode": 5880,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpArbitraryFloatPowRINTEL",
+      "opcode": 5881,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpArbitraryFloatPowNINTEL",
+      "opcode": 5882,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpLoopControlINTEL",
+      "opcode": 5887,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpAliasDomainDeclINTEL",
+      "opcode": 5911,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpAliasScopeDeclINTEL",
+      "opcode": 5912,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpAliasScopeListDeclINTEL",
+      "opcode": 5913,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpFixedSqrtALTERA",
+      "opcode": 5923,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpFixedRecipALTERA",
+      "opcode": 5924,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpFixedRsqrtALTERA",
+      "opcode": 5925,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpFixedSinALTERA",
+      "opcode": 5926,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpFixedCosALTERA",
+      "opcode": 5927,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpFixedSinCosALTERA",
+      "opcode": 5928,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpFixedSinPiALTERA",
+      "opcode": 5929,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpFixedCosPiALTERA",
+      "opcode": 5930,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpFixedSinCosPiALTERA",
+      "opcode": 5931,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpFixedLogALTERA",
+      "opcode": 5932,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpFixedExpALTERA",
+      "opcode": 5933,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpPtrCastToCrossWorkgroupALTERA",
+      "opcode": 5934,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpCrossWorkgroupCastToPtrALTERA",
+      "opcode": 5938,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpReadPipeBlockingALTERA",
+      "opcode": 5946,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpWritePipeBlockingALTERA",
+      "opcode": 5947,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpFPGARegALTERA",
+      "opcode": 5949,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpRayQueryGetRayTMinKHR",
+      "opcode": 6016,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpRayQueryGetRayFlagsKHR",
+      "opcode": 6017,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpRayQueryGetIntersectionTKHR",
+      "opcode": 6018,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpRayQueryGetIntersectionInstanceCustomIndexKHR",
+      "opcode": 6019,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpRayQueryGetIntersectionInstanceIdKHR",
+      "opcode": 6020,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpRayQueryGetIntersectionInstanceShaderBindingTableRecordOffsetKHR",
+      "opcode": 6021,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpRayQueryGetIntersectionGeometryIndexKHR",
+      "opcode": 6022,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpRayQueryGetIntersectionPrimitiveIndexKHR",
+      "opcode": 6023,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpRayQueryGetIntersectionBarycentricsKHR",
+      "opcode": 6024,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpRayQueryGetIntersectionFrontFaceKHR",
+      "opcode": 6025,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpRayQueryGetIntersectionCandidateAABBOpaqueKHR",
+      "opcode": 6026,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpRayQueryGetIntersectionObjectRayDirectionKHR",
+      "opcode": 6027,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpRayQueryGetIntersectionObjectRayOriginKHR",
+      "opcode": 6028,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpRayQueryGetWorldRayDirectionKHR",
+      "opcode": 6029,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpRayQueryGetWorldRayOriginKHR",
+      "opcode": 6030,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpRayQueryGetIntersectionObjectToWorldKHR",
+      "opcode": 6031,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpRayQueryGetIntersectionWorldToObjectKHR",
+      "opcode": 6032,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpAtomicFAddEXT",
+      "opcode": 6035,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpTypeBufferSurfaceINTEL",
+      "opcode": 6086,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpTypeStructContinuedINTEL",
+      "opcode": 6090,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpConstantCompositeContinuedINTEL",
+      "opcode": 6091,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSpecConstantCompositeContinuedINTEL",
+      "opcode": 6092,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpCompositeConstructContinuedINTEL",
+      "opcode": 6096,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpConvertFToBF16INTEL",
+      "opcode": 6116,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpConvertBF16ToFINTEL",
+      "opcode": 6117,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpControlBarrierArriveINTEL",
+      "opcode": 6142,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpControlBarrierWaitINTEL",
+      "opcode": 6143,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpArithmeticFenceEXT",
+      "opcode": 6145,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpTaskSequenceCreateALTERA",
+      "opcode": 6163,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpTaskSequenceAsyncALTERA",
+      "opcode": 6164,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpTaskSequenceGetALTERA",
+      "opcode": 6165,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpTaskSequenceReleaseALTERA",
+      "opcode": 6166,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpTypeTaskSequenceALTERA",
+      "opcode": 6199,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupBlockPrefetchINTEL",
+      "opcode": 6221,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroup2DBlockLoadINTEL",
+      "opcode": 6231,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroup2DBlockLoadTransformINTEL",
+      "opcode": 6232,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroup2DBlockLoadTransposeINTEL",
+      "opcode": 6233,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroup2DBlockPrefetchINTEL",
+      "opcode": 6234,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroup2DBlockStoreINTEL",
+      "opcode": 6235,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSubgroupMatrixMultiplyAccumulateINTEL",
+      "opcode": 6237,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpBitwiseFunctionINTEL",
+      "opcode": 6242,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpUntypedVariableLengthArrayINTEL",
+      "opcode": 6244,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpConditionalExtensionINTEL",
+      "opcode": 6248,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpConditionalEntryPointINTEL",
+      "opcode": 6249,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpConditionalCapabilityINTEL",
+      "opcode": 6250,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSpecConstantTargetINTEL",
+      "opcode": 6251,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSpecConstantArchitectureINTEL",
+      "opcode": 6252,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpSpecConstantCapabilitiesINTEL",
+      "opcode": 6253,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpConditionalCopyObjectINTEL",
+      "opcode": 6254,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpGroupIMulKHR",
+      "opcode": 6401,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpGroupFMulKHR",
+      "opcode": 6402,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpGroupBitwiseAndKHR",
+      "opcode": 6403,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpGroupBitwiseOrKHR",
+      "opcode": 6404,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpGroupBitwiseXorKHR",
+      "opcode": 6405,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpGroupLogicalAndKHR",
+      "opcode": 6406,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpGroupLogicalOrKHR",
+      "opcode": 6407,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpGroupLogicalXorKHR",
+      "opcode": 6408,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpRoundFToTF32INTEL",
+      "opcode": 6426,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpMaskedGatherINTEL",
+      "opcode": 6428,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpMaskedScatterINTEL",
+      "opcode": 6429,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpConvertHandleToImageINTEL",
+      "opcode": 6529,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpConvertHandleToSamplerINTEL",
+      "opcode": 6530,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    },
+    {
+      "name": "OpConvertHandleToSampledImageINTEL",
+      "opcode": 6531,
+      "status": "explicit-unsupported",
+      "upstream_supported": "not-derived-from-grammar; inspect pinned front/spv matches"
+    }
+  ],
+  "options": {
+    "strictCapabilities=true": "implemented allowlist subset; remaining caps rejected",
+    "strictCapabilities=false": "explicitly rejected typed unsupportedConstruct, not silently ignored",
+    "adjustCoordinateSpace": "IO/Position and wrapper lowering explicitly rejected for either setting. No-position shaders unaffected; no flip parity claimed."
+  },
+  "fixtures": {
+    "origin": "independently authored Swift binary word arrays in SPIRVFrontendTests.swift, no upstream shaders or expected IR copied",
+    "positive": [
+      "compute entry/workgroup size/endian",
+      "arithmetic and private global store",
+      "structured selection/phi edge stores",
+      "canonical loop/phi continuing (new, not verified)",
+      "composite extraction/calls (new, not verified)"
+    ],
+    "negative": [
+      "headers/word counts/order/IDs",
+      "unsupported instructions/capabilities/options/IO",
+      "binary UTF8 padding",
+      "decorations/mode stage restrictions",
+      "malformed phi/undefined values (new)"
+    ],
+    "fuzz": {
+      "seed": "0x5a6a15",
+      "cases": 400,
+      "kind": "deterministic bounded single-word mutations and prefix truncations",
+      "last_observed": "pass in10-test suite23:25:39Z; current source subsequently changed"
+    }
+  },
+  "remaining": [
+    "Reconcile duplicate live execution/source ownership; preserve both variants",
+    "Full supported reference capability/extension/import/ext-inst instruction sets",
+    "IO wrappers and builtin/location/interpolation/coordinate adjustment",
+    "Image/sampler/atomic/barrier/subgroup operations",
+    "General loops/switch/irreducible CFG/cross-block spilling and forward-call topological sort",
+    "Specialization constants/null/composite/matrix layout and all decorations",
+    "Parent semantic-validator integration and actual pinned shader fixture execution",
+    "Final strict build and focused tests on exclusively owned reconciled tree"
+  ],
+  "verification": {
+    "current_package": "fails duplicate SPVBlockRecord/SPVValue/SPVFunctionLowerer declarations; log conflict-2329/package-test-conflict.log",
+    "last_completed_execution": "10 tests,9pass1fail fragment origin; subsequent fix and new loops not verified"
+  },
+  "parent_reconciliation": {
+    "status": "partial-integrated-not-full-parity",
+    "all_children_terminal_before_changes": true,
+    "removed_duplicate_from_compilation": "Alternate lowerer moved intact under docs/evidence/saga-5/reconciliation-20261106T2330Z/; no source lost or Package exclusion",
+    "fixes": [
+      "Static OpAccessChain indices use checked accessIndex",
+      "Canonical live loop path emits explicit continue"
+    ],
+    "full_suite": 113,
+    "test_log": "docs/evidence/saga-5/implementation-20261106T2340Z/native-tests.log",
+    "warning": "Old per-opcode intent metadata is NOT test coverage; complete reference mapping still missing."
+  }
+}

@@ -1,0 +1,47 @@
+Building for debugging...
+[0/6] Write sources
+[1/6] Write swift-version-3CD7052B146186F2.txt
+[3/7] Compiling SAGAFrontends ScalarConstantExpressions.swift
+[4/7] Compiling SAGAFrontends FloatingConstants.swift
+[5/7] Emitting module SAGAFrontends
+[6/15] Compiling SAGAFrontends Statements.swift
+[7/15] Compiling SAGAFrontends ModuleDeclarations.swift
+[8/15] Compiling SAGAFrontends ControlExpressions.swift
+[9/15] Compiling SAGAFrontends WGSLFrontend.swift
+[10/15] Compiling SAGAFrontends Materialization.swift
+[11/15] Compiling SAGAFrontends Loops.swift
+[12/15] Compiling SAGAFrontends ConstantExpressions.swift
+[13/15] Compiling SAGAFrontends Expressions.swift
+[14/18] Compiling SAGACompiler Compiler.swift
+[15/18] Compiling SAGACompiler FrontendValidation.swift
+[16/18] Emitting module SAGACompiler
+[17/25] Compiling SAGAFoundationTests FrontendIntegrationTests.swift
+[18/25] Compiling SAGAFoundationTests FrontendContractsTests.swift
+[19/25] Compiling SAGAFoundationTests WGSLFrontendTests.swift
+[20/25] Emitting module SAGAFoundationTests
+[21/25] Compiling SAGAFoundationTests GLSLFrontendTests.swift
+[22/25] Compiling SAGAFoundationTests SPIRVFrontendTests.swift
+[23/25] Compiling SAGAFoundationTests CompilerTests.swift
+[23/25] Write Objects.LinkFileList
+[24/25] Linking SAGAPackageTests
+Build complete! (3.34s)
+Test Suite 'Selected tests' started at 2026-11-07 04:33:38.179.
+Test Suite 'SAGAPackageTests.xctest' started at 2026-11-07 04:33:38.186.
+Test Suite 'SAGAPackageTests.xctest' passed at 2026-11-07 04:33:38.186.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+Test Suite 'Selected tests' passed at 2026-11-07 04:33:38.186.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.007) seconds
+􀟈  Test run started.
+􀄵  Testing Library Version: 1902
+􀄵  Target Platform: arm64e-apple-macos14.0
+􀟈  Suite FrontendIntegrationTests started.
+􀟈  Suite WGSLFrontendTests started.
+􀟈  Test moduleAndLocalFloatConstPreserveForwardScopesAndConcreteIRBoundary() started.
+􀟈  Test floatingConstantsUseTypedPrecisionAndComparisons() started.
+􀟈  Test lazyFloatExpressionsValidateTypesWithoutEvaluatingOrdinarySkippedWork() started.
+􁁛  Test lazyFloatExpressionsValidateTypesWithoutEvaluatingOrdinarySkippedWork() passed after 0.003 seconds.
+􁁛  Test moduleAndLocalFloatConstPreserveForwardScopesAndConcreteIRBoundary() passed after 0.003 seconds.
+􁁛  Suite FrontendIntegrationTests passed after 0.003 seconds.
+􁁛  Test floatingConstantsUseTypedPrecisionAndComparisons() passed after 0.005 seconds.
+􁁛  Suite WGSLFrontendTests passed after 0.005 seconds.
+􁁛  Test run with 3 tests in 2 suites passed after 0.005 seconds.

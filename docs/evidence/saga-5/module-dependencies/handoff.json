@@ -1,0 +1,84 @@
+{
+  "date": "2026-11-07T01:00Z",
+  "scope": "WGSL module declaration dependency resolution and frontend materialization; not full compiler DoD",
+  "full_saga5_complete": false,
+  "native_tests": 163,
+  "new_test_functions": 11,
+  "checks_current_turn": {
+    "native_tests": "verification-4",
+    "native_build": "verification-5",
+    "matched_wasm_compiler_closure": "verification-6",
+    "docs_reference_policy": "verification-7"
+  },
+  "declarations": {
+    "indexed": "original immutable token ranges in original source order, duplicates across all indexed kinds rejected before lowering",
+    "supported_kinds": [
+      "const",
+      "alias",
+      "struct",
+      "var",
+      "fn"
+    ],
+    "dependencies": "lazy typed references build cached DAG; visiting/done cycle detection; const initializer edges resolved before evaluator invocation",
+    "resource_accounting": "index tokens, names, nodes/edges and traversal work charged; recursive graph depth cap min(caller,24), existing expression depth cap24 retained",
+    "ir_order": "types/constants/functions are dependency-topological as pinned Naga, NOT original lexical arena order; source token order and exact UTF8 locations preserved. Statements/effects stay in original evaluation order."
+  },
+  "materialization": {
+    "abstract_integers": "remain frontend-only Int64 values; per-use i32/u32/f32 representability checked; e.g4294967295 retained abstract then used as u32 without globali32 coercion",
+    "module_abstract_floats": "simple literals, unarynegative literals and const-name aliases supported; full float-expression evaluator not implemented",
+    "runtime_boundary": "unused abstract scalar types/intermediates pruned; all supported type/expression/statement/local/function handles remapped; concrete references to surviving abstract nodes fail closed. Concrete named constants retained. No raw validator relaxation, general-purpose IR compactor or SAGA-6 transform claimed.",
+    "continued_residuals": [
+      "forward function/global references with caller body restored",
+      "abstract complement constant-folding",
+      "runtime scalar builtin concrete consensus before default materialization",
+      "indexed module/local shadowing rejected rather than ignored"
+    ]
+  },
+  "unchanged": {
+    "validator_sha256": "2240426e6f836d0beb7c5c45e2c73038e61e05a0eb817c5f0844625ec18539de",
+    "SAGA12_shared_hashes": {
+      "Sources/SAGAShaderIR/TypedIR.swift": "fb46b19c546306dedcbf412e8be009a9c50038e563ad00163d3cc49e49a3bce5",
+      "Sources/SAGAShaderIR/BlockWalk.swift": "5c90afb8d51c003aef0da14be3b82409db7257e3126304ae8d3a8296a78851f5",
+      "Sources/SAGAShaderIR/Capabilities.swift": "03e3779b7fdf62437729255ca731bd853106ff0957834490f378c4fc77abaab5",
+      "Sources/SAGAShaderIR/Contracts.swift": "49273f626cd1b25e530206a168850ebe308bb609f9dc8b3b89e4003632f37529",
+      "Sources/SAGAShaderIR/Tables.swift": "478ceb7991b633f22cb4c0fb04736a6d10040a74c2cf28aafdff363321413c3f",
+      "Sources/SAGAShaderIR/Diagnostics.swift": "eacbb4adf49273251a6237af7288207f5f3f4005c930bd1525b7347592b943dd",
+      "Sources/SAGAShaderIR/Budgets.swift": "4341c2005120441e2d31cac3cf14de0cebbd0d5322ba10c89cd1d36b197ae0b0"
+    },
+    "baseline": true,
+    "bool_source_memory4_ir_width1": true,
+    "uniform_storage_host_shareability_and_private_witness": true
+  },
+  "source_hashes": {
+    "Sources/SAGAFrontends/WGSL/Lexer.swift": "44aeb5ec2cfd082d33a62bcc1e634cb5e43f4ef93c43ddeedbaa49050dbfbb3c",
+    "Sources/SAGAFrontends/WGSL/ControlExpressions.swift": "9094c2300373a36b4e485269f221d26408d449818444d222fcc85c9fa391801e",
+    "Sources/SAGAFrontends/WGSL/Expressions.swift": "32aad08656ee2df450eaa4efa1035fe46ed088c4cac8072810bd660e44c07a3b",
+    "Sources/SAGAFrontends/WGSL/Materialization.swift": "1715723a35cd8ef3a9021860aa1dae7361929944d513ff0b0e07d3a96c32dcf2",
+    "Sources/SAGAFrontends/WGSL/Statements.swift": "8c1a81748f270bfae576ffba0d233a9cb3210b488e513b74d788d8521c1b4dbd",
+    "Sources/SAGAFrontends/WGSL/ModuleDeclarations.swift": "d681da8d51641006163d17f77c3270d4d17f2237a06501f322c0f794567c1f2d",
+    "Sources/SAGAFrontends/WGSL/Loops.swift": "a761f305ca2b3688b830a3232073a6a099149766d837417392773e5707d9ae66",
+    "Sources/SAGAFrontends/WGSL/ConstantExpressions.swift": "a93f7227d9968c5e7de1493f41070b7a26d4204261ea889864230370cb6cd548",
+    "Sources/SAGAFrontends/WGSL/WGSLFrontend.swift": "bcabbcd1fef43c5e502b8ce187166a631e856b8086ffb80d28edc73400004ed4",
+    "Tests/SAGAFoundationTests/WGSLFrontendTests.swift": "26cb755b1915a7fb8353e0549432aa69b2c3bb9b49fee7f013f106d93053e3a5",
+    "Tests/SAGAFoundationTests/FrontendIntegrationTests.swift": "cbd793306ab578c6b6b702c2415c4fb4644272d9f9a09ea576d2ffce3748702b"
+  },
+  "reference_pin": "a55352911bb26a1b33bc8d5fc03bdebb0a967f5a",
+  "reference_porcelain": "",
+  "exact_repro": "docs/evidence/saga-5/module-dependencies/residuals.log",
+  "next_gaps": [
+    "boolean const-comparison const A=1<2 still unsupported",
+    "module const_assert still unsupported",
+    "full vector/float/aggregate const expressions and complete overload/type conversion grammar remain incomplete",
+    "deep dependency graphs beyond conservative24 frames explicitly budget rejected",
+    "broader WGSL extensions/resources/overrides/full3format frontend+semantics/options/fixture DoD still open"
+  ],
+  "task_brief": "Native update accidentally sent empty description and briefly erased brief; immediately restored byte-for-byte full pre-turn snapshot; fresh task_get confirmed full accepted addenda and deps. Evidence brief-restoration.json. No task acceptance or downstream launch.",
+  "new_children_runs_policies_or_commits": 0,
+  "gpu_browser_cts": "No newly generated WGSL GPU, browser or CTS execution; existing native Metal regressions run in full suite, not shader compiler parity.",
+  "launch": "Library-only; no new runnable target/Play recipe",
+  "docs_tests": {
+    "pass": 59,
+    "skip": 0
+  },
+  "source_hashes_rechecked_after_all_checks": true
+}

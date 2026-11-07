@@ -1,0 +1,50 @@
+[0/1] Planning build
+Building for debugging...
+[0/6] Write sources
+[1/6] Write swift-version-3CD7052B146186F2.txt
+[3/8] Compiling SAGAFrontends WGSLFrontend.swift
+[4/8] Compiling SAGAFrontends VectorConstants.swift
+[5/16] Compiling SAGAFrontends Loops.swift
+[6/16] Compiling SAGAFrontends ModuleDeclarations.swift
+[7/16] Compiling SAGAFrontends Materialization.swift
+[8/16] Compiling SAGAFrontends FloatingConstants.swift
+[9/16] Emitting module SAGAFrontends
+[10/16] Compiling SAGAFrontends ScalarConstantExpressions.swift
+[11/16] Compiling SAGAFrontends ControlExpressions.swift
+[12/16] Compiling SAGAFrontends Statements.swift
+[13/16] Compiling SAGAFrontends ConstantExpressions.swift
+[14/16] Compiling SAGAFrontends Expressions.swift
+[15/19] Compiling SAGACompiler Compiler.swift
+[16/19] Compiling SAGACompiler FrontendValidation.swift
+[17/19] Emitting module SAGACompiler
+[18/26] Compiling SAGAFoundationTests SPIRVFrontendTests.swift
+[19/26] Compiling SAGAFoundationTests GLSLFrontendTests.swift
+[20/26] Compiling SAGAFoundationTests FrontendIntegrationTests.swift
+[21/26] Compiling SAGAFoundationTests CompilerTests.swift
+[22/26] Emitting module SAGAFoundationTests
+[23/26] Compiling SAGAFoundationTests FrontendContractsTests.swift
+[24/26] Compiling SAGAFoundationTests WGSLFrontendTests.swift
+[24/26] Write Objects.LinkFileList
+[25/26] Linking SAGAPackageTests
+Build complete! (3.45s)
+Test Suite 'Selected tests' started at 2026-11-07 04:49:36.091.
+Test Suite 'SAGAPackageTests.xctest' started at 2026-11-07 04:49:36.099.
+Test Suite 'SAGAPackageTests.xctest' passed at 2026-11-07 04:49:36.099.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+Test Suite 'Selected tests' passed at 2026-11-07 04:49:36.099.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.007) seconds
+􀟈  Test run started.
+􀄵  Testing Library Version: 1902
+􀄵  Target Platform: arm64e-apple-macos14.0
+􀟈  Suite FrontendIntegrationTests started.
+􀟈  Suite WGSLFrontendTests started.
+􀟈  Test vectorConstantValuesLowerThroughExistingValidatedContracts() started.
+􀟈  Test vectorConstConstructorsAliasesAndBooleanReductions() started.
+􀟈  Test invalidVectorConstructorsValidateWholeSkippedTree() started.
+􀢄  Test vectorConstantValuesLowerThroughExistingValidatedContracts() recorded an issue at FrontendIntegrationTests.swift:345:3: Caught error: .diagnostics([SAGAShaderIR.ShaderDiagnostic(severity: SAGAShaderIR.ShaderDiagnostic.Severity.error, message: "Incompatible expression type", code: SAGAShaderIR.ShaderDiagnosticCode.typeMismatch, location: Optional(SAGAShaderIR.ShaderLocation.source(SAGAShaderIR.SourceSpan(startUTF8: 46, endUTF8: 52))))])
+􀢄  Test vectorConstantValuesLowerThroughExistingValidatedContracts() failed after 0.002 seconds with 1 issue.
+􀢄  Suite FrontendIntegrationTests failed after 0.002 seconds with 1 issue.
+􁁛  Test vectorConstConstructorsAliasesAndBooleanReductions() passed after 0.003 seconds.
+􁁛  Test invalidVectorConstructorsValidateWholeSkippedTree() passed after 0.005 seconds.
+􁁛  Suite WGSLFrontendTests passed after 0.005 seconds.
+􀢄  Test run with 3 tests in 2 suites failed after 0.005 seconds with 1 issue.

@@ -1,0 +1,58 @@
+[0/1] Planning build
+Building for debugging...
+[0/6] Write sources
+[2/6] Write swift-version-3CD7052B146186F2.txt
+[4/8] Emitting module SAGAFrontends
+[5/8] Compiling SAGAFrontends Lexer.swift
+[6/8] Compiling SAGAFrontends WGSLFrontend.swift
+[7/8] Compiling SAGAFrontends Expressions.swift
+[8/10] Compiling SAGAFoundationTests WGSLFrontendTests.swift
+[9/10] Emitting module SAGAFoundationTests
+[9/11] Write Objects.LinkFileList
+[10/11] Linking SAGAPackageTests
+Build complete! (1.76s)
+Test Suite 'Selected tests' started at 2026-11-07 02:26:47.438.
+Test Suite 'SAGAPackageTests.xctest' started at 2026-11-07 02:26:47.445.
+Test Suite 'SAGAPackageTests.xctest' passed at 2026-11-07 02:26:47.445.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+Test Suite 'Selected tests' passed at 2026-11-07 02:26:47.445.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.007) seconds
+􀟈  Test run started.
+􀄵  Testing Library Version: 1902
+􀄵  Target Platform: arm64e-apple-macos14.0
+􀟈  Suite WGSLFrontendTests started.
+􀟈  Test computeLowersStorageEffectsAndTypedExpressions() started.
+􀟈  Test loopsSwitchAndContinuingProduceStructuredIR() started.
+􀟈  Test shortCircuitCallIsOnlyInConditionalBranch() started.
+􀟈  Test cancellationBeforeScan() started.
+􀟈  Test scalarMaterializationAndConstantArithmetic() started.
+􀟈  Test formatCapabilitiesAndDocOptionsAreNotIgnored() started.
+􀟈  Test budgetsAndUnsupportedAreNotSuccess() started.
+􀟈  Test deterministicBoundedFuzz() started.
+􀟈  Test rejectsNamesTypesAndMalformedSyntax() started.
+􀟈  Test failClosedLexicalAndSemanticBoundaries() started.
+􀟈  Test unicodeScalarIdentityDoesNotNormalizeIdentifiers() started.
+􀟈  Test functionCallsBranchesScopesAndReturns() started.
+􀟈  Test aliasesStructuresConstructorsAndNaturalLayout() started.
+􀟈  Test boundedAdversarialStructuredInputs() started.
+􀢄  Test unicodeScalarIdentityDoesNotNormalizeIdentifiers() recorded an issue at WGSLFrontendTests.swift:129:6: Caught error: .diagnostics([SAGAShaderIR.ShaderDiagnostic(severity: SAGAShaderIR.ShaderDiagnostic.Severity.error, message: "Duplicate local \'é\'", code: SAGAShaderIR.ShaderDiagnosticCode.duplicateName, location: Optional(SAGAShaderIR.ShaderLocation.source(SAGAShaderIR.SourceSpan(startUTF8: 27, endUTF8: 30))))])
+􀟈  Test nestedCommentsUnicodeAndExactUTF8Diagnostics() started.
+􀢄  Test unicodeScalarIdentityDoesNotNormalizeIdentifiers() failed after 0.002 seconds with 1 issue.
+􁁛  Test shortCircuitCallIsOnlyInConditionalBranch() passed after 0.002 seconds.
+􁁛  Test formatCapabilitiesAndDocOptionsAreNotIgnored() passed after 0.002 seconds.
+􁁛  Test cancellationBeforeScan() passed after 0.002 seconds.
+􁁛  Test loopsSwitchAndContinuingProduceStructuredIR() passed after 0.003 seconds.
+􁁛  Test functionCallsBranchesScopesAndReturns() passed after 0.003 seconds.
+􁁛  Test nestedCommentsUnicodeAndExactUTF8Diagnostics() passed after 0.001 seconds.
+􁁛  Test computeLowersStorageEffectsAndTypedExpressions() passed after 0.003 seconds.
+􀢄  Test aliasesStructuresConstructorsAndNaturalLayout() recorded an issue at WGSLFrontendTests.swift:108:6: Caught error: .diagnostics([SAGAShaderIR.ShaderDiagnostic(severity: SAGAShaderIR.ShaderDiagnostic.Severity.error, message: "WGSL construct not implemented: builtin or forward function \'Data\'", code: SAGAShaderIR.ShaderDiagnosticCode.unsupportedConstruct, location: Optional(SAGAShaderIR.ShaderLocation.source(SAGAShaderIR.SourceSpan(startUTF8: 169, endUTF8: 173))))])
+􀢄  Test aliasesStructuresConstructorsAndNaturalLayout() failed after 0.003 seconds with 1 issue.
+􁁛  Test budgetsAndUnsupportedAreNotSuccess() passed after 0.004 seconds.
+􁁛  Test rejectsNamesTypesAndMalformedSyntax() passed after 0.004 seconds.
+􁁛  Test scalarMaterializationAndConstantArithmetic() passed after 0.005 seconds.
+􁁛  Test failClosedLexicalAndSemanticBoundaries() passed after 0.007 seconds.
+􁁛  Test boundedAdversarialStructuredInputs() passed after 0.012 seconds.
+􁁛  Test deterministicBoundedFuzz() passed after 0.086 seconds.
+􀢄  Suite WGSLFrontendTests failed after 0.086 seconds with 2 issues.
+􀄵  // Independently authored SAGA fixtures; no upstream shader bytes copied.
+􀢄  Test run with 15 tests in 1 suite failed after 0.087 seconds with 2 issues.

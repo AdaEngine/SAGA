@@ -1,0 +1,1 @@
+diagnostics([SAGAShaderIR.ShaderDiagnostic(severity: SAGAShaderIR.ShaderDiagnostic.Severity.error, message: "Expected u32 constant", code: SAGAShaderIR.ShaderDiagnosticCode.invalidType, location: Optional(SAGAShaderIR.ShaderLocation.source(SAGAShaderIR.SourceSpan(startUTF8: 33, endUTF8: 34))))])

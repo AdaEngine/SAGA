@@ -1,0 +1,40 @@
+[0/1] Planning build
+Building for debugging...
+[0/6] Write sources
+[1/6] Write swift-version-3CD7052B146186F2.txt
+[3/8] Emitting module SAGAFrontends
+[4/8] Compiling SAGAFrontends Expressions.swift
+[5/8] Compiling SAGAFrontends Materialization.swift
+[6/8] Compiling SAGAFrontends WGSLFrontend.swift
+[7/13] Compiling SAGAFrontends Loops.swift
+[8/13] Compiling SAGAFrontends ControlExpressions.swift
+[9/13] Compiling SAGAFrontends ModuleDeclarations.swift
+[10/13] Compiling SAGAFrontends Statements.swift
+[11/13] Compiling SAGAFrontends ConstantExpressions.swift
+[12/16] Compiling SAGACompiler Compiler.swift
+[13/16] Compiling SAGACompiler FrontendValidation.swift
+[14/16] Emitting module SAGACompiler
+[15/23] Compiling SAGAFoundationTests CompilerTests.swift
+[16/23] Compiling SAGAFoundationTests SPIRVFrontendTests.swift
+[17/23] Compiling SAGAFoundationTests GLSLFrontendTests.swift
+[18/23] Compiling SAGAFoundationTests FrontendContractsTests.swift
+[19/23] Compiling SAGAFoundationTests WGSLFrontendTests.swift
+[20/23] Emitting module SAGAFoundationTests
+[21/23] Compiling SAGAFoundationTests FrontendIntegrationTests.swift
+[21/23] Write Objects.LinkFileList
+[22/23] Linking SAGAPackageTests
+Build complete! (3.19s)
+Test Suite 'Selected tests' started at 2026-11-07 03:49:08.781.
+Test Suite 'SAGAPackageTests.xctest' started at 2026-11-07 03:49:08.788.
+Test Suite 'SAGAPackageTests.xctest' passed at 2026-11-07 03:49:08.788.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+Test Suite 'Selected tests' passed at 2026-11-07 03:49:08.789.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.007) seconds
+􀟈  Test run started.
+􀄵  Testing Library Version: 1902
+􀄵  Target Platform: arm64e-apple-macos14.0
+􀟈  Suite FrontendIntegrationTests started.
+􀟈  Test abstractModuleValuesMaterializePerContextNotGloballyToI32() started.
+􁁛  Test abstractModuleValuesMaterializePerContextNotGloballyToI32() passed after 0.004 seconds.
+􁁛  Suite FrontendIntegrationTests passed after 0.004 seconds.
+􁁛  Test run with 1 test in 1 suite passed after 0.004 seconds.

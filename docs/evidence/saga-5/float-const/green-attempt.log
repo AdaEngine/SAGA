@@ -1,0 +1,120 @@
+[0/1] Planning build
+Building for debugging...
+[0/6] Write sources
+[1/6] Write swift-version-3CD7052B146186F2.txt
+[3/8] Emitting module SAGAFrontends
+[4/8] Compiling SAGAFrontends WGSLFrontend.swift
+[5/8] Compiling SAGAFrontends FloatingConstants.swift
+[6/8] Compiling SAGAFrontends ScalarConstantExpressions.swift
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/WGSL/ScalarConstantExpressions.swift:487:16: error: missing condition in 'if' statement
+485 |           default: throw wgslError(.typeMismatch, "Invalid boolean operation", n.token)
+486 |           }
+487 |         } else if {if case .floating=a {return true};if case .floating=b {return true};return false}() {
+    |                `- error: missing condition in 'if' statement
+488 |           result = try floatingBinary(op,a,b,at:n.token)
+489 |         } else if case .integer(var l) = a, case .integer(var r) = b {
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/WGSL/ScalarConstantExpressions.swift:487:101: error: consecutive statements on a line must be separated by ';'
+485 |           default: throw wgslError(.typeMismatch, "Invalid boolean operation", n.token)
+486 |           }
+487 |         } else if {if case .floating=a {return true};if case .floating=b {return true};return false}() {
+    |                                                                                                     `- error: consecutive statements on a line must be separated by ';'
+488 |           result = try floatingBinary(op,a,b,at:n.token)
+489 |         } else if case .integer(var l) = a, case .integer(var r) = b {
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/WGSL/ScalarConstantExpressions.swift:487:103: error: consecutive statements on a line must be separated by ';'
+485 |           default: throw wgslError(.typeMismatch, "Invalid boolean operation", n.token)
+486 |           }
+487 |         } else if {if case .floating=a {return true};if case .floating=b {return true};return false}() {
+    |                                                                                                       `- error: consecutive statements on a line must be separated by ';'
+488 |           result = try floatingBinary(op,a,b,at:n.token)
+489 |         } else if case .integer(var l) = a, case .integer(var r) = b {
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/WGSL/ScalarConstantExpressions.swift:489:10: error: consecutive statements on a line must be separated by ';'
+487 |         } else if {if case .floating=a {return true};if case .floating=b {return true};return false}() {
+488 |           result = try floatingBinary(op,a,b,at:n.token)
+489 |         } else if case .integer(var l) = a, case .integer(var r) = b {
+    |          `- error: consecutive statements on a line must be separated by ';'
+490 |           if ["==", "!=", "<", "<=", ">", ">="].contains(op) {
+491 |             let kind = try common(a.kind, b.kind, at: n.token)
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/WGSL/ScalarConstantExpressions.swift:489:11: error: expected expression
+487 |         } else if {if case .floating=a {return true};if case .floating=b {return true};return false}() {
+488 |           result = try floatingBinary(op,a,b,at:n.token)
+489 |         } else if case .integer(var l) = a, case .integer(var r) = b {
+    |           `- error: expected expression
+490 |           if ["==", "!=", "<", "<=", ">", ">="].contains(op) {
+491 |             let kind = try common(a.kind, b.kind, at: n.token)
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/WGSL/ScalarConstantExpressions.swift:12:21: error: type 'WGSLConstKind' has no member 'bool'
+ 10 |     switch self {
+ 11 |     case .integer(let x): .integer(x.kind)
+ 12 |     case .boolean: .bool
+    |                     `- error: type 'WGSLConstKind' has no member 'bool'
+ 13 |     case .floating(let f): f.kind == .f32 ? .f32 : .abstractFloatean
+ 14 |     case .floating(let f): .floating(f.kind)
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/WGSL/ScalarConstantExpressions.swift:25:5: error: switch must be exhaustive
+ 23 |   }
+ 24 |   var scalar: IRScalar {
+ 25 |     switch self {
+    |     |- error: switch must be exhaustive
+    |     `- note: add missing case: '.floating(_)'
+ 26 |     case .integer(let x): x.scalar
+ 27 |     case .boolean: .bool
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/WGSL/ScalarConstantExpressions.swift:487:48: error: cannot convert return expression of type 'Bool' to return type 'WGSLScalarConstant'
+485 |           default: throw wgslError(.typeMismatch, "Invalid boolean operation", n.token)
+486 |           }
+487 |         } else if {if case .floating=a {return true};if case .floating=b {return true};return false}() {
+    |                                                `- error: cannot convert return expression of type 'Bool' to return type 'WGSLScalarConstant'
+488 |           result = try floatingBinary(op,a,b,at:n.token)
+489 |         } else if case .integer(var l) = a, case .integer(var r) = b {
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/WGSL/ScalarConstantExpressions.swift:487:82: error: cannot convert return expression of type 'Bool' to return type 'WGSLScalarConstant'
+485 |           default: throw wgslError(.typeMismatch, "Invalid boolean operation", n.token)
+486 |           }
+487 |         } else if {if case .floating=a {return true};if case .floating=b {return true};return false}() {
+    |                                                                                  `- error: cannot convert return expression of type 'Bool' to return type 'WGSLScalarConstant'
+488 |           result = try floatingBinary(op,a,b,at:n.token)
+489 |         } else if case .integer(var l) = a, case .integer(var r) = b {
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/WGSL/ScalarConstantExpressions.swift:487:95: error: cannot convert return expression of type 'Bool' to return type 'WGSLScalarConstant'
+485 |           default: throw wgslError(.typeMismatch, "Invalid boolean operation", n.token)
+486 |           }
+487 |         } else if {if case .floating=a {return true};if case .floating=b {return true};return false}() {
+    |                                                                                               `- error: cannot convert return expression of type 'Bool' to return type 'WGSLScalarConstant'
+488 |           result = try floatingBinary(op,a,b,at:n.token)
+489 |         } else if case .integer(var l) = a, case .integer(var r) = b {
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/WGSL/ScalarConstantExpressions.swift:488:11: error: cannot assign to value: 'result' is a 'let' constant
+447 |     let n = nodes[i]
+448 |     let arithmetic = WGSLIntegerEvaluator(parser: parser, tokens: [], fallback: n.token)
+449 |     let result: WGSLScalarConstant
+    |     `- note: change 'let' to 'var' to make it mutable
+450 |     switch n.op {
+451 |     case .value(let v): result = v
+    :
+486 |           }
+487 |         } else if {if case .floating=a {return true};if case .floating=b {return true};return false}() {
+488 |           result = try floatingBinary(op,a,b,at:n.token)
+    |           `- error: cannot assign to value: 'result' is a 'let' constant
+489 |         } else if case .integer(var l) = a, case .integer(var r) = b {
+490 |           if ["==", "!=", "<", "<=", ">", ">="].contains(op) {
+
+/Users/vlad-prusakov/Developer/saga/Sources/SAGAFrontends/WGSL/ScalarConstantExpressions.swift:487:104: error: closure expression is unused [#no-usage]
+485 |           default: throw wgslError(.typeMismatch, "Invalid boolean operation", n.token)
+486 |           }
+487 |         } else if {if case .floating=a {return true};if case .floating=b {return true};return false}() {
+    |                                                                                                        |- error: closure expression is unused [#no-usage]
+    |                                                                                                        `- note: did you mean to use a 'do' statement?
+488 |           result = try floatingBinary(op,a,b,at:n.token)
+489 |         } else if case .integer(var l) = a, case .integer(var r) = b {
+[7/15] Compiling SAGAFrontends Loops.swift
+[8/15] Compiling SAGAFrontends Statements.swift
+[9/15] Compiling SAGAFrontends Materialization.swift
+[10/15] Compiling SAGAFrontends ModuleDeclarations.swift
+[11/15] Compiling SAGAFrontends ControlExpressions.swift
+[12/15] Compiling SAGAFrontends ConstantExpressions.swift
+[13/15] Compiling SAGAFrontends Expressions.swift
+error: fatalError

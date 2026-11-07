@@ -1,0 +1,608 @@
+a55352911bb26a1b33bc8d5fc03bdebb0a967f5a
+  <thead>
+    <tr><th>Precondition<th>Conclusion<th>Description
+  </thead>
+  <tr algorithm="negation"><td>|e|: |T|<br>
+  |T| is AbstractInt, AbstractFloat, i32, f32, f16, vec|N|&lt;AbstractInt&gt;,
+  vec|N|&lt;AbstractFloat&gt;, vec|N|&lt;i32&gt;, vec|N|&lt;f32&gt;, or vec|N|&lt;f16&gt;
+  <td>`-`|e|`:` |T|
+  <td>Negation. [=Component-wise=] when |T| is a vector.
+  If |T| is an [=integer scalar=] type and |e| evaluates to the largest negative value, then the result is |e|.
+</table>
+
+<table class='data'>
+  <caption>Binary arithmetic expressions</caption>
+  <thead>
+    <tr><th>Precondition<th>Conclusion<th>Description
+  </thead>
+
+  <tr algorithm="addition">
+    <td>|e1| : |T|<br>|e2| : |T|<br>[ALLNUMERICDECL]
+    <td>|e1| `+` |e2| : |T|
+    <td>Addition. [=Component-wise=] when |T| is a vector.
+
+        If |T| is a floating point type, the scalar [=domain=] is
+        the set of all pairs of [=extended reals=] (|x|,|y|) except:
+           * ([NINF],[PINF])
+           * ([PINF],[NINF])
+
+  <tr algorithm="subtraction">
+    <td>|e1| : |T|<br>|e2| : |T|<br>[ALLNUMERICDECL]
+    <td>|e1| `-` |e2| : |T|
+    <td>Subtraction [=Component-wise=] when |T| is a vector.
+
+        If |T| is a floating point type, the scalar [=domain=] is
+        the set of all pairs of [=extended reals=] (|x|,|y|) except:
+           * ([NINF],[NINF])
+           * ([PINF],[PINF])
+
+  <tr algorithm="multiplication">
+    <td>|e1| : |T|<br>|e2| : |T|<br>[ALLNUMERICDECL]
+    <td>|e1| `*` |e2| : |T|
+    <td>Multiplication. [=Component-wise=] when |T| is a vector.
+
+        If |T| is a floating point type, the scalar [=domain=] is
+        the set of all pairs of [=extended reals=] (|x|,|y|) except:
+           * (0,[NINF])
+           * (0,[PINF])
+           * ([NINF], 0)
+           * ([PINF], 0)
+
+  <tr algorithm="division">
+    <td>|e1| : |T|<br>|e2| : |T|<br>[ALLNUMERICDECL]
+    <td>|e1| `/` |e2| : |T|
+    <td>Division. [=Component-wise=] when |T| is a vector.
+
+        If |T| is a signed [=integer scalar=] type, evaluates to:
+        * If |e2| is zero:
+            * It is a [=shader-creation error=] if |e2| is a [=const-expression=].
+            * It is a [=pipeline-creation error=] if |e2| is an [=override-expression=].
+            * Otherwise, |e1|.
+        * If |e1| is most negative value in |T|, and |e2| is -1:
+            * It is a [=shader-creation error=] if |e1| and |e2| are [=const-expressions=].
+            * It is a [=pipeline-creation error=] if |e1| and |e2| are [=override-expressions=].
+            * Otherwise, |e1|.
+        * [=truncate=](|x|) otherwise, where |x| is the
+            real-valued quotient |e1|&nbsp;&div;&nbsp;|e2|.
+
+        Note:
+        The need to ensure truncation behavior may require an implementation
+        to perform more operations than when computing an unsigned division.
+        Use unsigned division when both operands are known to have the same sign.
+
+        <!--
+               where MINIT = most negative value in |T|
+               where Divisor = select(e2, 1, (e2==0) | ((e1 == MININT) & (e2 == -1)))
+               result is truncate(e1/Divisor)
+        -->
+
+        If |T| is an unsigned [=integer scalar=] type, evaluates to:
+        * If |e2| is zero:
+            * It is a [=shader-creation error=] if |e2| is a [=const-expression=].
+            * It is a [=pipeline-creation error=] if |e2| is an [=override-expression=].
+            * Otherwise, |e1|.
+        * Otherwise, the integer |q| such that
+            |e1|&nbsp;=&nbsp;|q|&nbsp;&times;&nbsp;|e2|&nbsp;+&nbsp;|r|,
+            where 0 &le; |r| &lt; |e2|.
+
+        If |T| is a floating point type, the scalar [=domain=] is
+        the set of all pairs of [=extended reals=] (|x|,|y|) except:
+           * (0,0)
+           * ([NINF],[NINF])
+           * ([NINF],[PINF])
+           * ([PINF],[NINF])
+           * ([PINF],[PINF])
+
+  <tr algorithm="Remainder">
+    <td>|e1| : |T|<br>|e2| : |T|<br>[ALLNUMERICDECL]
+    <td>|e1| `%` |e2| : |T|
+    <td>Remainder. [=Component-wise=] when |T| is a vector.
+
+       If |T| is a signed [=integer scalar=] type, evaluates |e1| and |e2| once, and evaluates to:
+       * if |e2| is zero:
+          * It is a [=shader-creation error=] if |e2| is a [=const-expression=].
+          * It is a [=pipeline-creation error=] if |e2| is an [=override-expression=].
+          * Otherwise, 0.
+       * If |e1| is the most negative value in |T|, and |e2| is -1:
+          * It is a [=shader-creation error=] if |e1| and |e2| are [=const-expressions=].
+          * It is a [=pipeline-creation error=] if |e1| and |e2| are [=override-expressions=].
+          * Otherwise, 0.
+       * Otherwise, |e1|&nbsp;-&nbsp;[=truncate=](|e1|&nbsp;&div;&nbsp;|e2|)&nbsp;&times;&nbsp;|e2|
+           where the quotient is computed as a real value.
+
+       Note:
+       When non-zero, the result has the same sign as |e1|.
+
+       Note:
+       The need to ensure consistent behavior may require an implementation
+       to perform more operations than when computing an unsigned remainder.
+
+       <!--
+              where MINIT = most negative value in |T|
+              where Divisor = select(e2, 1, (e2==0) | ((e1 == MININT) & (e2 == -1)))
+              result is e1 - truncate(e1/Divisor) * Divisor
+       -->
+
+       If |T| is an unsigned [=integer scalar=] type, evaluates to:
+       * if |e2| is zero:
+          * It is a [=shader-creation error=] if |e2| is a [=const-expression=].
+          * It is a [=pipeline-creation error=] if |e2| is an [=override-expression=].
+          * Otherwise, 0.
+       * Otherwise, the integer |r| such that
+           |e1|&nbsp;=&nbsp;|q|&nbsp;&times;&nbsp;|e2|&nbsp;+&nbsp;|r|,
+  <tr algorithm="complement">
+    <td>|e|: |T|<br>
+    [ALLINTEGRALDECL]
+    <td class="nowrap">`~`|e| : |T|
+    <td>Bitwise complement on |e|.
+    Each bit in the result is the opposite of the corresponding bit in |e|.
+    [=Component-wise=] when |T| is a vector.
+</table>
+
+<table class='data'>
+  <caption>Binary bitwise operations</caption>
+  <thead>
+    <tr><th>Precondition<th>Conclusion<th>Description
+  </thead>
+  <tr algorithm="bitwise or">
+    <td>|e1|: |T|<br>
+       |e2|: |T|<br>
+       [ALLINTEGRALDECL]
+    <td class="nowrap">|e1| `|` |e2|: |T|
+    <td>Bitwise-or. [=Component-wise=] when |T| is a vector.
+  <tr algorithm="bitwise and">
+    <td>|e1|: |T|<br>
+       |e2|: |T|<br>
+       [ALLINTEGRALDECL]
+    <td class="nowrap">|e1| `&` |e2|: |T|
+    <td>Bitwise-and. [=Component-wise=] when |T| is a vector.
+  <tr algorithm="bitwise exclusive or">
+    <td>|e1|: |T|<br>
+       |e2|: |T|<br>
+       [ALLINTEGRALDECL]
+    <td class="nowrap">|e1| `^` |e2|: |T|
+    <td>Bitwise-exclusive-or. [=Component-wise=] when |T| is a vector.
+</table>
+
+
+<table class='data'>
+  <caption>Bit shift expressions</caption>
+  <thead>
+    <tr><th>Precondition<th>Conclusion<th>Description
+  </thead>
+
+  <tr algorithm="concrete shift left">
+    <td>|e1|: |T|<br>
+    |e2|: |TS|<br>
+    |S| is [INT]<br>
+    |T| is |S| or vec|N|&lt;|S|&gt;<br>
+    |TS| is u32 when |T| is |S|, otherwise |TS| is vec|N|&lt;u32&gt;
+    <td class="nowrap">|e1| `<<` |e2|: |T|
+    <td>Shift left (shifted value is concrete):
+
+        Shift |e1| left, inserting zero bits at the least significant positions,
+        and discarding the most significant bits.
+
+        The number of bits to shift is the value of |e2|, modulo the bit width of |e1|.<br>
+        If |e2| is greater than or equal to the bit width of |e1|, then:
+        * It is a [=shader-creation error=] if |e2| is a [=const-expression=].
+        * It is a [=pipeline-creation error=] if |e2| is an [=override-expression=].
+
+        When both |e1| and |e2| are known before [=shader execution start=],
+        the result must not overflow:
+        * If |T| is a signed integer type,
+            and the |e2|+1 most significant bits of |e1| do not have the same bit value, then:
+            * It is a [=shader-creation error=] if |e1| and |e2| are [=const-expressions=].
+            * It is a [=pipeline-creation error=] if |e1| and |e2| are [=override-expressions=].
+        * If |T| is an unsigned integer type, and any of the |e2| most significant bits of |e1| are 1, then:
+            * It is a [=shader-creation error=] if |e1| and |e2| are [=const-expressions=].
+            * It is a [=pipeline-creation error=] if |e1| and |e2| are [=override-expressions=].
+
+        [=Component-wise=] when |T| is a vector.
+
+  <tr algorithm="abstract shift left">
+    <td>|e1|: |T|<br>
+    |e2|: |TS|<br>
+    |T| is AbstractInt or vec|N|&lt;AbstractInt&gt;<br>
+    |TS| is u32 when |T| is AbstractInt, otherwise |TS| is vec|N|&lt;u32&gt;
+    <td class="nowrap">|e1| `<<` |e2|: |T|
+    <td>Shift left (shifted value abstract):
+
+        Shift |e1| left, inserting zero bits at the least significant positions,
+        and discarding the most significant bits.
+
+        The number of bits to shift is the value of |e2|.
+
+        The |e2|+1 most significant bits of |e1| [=shader-creation error|must=] have the same bit value.
+        Otherwise overflow would occur.
+
+        Note: This condition means all the discarded bits must be the same as the sign bit of the original value,
+        and the same as the sign bit of the final value.
+
+        [=Component-wise=] when |T| is a vector.
+
+  <tr algorithm="concrete shift right">
+    <td>|e1|: |T|<br>
+    |e2|: |TS|<br>
+    |S| is [INT]<br>
+    |T| is |S| or vec|N|&lt;|S|&gt;<br>
+    |TS| is u32 when |T| is |S|, otherwise |TS| is vec|N|&lt;u32&gt;
+    <td class="nowrap">|e1| >> |e2|: |T|
+    <td>Shift right (shifted value is concrete).
+
+        Shift |e1| right, discarding the least significant bits.
+
+        If |S| is an unsigned type, insert zero bits at the most significant positions.
+
+        If |S| is a signed type:
+        * If |e1| is negative, each inserted bit is 1, and so the result is also negative.
+        * Otherwise, each inserted bit is 0.
+
+        The number of bits to shift is the value of |e2|, modulo the bit width of |e1|.
+
+        If |e2| is greater than or equal to the bit width or |e1|, then:
+        * It is a [=shader-creation error=] if |e2| is a [=const-expression=].
+        * It is a [=pipeline-creation error=] if |e2| is an [=override-expression=].
+
+        [=Component-wise=] when |T| is a vector.
+
+  <tr algorithm="abstract shift right">
+    <td>|e1|: |T|<br>
+    |e2|: |TS|<br>
+    |T| is AbstractInt or vec|N|&lt;AbstractInt&gt;<br>
+    |TS| is u32 when |T| is AbstractInt, otherwise |TS| is vec|N|&lt;u32&gt;
+    <td class="nowrap">|e1| >> |e2|: |T|
+    <td>Shift right (abstract).
+
+        Shift |e1| right, discarding the least significant bits.
+
+        If |e1| is negative, each inserted bit is 1, and so the result is also negative.
+        Otherwise, each inserted bit is 0.
+
+        The number of bits to shift is the value of |e2|.
+
+        [=Component-wise=] when |T| is a vector.
+</table>
+
+## Function Call Expression ## {#function-call-expr}
+
+279:        text: texture view swizzle; url: dom-gputextureviewdescriptor-swizzle
+1523:* <a for=language_extension lt=swizzle_assignment>`'swizzle_assignment'`</a>
+1556:### Swizzle Names ### {#swizzle-names}
+1558:The [=swizzle=] names are used in [[#vector-access-expr|vector access expressions]] and [[#swizzle-view-expr|swizzle view expressions]]:
+1561:path: syntax/swizzle_name.syntax.bs.include
+2063:  <tr><td><dfn for="language_extension">swizzle_assignment</dfn>
+2065:      Supports [=swizzle view=] types.
+2067:      This enables [=swizzle assignments=]:
+2313:Note: [=Swizzle view types=] are not written in WGSL modules. See [[#swizzle-view-types]].
+2548:  <tr algorithm="conversion rank for swizzle view to vector">
+2549:      <td>swizzle&lt;|AS|,|S|,|N|,|K|&gt;<br>
+2552:      <td>Apply the [=Swizzle View Load Rule=] to load a vector value from a [=swizzle view=].
+2677:* `T` is not a [=swizzle view type=], and
+3821:### Swizzle View Types ### {#swizzle-view-types}
+3826:Swizzle views are enabled by the [=language_extension/swizzle_assignment=] language extension.
+3828:<div algorithm="swizzle view">
+3829:A <dfn noexport>swizzle view</dfn> is a pair (|p|,|IndexList|) where:
+3837:<blockquote algorithm="reading a swizzle view">
+3839:**Algorithm:** <dfn lt="swizzle view read">SwizzleViewRead</dfn>
+3843:Note: Reading via a swizzle view reads the entire vector from memory, even if some
+import SAGAShaderIR
+
+// Typed integer values and audited arithmetic, shared by the scalar constant tree.
+struct WGSLIntegerConstant {
+  enum Kind { case abstract, sint, uint }
+  var value: Int64
+  var kind: Kind
+  var scalar: IRScalar { kind == .abstract ? .abstractInt : kind == .sint ? .i32 : .u32 }
+  var literal: IRLiteral {
+    switch kind {
+    case .abstract: .abstractInt(value)
+    case .sint: .i32(Int32(value))
+    case .uint: .u32(UInt32(value))
+    }
+  }
+}
+
+struct WGSLIntegerEvaluator {
+  let parser: WGSLParser
+  let tokens: [WGSLToken]
+  let fallback: WGSLToken
+  func checked(_ value: Int64, _ kind: WGSLIntegerConstant.Kind, at t: WGSLToken) throws
+    -> WGSLIntegerConstant
+  {
+    let valid =
+      kind == .abstract
+      || (kind == .sint ? Int32(exactly: value) != nil : UInt32(exactly: value) != nil)
+    guard valid else {
+      throw wgslError(.invalidType, "Integer constant overflow or unrepresentable conversion", t)
+    }
+    return .init(value: value, kind: kind)
+  }
+  func binary(_ op: String, _ lhs: WGSLIntegerConstant, _ rhs: WGSLIntegerConstant, at t: WGSLToken)
+    throws -> WGSLIntegerConstant
+  {
+    var a = lhs
+    var b = rhs
+    if op == "<<" || op == ">>" {
+      guard b.kind == .abstract || b.kind == .uint else {
+        throw wgslError(.typeMismatch, "Shift count requires u32 or abstract integer", t)
+      }
+      let width = a.kind == .abstract ? 64 : 32
+      guard b.value >= 0 && b.value < width else {
+        throw wgslError(.invalidType, "Constant shift count outside bit width", t)
+      }
+      if op == ">>" { return try checked(a.value >> b.value, a.kind, at: t) }
+      // WGSL const left shift requires no significant bits to be lost.
+      var value = a.value
+      for _ in 0..<Int(b.value) {
+        try parser.budget.consume(.work)
+        let (n, overflow) = value.multipliedReportingOverflow(by: 2)
+        guard !overflow else { throw wgslError(.invalidType, "Constant shift overflow", t) }
+        value = try checked(n, a.kind, at: t).value
+      }
+      return try checked(value, a.kind, at: t)
+    }
+    if a.kind != b.kind {
+      if a.kind == .abstract {
+        a = try checked(a.value, b.kind, at: t)
+      } else if b.kind == .abstract {
+        b = try checked(b.value, a.kind, at: t)
+      } else {
+        throw wgslError(.typeMismatch, "Mixed concrete integer types", t)
+      }
+    }
+    if a.kind != .abstract && ["+", "-", "*"].contains(op) {
+      let x = UInt32(truncatingIfNeeded: a.value)
+      let y = UInt32(truncatingIfNeeded: b.value)
+      let bits: UInt32 = op == "+" ? x &+ y : op == "-" ? x &- y : x &* y
+      return .init(
+        value: a.kind == .uint ? Int64(bits) : Int64(Int32(bitPattern: bits)), kind: a.kind)
+    }
+    let n: Int64
+    let overflow: Bool
+    switch op {
+    case "+": (n, overflow) = a.value.addingReportingOverflow(b.value)
+    case "-": (n, overflow) = a.value.subtractingReportingOverflow(b.value)
+    case "*": (n, overflow) = a.value.multipliedReportingOverflow(by: b.value)
+    case "/", "%":
+      guard b.value != 0, !(a.value == Int64.min && b.value == -1),
+        !(a.kind == .sint && a.value == Int64(Int32.min) && b.value == -1)
+      else { throw wgslError(.invalidType, "Invalid constant division/remainder", t) }
+      n = op == "/" ? a.value / b.value : a.value % b.value
+      overflow = false
+    case "&":
+      n = a.value & b.value
+      overflow = false
+    case "|":
+      n = a.value | b.value
+      overflow = false
+    case "^":
+      n = a.value ^ b.value
+      overflow = false
+    default: throw wgslError(.unsupportedConstruct, "Integer operator not implemented", t)
+    }
+    guard !overflow else { throw wgslError(.invalidType, "Integer constant overflow", t) }
+    return try checked(n, a.kind, at: t)
+  }
+}
+
+extension WGSLParser {
+  func integerConstant(_ tokens: [WGSLToken], at t: WGSLToken) throws -> WGSLIntegerConstant {
+    guard !tokens.isEmpty else {
+      throw wgslError(.unexpectedToken, "Missing constant expression", t)
+    }
+    let result = try scalarConstant(tokens, at: t)
+    guard case .integer(let integer) = result else {
+      throw wgslError(
+        .typeMismatch, "Attribute/count requires integer, not bool", tokens.first ?? t)
+    }
+    return integer
+  }
+  func attributeConstant(_ a: Attribute) throws -> WGSLIntegerConstant {
+    guard a.expressions.count == 1, let expression = a.expressions.first else {
+      throw wgslError(.unexpectedToken, "Expected one attribute argument", a.name)
+    }
+    return try integerConstant(expression, at: a.name)
+  }
+  func attributeValue(_ v: WGSLIntegerConstant, at t: WGSLToken) throws -> UInt32 {
+    // An abstract integer is materialized as i32, per the attribute parameter rule.
+    guard let value = UInt32(exactly: v.value),
+      v.kind != .abstract || Int32(exactly: v.value) != nil
+    else {
+      throw wgslError(.invalidType, "Attribute integer must resolve to non-negative i32/u32", t)
+    }
+    return value
+  }
+}
+import SAGAShaderIR
+
+// Only scalar leaves; no recursive aggregate allocation or unbounded component counts.
+struct WGSLVectorConstant {
+  let elements: [WGSLScalarConstant]
+  let element: WGSLConstKind
+}
+extension WGSLConstKind {
+  var scalarLeaf: WGSLConstKind {
+    if case .vector(_, let s) = self { return s }
+    return self
+  }
+  var lanes: Int {
+    if case .vector(let n, _) = self { return n }
+    return 1
+  }
+  static func scalar(_ scalar: IRScalar, at t: WGSLToken) throws -> WGSLConstKind {
+    switch scalar {
+    case .bool: return .boolean
+    case .i32: return .integer(.sint)
+    case .u32: return .integer(.uint)
+    case .f32: return .floating(.f32)
+    default: throw wgslError(.unsupportedConstruct, "Vector element scalar not implemented", t)
+    }
+  }
+  func irScalar(at t: WGSLToken) throws -> IRScalar {
+    switch self {
+    case .boolean: return .bool
+    case .integer(let k): return k == .abstract ? .abstractInt : k == .sint ? .i32 : .u32
+    case .floating(let k): return k == .abstract ? .abstractFloat : .f32
+    case .vector: throw wgslError(.invalidType, "Nested vector elements forbidden", t)
+    }
+  }
+}
+extension WGSLScalarEvaluator {
+  func scalarConvert(
+    _ v: WGSLScalarConstant, to target: WGSLConstKind, at t: WGSLToken, explicit: Bool
+  ) throws -> WGSLScalarConstant {
+    if !explicit {
+      guard canAuto(v.kind, to: target) else {
+        throw wgslError(.typeMismatch, "No implicit scalar conversion", t)
+      }
+      return try converted(v, to: target, at: t)
+    }
+    switch target {
+    case .boolean:
+      switch v {
+      case .boolean: return v
+      case .integer(let x): return .boolean(x.value != 0)
+      case .floating(let x): return .boolean(x.value != 0)
+      case .vector: throw wgslError(.typeMismatch, "Scalar conversion needs scalar", t)
+      }
+    case .floating(let k): return try floatValue(v, kind: k, at: t, explicit: true)
+    case .integer(let k):
+      switch v {
+      case .boolean(let x): return .integer(.init(value: x ? 1 : 0, kind: k))
+      case .floating(let x): return try floatToInteger(x, target: k, at: t)
+      case .integer(let x):
+        if x.kind == .abstract || x.kind == k { return try converted(v, to: target, at: t) }
+        let bits = UInt32(truncatingIfNeeded: x.value)
+        return .integer(
+          .init(value: k == .uint ? Int64(bits) : Int64(Int32(bitPattern: bits)), kind: k))
+      case .vector: throw wgslError(.typeMismatch, "Scalar conversion needs scalar", t)
+      }
+    case .vector: throw wgslError(.invalidType, "Vector scalar conversion target", t)
+    }
+  }
+  func canAuto(_ from: WGSLConstKind, to: WGSLConstKind) -> Bool {
+    if from == to { return true }
+    if from == .integer(.abstract) { return to != .boolean && to.lanes == 1 }
+    return from == .floating(.abstract) && to == .floating(.f32)
+  }
+  func zero(_ k: WGSLConstKind, at t: WGSLToken) throws -> WGSLScalarConstant {
+    switch k {
+    case .boolean: return .boolean(false)
+    case .integer(let i): return .integer(.init(value: 0, kind: i))
+    case .floating(let f): return .floating(.init(value: 0, kind: f))
+    case .vector: throw wgslError(.invalidType, "Nested zero vector", t)
+    }
+  }
+  mutating func vectorConstructor(_ t: WGSLToken, size: Int, target: WGSLConstKind?) throws -> Int {
+    guard (2...4).contains(size), index < tokens.count, try take().text == "(" else {
+      throw wgslError(.unexpectedToken, "Expected vector constructor call", t)
+    }
+    var args: [Int] = []
+    while index < tokens.count, token.text != ")" {
+      guard args.count < 4 else {
+        throw wgslError(.typeMismatch, "Too many vector arguments", token)
+      }
+      args.append(try parse())
+      if index < tokens.count, token.text == "," { _ = try take() } else { break }
+    }
+    guard index < tokens.count, try take().text == ")" else {
+      throw wgslError(.unexpectedToken, "Unterminated vector constructor", t)
+    }
+    let conversion = args.count == 1 && nodes[args[0]].kind.lanes > 1
+    let splat = args.count == 1 && nodes[args[0]].kind.lanes == 1
+    let count = args.reduce(0) { $0 + nodes[$1].kind.lanes }
+    guard args.isEmpty || splat || count == size else {
+      throw wgslError(.typeMismatch, "Vector component count mismatch", t)
+    }
+    if conversion {
+      guard nodes[args[0]].kind.lanes == size else {
+        throw wgslError(.typeMismatch, "Vector conversion width mismatch", t)
+      }
+    }
+    var inferred: WGSLConstKind = .integer(.abstract)
+    if let first = args.first {
+      inferred = nodes[first].kind.scalarLeaf
+      for a in args.dropFirst() {
+        let element = nodes[a].kind.scalarLeaf
+        if inferred != element { inferred = try common(inferred, element, at: t) }
+      }
+    }
+    let element = target ?? inferred
+    guard element.lanes == 1 else {
+      throw wgslError(.invalidType, "Vector element must be scalar", t)
+    }
+    for a in args {
+      let source = nodes[a].kind.scalarLeaf
+      guard conversion || canAuto(source, to: element) else {
+        throw wgslError(
+          .typeMismatch, "Vector components require automatic scalar conversion", nodes[a].token)
+      }
+      if !conversion && source != element {
+        let shape: WGSLConstKind =
+          nodes[a].kind.lanes == 1 ? element : .vector(nodes[a].kind.lanes, element)
+        conversions.append((a, shape, t))
+      }
+    }
+    return try append(.vector(size, element, args, conversion), .vector(size, element), t)
+  }
+  mutating func vectorValue(
+    _ size: Int, _ element: WGSLConstKind, _ args: [Int], _ explicit: Bool, at t: WGSLToken
+  ) throws -> WGSLScalarConstant {
+    var values: [WGSLScalarConstant] = []
+    for a in args {
+      try parser.budget.consume(.work)
+      let v = try value(a)
+      if case .vector(let vector) = v {
+        values.append(contentsOf: vector.elements)
+      } else {
+        values.append(v)
+      }
+      guard values.count <= 4 else { throw wgslError(.typeMismatch, "Vector count exceeds4", t) }
+    }
+    if args.isEmpty {
+      values = Array(repeating: try zero(element, at: t), count: size)
+    } else if args.count == 1 && values.count == 1 {
+      values = Array(repeating: values[0], count: size)
+    }
+    guard values.count == size else { throw wgslError(.typeMismatch, "Vector component count", t) }
+    var result: [WGSLScalarConstant] = []
+    for v in values {
+      try parser.budget.consume(.work)
+      result.append(try scalarConvert(v, to: element, at: t, explicit: explicit))
+    }
+    return .vector(.init(elements: result, element: element))
+  }
+}
+extension WGSLParser {
+  func vectorRuntimeValue(_ v: WGSLVectorConstant, to target: WType?, at t: WGSLToken) throws
+    -> WGSLValue
+  {
+    let count = v.elements.count
+    guard (2...4).contains(count), let size = IRVectorSize(rawValue: UInt8(count)) else {
+      throw wgslError(.invalidType, "Vector runtime width", t)
+    }
+    let element: WGSLConstKind
+    if let target {
+      guard case .vector(let n, let s) = types[target.index].kind, n == size else {
+        throw wgslError(.typeMismatch, "Vector runtime context shape", t)
+      }
+      element = try .scalar(s, at: t)
+    } else {
+      element = v.element
+    }
+    let evaluator = WGSLScalarEvaluator(parser: self, tokens: [], fallback: t)
+    var components: [WExpr] = []
+    for x in v.elements {
+      try budget.consume(.work)
+      let converted = try evaluator.scalarConvert(x, to: element, at: t, explicit: false)
+      components.append(
+        try expressionNode(
+          .literal(converted.literal), type: intern(.scalar(element.irScalar(at: t))), at: t,
+          emit: false
+        ).handle)
+    }
+    let type = try target ?? intern(.vector(size: size, scalar: element.irScalar(at: t)))
+    return try expressionNode(.compose(type: type, components: components), type: type, at: t)
+  }
+}

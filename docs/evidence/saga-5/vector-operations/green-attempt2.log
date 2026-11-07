@@ -1,0 +1,50 @@
+Building for debugging...
+[0/6] Write sources
+[2/6] Write swift-version-3CD7052B146186F2.txt
+[4/7] Emitting module SAGAFrontends
+[5/7] Compiling SAGAFrontends Expressions.swift
+[6/7] Compiling SAGAFrontends VectorOperations.swift
+[7/18] Compiling SAGAFrontends VectorConstants.swift
+[8/18] Compiling SAGAFrontends Statements.swift
+[9/18] Compiling SAGAFrontends FloatingConstants.swift
+[10/18] Compiling SAGAFrontends ControlExpressions.swift
+[11/18] Compiling SAGAFrontends ConstantExpressions.swift
+[12/18] Compiling SAGAFrontends ModuleDeclarations.swift
+[13/18] Compiling SAGAFrontends WGSLFrontend.swift
+[14/18] Compiling SAGAFrontends HexFloatLiterals.swift
+[15/18] Compiling SAGAFrontends Materialization.swift
+[16/18] Compiling SAGAFrontends ScalarConstantExpressions.swift
+[17/18] Compiling SAGAFrontends Loops.swift
+[18/21] Compiling SAGACompiler FrontendValidation.swift
+[19/21] Emitting module SAGACompiler
+[20/21] Compiling SAGACompiler Compiler.swift
+[21/28] Emitting module SAGAFoundationTests
+[22/28] Compiling SAGAFoundationTests CompilerTests.swift
+[23/28] Compiling SAGAFoundationTests FrontendContractsTests.swift
+[24/28] Compiling SAGAFoundationTests GLSLFrontendTests.swift
+[25/28] Compiling SAGAFoundationTests WGSLFrontendTests.swift
+[26/28] Compiling SAGAFoundationTests FrontendIntegrationTests.swift
+[27/28] Compiling SAGAFoundationTests SPIRVFrontendTests.swift
+[27/29] Write Objects.LinkFileList
+[28/29] Linking SAGAPackageTests
+Build complete! (4.38s)
+Test Suite 'Selected tests' started at 2026-11-07 05:10:36.733.
+Test Suite 'SAGAPackageTests.xctest' started at 2026-11-07 05:10:36.740.
+Test Suite 'SAGAPackageTests.xctest' passed at 2026-11-07 05:10:36.740.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+Test Suite 'Selected tests' passed at 2026-11-07 05:10:36.740.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.007) seconds
+􀟈  Test run started.
+􀄵  Testing Library Version: 1902
+􀄵  Target Platform: arm64e-apple-macos14.0
+􀟈  Suite FrontendIntegrationTests started.
+􀟈  Suite WGSLFrontendTests started.
+􀟈  Test vectorConstOperationsMaterializeThroughExistingWitness() started.
+􀟈  Test vectorArithmeticAndSelectHaveNormativeShapesAndPrecision() started.
+􀟈  Test constVectorPostfixAccessHasExactBoundsAndSwizzleRules() started.
+􁁛  Test vectorConstOperationsMaterializeThroughExistingWitness() passed after 0.002 seconds.
+􁁛  Suite FrontendIntegrationTests passed after 0.003 seconds.
+􁁛  Test constVectorPostfixAccessHasExactBoundsAndSwizzleRules() passed after 0.006 seconds.
+􁁛  Test vectorArithmeticAndSelectHaveNormativeShapesAndPrecision() passed after 0.009 seconds.
+􁁛  Suite WGSLFrontendTests passed after 0.009 seconds.
+􁁛  Test run with 3 tests in 2 suites passed after 0.009 seconds.

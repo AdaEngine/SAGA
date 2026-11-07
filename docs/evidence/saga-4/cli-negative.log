@@ -1,0 +1,4 @@
+['--no-device'] SAGA Metal backend diagnostic FAILED: adapterUnavailable. No CPU fallback.
+['--count', '0'] SAGA Metal backend diagnostic FAILED: validation("--count needs a positive integer"). No CPU fallback.
+['--count', '1048577'] SAGA Metal backend diagnostic FAILED: validation("Diagnostic limits: count <= 1048576, timeout-ms <= 60000"). No CPU fallback.
+['--timeout-ms', '0'] SAGA Metal backend diagnostic FAILED: validation("--timeout-ms needs a positive integer"). No CPU fallback.

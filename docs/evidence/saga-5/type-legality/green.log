@@ -1,0 +1,74 @@
+Building for debugging...
+[0/5] Write sources
+[1/5] Write swift-version-3CD7052B146186F2.txt
+[3/5] Emitting module SAGAValidation
+[4/5] Compiling SAGAValidation ShaderSemanticValidator.swift
+[5/6] Emitting module SAGACompiler
+[6/7] Emitting module SAGAFoundationTests
+[6/8] Write Objects.LinkFileList
+[7/8] Linking SAGAPackageTests
+Build complete! (2.04s)
+Test Suite 'Selected tests' started at 2026-11-07 02:59:50.952.
+Test Suite 'SAGAPackageTests.xctest' started at 2026-11-07 02:59:50.959.
+Test Suite 'SAGAPackageTests.xctest' passed at 2026-11-07 02:59:50.959.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+Test Suite 'Selected tests' passed at 2026-11-07 02:59:50.959.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.007) seconds
+􀟈  Test run started.
+􀄵  Testing Library Version: 1902
+􀄵  Target Platform: arm64e-apple-macos14.0
+􀟈  Suite ShaderSemanticValidationTests started.
+􀟈  Test mathOverloadsAndCastTypesCannotBeForged() started.
+􀟈  Test builtinStageAndTypeChecked() started.
+􀟈  Test boolIsConstructibleButNeverHostShareableTransitively() started.
+􀟈  Test atomicAggregatesHaveAddressSpaceSpecificLegality() started.
+􀟈  Test nestedUniformStructRequiresMemberAlignmentAndFollowingGap() started.
+􀟈  Test uniformViolationsPropagateThroughArraysAndStructures() started.
+􀟈  Test blockCyclesBreakAndMissingReturnAreRejected() started.
+􀟈  Test budgetsAndCancellation() started.
+􀟈  Test uniformArrayRulesDoNotRejectStorageLayout() started.
+􀟈  Test nonconstructibleValuesCannotBeZeroedOrPassedByValue() started.
+􀟈  Test emptyComputeModuleValidates() started.
+􀟈  Test capabilitiesAndUnknownBitsAreChecked() started.
+􀟈  Test pointerTargetsRespectAddressSpaceEvenWhenUnused() started.
+􀟈  Test duplicateBindingsAndBadLayoutsAreRejected() started.
+􀟈  Test runtimeArraysCannotBeHiddenInsideNestedUnsizedStructures() started.
+􀟈  Test binaryResultTypesAreRecomputed() started.
+􀟈  Test literalTypeIsRecomputedNotTrusted() started.
+􀟈  Test unsupportedFamiliesRejectInsteadOfIssuingWitness() started.
+􀟈  Test actualLoopBreaksAndIllegalContinuingReturn() started.
+􀟈  Test invalidHandlesAndTypeCyclesAreRejected() started.
+􀟈  Test adversarialRawHandlesAreDeterministicAndBounded() started.
+􀟈  Test uniformAtomicDoesNotAcquireWitness() started.
+􀟈  Test effectResultsMustBeProducedByMatchingCallAndRecursionRejected() started.
+􀟈  Test uniformVectorsMatricesAndPaddedArraysAreAccepted() started.
+􀟈  Test readonlyUniformCannotBeStored() started.
+􀟈  Test derivativeRequiresUniformControlIncludingNestedEarlyExit() started.
+􁁛  Test emptyComputeModuleValidates() passed after 0.001 seconds.
+􁁛  Test uniformArrayRulesDoNotRejectStorageLayout() passed after 0.001 seconds.
+􁁛  Test duplicateBindingsAndBadLayoutsAreRejected() passed after 0.001 seconds.
+􁁛  Test nestedUniformStructRequiresMemberAlignmentAndFollowingGap() passed after 0.002 seconds.
+􁁛  Test literalTypeIsRecomputedNotTrusted() passed after 0.001 seconds.
+􁁛  Test builtinStageAndTypeChecked() passed after 0.002 seconds.
+􁁛  Test unsupportedFamiliesRejectInsteadOfIssuingWitness() passed after 0.001 seconds.
+􁁛  Test boolIsConstructibleButNeverHostShareableTransitively() passed after 0.002 seconds.
+􁁛  Test uniformViolationsPropagateThroughArraysAndStructures() passed after 0.002 seconds.
+􁁛  Test mathOverloadsAndCastTypesCannotBeForged() passed after 0.002 seconds.
+􁁛  Test capabilitiesAndUnknownBitsAreChecked() passed after 0.002 seconds.
+􁁛  Test nonconstructibleValuesCannotBeZeroedOrPassedByValue() passed after 0.002 seconds.
+􁁛  Test binaryResultTypesAreRecomputed() passed after 0.002 seconds.
+􁁛  Test uniformAtomicDoesNotAcquireWitness() passed after 0.001 seconds.
+􁁛  Test readonlyUniformCannotBeStored() passed after 0.001 seconds.
+􁁛  Test actualLoopBreaksAndIllegalContinuingReturn() passed after 0.002 seconds.
+􁁛  Test blockCyclesBreakAndMissingReturnAreRejected() passed after 0.002 seconds.
+􁁛  Test uniformVectorsMatricesAndPaddedArraysAreAccepted() passed after 0.002 seconds.
+􁁛  Test invalidHandlesAndTypeCyclesAreRejected() passed after 0.002 seconds.
+􁁛  Test derivativeRequiresUniformControlIncludingNestedEarlyExit() passed after 0.001 seconds.
+􁁛  Test budgetsAndCancellation() passed after 0.002 seconds.
+􁁛  Test pointerTargetsRespectAddressSpaceEvenWhenUnused() passed after 0.002 seconds.
+􁁛  Test runtimeArraysCannotBeHiddenInsideNestedUnsizedStructures() passed after 0.002 seconds.
+􁁛  Test effectResultsMustBeProducedByMatchingCallAndRecursionRejected() passed after 0.002 seconds.
+􁁛  Test atomicAggregatesHaveAddressSpaceSpecificLegality() passed after 0.003 seconds.
+􁁛  Test adversarialRawHandlesAreDeterministicAndBounded() passed after 0.007 seconds.
+􁁛  Suite ShaderSemanticValidationTests passed after 0.008 seconds.
+􁁛  Test run with 26 tests in 1 suite passed after 0.008 seconds.

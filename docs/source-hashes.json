@@ -1,0 +1,14 @@
+{
+  "sources/gpuweb-LICENSE.md": "472e2c73a56b38a4facd79baf6898a5e27feca0070d8144041a6dd2a1a2cfc59",
+  "sources/wgsl-spec.bs": "5cedb4a91dfcca8feaa1fe713c7b9c00d6b5545454acc3eb557db75723f19ae5",
+  "sources/webgpu-spec.bs": "c1b7a06b87885f236e23ceda2e38b62ebc1a9c4b13b6af9f3e777ab4e489eb4e",
+  "sources/wgpu-LICENSE.MIT": "f427ebe372a8ed2317b681a2ff8ff8a58ba98e64921e7d9428ea36ec7c2cbe25",
+  "sources/fetch.json": "47d3722dbbcc2ceb7294289bcd1ba2c8e95aedbfa37abf0fe01a2c508e35cce7",
+  "sources/wgpu-cts_runner-revision.txt": "d4599b97d6ff2f637728211d77791e85ac3fc0f4dbb44f540a7df15fcc59ee66",
+  "sources/cts-tree.json": "09c95b73cbf40b91e4f2a91098e64271617e9320f77ddb5fa70002f7153ddcd1",
+  "sources/cts-revision.json": "e4323aeb0ace2549882f65af40eec87d75bdf9f219fcc6654ea8f8b0506f9225",
+  "sources/gpuweb-revision.json": "09e5507388b581e3fde3f5ff4ee8ad281aac917db518cd66aad6ca39e00ec974",
+  "sources/cts-README.md": "b6f31887bb13814fdf0093b5058d95f69b3d8c190eaf3b710108a8a7ec764dac",
+  "sources/wgpu-LICENSE.APACHE": "a6cba85bc92e0cff7a450b1d873c0eaa2e9fc96bf472df0247a26bec77bf3ff9",
+  "sources/cts-LICENSE.txt": "fec8eb2896784d7b9ef5bcb1c64b97156455a3c88df4fdd36538fb55c0decac4"
+}

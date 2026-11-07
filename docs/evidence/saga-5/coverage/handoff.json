@@ -1,0 +1,47 @@
+{
+  "child_outcome": "completed",
+  "parent_SAGA_5_outcome": "incomplete; no compiler parity claimed",
+  "files": [
+    "docs/tools/frontend_coverage.py",
+    "docs/tools/test_frontend_coverage.py",
+    "docs/frontend-coverage.json",
+    "docs/frontend-fixture-provenance.json",
+    "docs/frontend-coverage.md",
+    "docs/evidence/saga-5/coverage/audit.json",
+    "docs/evidence/saga-5/coverage/audit.stderr.log",
+    "docs/evidence/saga-5/coverage/checks.json",
+    "docs/evidence/saga-5/coverage/native-build.log",
+    "docs/evidence/saga-5/coverage/preservation.json",
+    "docs/evidence/saga-5/coverage/red.log",
+    "docs/evidence/saga-5/coverage/tests.log",
+    "docs/evidence/saga-5/coverage/handoff.json"
+  ],
+  "tests": 35,
+  "audit_records": 2841,
+  "native_shader_executions_imported": 0,
+  "verification_evidence_ids": [
+    "verification-1"
+  ],
+  "messages_send": {
+    "ok": false,
+    "code": "message_chain_limit",
+    "message": "This automatic message chain has reached eight deliveries. Wait for a new user turn.",
+    "target_agent": "yadev",
+    "target_session": "session-e26a2eeb-8007-4c5e-a65a-5eccd466c9e6",
+    "message_id": "d896a36f-b66b-4c10-b9ae-e532611a8b83"
+  },
+  "limitations": [
+    "Inline macro/parameter subcases and semantic predicate expansions remain review work; no lexical count constitutes parity.",
+    "No copied fixtures; per-file licenses remain not-audited-for-copy.",
+    "Trusted evidence consistency audit cannot attest forged compiler logs.",
+    "SPIR-V assembly remains blocked from tested until audited binary mapping.",
+    "No Swift shader tests, fuzz, Wasm/browser/GPU/CTS executed by this child."
+  ],
+  "sha256": {
+    "docs/tools/frontend_coverage.py": "b4637dd8568f99ba30fd96c6e4fe06230b509fe10ea783e19c804e64a483a255",
+    "docs/tools/test_frontend_coverage.py": "4f4efaac37c9246136c9229f5db3519aad63f4556dc06cb8db181f83ef2ceddb",
+    "docs/frontend-coverage.json": "8cf547b247eb9eefa8fd8a3b657ede3725d04c39d878027a579ff7507f7e3482",
+    "docs/frontend-fixture-provenance.json": "98b0385e35e72f066b8a556465da07cc8935d38a307694d98e7ef4ac168eb38c",
+    "docs/frontend-coverage.md": "c8c495993ac091322a15aa139082e80c517ee963f913c9901f33dc6eedd2b231"
+  }
+}

@@ -1,0 +1,29 @@
+import SAGAShaderIR
+
+// This follows pinned Naga GlobalCtx.get_const_val_from: frontend constant folding has
+// already produced literal/zero/constant leaves. Truly dynamic indices have no static bound.
+extension SemanticChecker {
+  mutating func staticAccessIndex(
+    _ index: IRHandle<IRExpression>, in expressions: IRTable<IRExpression>,
+    location: ShaderLocation?
+  ) throws -> UInt32? {
+    try budget.consume(.work)
+    var expression = try expressions.value(for: index)
+    // Constant initializer references normally point to a literal; cap and track malicious cycles.
+    var seen = Set<IRHandle<IRConstant>>()
+    while case .constant(let handle) = expression.kind {
+      try budget.consume(.work)
+      try need(seen.insert(handle).inserted, .invalidReference, "Cyclic constant index", location)
+      let constant = try module.constants.value(for: handle)
+      expression = try module.globalExpressions.value(for: constant.initializer)
+    }
+    switch expression.kind {
+    case .literal(.u32(let value)): return value
+    case .literal(.i32(let value)):
+      try need(value >= 0, .typeMismatch, "Constant index must not be negative", location)
+      return UInt32(value)
+    case .zeroValue: return 0
+    default: return nil
+    }
+  }
+}
