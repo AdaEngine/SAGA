@@ -91,15 +91,16 @@ func reply(_ id: UInt32, _ status: UInt32, _ count: UInt32) {
 }
 
 @_expose(wasm, "saga_start")
-func start(_ maxBufferSize: UInt64, _ maxTextureDimension2D: UInt32) {
+func start(_ maxBufferSize: UInt64, _ maxTextureDimension2D: UInt32, _ presentation: UInt32, _ readableStorage: UInt32) {
     _Concurrency._createExecutors(factory: ReactorFactory.self)
     Task {
         let status: UInt32
         let message: String
         do {
-            let capabilities = try DeviceCapabilities(maxBufferSize: maxBufferSize,
+            let features: Set<GPUFeature> = readableStorage == 0 ? [] : [.storageTextureRead, .storageTextureReadWrite]
+            let capabilities = try DeviceCapabilities(maxBufferSize: maxBufferSize, features: features,
                                                        maxTextureDimension2D: maxTextureDimension2D)
-            message = try await runWebDiagnostic(capabilities: capabilities)
+            message = try await runWebDiagnostic(capabilities: capabilities, supportsPresentation: presentation != 0)
             status = 0
         } catch {
             message = String(describing: error)

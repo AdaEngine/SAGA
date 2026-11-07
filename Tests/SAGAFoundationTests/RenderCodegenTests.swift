@@ -36,7 +36,8 @@ func emitsSelectedVertexAndFragmentStages(to format: ShaderOutputFormat) throws 
     }
     #expect(vertexFormat == format && fragmentFormat == format)
     #expect(!vs.contains("saga_fragment") && !fs.contains("saga_vertex"))
-    #expect(!vs.contains("if (("))
+    #expect(!vs.contains("== 0u))"))
+    #expect(!vs.contains("== 1u))"))
     switch format {
     case .msl:
         #expect(vs.contains("[[vertex_id]]") && vs.contains("[[position]]"))
@@ -91,8 +92,7 @@ func glslVertexBuiltinsExposeUnsignedIRInputsAndSignedGLSLValues(name: String) t
     for (source, entry) in [
         (triangleProgram, "missing"),
         ("@compute @workgroup_size(1) fn run() {}", "run"),
-        ("@fragment fn run(@builtin(position) position: vec4f) -> @location(0) vec4f { return position; }", "run"),
-        ("@fragment fn run() -> @location(1) vec4f { return vec4f(1.0, 0.0, 0.0, 1.0); }", "run"),
+        ("@fragment fn run() -> @location(8) vec4f { return vec4f(1.0, 0.0, 0.0, 1.0); }", "run"),
     ] {
         #expect(throws: ShaderFailure.self) {
             try compiler.compileRenderStage(.wgsl(source), entryPoint: entry, to: .msl)

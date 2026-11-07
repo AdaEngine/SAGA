@@ -27,7 +27,8 @@ public struct GLSLFrontend: BoundedShaderFrontend {
         let tokens=try GLSLScanner.scan(source,budget:&budget)
         var preprocessor=GLSLPreprocessor()
         let expanded=try preprocessor.process(tokens,defines:defines,budget:&budget)
-        let parser=GLSLParser(tokens:expanded,sourceLength:source.utf8.count,stage:options.stage,budget:budget)
+        let parser=GLSLParser(tokens:expanded,sourceLength:source.utf8.count,stage:options.stage,
+                              version:preprocessor.version,budget:budget)
         defer { budget=parser.budget }
         return try parser.parse()
     }
@@ -63,6 +64,7 @@ final class GLSLFunctionContext {
 final class GLSLParser {
     let tokens:[GLSLToken]
     let stage:IRStage
+    let version:Int
     var budget:ShaderBudget
     var i=0
     var depth=0
@@ -76,9 +78,9 @@ final class GLSLParser {
     var workgroup=IRWorkgroupSize()
     var hasLocalSize=false
     var context:GLSLFunctionContext?
-    init(tokens:[GLSLToken],sourceLength:Int,stage:IRStage,budget:ShaderBudget) {
+    init(tokens:[GLSLToken],sourceLength:Int,stage:IRStage,version:Int,budget:ShaderBudget) {
         self.tokens=tokens + [.init(text:"",start:sourceLength,end:sourceLength)]
-        self.stage=stage; self.budget=budget
+        self.stage=stage; self.version=version; self.budget=budget
     }
     var token:GLSLToken { tokens[i] }
     var text:String { token.text }
@@ -233,6 +235,21 @@ final class GLSLParser {
             let isBreak=text=="break"; _ = try advance(); guard c.loopDepth>0 else { throw glslError(t,.invalidControlFlow,"Jump outside loop") }; try expect(";"); try append(isBreak ? .break:.continue,at:t); return true
         }
         if try take("discard") { guard stage == .fragment else { throw glslError(t,.invalidControlFlow,"Discard outside fragment") }; try expect(";"); try append(.kill,at:t); return true }
+        if ["barrier", "memoryBarrierShared", "memoryBarrierBuffer"].contains(text) {
+            guard stage == .compute else {
+                throw glslError(t,.invalidControlFlow,"Workgroup barrier outside compute")
+            }
+            _ = try advance()
+            try expect("(")
+            try expect(")")
+            try expect(";")
+            switch t.text {
+            case "barrier": try append(.controlBarrier(.workgroup), at: t)
+            case "memoryBarrierShared": try append(.memoryBarrier(.workgroup), at: t)
+            default: try append(.memoryBarrier(.storage), at: t)
+            }
+            return false
+        }
         if ["do","switch","struct","precision"].contains(text) { throw glslError(t,.unsupportedConstruct,"Unsupported GLSL statement: \(text)") }
         var immutable=false
         if try take("const") { immutable=true }
@@ -317,6 +334,9 @@ final class GLSLParser {
         case "gl_Position":descriptor=(.position(invariant:false),"vec4",false,.vertex)
         case "gl_VertexID","gl_VertexIndex":descriptor=(.vertexIndex,"int",true,.vertex)
         case "gl_InstanceID","gl_InstanceIndex":descriptor=(.instanceIndex,"int",true,.vertex)
+        case "gl_BaseInstance":
+            guard version >= 460 else { throw glslError(name,.unsupportedConstruct,"gl_BaseInstance requires GLSL 4.60") }
+            descriptor=(.baseInstance,"int",true,.vertex)
         case "gl_GlobalInvocationID":descriptor=(.globalInvocationId,"uvec3",true,.compute)
         case "gl_LocalInvocationID":descriptor=(.localInvocationId,"uvec3",true,.compute)
         case "gl_LocalInvocationIndex":descriptor=(.localInvocationIndex,"uint",true,.compute)
@@ -460,6 +480,7 @@ final class GLSLParser {
             let pointer=try expressionNode(pt,.globalVariable(io.global),at:t,emit:false,pointer:true,writable:true)
             if io.input {
                 let signedIndex = io.binding == .builtIn(.vertexIndex) || io.binding == .builtIn(.instanceIndex)
+                    || io.binding == .builtIn(.baseInstance)
                 let argumentType = signedIndex ? try addType(.scalar(.u32)) : io.type
                 let argument = try expressionNode(argumentType,.functionArgument(UInt32(args.count)),at:t,emit:false)
                 let value = signedIndex ? try expressionNode(

@@ -146,7 +146,11 @@ extension WGSLParser {
             return try expressionNode(.constant(try IRHandle(index:i)),type:constants[i].type,at:name,emit:false)
         }
         if let i = globalNames[wgslKey(name.text)] {
-            let g = globals[i], pointerType = try intern(.pointer(base:globals[i].type,space:globals[i].space))
+            let g = globals[i]
+            if g.space == .handle {
+                return try expressionNode(.globalVariable(try IRHandle(index: i)), type: g.type, at: name, emit: false)
+            }
+            let pointerType = try intern(.pointer(base: g.type, space: g.space))
             let reference = try expressionNode(.globalVariable(try IRHandle(index:i)),type:pointerType,at:name,emit:false)
             let writable: Bool
             switch g.space { case .uniform: writable = false; case .storage(let access): writable = access.contains(.store); default:writable = true }
@@ -391,7 +395,7 @@ extension WGSLParser {
             let elem = try intern(.scalar(scalar))
             if args.count == 1, case .vector(let sourceSize, let source) = types[args[0].type.index].kind,
                sourceSize == size, source != scalar,
-               (source == .i32 || source == .u32) && (scalar == .i32 || scalar == .u32) {
+               [.i32, .u32].contains(source), [.i32, .u32, .f32].contains(scalar) {
                 return try expressionNode(.cast(expression: args[0].handle, target: scalar), type: target, at: t)
             }
             if args.count == 1, case .scalar = types[args[0].type.index].kind {
@@ -447,6 +451,69 @@ extension WGSLParser {
     }
     func call(_ name: WGSLToken) throws -> WGSLValue {
         try resolveFunctionDeclaration(name)
+        if name.text == "workgroupUniformLoad", declarationNames[wgslKey(name.text)] == nil {
+            try expect("&")
+            let pointer = try expression()
+            guard pointer.pointer, try pointerSpace(pointer) == .workgroup else {
+                throw wgslError(.typeMismatch, "workgroupUniformLoad requires the address of a workgroup value", name)
+            }
+            let type: WType
+            if case .atomic(let scalar) = types[pointer.type.index].kind { type = try intern(.scalar(scalar)) }
+            else { type = pointer.type }
+            _ = try eat(",")
+            try expect(")")
+            let result = try expressionNode(.workgroupUniformLoadResult(type: type), type: type, at: name, emit: false)
+            try statement(.workgroupUniformLoad(pointer: pointer.handle, result: result.handle), at: name)
+            return result
+        }
+        let atomic = IRAtomicFunction.integerRMWBuiltins[name.text]
+        let compares = name.text == "atomicCompareExchangeWeak"
+        if declarationNames[wgslKey(name.text)] == nil, name.text == "atomicLoad" || atomic != nil || compares {
+            let (pointer, type) = try atomicPointer(at: name)
+            if name.text == "atomicLoad" {
+                _ = try eat(",")
+                try expect(")")
+                return try expressionNode(.load(pointer: pointer.handle), type: type, at: name)
+            }
+            try expect(",")
+            let first = try coerce(expression(), to: type, at: name)
+            let value: WGSLValue
+            let operation: IRAtomicFunction
+            let resultType: WType
+            if compares {
+                try expect(",")
+                value = try coerce(expression(), to: type, at: name)
+                operation = .exchange(compare: first.handle)
+                resultType = try atomicCompareResult(for: type, at: name)
+            } else if let atomic {
+                value = first
+                operation = atomic
+                resultType = type
+            } else { throw ShaderFailure.invalidHandle }
+            _ = try eat(",")
+            try expect(")")
+            let result = try expressionNode(.atomicResult(type: resultType, comparison: compares),
+                                            type: resultType, at: name, emit: false)
+            try statement(.atomic(pointer: pointer.handle, function: operation, value: value.handle, result: result.handle), at: name)
+            return result
+        }
+        if name.text == "arrayLength", functionNames[wgslKey(name.text)] == nil {
+            try expect("&")
+            let array = try expression()
+            guard array.pointer, case .storage = try pointerSpace(array),
+                  case .array(_, .dynamic, _) = types[array.type.index].kind else {
+                throw wgslError(.typeMismatch, "arrayLength requires the address of a runtime storage array", name)
+            }
+            _ = try eat(",")
+            try expect(")")
+            return try expressionNode(.arrayLength(array.handle), type: intern(.scalar(.u32)), at: name)
+        }
+        if ["textureSample", "textureSampleLevel", "textureSampleBias", "textureSampleGrad", "textureGather",
+            "textureSampleCompare", "textureSampleCompareLevel", "textureGatherCompare",
+            "textureSampleBaseClampToEdge"].contains(name.text),
+           declarationNames[wgslKey(name.text)] == nil {
+            return try textureSampleBuiltin(at: name)
+        }
         var args = try arguments()
         if let i = functionNames[wgslKey(name.text)] {
             guard !entries.contains(where: { $0.function.index == i }) else { throw wgslError(.invalidControlFlow,"Entry point cannot be called",name) }
@@ -456,6 +523,13 @@ extension WGSLParser {
             guard let result = fn.result else { throw unsupported("void function used as expression",at:name) }
             let v = try expressionNode(.callResult(try IRHandle(index:i)),type:result.type,at:name,emit:false)
             try statement(.call(function:try IRHandle(index:i),arguments:args.map(\.handle),result:v.handle),at:name); return v
+        }
+        if name.text == "select", declarationNames[wgslKey(name.text)] == nil {
+            return try selectValue(args, at: name)
+        }
+        if ["textureLoad", "textureDimensions", "textureNumLevels", "textureNumSamples", "textureNumLayers"].contains(name.text),
+           declarationNames[wgslKey(name.text)] == nil {
+            return try textureBuiltin(args, at: name)
         }
         // Deliberately bounded overload table, not unknown-name passthrough.
         let math: [String:(IRMathFunction,Int)] = ["abs":(.abs,1),"min":(.min,2),"max":(.max,2),"clamp":(.clamp,3),"sqrt":(.sqrt,1),"sin":(.sin,1),"cos":(.cos,1),"floor":(.floor,1),"ceil":(.ceil,1)]
@@ -482,5 +556,301 @@ extension WGSLParser {
         if name.text == "abs" && scalar.kind == .uint { throw wgslError(.typeMismatch,"abs requires signed/float",name) }
         for i in args.indices.dropFirst() { args[i] = try coerce(args[i],to:concrete.type,at:name) }
         return try expressionNode(.math(function:op,argument:args[0].handle,argument1:args.count>1 ? args[1].handle:nil,argument2:args.count>2 ? args[2].handle:nil,argument3:nil),type:concrete.type,at:name)
+    }
+
+    private func textureSampleBuiltin(at name: WGSLToken) throws -> WGSLValue {
+        let clampToEdge = name.text == "textureSampleBaseClampToEdge"
+        let arity: Int
+        switch name.text {
+        case "textureSample", "textureGather", "textureSampleBaseClampToEdge": arity = 3
+        case "textureSampleGrad": arity = 5
+        default: arity = 4
+        }
+        let depthGather = name.text == "textureGather" ? try gatherStartsWithDepthTexture() : false
+        let gather: IRSwizzleComponent?
+        if name.text == "textureGather" && !depthGather {
+            let at = token
+            guard case .integer(let index) = try textureConstantArgument() else {
+                throw wgslError(.typeMismatch, "Texture gather component must be an integer constant", at)
+            }
+            guard (0...3).contains(index.value) else {
+                throw wgslError(.invalidType, "Texture gather component must be between 0 and 3", at)
+            }
+            gather = IRSwizzleComponent.allCases[Int(index.value)]
+            try expect(",")
+        } else {
+            gather = depthGather || name.text == "textureGatherCompare" ? .x : nil
+        }
+        try node()
+        let image = try loaded(expression(), at: token)
+        let imageType = types[image.type.index].kind
+        let arrayed = imageType.isArrayedTexture
+        let volume = imageType.isVolumeTexture
+        if volume && gather != nil {
+            throw wgslError(.typeMismatch, "Volume textures do not support texture gathers", name)
+        }
+        if clampToEdge && imageType != .sampledFloat2D {
+            throw wgslError(.typeMismatch, "Base clamp sampling requires texture_2d<f32>", name)
+        }
+        var args = [image]
+        for _ in 1..<(arity + (arrayed ? 1 : 0)) {
+            try expect(",")
+            try node()
+            args.append(try loaded(expression(), at: token))
+        }
+        let offset: WExpr?
+        if try eat(","), !isNext(")") {
+            guard !clampToEdge else {
+                throw wgslError(.typeMismatch, "textureSampleBaseClampToEdge takes three arguments", token)
+            }
+            guard !imageType.isCubeTexture else {
+                throw wgslError(.typeMismatch, "Cube textures do not take texel offsets", token)
+            }
+            offset = try textureSampleOffset(width: volume ? .three : .two)
+            _ = try eat(",")
+        } else {
+            offset = nil
+        }
+        try expect(")")
+        let comparison = ["textureSampleCompare", "textureSampleCompareLevel", "textureGatherCompare"].contains(name.text)
+        let depth = imageType.isDepthTexture
+        let validDepth = comparison || depthGather || name.text == "textureSample" || name.text == "textureSampleLevel"
+        guard let scalar = imageType.sampledTextureScalar, !imageType.isMultisampled2D,
+              depth ? validDepth : (!comparison && (scalar == .f32 || gather != nil)),
+              types[args[1].type.index].kind == .sampler(comparison: comparison) else {
+            throw wgslError(.typeMismatch, "Texture and sampler types do not match the sampling operation", name)
+        }
+        let arrayIndex: WExpr?
+        if arrayed {
+            arrayIndex = try textureArrayIndex(args[3], at: name)
+        } else {
+            arrayIndex = nil
+        }
+        let levelIndex = arrayed ? 4 : 3
+        let reference = comparison ? try coerce(args[levelIndex], to: intern(.scalar(.f32)), at: name).handle : nil
+        let vector = try intern(.vector(size: imageType.isCubeTexture || volume ? .three : .two, scalar: .f32))
+        let uv = try coerce(args[2], to: vector, at: name)
+        let level: IRSampleLevel
+        switch name.text {
+        case "textureSample", "textureSampleCompare": level = .auto
+        case "textureGather", "textureSampleCompareLevel", "textureGatherCompare", "textureSampleBaseClampToEdge":
+            level = .zero
+        case "textureSampleLevel" where depth:
+            let value = try defaultMaterialize(args[levelIndex], at: name)
+            guard [.scalar(.i32), .scalar(.u32)].contains(types[value.type.index].kind) else {
+                throw wgslError(.typeMismatch, "Depth sampling level must be i32 or u32", name)
+            }
+            level = .exact(value.handle)
+        case "textureSampleGrad":
+            let x = try coerce(args[levelIndex], to: vector, at: name)
+            let y = try coerce(args[levelIndex + 1], to: vector, at: name)
+            level = .gradient(x: x.handle, y: y.handle)
+        default:
+            let value = try coerce(args[levelIndex], to: intern(.scalar(.f32)), at: name)
+            level = name.text == "textureSampleBias" ? .bias(value.handle) : .exact(value.handle)
+        }
+        let sample = IRImageSample(image: args[0].handle, sampler: args[1].handle, gather: gather,
+                                   coordinate: uv.handle, arrayIndex: arrayIndex, offset: offset, level: level, depthReference: reference,
+                                   clampToEdge: clampToEdge)
+        let result: IRTypeKind = depth && gather == nil ? .scalar(scalar) : .vector(size: .four, scalar: scalar)
+        return try expressionNode(.imageSample(sample), type: intern(result), at: name)
+    }
+
+    private func gatherStartsWithDepthTexture() throws -> Bool {
+        // Texture handles in this frontend are names, possibly wrapped in parentheses.
+        var index = cursor
+        while tokens[index].text == "(" {
+            try budget.consume(.work)
+            index += 1
+        }
+        let name = tokens[index]
+        guard name.kind == .word else { return false }
+        for _ in cursor..<index {
+            index += 1
+            guard tokens[index].text == ")" else { return false }
+        }
+        guard tokens[index + 1].text == "," else { return false }
+
+        try budget.consume(.work, amount: name.text.utf8.count)
+        let key = wgslKey(name.text)
+        for scope in body.scopes.reversed() {
+            try budget.consume(.work)
+            if let value = scope[key] { return types[value.type.index].kind.isDepthTexture }
+        }
+        guard let declaration = declarationNames[key], declarations[declaration].kind == "var" else { return false }
+        try resolveValueDeclaration(name)
+        return globalNames[key].map { types[globals[$0].type.index].kind.isDepthTexture } ?? false
+    }
+
+    private func textureConstantArgument() throws -> WGSLScalarConstant {
+        let first = token
+        let start = cursor
+        var depth = 0
+        // Keep nested constructor arguments together while finding the call argument boundary.
+        while token.kind != .end {
+            if depth == 0 && (isNext(")") || isNext(",")) { break }
+            switch try take().text {
+            case "(": depth += 1
+            case ")": depth -= 1
+            default: break
+            }
+        }
+        return try scalarConstant(Array(tokens[start..<cursor]), at: first)
+    }
+
+    private func textureSampleOffset(width: IRVectorSize) throws -> WExpr {
+        let first = token
+        guard case .vector(let value) = try textureConstantArgument(), value.elements.count == Int(width.rawValue),
+              [.integer(.abstract), .integer(.sint)].contains(value.element) else {
+            throw wgslError(.typeMismatch, "Texture sample offset must be a constant vec\(width.rawValue)i", first)
+        }
+        for component in value.elements {
+            guard case .integer(let lane) = component, (-8...7).contains(lane.value) else {
+                throw wgslError(.invalidType, "Texture sample offset components must be between -8 and 7", first)
+            }
+        }
+        let type = try intern(.vector(size: width, scalar: .i32))
+        return try vectorRuntimeValue(value, to: type, at: first).handle
+    }
+
+    private func textureBuiltin(_ args: [WGSLValue], at name: WGSLToken) throws -> WGSLValue {
+        let arity: ClosedRange<Int>
+        switch name.text {
+        case "textureLoad": arity = 3...4
+        case "textureDimensions": arity = 1...2
+        default: arity = 1...1
+        }
+        if let first = args.first, let storage = types[first.type.index].kind.storageTexture2D {
+            let arrayed = types[first.type.index].kind.isArrayedTexture
+            if name.text == "textureDimensions", args.count == 1 {
+                return try expressionNode(.imageQuery(image: first.handle, query: .size(level: nil)),
+                                          type: intern(.vector(size: .two, scalar: .u32)), at: name)
+            }
+            if name.text == "textureNumLayers", args.count == 1, arrayed {
+                return try expressionNode(.imageQuery(image: first.handle, query: .numLayers),
+                                          type: intern(.scalar(.u32)), at: name)
+            }
+            if name.text == "textureLoad", args.count == (arrayed ? 3 : 2), storage.access.contains(.load) {
+                let coordinates = try texelCoordinates(args[1], at: name)
+                let layer = arrayed ? try textureArrayIndex(args[2], at: name) : nil
+                return try expressionNode(.imageLoad(.init(image: first.handle, coordinate: coordinates.handle, arrayIndex: layer)),
+                                          type: intern(.vector(size: .four, scalar: storage.scalar)), at: name)
+            }
+            throw wgslError(.typeMismatch, "Invalid operation on storage texture", name)
+        }
+        guard arity.contains(args.count), let first = args.first,
+              let scalar = types[first.type.index].kind.sampledTextureScalar else {
+            throw wgslError(.typeMismatch, "Expected a sampled texture and matching builtin arguments", name)
+        }
+        let image = first.handle
+        let kind = types[first.type.index].kind
+        let width: IRVectorSize = kind.isVolumeTexture ? .three : .two
+        let multisampled = kind.isMultisampled2D
+        let level: WGSLValue?
+        if args.count > 1 {
+            let value = try defaultMaterialize(args[args.count - 1], at: name)
+            guard [.scalar(.i32), .scalar(.u32)].contains(types[value.type.index].kind) else {
+                throw wgslError(.typeMismatch, multisampled ? "Texture sample index must be i32 or u32" :
+                    "Texture level must be i32 or u32", name)
+            }
+            level = value
+        } else {
+            level = nil
+        }
+        switch name.text {
+        case "textureLoad":
+            guard !kind.isCubeTexture, args.count == (kind.isArrayedTexture ? 4 : 3) else {
+                throw wgslError(.typeMismatch, "Texture load arguments do not match the texture dimension", name)
+            }
+            let layer = kind.isArrayedTexture ? try textureArrayIndex(args[2], at: name) : nil
+            let coordinates = try texelCoordinates(args[1], width: width, at: name)
+            let result: IRTypeKind = kind.isDepthTexture ? .scalar(scalar) : .vector(size: .four, scalar: scalar)
+            return try expressionNode(.imageLoad(.init(image: image, coordinate: coordinates.handle, arrayIndex: layer,
+                sample: multisampled ? level?.handle : nil, level: multisampled ? nil : level?.handle)),
+                                      type: intern(result), at: name)
+        case "textureDimensions":
+            guard !multisampled || level == nil else {
+                throw wgslError(.typeMismatch, "Multisampled texture dimensions do not take a mip level", name)
+            }
+            return try expressionNode(.imageQuery(image: image, query: .size(level: level?.handle)),
+                                      type: intern(.vector(size: width, scalar: .u32)), at: name)
+        case "textureNumLayers":
+            guard kind.isArrayedTexture else {
+                throw wgslError(.typeMismatch, "Expected an array texture for textureNumLayers", name)
+            }
+            return try expressionNode(.imageQuery(image: image, query: .numLayers),
+                                      type: intern(.scalar(.u32)), at: name)
+        default:
+            let samples = name.text == "textureNumSamples"
+            guard samples == multisampled else {
+                throw wgslError(.typeMismatch, "Texture query does not match the texture sample count", name)
+            }
+            return try expressionNode(.imageQuery(image: image, query: samples ? .numSamples : .numLevels),
+                                      type: intern(.scalar(.u32)), at: name)
+        }
+    }
+
+    func textureArrayIndex(_ value: WGSLValue, at name: WGSLToken) throws -> WExpr {
+        let layer = try defaultMaterialize(value, at: name)
+        guard [.scalar(.i32), .scalar(.u32)].contains(types[layer.type.index].kind) else {
+            throw wgslError(.typeMismatch, "Texture array index must be i32 or u32", name)
+        }
+        return layer.handle
+    }
+
+    func texelCoordinates(_ value: WGSLValue, width: IRVectorSize = .two, at name: WGSLToken) throws -> WGSLValue {
+        let coordinates = try defaultMaterialize(value, at: name)
+        guard [.vector(size: width, scalar: .i32), .vector(size: width, scalar: .u32)]
+            .contains(types[coordinates.type.index].kind) else {
+            throw wgslError(.typeMismatch, "Texture coordinates must be vec\(width.rawValue)i or vec\(width.rawValue)u", name)
+        }
+        return coordinates
+    }
+
+    private func selectValue(_ args: [WGSLValue], at name: WGSLToken) throws -> WGSLValue {
+        guard args.count == 3 else { throw wgslError(.typeMismatch, "select requires three arguments", name) }
+        let first = args[0]
+        let second = args[1]
+        let type: WType
+        if !isAbstract(first.type) {
+            type = first.type
+        } else if !isAbstract(second.type) {
+            type = second.type
+        } else {
+            switch types[second.type.index].kind {
+            case .scalar(.abstractFloat), .vector(_, .abstractFloat):
+                type = try defaultMaterialize(second, at: name).type
+            default:
+                type = try defaultMaterialize(first, at: name).type
+            }
+        }
+        let rejected = try coerce(first, to: type, at: name)
+        let accepted = try coerce(second, to: type, at: name)
+        return try expressionNode(.select(condition: args[2].handle, accept: accepted.handle, reject: rejected.handle),
+                                  type: type, at: name)
+    }
+
+    func atomicPointer(at name: WGSLToken) throws -> (WGSLValue, WType) {
+        try expect("&")
+        let value = try expression()
+        guard value.pointer, value.writable, case .atomic(let scalar) = types[value.type.index].kind else {
+            throw wgslError(.typeMismatch, "Atomic operation requires the address of a writable atomic value", name)
+        }
+        return (value, try intern(.scalar(scalar)))
+    }
+
+    private func atomicCompareResult(for type: WType, at name: WGSLToken) throws -> WType {
+        guard case .scalar(let scalar) = types[type.index].kind else { throw ShaderFailure.invalidHandle }
+        let kind = IRPredeclaredType.atomicCompareExchangeWeakResult(scalar)
+        if let existing = predeclaredTypes.first(where: { $0.kind == kind }) { return existing.type }
+        let boolean = try intern(.scalar(.bool))
+        let members: [IRStructMember] = [
+            .init(name: "old_value", type: type, offset: 0),
+            .init(name: "exchanged", type: boolean, offset: 4),
+        ]
+        let result = try intern(.structure(members: members, span: 8),
+                                name: scalar == .i32 ? "__atomic_compare_result_i32" : "__atomic_compare_result_u32", at: name)
+        predeclaredTypes.append(.init(kind: kind, type: result))
+        return result
     }
 }

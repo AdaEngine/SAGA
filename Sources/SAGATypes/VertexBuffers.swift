@@ -39,12 +39,19 @@ public struct VertexAttribute: Sendable, Equatable {
     }
 }
 
+public enum VertexStepMode: UInt32, Sendable, Equatable {
+    case vertex = 0
+    case instance = 1
+}
+
 public struct VertexBufferLayout: Sendable, Equatable {
     public let stride: UInt32
+    public let stepMode: VertexStepMode
     public let attributes: [VertexAttribute]
 
-    public init(stride: UInt32, attributes: [VertexAttribute]) {
+    public init(stride: UInt32, stepMode: VertexStepMode = .vertex, attributes: [VertexAttribute]) {
         self.stride = stride
+        self.stepMode = stepMode
         self.attributes = attributes
     }
 
@@ -71,6 +78,18 @@ public struct VertexBufferLayout: Sendable, Equatable {
         }
         return locations
     }
+}
+
+public struct DrawInstances: Sendable, Equatable {
+    public let count: UInt32
+    public let first: UInt32
+
+    public init(count: UInt32 = 1, first: UInt32 = 0) {
+        self.count = count
+        self.first = first
+    }
+
+    package var end: UInt64 { UInt64(first) + UInt64(count) }
 }
 
 public struct VertexBufferBinding: Sendable, Equatable {

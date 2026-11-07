@@ -6,16 +6,24 @@ import SAGACompiler
 import SAGAShaderIR
 import SAGAMetal
 
-actor RenderTestBackend: RenderBackendDevice {
+actor RenderTestBackend: PresentationBackendDevice {
     nonisolated let capabilities = try! DeviceCapabilities(maxBufferSize: 4096, maxTextureDimension2D: 32)
     let started = Gate()
     let release = Gate()
     let allocationStarted = Gate()
     let allocationGate: Gate?
+    let presentStarted = Gate()
+    let presentationGate: Gate?
+    nonisolated let supportsPresentation: Bool
     private(set) var submitted = 0
     private(set) var textures: Set<ResourceID> = []
+    private(set) var presented: [ResourceID] = []
 
-    init(allocationGate: Gate? = nil) { self.allocationGate = allocationGate }
+    init(allocationGate: Gate? = nil, presentationGate: Gate? = nil) {
+        self.allocationGate = allocationGate
+        self.presentationGate = presentationGate
+        self.supportsPresentation = presentationGate != nil
+    }
     func allocateBuffer(id: ResourceID, descriptor: BufferDescriptor) {}
     func destroyBuffer(id: ResourceID) {}
     func submit(_ submission: Submission) {}
@@ -27,6 +35,11 @@ actor RenderTestBackend: RenderBackendDevice {
     func destroyTexture(id: ResourceID) { textures.remove(id) }
     func allocateRenderPipeline(_ pipeline: RenderPipeline, vertex: RenderStageArtifact, fragment: RenderStageArtifact) {}
     func destroyRenderPipeline(id: ResourceID) {}
+    func present(_ submission: Submission, source: ResourceID) async {
+        presented.append(source)
+        await presentStarted.release()
+        if let presentationGate { await presentationGate.wait() }
+    }
     func submitCommands(_ submission: Submission, commands: [BufferCommand]) async throws -> [[UInt32]] {
         submitted += 1
         await started.release()

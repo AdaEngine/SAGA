@@ -26,10 +26,12 @@ where Frontend.Module == Validator.Module, Validator.Module == Generator.Module 
 }
 
 public struct IndependentShaderCompiler: Sendable {
+    private static let compilationCapabilities = ShaderCapabilities.referenceDefault.union(.linearInterpolation)
+
     public init() {}
     public func compile(_ input: ShaderInput, to output: ShaderOutputFormat) throws -> ShaderArtifact {
         let generator = try generator(for: input, output: output)
-        let validated = try parseAndValidate(input)
+        let validated = try parseAndValidate(input, capabilities: Self.compilationCapabilities)
         let artifact: ShaderArtifact
         if validated.module.entryPoints.count == 1, let entry = validated.module.entryPoints.first,
            entry.stage == .vertex || entry.stage == .fragment {
@@ -44,7 +46,7 @@ public struct IndependentShaderCompiler: Sendable {
 
     public func compileCompute(_ input: ShaderInput, to output: ShaderOutputFormat) throws -> ComputeShaderArtifact {
         let generator = try generator(for: input, output: output)
-        let module = try parseAndValidate(input)
+        let module = try parseAndValidate(input, capabilities: Self.compilationCapabilities)
         let compiled = try generator.generateCompute(module)
         try compiled.artifact.validateContainer(for: output)
         try Task.checkCancellation()
@@ -58,7 +60,7 @@ public struct IndependentShaderCompiler: Sendable {
         guard input.format == .wgsl else {
             throw ShaderFailure.unsupported("Translation from \(input.format.rawValue) to \(output.rawValue)")
         }
-        let module = try parseAndValidate(input)
+        let module = try parseAndValidate(input, capabilities: Self.compilationCapabilities)
         let compiled = try RenderCodeGenerator(output).generate(module, entryPoint: entryPoint)
         try compiled.artifact.validateContainer(for: output)
         try Task.checkCancellation()

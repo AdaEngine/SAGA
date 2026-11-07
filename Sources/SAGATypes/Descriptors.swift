@@ -9,7 +9,7 @@ public enum GPUError: Error, Sendable, Equatable {
 }
 
 public enum GPUFeature: String, Sendable, Hashable, CaseIterable {
-    case shaderF16, timestampQuery
+    case shaderF16, timestampQuery, storageTextureRead, storageTextureReadWrite
 }
 
 public struct DeviceCapabilities: Sendable, Equatable {

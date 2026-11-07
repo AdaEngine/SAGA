@@ -23,10 +23,13 @@ public struct IndexedDraw: Sendable, Equatable {
     public let indexCount: UInt32
     public let firstIndex: UInt32
     public let baseVertex: Int32
+    public let instances: DrawInstances
 
-    public init(indexCount: UInt32, firstIndex: UInt32 = 0, baseVertex: Int32 = 0) {
+    public init(indexCount: UInt32, firstIndex: UInt32 = 0, baseVertex: Int32 = 0,
+                instances: DrawInstances = .init()) {
         self.indexCount = indexCount
         self.firstIndex = firstIndex
         self.baseVertex = baseVertex
+        self.instances = instances
     }
 }

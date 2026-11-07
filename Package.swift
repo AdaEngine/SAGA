@@ -6,6 +6,7 @@ let package = Package(
     platforms: [.macOS(.v14)],
     products: [
         .executable(name: "SAGAMetalDiagnostic", targets: ["SAGAMetalDiagnostic"]),
+        .executable(name: "SAGAMetalWindowDiagnostic", targets: ["SAGAMetalWindowDiagnostic"]),
         .executable(name: "SAGAWebDiagnostic", targets: ["SAGAWebDiagnostic"]),
         .library(name: "SAGA", targets: ["SAGA"]),
         .library(name: "SAGACompiler", targets: ["SAGACompiler"]),
@@ -14,6 +15,7 @@ let package = Package(
     ],
     targets: [
         .executableTarget(name: "SAGAMetalDiagnostic", dependencies: ["SAGATypes", "SAGACore", "SAGAMetal"]),
+        .executableTarget(name: "SAGAMetalWindowDiagnostic", dependencies: ["SAGATypes", "SAGACore", "SAGACompiler", "SAGAShaderIR", "SAGAMetal"]),
         .executableTarget(name: "SAGAWebDiagnostic", dependencies: ["SAGATypes", "SAGABackend", "SAGACore", "SAGAShaderIR", "SAGACompiler", "SAGAWebGPU"]),
         .target(name: "SAGATypes"),
         .target(name: "SAGABackend", dependencies: ["SAGATypes", "SAGAShaderIR"]),

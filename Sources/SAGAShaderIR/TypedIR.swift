@@ -157,7 +157,7 @@ public enum IRBinding: Sendable, Equatable {
     case location(index: UInt32, interpolation: IRInterpolation?, sampling: IRSampling?, blendSource: UInt32?, perPrimitive: Bool)
 }
 
-public struct IRResourceBinding: Sendable, Equatable {
+public struct IRResourceBinding: Sendable, Hashable {
     public let group: UInt32
     public let binding: UInt32
     public init(group: UInt32, binding: UInt32) {
@@ -215,6 +215,21 @@ public enum IRStorageFormat: String, Sendable, Equatable, CaseIterable {
     case rg16Snorm
     case rgba16Unorm
     case rgba16Snorm
+
+    package var coreStorageTexel: (scalar: IRScalar, components: Int)? {
+        switch self {
+        case .r32Uint: (.u32, 1)
+        case .r32Sint: (.i32, 1)
+        case .r32Float: (.f32, 1)
+        case .rg32Uint: (.u32, 2)
+        case .rg32Sint: (.i32, 2)
+        case .rg32Float: (.f32, 2)
+        case .rgba8Uint, .rgba16Uint, .rgba32Uint: (.u32, 4)
+        case .rgba8Sint, .rgba16Sint, .rgba32Sint: (.i32, 4)
+        case .rgba8Unorm, .rgba8Snorm, .rgba16Float, .rgba32Float: (.f32, 4)
+        default: nil
+        }
+    }
 }
 
 public enum IRImageClass: Sendable, Equatable {
@@ -260,6 +275,75 @@ public enum IRTypeKind: Sendable, Equatable {
     case accelerationStructure(vertexReturn: Bool)
     case rayQuery(vertexReturn: Bool)
     case bindingArray(base: IRHandle<IRType>, size: IRArraySize)
+}
+
+extension IRTypeKind {
+    package static let sampledFloat2D = Self.image(dimension: .d2, arrayed: false,
+                                                   class: .sampled(kind: .float, multisampled: false))
+    package static let sampledDepth2D = Self.image(dimension: .d2, arrayed: false,
+                                                   class: .depth(multisampled: false))
+
+    package static let multisampledDepth2D = Self.image(dimension: .d2, arrayed: false,
+                                                        class: .depth(multisampled: true))
+
+    package var isMultisampled2D: Bool {
+        switch self {
+        case .image(.d2, false, .sampled(_, true)), .multisampledDepth2D: true
+        default: false
+        }
+    }
+
+    package var isDepthTexture: Bool {
+        if case .image(_, _, .depth) = self { return true }
+        return false
+    }
+
+    package var isArrayedTexture: Bool {
+        if case .image(_, true, _) = self { return true }
+        return false
+    }
+
+    package var isCubeTexture: Bool {
+        if case .image(.cube, _, _) = self { return true }
+        return false
+    }
+
+    package var isVolumeTexture: Bool {
+        if case .image(.d3, _, _) = self { return true }
+        return false
+    }
+
+    package var isSampledTexture: Bool { sampledTextureScalar != nil }
+
+    package var sampledTextureScalar: IRScalar? {
+        switch self {
+        case .image(let dimension, let arrayed, .sampled(let kind, let multisampled))
+            where ((dimension == .d2 || dimension == .cube) && (!multisampled || (dimension == .d2 && !arrayed))) ||
+                  (dimension == .d3 && !arrayed && !multisampled):
+            switch kind {
+            case .sint: .i32
+            case .uint: .u32
+            case .float: .f32
+            default: nil
+            }
+        case .image(let dimension, let arrayed, .depth(let multisampled))
+            where (dimension == .d2 || dimension == .cube) && (!multisampled || (dimension == .d2 && !arrayed)): .f32
+        default: nil
+        }
+    }
+
+    package var isSampler: Bool {
+        if case .sampler = self { return true }
+        return false
+    }
+
+    package var storageTexture2D: (format: IRStorageFormat, access: IRStorageAccess, scalar: IRScalar, components: Int)? {
+        guard case .image(.d2, _, .storage(let format, let access)) = self,
+              let texel = format.coreStorageTexel,
+              access == .load || access == .store || (access == [.load, .store] && texel.components == 1)
+        else { return nil }
+        return (format, access, texel.scalar, texel.components)
+    }
 }
 
 public struct IRType: Sendable, Equatable {
@@ -324,6 +408,17 @@ public enum IRAtomicFunction: Sendable, Equatable {
     case min
     case max
     case exchange(compare: IRHandle<IRExpression>?)
+
+    package static let integerRMWBuiltins: [String: Self] = [
+        "atomicAdd": .add, "atomicSub": .subtract,
+        "atomicMin": .min, "atomicMax": .max,
+        "atomicAnd": .and, "atomicOr": .inclusiveOr, "atomicXor": .exclusiveOr,
+        "atomicExchange": .exchange(compare: nil),
+    ]
+
+    package var integerRMWBuiltin: String? {
+        Self.integerRMWBuiltins.first { $0.value == self }?.key
+    }
 }
 
 public enum IRDerivativeControl: String, Sendable, Equatable, CaseIterable {
@@ -453,6 +548,14 @@ public enum IRSampleLevel: Sendable, Equatable {
     case exact(IRHandle<IRExpression>)
     case bias(IRHandle<IRExpression>)
     case gradient(x: IRHandle<IRExpression>, y: IRHandle<IRExpression>)
+
+    package var operands: [IRHandle<IRExpression>] {
+        switch self {
+        case .auto, .zero: []
+        case .exact(let level), .bias(let level): [level]
+        case .gradient(let x, let y): [x, y]
+        }
+    }
 }
 
 public enum IRImageQuery: Sendable, Equatable {
@@ -560,7 +663,7 @@ public struct IRExpression: Sendable, Equatable {
     }
 }
 
-public enum IRSwitchValue: Sendable, Equatable {
+public enum IRSwitchValue: Sendable, Hashable {
     case i32(Int32)
     case u32(UInt32)
     case `default`

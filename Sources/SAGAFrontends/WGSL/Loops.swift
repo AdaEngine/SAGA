@@ -93,32 +93,75 @@ extension WGSLParser {
 
     func switchStatement(at t: WGSLToken) throws {
         try enter(); defer { nesting -= 1 }
-        let v = try defaultMaterialize(expression(),at:t)
-        let kind = types[v.type.index].kind
-        guard kind == .scalar(.u32) || kind == .scalar(.i32) else { throw wgslError(.typeMismatch,"switch selector must be integer",t) }
+        let selector = try loaded(expression(), at: t)
+        var kind: WGSLIntegerConstant.Kind?
+        switch types[selector.type.index].kind {
+        case .scalar(.u32): kind = .uint
+        case .scalar(.i32): kind = .sint
+        case .scalar(.abstractInt): kind = nil
+        default: throw wgslError(.typeMismatch,"switch selector must be integer",t)
+        }
         try expect("{"); body.switchDepth += 1; defer { body.switchDepth -= 1 }
-        var cases: [IRSwitchCase] = [], seen: Set<String> = []; var hasDefault = false
+        var clauses: [(value: WGSLIntegerConstant?, token: WGSLToken, body: IRHandle<IRBlock>)] = []
+        var hasDefault = false
         while !isNext("}") {
-            var selectors: [IRSwitchValue] = []
-            if try eat("default") {
-                guard !hasDefault else { throw wgslError(.duplicateName,"Duplicate default",token) }
-                hasDefault = true; selectors.append(.default)
-            } else {
-                try expect("case")
-                repeat {
-                    let n = try take(), value = try uint(n)
-                    guard seen.insert(String(value)).inserted else { throw wgslError(.duplicateName,"Duplicate switch selector",n) }
-                    if kind == .scalar(.u32) { selectors.append(.u32(value)) }
-                    else { guard let signed = Int32(exactly:value) else { throw wgslError(.typeMismatch,"switch i32 overflow",n) }; selectors.append(.i32(signed)) }
-                    try node()
-                } while try eat(",")
-            }
+            let grouped = try eat("case")
+            var labels: [(WGSLIntegerConstant?, WGSLToken)] = []
+            repeat {
+                let start = token
+                if try eat("default") {
+                    guard !hasDefault else { throw wgslError(.duplicateName,"Duplicate default",start) }
+                    hasDefault = true
+                    labels.append((nil, start))
+                } else {
+                    guard grouped else { throw wgslError(.unexpectedToken, "Expected case or default", start) }
+                    let label = try switchSelectorConstant(at: start)
+                    if label.kind != .abstract {
+                        guard kind == nil || kind == label.kind else {
+                            throw wgslError(.typeMismatch, "Switch selectors must have the same integer type", start)
+                        }
+                        kind = label.kind
+                    }
+                    labels.append((label, start))
+                }
+                try node()
+            } while try grouped && eat(",") && !isNext(":") && !isNext("{")
             _ = try eat(":")
             let b = try block()
-            for selector in selectors { try node(); cases.append(IRSwitchCase(value:selector,body:b)) }
+            clauses += labels.map { ($0.0, $0.1, b) }
         }
         try expect("}")
         guard hasDefault else { throw wgslError(.invalidControlFlow,"switch requires default",t) }
+        let unsigned = kind == .uint
+        let v = try coerce(selector, to: intern(.scalar(unsigned ? .u32 : .i32)), at: t)
+        var seen: Set<Int64> = []
+        let cases = try clauses.map { clause -> IRSwitchCase in
+            try budget.consume(.work)
+            guard let label = clause.value else { return .init(value: .default, body: clause.body) }
+            guard seen.insert(label.value).inserted else { throw wgslError(.duplicateName,"Duplicate switch selector",clause.token) }
+            if unsigned, let value = UInt32(exactly: label.value) { return .init(value: .u32(value), body: clause.body) }
+            if !unsigned, let value = Int32(exactly: label.value) { return .init(value: .i32(value), body: clause.body) }
+            throw wgslError(.invalidType, "Switch selector is outside its integer type", clause.token)
+        }
         try statement(.switchValue(selector:v.handle,cases:cases),at:t)
+    }
+
+    private func switchSelectorConstant(at start: WGSLToken) throws -> WGSLIntegerConstant {
+        var expression: [WGSLToken] = []
+        var delimiters: [String] = []
+        while !(delimiters.isEmpty && [",", ":", "{"].contains(token.text)) {
+            guard token.kind != .end, !isNext("}") else {
+                throw wgslError(.unexpectedToken, "Unterminated switch selector", start)
+            }
+            if isNext("(") || isNext("[") { delimiters.append(isNext("(") ? ")" : "]") }
+            else if isNext(")") || isNext("]") {
+                guard delimiters.popLast() == token.text else {
+                    throw wgslError(.unexpectedToken, "Unmatched switch selector delimiter", token)
+                }
+            }
+            try node()
+            expression.append(try take())
+        }
+        return try integerConstant(expression, at: start)
     }
 }

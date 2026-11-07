@@ -64,6 +64,7 @@ final class WGSLParser {
     var types: [IRType] = []
     var typeNames: [String: WType] = [:]
     var structureAlignments: [WType: UInt32] = [:]
+    var predeclaredTypes: [IRPredeclaredTypeBinding] = []
     var globals: [IRGlobalVariable] = []
     var constants: [IRConstant] = []
     var globalExpressions: [IRExpression] = []
@@ -135,7 +136,9 @@ final class WGSLParser {
         }
         try budget.checkCancellation()
         try compactAbstractIntermediates()
-        return IRModule(types:IRTable(types),constants:IRTable(constants),globalVariables:IRTable(globals),globalExpressions:IRTable(globalExpressions),functions:IRTable(functions),entryPoints:entries)
+        return IRModule(types:IRTable(types),specialTypes:.init(predeclared:predeclaredTypes),constants:IRTable(constants),
+                        globalVariables:IRTable(globals),globalExpressions:IRTable(globalExpressions),
+                        functions:IRTable(functions),entryPoints:entries)
     }
     struct Attribute {
         let name: WGSLToken
@@ -242,6 +245,50 @@ final class WGSLParser {
         default: scalar = nil
         }
         if let scalar { return try intern(.scalar(scalar)) }
+        if t.text == "sampler" || t.text == "sampler_comparison" {
+            return try intern(.sampler(comparison: t.text == "sampler_comparison"))
+        }
+        if t.text == "texture_storage_2d" || t.text == "texture_storage_2d_array" {
+            try expect("<")
+            let format = try take()
+            try expect(",")
+            let access = try take()
+            _ = try eat(",")
+            try expect(">")
+            guard let storageFormat = IRStorageFormat.allCases.first(where: { $0.rawValue.lowercased() == format.text }),
+                  storageFormat.coreStorageTexel != nil else {
+                throw unsupported("storage texture format", at: format)
+            }
+            let mode: IRStorageAccess
+            switch access.text {
+            case "read": mode = .load
+            case "write": mode = .store
+            case "read_write": mode = [.load, .store]
+            default: throw unsupported("storage texture access", at: access)
+            }
+            let kind = IRTypeKind.image(dimension: .d2, arrayed: t.text == "texture_storage_2d_array",
+                                        class: .storage(format: storageFormat, access: mode))
+            guard kind.storageTexture2D != nil else { throw unsupported("storage texture format and access combination", at: t) }
+            return try intern(kind)
+        }
+        if t.text == "texture_depth_2d" { return try intern(.sampledDepth2D) }
+        if ["texture_depth_2d_array", "texture_depth_cube", "texture_depth_cube_array"].contains(t.text) {
+            let dimension: IRImageDimension = t.text.contains("_cube") ? .cube : .d2
+            return try intern(.image(dimension: dimension, arrayed: t.text.hasSuffix("_array"), class: .depth(multisampled: false)))
+        }
+        if t.text == "texture_depth_multisampled_2d" { return try intern(.multisampledDepth2D) }
+        if ["texture_2d", "texture_2d_array", "texture_multisampled_2d", "texture_cube", "texture_cube_array", "texture_3d"].contains(t.text) {
+            try expect("<")
+            let element = try type()
+            try expect(">")
+            guard case .scalar(let scalar) = types[element.index].kind,
+                  [.f32, .i32, .u32].contains(scalar) else {
+                throw wgslError(.typeMismatch, "Sampled texture element type must be f32, i32 or u32", t)
+            }
+            let dimension: IRImageDimension = t.text == "texture_3d" ? .d3 : t.text.contains("_cube") ? .cube : .d2
+            return try intern(.image(dimension: dimension, arrayed: t.text.hasSuffix("_array"),
+                                     class: .sampled(kind: scalar.kind, multisampled: t.text == "texture_multisampled_2d")))
+        }
         if ["vec2","vec3","vec4"].contains(t.text) {
             try expect("<"); let elem = try type(); try expect(">")
             guard case .scalar(let s) = types[elem.index].kind, let size = IRVectorSize(rawValue:UInt8(t.text.last?.wholeNumberValue ?? 0)) else { throw wgslError(.invalidType,"Vector scalar required",t) }
@@ -377,7 +424,8 @@ final class WGSLParser {
     func global(_ attrs: [String: Attribute]) throws {
         try checkAttributes(attrs,allowed:["group","binding"])
         var space: IRAddressSpace = .private
-        if try eat("<") {
+        let explicitSpace = try eat("<")
+        if explicitSpace {
             let s = try take(); var access: IRStorageAccess = [.load]
             if try eat(",") {
                 guard s.text == "storage" else { throw wgslError(.invalidAddressSpace,"Access mode only allowed for storage",s) }
@@ -394,12 +442,19 @@ final class WGSLParser {
             }
         }
         let n = try ident(); try reserve(n); try expect(":"); let ty = try type()
+        let kind = types[ty.index].kind
+        if kind.isSampledTexture || kind.isSampler || kind.storageTexture2D != nil {
+            guard !explicitSpace else {
+                throw wgslError(.invalidAddressSpace, "Texture and sampler address space is implicit", n)
+            }
+            space = .handle
+        }
         if try eat("=") { throw unsupported("global variable initializer") }
         try expect(";")
         var bind: IRResourceBinding?
         if let group = attrs["group"], let b = attrs["binding"] { bind = IRResourceBinding(group:try attributeUInt(group),binding:try attributeUInt(b)) }
         else if !attrs.isEmpty { throw wgslError(.invalidBinding,"group and binding must occur together",n) }
-        if space == .uniform || { if case .storage = space { true } else { false } }() {
+        if space == .handle || space == .uniform || { if case .storage = space { true } else { false } }() {
             guard bind != nil else { throw wgslError(.invalidBinding,"Resource requires binding",n) }
         } else if bind != nil { throw wgslError(.invalidBinding,"Non-resource cannot have binding",n) }
         try node(); globalNames[wgslKey(n.text)] = globals.count; globals.append(IRGlobalVariable(name:n.text,space:space,binding:bind,type:ty,location:n.location))

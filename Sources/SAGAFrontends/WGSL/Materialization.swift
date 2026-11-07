@@ -45,7 +45,7 @@ extension WGSLParser {
               name: m.name, type: try ty(m.type), binding: m.binding, offset: m.offset,
               location: m.location)
           }, span: span)
-      case .scalar, .vector, .matrix, .atomic: kind = t.kind
+      case .scalar, .vector, .matrix, .atomic, .image, .sampler: kind = t.kind
       default:
         throw ShaderFailure.unsupported(
           "WGSL materialization type remapping family not implemented")
@@ -109,6 +109,31 @@ extension WGSLParser {
         case .splat(let n, let v): k = .splat(size: n, value: try ex(v))
         case .swizzle(let n, let v, let p): k = .swizzle(size: n, vector: try ex(v), pattern: p)
         case .load(let p): k = .load(pointer: try ex(p))
+        case .atomicResult(let t, let comparison): k = .atomicResult(type: try ty(t), comparison: comparison)
+        case .workgroupUniformLoadResult(let t): k = .workgroupUniformLoadResult(type: try ty(t))
+        case .arrayLength(let p): k = .arrayLength(try ex(p))
+        case .imageSample(let sample):
+          let level: IRSampleLevel
+          switch sample.level {
+          case .auto, .zero: level = sample.level
+          case .exact(let value): level = .exact(try ex(value))
+          case .bias(let value): level = .bias(try ex(value))
+          case .gradient(let x, let y): level = .gradient(x: try ex(x), y: try ex(y))
+          }
+          k = .imageSample(.init(image: try ex(sample.image), sampler: try ex(sample.sampler), gather: sample.gather,
+                                 coordinate: try ex(sample.coordinate), arrayIndex: try optional(sample.arrayIndex),
+                                 offset: try optional(sample.offset), level: level,
+                                 depthReference: try optional(sample.depthReference), clampToEdge: sample.clampToEdge))
+        case .imageLoad(let load):
+          k = .imageLoad(.init(image: try ex(load.image), coordinate: try ex(load.coordinate),
+                               arrayIndex: try optional(load.arrayIndex), sample: try optional(load.sample),
+                               level: try optional(load.level)))
+        case .imageQuery(let image, let query):
+          if case .size(let level) = query {
+            k = .imageQuery(image: try ex(image), query: .size(level: try optional(level)))
+          } else {
+            k = .imageQuery(image: try ex(image), query: query)
+          }
         case .unary(let op, let v): k = .unary(op: op, expression: try ex(v))
         case .binary(let op, let a, let b): k = .binary(op: op, left: try ex(a), right: try ex(b))
         case .select(let c, let a, let b):
@@ -146,6 +171,15 @@ extension WGSLParser {
         case .loop(let b, let c, let x): k = .loop(body: b, continuing: c, breakIf: try optional(x))
         case .returnValue(let x): k = .returnValue(try optional(x))
         case .store(let p, let v): k = .store(pointer: try ex(p), value: try ex(v))
+        case .imageStore(let image, let coordinate, let arrayIndex, let value):
+          k = .imageStore(image: try ex(image), coordinate: try ex(coordinate),
+                          arrayIndex: try optional(arrayIndex), value: try ex(value))
+        case .workgroupUniformLoad(let p, let r): k = .workgroupUniformLoad(pointer: try ex(p), result: try ex(r))
+        case .atomic(let p, let operation, let v, let r):
+          let mapped: IRAtomicFunction
+          if case .exchange(let compare) = operation { mapped = .exchange(compare: try optional(compare)) }
+          else { mapped = operation }
+          k = .atomic(pointer: try ex(p), function: mapped, value: try ex(v), result: try optional(r))
         case .call(let t, let xs, let r):
           k = .call(function: t, arguments: try xs.map(ex), result: try optional(r))
         default: throw ShaderFailure.unsupported("WGSL statement remapping family not implemented")
@@ -170,6 +204,7 @@ extension WGSLParser {
         }, statements: IRTable(statements), blocks: f.blocks, body: f.body,
         diagnosticFilter: f.diagnosticFilter, location: f.location)
     }
+    predeclaredTypes = try predeclaredTypes.map { .init(kind: $0.kind, type: try ty($0.type)) }
     types = keptTypes
   }
 }

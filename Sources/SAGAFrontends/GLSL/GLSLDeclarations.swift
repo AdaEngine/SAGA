@@ -39,16 +39,37 @@ extension GLSLParser {
         let layout=try typeLayout(base); let stride=try aligned(layout.size,to:layout.align)
         let type=try addType(.array(base:base,size:size,stride:stride)); _ = try typeLayout(type); return type
     }
-    func members(runtime:Bool) throws -> IRHandle<IRType> {
+    func members(runtime:Bool, explicitOffsets:Bool = false) throws -> IRHandle<IRType> {
         try expect("{"); var fields:[IRStructMember]=[]; var names=Set<String>(); var offset:UInt32=0; var alignment:UInt32=1; var dynamic=false
         while text != "}" {
             try budget.consume(.work)
             guard !text.isEmpty else { throw glslError(token,.unexpectedToken,"Unclosed structure") }
             if dynamic { throw glslError(token,.invalidType,"Runtime array must be last") }
+            var explicitOffset: UInt32?
+            if try take("layout") {
+                guard explicitOffsets else { throw glslError(token,.invalidType,"Member offset requires a buffer block") }
+                try expect("(")
+                try expect("offset")
+                try expect("=")
+                let value = try advance()
+                guard let parsed = UInt32(value.text) else {
+                    throw glslError(value,.invalidType,"Member offset requires a literal uint")
+                }
+                explicitOffset = parsed
+                try expect(")")
+            }
             guard let base=try parseType() else { throw glslError(token,.invalidType,"Void member") }
             let name=try identifier(); guard names.insert(name.text).inserted else { throw glslError(name,.duplicateName,"Duplicate member") }
             let type=try arraySuffix(base,runtime:runtime)
-            let layout=try typeLayout(type); alignment=max(alignment,layout.align); offset=try aligned(offset,to:layout.align)
+            let layout=try typeLayout(type); alignment=max(alignment,layout.align)
+            if let explicitOffset {
+                guard explicitOffset >= offset, explicitOffset % layout.align == 0 else {
+                    throw glslError(name,.invalidType,"Overlapping or misaligned member offset")
+                }
+                offset = explicitOffset
+            } else {
+                offset = try aligned(offset,to:layout.align)
+            }
             try budget.consume(.nodes)
             fields.append(.init(name:name.text,type:type,offset:offset,location:try name.location))
             let (end,overflow)=offset.addingReportingOverflow(layout.size); guard !overflow,end<=UInt32(Int32.max) else { throw glslError(name,.invalidType,"Member layout overflow") }; offset=end
@@ -64,7 +85,16 @@ extension GLSLParser {
         return try addType(.structure(members:fields,span:aligned(offset,to:alignment)))
     }
     func externalDeclaration() throws {
-        var layout:[String:UInt32]=[:]; var flags=Set<String>(); var qualifier=""; var readOnly=false; var writeOnly=false
+        var layout:[String:UInt32]=[:]; var flags=Set<String>(); var qualifier=""
+        var memory = Set<String>()
+        func memoryQualifiers() throws {
+            while ["readonly", "writeonly", "coherent"].contains(text) {
+                let qualifier = try advance()
+                guard memory.insert(qualifier.text).inserted else {
+                    throw glslError(qualifier,.duplicateName,"Duplicate memory qualifier")
+                }
+            }
+        }
         if try take("layout") {
             try expect("(")
             repeat {
@@ -74,8 +104,7 @@ extension GLSLParser {
             } while try take(",")
             try expect(")")
         }
-        if try take("readonly") { readOnly=true }
-        if try take("writeonly") { writeOnly=true }
+        try memoryQualifiers()
         let sampling: IRSampling?
         if try take("centroid") { sampling = .centroid }
         else if try take("sample") { sampling = .sample }
@@ -85,29 +114,37 @@ extension GLSLParser {
         guard sampling == nil || varying else {
             throw glslError(token,.invalidBinding,"Interpolation sampling requires an interstage varying")
         }
-        if try take("readonly") { readOnly=true }
-        if try take("writeonly") { writeOnly=true }
+        try memoryQualifiers()
         if qualifier=="in",text==";" {
-            guard stage == .compute,!hasLocalSize,flags.isEmpty,!layout.isEmpty,layout.keys.allSatisfy({["local_size_x","local_size_y","local_size_z"].contains($0)}),layout.values.allSatisfy({$0>0}),!readOnly,!writeOnly else { throw glslError(token,.unsupportedConstruct,"Invalid compute workgroup declaration") }
+            guard stage == .compute,!hasLocalSize,flags.isEmpty,!layout.isEmpty,layout.keys.allSatisfy({["local_size_x","local_size_y","local_size_z"].contains($0)}),layout.values.allSatisfy({$0>0}),memory.isEmpty else { throw glslError(token,.unsupportedConstruct,"Invalid compute workgroup declaration") }
             workgroup = .init(x:layout["local_size_x"] ?? 1,y:layout["local_size_y"] ?? 1,z:layout["local_size_z"] ?? 1);hasLocalSize=true;try expect(";");return
         }
         if qualifier=="buffer" || qualifier=="uniform" {
             let name=try identifier()
-            guard qualifier=="buffer",flags==["std430"],layout.keys.allSatisfy({["set","binding"].contains($0)}),let binding=layout["binding"],!(readOnly && writeOnly) else { throw glslError(name,.unsupportedConstruct,"Only std430 storage blocks with explicit binding implemented") }
-            let type=try members(runtime:true); let instance=try identifier();try expect(";")
+            let uniform = qualifier == "uniform"
+            let readOnly = memory.contains("readonly")
+            let writeOnly = memory.contains("writeonly")
+            guard flags == (uniform ? ["std140"] : ["std430"]),
+                  layout.keys.allSatisfy({["set","binding"].contains($0)}), let binding=layout["binding"],
+                  !(readOnly && writeOnly), !uniform || memory.isEmpty else {
+                throw glslError(name,.unsupportedConstruct,"Expected a std140 uniform or std430 storage block with explicit binding")
+            }
+            let type=try members(runtime:!uniform,explicitOffsets:true); let instance=try identifier();try expect(";")
             guard globalNames[instance.text]==nil,functionNames[instance.text]==nil,!instance.text.hasPrefix("gl_") else { throw glslError(instance,.duplicateName,"Duplicate storage instance") }
             let access:IRStorageAccess=readOnly ? [.load]:writeOnly ? [.store]:[.load,.store]
             let rb=IRResourceBinding(group:layout["set"] ?? 0,binding:binding)
             guard !globals.contains(where:{$0.binding==rb}) else { throw glslError(instance,.invalidBinding,"Duplicate resource binding") }
             try budget.consume(.nodes);let h=try IRHandle<IRGlobalVariable>(index:globals.count)
-            globals.append(.init(name:instance.text,space:.storage(access:access),binding:rb,type:type,location:try instance.location));globalNames[instance.text]=h;return
+            let decorations: IRMemoryDecorations = memory.contains("coherent") ? .coherent : []
+            globals.append(.init(name:instance.text,space:uniform ? .uniform : .storage(access:access),binding:rb,type:type,
+                                 memoryDecorations:decorations,location:try instance.location));globalNames[instance.text]=h;return
         }
         if try take("struct") {
-            guard qualifier.isEmpty,layout.isEmpty,flags.isEmpty else { throw glslError(token,.unsupportedConstruct,"Qualified structure unsupported") }
+            guard qualifier.isEmpty,layout.isEmpty,flags.isEmpty,memory.isEmpty else { throw glslError(token,.unsupportedConstruct,"Qualified structure unsupported") }
             let name=try identifier();let type=try members(runtime:false);try expect(";")
             guard namedTypes[name.text]==nil else { throw glslError(name,.duplicateName,"Duplicate type") };namedTypes[name.text]=type;return
         }
-        guard flags.isEmpty,!readOnly,!writeOnly else { throw glslError(token,.unsupportedConstruct,"Unsupported memory/layout qualifier") }
+        guard flags.isEmpty,memory.isEmpty else { throw glslError(token,.unsupportedConstruct,"Unsupported memory/layout qualifier") }
         let type=try parseType();let name=try identifier()
         if qualifier.isEmpty,text=="(" { guard layout.isEmpty else { throw glslError(name,.unsupportedConstruct,"Function layout") }; try function(name,result:type);return }
         guard let base=type else { throw glslError(name,.invalidType,"Void variable") }
@@ -161,6 +198,23 @@ extension GLSLParser {
         let memberType:IRHandle<IRType>;let operation:IRExpressionKind
         if op.text=="." {
             let name=try identifier()
+            if name.text == "length", try take("(") {
+                try expect(")")
+                let int = try addType(.scalar(.i32))
+                switch kind(type) {
+                case .array(_, .constant(let count), _):
+                    guard let length = Int32(exactly: count) else {
+                        throw glslError(name,.invalidType,"Array length exceeds int")
+                    }
+                    return try expressionNode(int,.literal(.i32(length)),at:name,emit:false)
+                case .array(_, .dynamic, _) where base.pointer:
+                    let uint = try addType(.scalar(.u32))
+                    let length = try expressionNode(uint,.arrayLength(base.expression),at:name)
+                    return try expressionNode(int,.cast(expression:length.expression,target:.i32),at:name)
+                default:
+                    throw glslError(name,.typeMismatch,"length() requires an array")
+                }
+            }
             if case .structure(let members,_)=kind(type) {
                 guard let n=members.firstIndex(where:{$0.name==name.text}) else { throw glslError(name,.unresolvedName,"Unknown structure member") }
                 memberType=members[n].type;operation = .accessIndex(base:base.expression,index:UInt32(n))

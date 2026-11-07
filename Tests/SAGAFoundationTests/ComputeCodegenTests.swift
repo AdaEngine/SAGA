@@ -161,12 +161,12 @@ func computeCodegenRejectsInvalidWGSLAndUnsupportedIR(to format: ShaderOutputFor
         "@compute @workgroup_size(1) fn a() {} @compute @workgroup_size(1) fn b() {}",
         "@compute @workgroup_size(32, 33) fn oversized() {}",
         "@compute @workgroup_size(1, 1, 65) fn oversizedZ() {}",
-        storageShader(group: 1),
+        storageShader(group: 4),
         storageShader("output = min(id.x, 3u);"),
         storageShader("var x: array<u32, 2>; _ = x; output = 1u;"),
         """
-        @group(0) @binding(0) var<storage, read_write> data: array<u32>;
-        @compute @workgroup_size(1) fn run() { data[0] = 1u; }
+        @group(0) @binding(0) var<storage, read_write> data: array<array<u32, 2>>;
+        @compute @workgroup_size(1) fn run() { data[0][0] = 1u; }
         """,
     ] {
         #expect(throws: ShaderFailure.self) {

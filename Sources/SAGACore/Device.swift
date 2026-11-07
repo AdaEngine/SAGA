@@ -44,14 +44,22 @@ public struct CommandTicket: Sendable {
 public actor Device {
     public nonisolated let capabilities: DeviceCapabilities
     public nonisolated let identity: UInt64
+    public nonisolated let supportsPresentation: Bool
     private let backend: any BackendDevice
-    private enum ResourceKind: Equatable { case buffer, texture }
+    private enum ResourceKind: Equatable { case buffer, texture, sampler, textureView }
     private enum ResourceDescriptor {
         case buffer(BufferDescriptor)
         case texture(TextureDescriptor)
+        case sampler(SamplerDescriptor)
+        case textureView(TextureViewResource)
 
         var kind: ResourceKind {
-            switch self { case .buffer: .buffer; case .texture: .texture }
+            switch self {
+            case .buffer: .buffer
+            case .texture: .texture
+            case .sampler: .sampler
+            case .textureView: .textureView
+            }
         }
         var buffer: BufferDescriptor? {
             if case .buffer(let value) = self { return value }
@@ -59,6 +67,14 @@ public actor Device {
         }
         var texture: TextureDescriptor? {
             if case .texture(let value) = self { return value }
+            return nil
+        }
+        var sampler: SamplerDescriptor? {
+            if case .sampler(let descriptor) = self { return descriptor }
+            return nil
+        }
+        var textureView: TextureViewResource? {
+            if case .textureView(let value) = self { return value }
             return nil
         }
     }
@@ -92,6 +108,7 @@ public actor Device {
         self.identity = identity
         self.backend = backend
         self.capabilities = backend.capabilities
+        self.supportsPresentation = (backend as? any PresentationBackendDevice)?.supportsPresentation == true
     }
 
     public static func make(backend: any BackendDevice, requiredFeatures: Set<GPUFeature> = []) async throws -> Device {
@@ -140,19 +157,35 @@ public actor Device {
     }
 
     public func createBuffer(_ descriptor: BufferDescriptor) async throws -> ResourceID {
-        try await createResource(.buffer(descriptor))
+        try await createResource { .buffer(descriptor) }
     }
 
     public func createTexture(_ descriptor: TextureDescriptor) async throws -> ResourceID {
-        try await createResource(.texture(descriptor))
+        try await createResource { .texture(descriptor) }
     }
 
-    private func createResource(_ descriptor: ResourceDescriptor) async throws -> ResourceID {
+    public func createSampler(_ descriptor: SamplerDescriptor = .init()) async throws -> ResourceID {
+        try await createResource { .sampler(descriptor) }
+    }
+
+    public func createTextureView(texture: ResourceID, _ descriptor: TextureViewDescriptor = .init()) async throws -> ResourceID {
+        try await createResource {
+            try requireResource(texture)
+            guard let parent = resources[texture]?.descriptor.texture else {
+                throw GPUError.validation("Texture view requires a texture resource")
+            }
+            return .textureView(.init(texture: texture, levels: try descriptor.mipLevels(in: parent), aspect: descriptor.aspect,
+                                      layers: try descriptor.arrayLayers(in: parent), dimension: descriptor.resolvedDimension(in: parent)))
+        }
+    }
+
+    private func createResource(_ describe: () throws -> ResourceDescriptor) async throws -> ResourceID {
         let operationScopes = beginOperation()
         defer { endOperation(operationScopes) }
         do {
             try Task.checkCancellation()
             try requireActive()
+            let descriptor = try describe()
             let allocate: (ResourceID) async throws -> Void
             switch descriptor {
             case .buffer(let value):
@@ -166,6 +199,16 @@ public actor Device {
                     throw GPUError.unsupported("Backend does not implement textures")
                 }
                 allocate = { try await render.allocateTexture(id: $0, descriptor: value) }
+            case .sampler(let value):
+                guard let sampler = backend as? any SamplerBackendDevice else {
+                    throw GPUError.unsupported("Backend does not implement samplers")
+                }
+                allocate = { try await sampler.allocateSampler(id: $0, descriptor: value) }
+            case .textureView(let view):
+                guard let renderer = backend as? any TextureViewBackendDevice else {
+                    throw GPUError.unsupported("Backend does not implement texture views")
+                }
+                allocate = { try await renderer.allocateTextureView(id: $0, texture: view.texture, descriptor: view.descriptor) }
             }
             guard nextResource < UInt64.max else { throw GPUError.outOfMemory }
             nextResource += 1
@@ -175,6 +218,7 @@ public actor Device {
                 try await allocate(id)
                 try Task.checkCancellation()
                 try requireActive()
+                if let view = descriptor.textureView { try requireResource(view.texture) }
                 resources[id]?.ready = true
                 return id
             } catch {
@@ -196,6 +240,10 @@ public actor Device {
         guard id.device == identity, let resource = resources[id], resource.ready, !resource.destroyed else {
             throw GPUError.validation("Unknown, foreign or destroyed resource")
         }
+        if let view = resource.descriptor.textureView,
+           resources[view.texture]?.destroyed != false {
+            throw GPUError.validation("Texture view has a destroyed parent texture")
+        }
     }
 
     public func validateResource(_ id: ResourceID) throws {
@@ -214,12 +262,8 @@ public actor Device {
             }
             guard nextResource < UInt64.max else { throw GPUError.outOfMemory }
             nextResource += 1
-            let pipeline = ComputePipeline(
-                id: ResourceID(device: identity, serial: nextResource),
-                storageBindings: shader.storageBindings.map {
-                    .init(slot: .init(group: $0.binding.group, binding: $0.binding.binding),
-                          minimumByteSize: $0.minimumByteSize, isReadOnly: $0.isReadOnly)
-                })
+            let pipeline = try ComputePipeline(
+                id: ResourceID(device: identity, serial: nextResource), shader: shader)
             do {
                 try await compute.allocateComputePipeline(pipeline, shader: shader)
                 try Task.checkCancellation()
@@ -241,13 +285,21 @@ public actor Device {
 
     public func createRenderPipeline(
         vertex: RenderStageArtifact, fragment: RenderStageArtifact, colorFormat: TextureFormat,
-        vertexBuffers: [VertexBufferLayout] = []
+        vertexBuffers: [VertexBufferLayout] = [], depthState: RenderDepthState? = nil, sampleCount: UInt32 = 1,
+        sampleMask: UInt32 = .max, alphaToCoverageEnabled: Bool = false, primitive: RenderPrimitiveState = .init(),
+        colorState: RenderColorState = .init(), additionalColorTargets: [UInt32: RenderColorTarget] = [:]
     ) async throws -> RenderPipeline {
         let operationScopes = beginOperation()
         defer { endOperation(operationScopes) }
         do {
             try Task.checkCancellation()
             try requireActive()
+            guard colorFormat.isColorAttachment else {
+                throw GPUError.validation("Render pipeline requires a supported color attachment format")
+            }
+            guard depthState?.format.hasDepth ?? true else {
+                throw GPUError.validation("Render pipeline requires a supported depth format")
+            }
             guard vertex.stage == .vertex, fragment.stage == .fragment else {
                 throw GPUError.validation("Render pipeline requires vertex and fragment stages")
             }
@@ -269,8 +321,11 @@ public actor Device {
             }
             guard nextResource < UInt64.max else { throw GPUError.outOfMemory }
             nextResource += 1
-            let pipeline = RenderPipeline(id: .init(device: identity, serial: nextResource), colorFormat: colorFormat,
-                                          vertexBuffers: vertexBuffers)
+            let pipeline = try RenderPipeline(id: .init(device: identity, serial: nextResource), colorFormat: colorFormat,
+                                              vertexBuffers: vertexBuffers, depthState: depthState, sampleCount: sampleCount,
+                                              sampleMask: sampleMask, alphaToCoverageEnabled: alphaToCoverageEnabled,
+                                              primitive: primitive, colorState: colorState, additionalColorTargets: additionalColorTargets,
+                                              vertex: vertex, fragment: fragment)
             do {
                 try await render.allocateRenderPipeline(pipeline, vertex: vertex, fragment: fragment)
                 try Task.checkCancellation()
@@ -296,6 +351,14 @@ public actor Device {
 
     public func destroyTexture(_ id: ResourceID) async throws {
         try await destroyResource(id, expected: .texture)
+    }
+
+    public func destroySampler(_ id: ResourceID) async throws {
+        try await destroyResource(id, expected: .sampler)
+    }
+
+    public func destroyTextureView(_ id: ResourceID) async throws {
+        try await destroyResource(id, expected: .textureView)
     }
 
     private func destroyResource(_ id: ResourceID, expected: ResourceKind? = nil) async throws {
@@ -327,6 +390,8 @@ public actor Device {
         switch kind {
         case .buffer: await backend.destroyBuffer(id: id)
         case .texture: await (backend as? any RenderBackendDevice)?.destroyTexture(id: id)
+        case .sampler: await (backend as? any SamplerBackendDevice)?.destroySampler(id: id)
+        case .textureView: await (backend as? any TextureViewBackendDevice)?.destroyTextureView(id: id)
         }
     }
 
@@ -334,6 +399,33 @@ public actor Device {
         let backend = backend
         let (sequence, completion) = try enqueue(ids) { submission in
             try await backend.submit(submission)
+        }
+        return SubmissionTicket(sequence: sequence, completion: completion)
+    }
+
+    /// Copy an offscreen color texture to the attached surface in submission order.
+    public func present(_ source: ResourceID) throws -> SubmissionTicket {
+        let presentation: any PresentationBackendDevice
+        do {
+            try Task.checkCancellation()
+            try requireActive()
+            guard supportsPresentation, let backend = backend as? any PresentationBackendDevice else {
+                throw GPUError.unsupported("Backend does not have a presentation surface")
+            }
+            presentation = backend
+            try requireResource(source)
+            guard let texture = resources[source]?.descriptor.texture, texture.format.isNormalizedColor,
+                  texture.sampleCount == 1, texture.dimension == .d2, texture.arrayLayerCount == 1,
+                  texture.usage.contains(.copySource) else {
+                throw GPUError.validation("Presentation requires a copy-source texture")
+            }
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            let error = normalize(error); record(error); throw error
+        }
+        let (sequence, completion) = try enqueue([source]) { submission in
+            try await presentation.present(submission, source: source)
         }
         return SubmissionTicket(sequence: sequence, completion: completion)
     }
@@ -349,9 +441,13 @@ public actor Device {
             commandBackend = implementation
             let descriptors = resources.compactMapValues { $0.descriptor.buffer }
             let textures = resources.compactMapValues { $0.descriptor.texture }
+            let textureViews = resources.compactMapValues { $0.descriptor.textureView }
+            let samplerDescriptors = resources.compactMapValues { $0.descriptor.sampler }
             for command in commands {
                 for id in command.resources { try requireResource(id) }
-                try command.validate(device: identity, descriptors: descriptors, textures: textures)
+                try command.validate(device: identity, descriptors: descriptors, textures: textures,
+                                     samplerDescriptors: samplerDescriptors, textureViews: textureViews,
+                                     maximumViewportDimension: capabilities.maxTextureDimension2D)
             }
         } catch is CancellationError {
             throw CancellationError()
@@ -373,7 +469,8 @@ public actor Device {
             for id in ids { try requireResource(id) }
             guard nextSubmission < UInt64.max else { throw GPUError.outOfMemory }
             nextSubmission += 1
-            let unique = Array(Set(ids)).sorted { $0.serial < $1.serial }
+            let parents = ids.compactMap { resources[$0]?.descriptor.textureView?.texture }
+            let unique = Set(ids).union(parents).sorted { $0.serial < $1.serial }
             for id in unique { resources[id]!.uses += 1 }
             let submission = Submission(sequence: nextSubmission, resources: unique)
             let predecessor = tail

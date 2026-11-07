@@ -64,6 +64,13 @@
       "SAGACore",
       "SAGAMetal"
     ],
+    "SAGAMetalWindowDiagnostic": [
+      "SAGATypes",
+      "SAGACore",
+      "SAGACompiler",
+      "SAGAShaderIR",
+      "SAGAMetal"
+    ],
     "SAGAWebDiagnostic": [
       "SAGATypes",
       "SAGABackend",
@@ -89,20 +96,30 @@
     "SAGAMetalDiagnostic": [
       "SAGAMetalDiagnostic"
     ],
+    "SAGAMetalWindowDiagnostic": [
+      "SAGAMetalWindowDiagnostic"
+    ],
     "SAGAWebDiagnostic": [
       "SAGAWebDiagnostic"
     ]
   },
   "extra_imports": {
     "SAGAMetal": [
-      "Metal"
+      "Metal",
+      "QuartzCore"
     ],
     "SAGAFoundationTests": [
       "Testing",
-      "Metal"
+      "Metal",
+      "QuartzCore"
     ],
     "SAGAMetalDiagnostic": [
       "Foundation"
+    ],
+    "SAGAMetalWindowDiagnostic": [
+      "AppKit",
+      "Foundation",
+      "QuartzCore"
     ],
     "SAGAWebDiagnostic": [
       "_Concurrency"
@@ -122,6 +139,7 @@
     "SAGAWebGPU": "regular",
     "SAGAFoundationTests": "test",
     "SAGAMetalDiagnostic": "executable",
+    "SAGAMetalWindowDiagnostic": "executable",
     "SAGAWebDiagnostic": "executable"
   },
   "product_types": {
@@ -130,6 +148,7 @@
     "SAGAMetal": "library",
     "SAGAWebGPU": "library",
     "SAGAMetalDiagnostic": "executable",
+    "SAGAMetalWindowDiagnostic": "executable",
     "SAGAWebDiagnostic": "executable"
   }
 }

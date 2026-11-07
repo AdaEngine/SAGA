@@ -2,11 +2,15 @@
 <meta charset="utf-8">
 <title>SAGA WebGPU diagnostic</title>
 <h1>SAGA WebGPU diagnostic</h1>
+<canvas id="surface" width="4" height="4" aria-label="Rendered WebGPU frame"
+        style="width:128px;height:128px;image-rendering:pixelated"></canvas>
 <pre id="result" role="status">Running Swift/Wasm…</pre>
 <script type="module">
-    import { runDiagnostic } from "./reactor.mjs";
+    import { closeDiagnosticCanvas, runDiagnostic } from "./reactor.mjs";
+    const surface = document.querySelector("#surface");
     const result = document.querySelector("#result");
-    globalThis.sagaDiagnostic = runDiagnostic();
+    globalThis.sagaDiagnostic = runDiagnostic(undefined, surface);
+    addEventListener("pagehide", () => closeDiagnosticCanvas(surface), { once: true });
     globalThis.sagaDiagnostic.then(
         value => { result.textContent = JSON.stringify(value, null, 2); },
         error => { result.textContent = String(error); },

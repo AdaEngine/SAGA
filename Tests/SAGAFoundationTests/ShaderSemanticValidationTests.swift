@@ -213,7 +213,7 @@ extension ShaderSemanticValidationTests {
     }
   }
   @Test func unsupportedFamiliesRejectInsteadOfIssuingWitness() throws {
-    let t = IRType(kind: .sampler(comparison: false))
+    let t = IRType(kind: .image(dimension: .d1, arrayed: false, class: .sampled(kind: .float, multisampled: false)))
     do {
       try ShaderSemanticValidator(capabilities: .allKnown).validate(IRModule(types: IRTable([t])))
       Issue.record("unimplemented type accepted")
