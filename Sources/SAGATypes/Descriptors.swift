@@ -9,24 +9,92 @@ public enum GPUError: Error, Sendable, Equatable {
 }
 
 public enum GPUFeature: String, Sendable, Hashable, CaseIterable {
-    case shaderF16, timestampQuery, storageTextureRead, storageTextureReadWrite
+    case shaderF16, timestampQuery, storageTextureRead, storageTextureReadWrite, uniformBufferStandardLayout
+    case textureCompressionBC, textureCompressionETC2, textureCompressionASTC, textureCompressionASTCHDR
+    case textureCompressionBCSliced3D, textureCompressionASTCSliced3D
+    case shaderEarlyDepthTest, float32Filterable, float32Blendable
+    case halfFloatStorageTextures, r16FloatStorageReadWrite
+    case narrowInteger16StorageTextures, integer16StorageReadWrite
+    case normalized16Textures, normalized16Filterable, normalized16Resolve
+    case packedColorStorageTextures, rg11b10UfloatRenderable, rgb9e5Renderable
+    case narrow8BitStorageTextures, storage8BitReadWrite, snorm8Renderable
+    case depth32FloatStencil8
+    case textureAtomic, textureInt64Atomic
+    case shaderInt64, shaderInt64AtomicMinMax, shaderInt64AtomicAllOps
+    case linearIndexing
+    case bgra8UnormStorage, wideRGBAStorageReadWrite
+    case indirectFirstInstance, clipDistances, primitiveIndex, depthClipControl, subgroups, subgroupID, dualSourceBlending
+    case subgroupSizeControl, subgroupUniformity, shaderBarycentrics
 }
 
 public struct DeviceCapabilities: Sendable, Equatable {
     public let maxBufferSize: UInt64
     public let maxTextureDimension2D: UInt32
+    public let maxImmediateSize: UInt32
+    /// Maximum rounded workgroup storage for one compute pipeline entry point.
+    public let maxComputeWorkgroupStorageSize: UInt32
+    /// Advertised subgroup-size limits when the backend provides them.
+    public let subgroupSizeRange: ClosedRange<UInt32>?
     public let features: Set<GPUFeature>
+    /// Float32 formats that the backend supports as 4× color attachments.
+    public let multisampledFloat32Formats: Set<TextureFormat>
+    /// Multiply a difference between two timestamp query results by this value to obtain nanoseconds.
+    public let timestampPeriodNanoseconds: Double
 
-    public init(maxBufferSize: UInt64, features: Set<GPUFeature> = [], maxTextureDimension2D: UInt32 = 8192) throws {
+    public init(maxBufferSize: UInt64, features: Set<GPUFeature> = [], maxTextureDimension2D: UInt32 = 8192,
+                timestampPeriodNanoseconds: Double = 1, multisampledFloat32Formats: Set<TextureFormat> = [],
+                maxImmediateSize: UInt32 = 0, subgroupSizeRange: ClosedRange<UInt32>? = nil,
+                maxComputeWorkgroupStorageSize: UInt32 = 16 * 1024) throws {
         guard maxBufferSize > 0 else { throw GPUError.validation("maxBufferSize must be positive") }
         guard maxTextureDimension2D > 0 else { throw GPUError.validation("maxTextureDimension2D must be positive") }
+        guard maxImmediateSize.isMultiple(of: 4) else { throw GPUError.validation("maxImmediateSize must be word-aligned") }
+        if let subgroupSizeRange, subgroupSizeRange.lowerBound == 0 {
+            throw GPUError.validation("Subgroup sizes must be positive")
+        }
+        guard timestampPeriodNanoseconds.isFinite, timestampPeriodNanoseconds > 0 else {
+            throw GPUError.validation("Timestamp period must be finite and positive")
+        }
+        guard multisampledFloat32Formats.allSatisfy(\.isFloat32Color) else {
+            throw GPUError.validation("Float32 multisampling capabilities require float32 color formats")
+        }
         self.maxBufferSize = maxBufferSize
         self.maxTextureDimension2D = maxTextureDimension2D
+        self.maxImmediateSize = maxImmediateSize
+        self.maxComputeWorkgroupStorageSize = maxComputeWorkgroupStorageSize
+        self.subgroupSizeRange = subgroupSizeRange
         self.features = features
+        self.multisampledFloat32Formats = multisampledFloat32Formats
+        self.timestampPeriodNanoseconds = timestampPeriodNanoseconds
     }
 
     public func require(_ requested: Set<GPUFeature>) throws {
         guard requested.isSubset(of: features) else { throw GPUError.validation("Feature not advertised") }
+    }
+
+    package func requireShaderInt64Atomics(minMax: Bool, allOps: Bool) throws {
+        if allOps {
+            try require([.shaderInt64AtomicAllOps])
+        } else if minMax && !features.contains(.shaderInt64AtomicAllOps) {
+            try require([.shaderInt64AtomicMinMax])
+        }
+    }
+
+    package func requireImmediateSize(_ byteSize: UInt64) throws {
+        guard byteSize <= UInt64(maxImmediateSize) else { throw GPUError.validation("Immediate data exceeds the device limit") }
+    }
+
+    package func requireWorkgroupStorageSize(_ byteSize: UInt64) throws {
+        guard byteSize <= UInt64(maxComputeWorkgroupStorageSize) else {
+            throw GPUError.validation("Workgroup storage exceeds the device limit")
+        }
+    }
+
+    package func requireSubgroupSize(_ size: UInt32?) throws {
+        guard let size else { return }
+        try require([.subgroupSizeControl])
+        if let subgroupSizeRange, !subgroupSizeRange.contains(size) {
+            throw GPUError.validation("Requested subgroup size is outside the device range")
+        }
     }
 }
 

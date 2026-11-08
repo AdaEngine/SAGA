@@ -8,9 +8,32 @@ public protocol BrowserGPUComputeHost: BrowserGPUHost, ComputeBackendDevice {}
 public protocol BrowserGPURenderHost: BrowserGPUComputeHost, RenderBackendDevice {}
 public protocol BrowserGPUPresentationHost: BrowserGPURenderHost, PresentationBackendDevice {}
 
-public struct BrowserComputeBackend: ComputeBackendDevice, PresentationBackendDevice, SamplerBackendDevice, TextureViewBackendDevice {
+private func requireBrowserBindings(
+    _ textures: [ComputeShaderArtifact.SampledTextureBinding],
+    _ storage: [ComputeShaderArtifact.StorageTextureBinding],
+    _ samplers: [ComputeShaderArtifact.SamplerBinding],
+    _ storageBuffers: [ComputeShaderArtifact.StorageBinding],
+    _ uniforms: [ComputeShaderArtifact.UniformBinding]
+) throws {
+    guard !storage.contains(where: { $0.access.contains(.atomic) || $0.format == .r64Uint }) else {
+        throw GPUError.unsupported("Atomic and R64Uint storage textures require a native backend")
+    }
+    guard !textures.contains(where: { $0.bindingArray != nil && $0.bindingArray?.webBindingBase == nil }),
+          !storage.contains(where: { $0.bindingArray != nil && $0.bindingArray?.webBindingBase == nil }),
+          !samplers.contains(where: { $0.bindingArray != nil && $0.bindingArray?.webBindingBase == nil }),
+          !storageBuffers.contains(where: { $0.bindingArray != nil && $0.bindingArray?.webBindingBase == nil }),
+          !uniforms.contains(where: { $0.bindingArray != nil && $0.bindingArray?.webBindingBase == nil }) else {
+        throw GPUError.unsupported("wgpu_binding_array is a native WGSL extension")
+    }
+}
+
+public struct BrowserComputeBackend: ComputeBackendDevice, PresentationBackendDevice, SamplerBackendDevice, TextureViewBackendDevice,
+                                     QuerySetBackendDevice, BufferMappingBackendDevice, ExternalTextureBackendDevice {
     private let host: any BrowserGPUComputeHost
     public var capabilities: DeviceCapabilities { host.capabilities }
+    public var supportsExternalTextures: Bool {
+        (host as? any ExternalTextureBackendDevice)?.supportsExternalTextures == true
+    }
     public var supportsPresentation: Bool {
         (host as? any BrowserGPUPresentationHost)?.supportsPresentation == true
     }
@@ -18,9 +41,47 @@ public struct BrowserComputeBackend: ComputeBackendDevice, PresentationBackendDe
     public init(host: any BrowserGPUComputeHost) { self.host = host }
 
     public func allocateBuffer(id: ResourceID, descriptor: BufferDescriptor) async throws {
+        if descriptor.mappedAtCreation { _ = try mappingHost() }
         try await host.allocateBuffer(id: id, descriptor: descriptor)
     }
     public func destroyBuffer(id: ResourceID) async { await host.destroyBuffer(id: id) }
+    public func allocateExternalTexture(id: ResourceID, descriptor: ExternalTextureDescriptor) async throws {
+        guard let external = host as? any ExternalTextureBackendDevice, external.supportsExternalTextures else {
+            throw GPUError.unsupported("Browser host does not support external textures")
+        }
+        try await external.allocateExternalTexture(id: id, descriptor: descriptor)
+    }
+    public func destroyExternalTexture(id: ResourceID) async {
+        await (host as? any ExternalTextureBackendDevice)?.destroyExternalTexture(id: id)
+    }
+    public func beginBufferMapping(id: ResourceID, mode: BufferMapMode, offset: UInt64, size: UInt64) async throws {
+        try await mappingHost().beginBufferMapping(id: id, mode: mode, offset: offset, size: size)
+    }
+    public func readMappedBytes(id: ResourceID, offset: UInt64, size: UInt64) async throws -> [UInt8] {
+        try await mappingHost().readMappedBytes(id: id, offset: offset, size: size)
+    }
+    public func writeMappedBytes(id: ResourceID, offset: UInt64, bytes: [UInt8]) async throws {
+        try await mappingHost().writeMappedBytes(id: id, offset: offset, bytes: bytes)
+    }
+    public func endBufferMapping(id: ResourceID) async throws {
+        try await mappingHost().endBufferMapping(id: id)
+    }
+    private func mappingHost() throws -> any BufferMappingBackendDevice {
+        guard let mapping = host as? any BufferMappingBackendDevice else {
+            throw GPUError.unsupported("Browser host does not implement buffer mapping")
+        }
+        return mapping
+    }
+    public func allocateQuerySet(id: ResourceID, descriptor: QuerySetDescriptor) async throws {
+        try descriptor.validate(against: capabilities)
+        guard let queryHost = host as? any QuerySetBackendDevice else {
+            throw GPUError.unsupported("Browser host does not implement query sets")
+        }
+        try await queryHost.allocateQuerySet(id: id, descriptor: descriptor)
+    }
+    public func destroyQuerySet(id: ResourceID) async {
+        await (host as? any QuerySetBackendDevice)?.destroyQuerySet(id: id)
+    }
     public func close(owner: UInt64) async { await host.close(owner: owner) }
     public func submit(_ submission: Submission) async throws { try await host.submit(submission) }
 
@@ -28,7 +89,22 @@ public struct BrowserComputeBackend: ComputeBackendDevice, PresentationBackendDe
         guard case .text(.wgsl, _) = shader.artifact else {
             throw GPUError.validation("Browser requires a compiled WGSL compute shader")
         }
+        try capabilities.requireWorkgroupStorageSize(shader.workgroupStorageByteSize)
+        guard shader.externalTextures.isEmpty || supportsExternalTextures else {
+            throw GPUError.unsupported("Browser host does not support external textures")
+        }
+        try requireBrowserBindings(shader.sampledTextures, shader.storageTextures, shader.samplerBindings,
+                                   shader.storageBindings, shader.uniformBindings)
         try capabilities.require(shader.storageTextureFeatures)
+        try capabilities.requireImmediateSize(pipeline.immediateByteSize)
+        if shader.requiresShaderInt64 { try capabilities.require([.shaderInt64]) }
+        try capabilities.requireShaderInt64Atomics(minMax: shader.requiresShaderInt64AtomicMinMax,
+                                                   allOps: shader.requiresShaderInt64AtomicAllOps)
+        if shader.requiresSubgroups { try capabilities.require([.subgroups]) }
+        if shader.requiresSubgroupUniformity { try capabilities.require([.subgroupUniformity]) }
+        try capabilities.requireSubgroupSize(shader.requiredSubgroupSize)
+        if shader.requiresSubgroupID { try capabilities.require([.subgroupID]) }
+        if shader.requiresLinearIndexing { try capabilities.require([.linearIndexing]) }
         try await host.allocateComputePipeline(pipeline, shader: shader)
     }
     public func destroyComputePipeline(id: ResourceID) async { await host.destroyComputePipeline(id: id) }
@@ -83,6 +159,46 @@ public struct BrowserComputeBackend: ComputeBackendDevice, PresentationBackendDe
         guard case .text(.wgsl, _) = vertex.artifact, case .text(.wgsl, _) = fragment.artifact else {
             throw GPUError.validation("Browser requires compiled WGSL vertex and fragment stages")
         }
+        guard (vertex.externalTextures.isEmpty && fragment.externalTextures.isEmpty) || supportsExternalTextures else {
+            throw GPUError.unsupported("Browser host does not support external textures")
+        }
+        for stage in [vertex, fragment] {
+            try requireBrowserBindings(stage.sampledTextures, stage.storageTextures, stage.samplerBindings,
+                                       stage.storageBindings, stage.uniformBindings)
+        }
+        if vertex.clipDistanceCount > 0 { try capabilities.require([.clipDistances]) }
+        if fragment.readsPrimitiveIndex { try capabilities.require([.primitiveIndex]) }
+        if fragment.requiresBarycentrics { try capabilities.require([.shaderBarycentrics]) }
+        if fragment.earlyDepthTest != nil { try capabilities.require([.shaderEarlyDepthTest]) }
+        try capabilities.requireImmediateSize(pipeline.immediateByteSize)
+        if vertex.requiresShaderInt64 || fragment.requiresShaderInt64 { try capabilities.require([.shaderInt64]) }
+        try capabilities.requireShaderInt64Atomics(
+            minMax: vertex.requiresShaderInt64AtomicMinMax || fragment.requiresShaderInt64AtomicMinMax,
+            allOps: vertex.requiresShaderInt64AtomicAllOps || fragment.requiresShaderInt64AtomicAllOps)
+        if fragment.requiresSubgroups || vertex.requiresSubgroups { try capabilities.require([.subgroups]) }
+        if vertex.requiresSubgroupUniformity || fragment.requiresSubgroupUniformity {
+            try capabilities.require([.subgroupUniformity])
+        }
+        if fragment.usesDualSourceBlending || pipeline.colorTargets.values.contains(where: { $0.colorState.usesSecondBlendSource }) {
+            try capabilities.require([.dualSourceBlending])
+        }
+        if pipeline.depthState?.format == .depth32FloatStencil8 { try capabilities.require([.depth32FloatStencil8]) }
+        try capabilities.require(Set(pipeline.colorTargets.values.compactMap { $0.format.hdrRenderFeature }))
+        if pipeline.colorTargets.values.contains(where: { $0.format.isSnorm8Color }) {
+            try capabilities.require([.snorm8Renderable])
+        }
+        if pipeline.colorTargets.values.contains(where: { $0.format.isNormalized16Color }) {
+            try capabilities.require([.normalized16Textures])
+        }
+        if pipeline.sampleCount > 1 && pipeline.colorTargets.values.contains(where: {
+            !$0.format.supportsMultisampledAttachment(in: capabilities)
+        }) {
+            throw GPUError.validation("Color attachment format does not support multisampling")
+        }
+        if pipeline.colorTargets.values.contains(where: { $0.format.isFloat32Color && $0.colorState.blend != nil }) {
+            try capabilities.require([.float32Blendable])
+        }
+        if pipeline.primitive.unclippedDepth { try capabilities.require([.depthClipControl]) }
         let features = vertex.storageTextures.requiredStorageTextureFeatures
             .union(fragment.storageTextures.requiredStorageTextureFeatures)
         try capabilities.require(features)

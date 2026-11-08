@@ -37,11 +37,9 @@ extension WGSLParser {
             body.loopDepth -= 1; body.scopes.removeLast(); body.constScopes.removeLast()
         }
         let saved = body.current; body.current = []
-        var terminal = false
         while !isNext("}") && !isNext("continuing") {
-            if terminal && !isNext("const_assert") && !isNext("const") { throw unsupported("unreachable loop statement") }
+            guard token.kind != .end else { throw wgslError(.unexpectedToken, "Unterminated loop", token) }
             try parseStatement()
-            if let last = body.current.last { terminal = try statementTerminates(last) }
         }
         let inner = try saveBlock(body.current,at:t); body.current = []
         var breakIf: WExpr?
@@ -63,13 +61,10 @@ extension WGSLParser {
                     guard types[v.type.index].kind == .scalar(.bool) else { throw wgslError(.typeMismatch,"break if needs bool",t) }
                     breakIf = v.handle; try expect(";"); guard isNext("}") else { throw wgslError(.invalidControlFlow,"break if must be final",token) }; break
                 }
-                if ["return","discard","continue"].contains(token.text) { throw wgslError(.invalidControlFlow,"Invalid continuing exit",token) }
+                if ["return","continue"].contains(token.text) { throw wgslError(.invalidControlFlow,"Invalid continuing exit",token) }
                 try parseStatement()
             }
             try expect("}")
-            if terminal && !body.current.isEmpty && body.loopScopes.last?.visibleAtFirstContinue == nil {
-                throw unsupported("runtime continuing after unconditional loop termination")
-            }
         }
         let continuing = try saveBlock(body.current,at:t); try expect("}"); body.current = saved
         try statement(.loop(body:inner,continuing:continuing,breakIf:breakIf),at:t)
@@ -117,7 +112,7 @@ extension WGSLParser {
                     guard grouped else { throw wgslError(.unexpectedToken, "Expected case or default", start) }
                     let label = try switchSelectorConstant(at: start)
                     if label.kind != .abstract {
-                        guard kind == nil || kind == label.kind else {
+                        guard !label.kind.isWide, kind == nil || kind == label.kind else {
                             throw wgslError(.typeMismatch, "Switch selectors must have the same integer type", start)
                         }
                         kind = label.kind

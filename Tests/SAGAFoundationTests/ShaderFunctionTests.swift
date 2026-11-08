@@ -86,15 +86,30 @@ func emitsRenderHelpersWithVectorAndStageStructureResults(to format: ShaderOutpu
     }
 }
 
-@Test func rejectsRecursiveAndReachableUnsupportedHelpers() {
-    let compiler = IndependentShaderCompiler()
-    for body in ["return foo(x);", "return min(x, 2u);"] {
-        let source = """
-            fn foo(x: u32) -> u32 { \(body) }
-            @compute @workgroup_size(1) fn run() { _ = foo(3u); }
-            """
-        #expect(throws: ShaderFailure.self) { try compiler.compileCompute(.wgsl(source), to: .msl) }
+@Test func rejectsRecursiveHelper() {
+    let source = """
+        fn foo(x: u32) -> u32 { return foo(x); }
+        @compute @workgroup_size(1) fn run() { _ = foo(3u); }
+        """
+    #expect(throws: ShaderFailure.self) {
+        try IndependentShaderCompiler().compileCompute(.wgsl(source), to: .msl)
     }
+}
+
+@Test(arguments: [ShaderOutputFormat.wgsl, .msl, .hlsl, .glsl])
+func emitsFixedArrayHelperResult(to format: ShaderOutputFormat) throws {
+    let source = """
+        fn pair(x: u32) -> array<u32, 2> { return array<u32, 2>(x, x + 1u); }
+        @group(0) @binding(0) var<storage, read_write> result: array<u32, 2>;
+        @compute @workgroup_size(2) fn run(@builtin(local_invocation_index) index: u32) {
+            result[index] = pair(3u)[index];
+        }
+        """
+    let compiler = IndependentShaderCompiler()
+    let shader = try compiler.compileCompute(.wgsl(source), to: format)
+    guard case .text(_, let generated) = shader.artifact else { Issue.record("Expected source"); return }
+    #expect(generated.contains("saga_call_"))
+    if format == .wgsl { _ = try compiler.parseAndValidate(.wgsl(generated)) }
 }
 
 #if canImport(Metal)

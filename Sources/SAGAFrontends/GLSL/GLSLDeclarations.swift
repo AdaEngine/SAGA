@@ -130,7 +130,7 @@ extension GLSLParser {
                 throw glslError(name,.unsupportedConstruct,"Expected a std140 uniform or std430 storage block with explicit binding")
             }
             let type=try members(runtime:!uniform,explicitOffsets:true); let instance=try identifier();try expect(";")
-            guard globalNames[instance.text]==nil,functionNames[instance.text]==nil,!instance.text.hasPrefix("gl_") else { throw glslError(instance,.duplicateName,"Duplicate storage instance") }
+            guard !hasGlobalName(instance.text), !instance.text.hasPrefix("gl_") else { throw glslError(instance,.duplicateName,"Duplicate storage instance") }
             let access:IRStorageAccess=readOnly ? [.load]:writeOnly ? [.store]:[.load,.store]
             let rb=IRResourceBinding(group:layout["set"] ?? 0,binding:binding)
             guard !globals.contains(where:{$0.binding==rb}) else { throw glslError(instance,.invalidBinding,"Duplicate resource binding") }
@@ -142,14 +142,33 @@ extension GLSLParser {
         if try take("struct") {
             guard qualifier.isEmpty,layout.isEmpty,flags.isEmpty,memory.isEmpty else { throw glslError(token,.unsupportedConstruct,"Qualified structure unsupported") }
             let name=try identifier();let type=try members(runtime:false);try expect(";")
-            guard namedTypes[name.text]==nil else { throw glslError(name,.duplicateName,"Duplicate type") };namedTypes[name.text]=type;return
+            guard namedTypes[name.text]==nil, !hasGlobalName(name.text) else { throw glslError(name,.duplicateName,"Duplicate type") };namedTypes[name.text]=type;return
         }
         guard flags.isEmpty,memory.isEmpty else { throw glslError(token,.unsupportedConstruct,"Unsupported memory/layout qualifier") }
+        if try take("const") {
+            guard qualifier.isEmpty, layout.isEmpty, let type = try parseType(),
+                  kind(type) == .scalar(.i32) || kind(type) == .scalar(.u32) else {
+                throw glslError(token, .unsupportedConstruct, "Expected a global integer constant")
+            }
+            let name = try identifier()
+            guard !hasGlobalName(name.text), !name.text.hasPrefix("gl_") else {
+                throw glslError(name, .duplicateName, "Duplicate/reserved global")
+            }
+            try expect("=")
+            context = GLSLFunctionContext(result: nil)
+            defer { context = nil }
+            let constant = try integerConstant(at: name)
+            guard constant.type == type else { throw glslError(name, .typeMismatch, "Initializer type mismatch") }
+            try expect(";")
+            try budget.consume(.nodes)
+            globalIntegerConstants[name.text] = (type, constant.literal)
+            return
+        }
         let type=try parseType();let name=try identifier()
         if qualifier.isEmpty,text=="(" { guard layout.isEmpty else { throw glslError(name,.unsupportedConstruct,"Function layout") }; try function(name,result:type);return }
         guard let base=type else { throw glslError(name,.invalidType,"Void variable") }
         let finalType=try arraySuffix(base)
-        guard globalNames[name.text]==nil,functionNames[name.text]==nil,!name.text.hasPrefix("gl_") else { throw glslError(name,.duplicateName,"Duplicate/reserved global") }
+        guard !hasGlobalName(name.text), !name.text.hasPrefix("gl_") else { throw glslError(name,.duplicateName,"Duplicate/reserved global") }
         try expect(";")
         if qualifier=="in" || qualifier=="out" {
             let vertexInput = stage == .vertex && qualifier == "in"

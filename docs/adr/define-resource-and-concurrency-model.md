@@ -27,7 +27,10 @@ The [foundation guide](../foundation.md) specifies the module DAG and safety con
 - `Device.createBuffer` validates flags, limits and mapped alignment **before** backend calls.
   Allocation starts pending; after suspension it rechecks cancellation and device loss.
   Failure rolls back the backend allocation before leaving the operation. Mapped allocation
-  deliberately throws unsupported until the mapping API exists.
+  requires the backend mapping SPI and creates an active write mapping.
+- Mapping reserves the buffer while awaiting accepted queue work. Accesses to a mapping
+  are serialized per buffer and use byte copies. Unmapping publishes accepted writes,
+  invalidates the mapping handle and releases the buffer for subsequent GPU work.
 - Explicit ownership is required: resource owners call `destroyBuffer`, device owners await
   `close`. No asynchronous work is hidden in deinit. Backend implementations additionally
   own their native/JS objects and must release them on final teardown. There are no raw

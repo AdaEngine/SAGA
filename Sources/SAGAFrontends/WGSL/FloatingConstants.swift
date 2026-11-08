@@ -1,25 +1,46 @@
 import SAGAShaderIR
 
-enum WGSLFloatKind: Equatable { case abstract, f32 }
+enum WGSLFloatKind: Equatable { case abstract, f32, f16 }
 struct WGSLFloatingConstant {
   let value: Double
   let kind: WGSLFloatKind
-  var literal: IRLiteral { kind == .f32 ? .f32(Float(value)) : .abstractFloat(value) }
+  var literal: IRLiteral {
+    switch kind {
+    case .abstract: .abstractFloat(value)
+    case .f32: .f32(Float(value))
+    case .f16: .f16Bits(Binary16.encode(value))
+    }
+  }
+
+  static func rounded(_ value: Double, to kind: WGSLFloatKind, nagaFloatRounding: Bool) -> Self? {
+    guard value.isFinite else { return nil }
+    let result: Double
+    switch kind {
+    case .abstract:
+      result = value
+    case .f32:
+      guard nagaFloatRounding || abs(value) <= Double(Float.greatestFiniteMagnitude) else { return nil }
+      result = Double(Float(value))
+    case .f16:
+      guard nagaFloatRounding || abs(value) <= 65504 else { return nil }
+      result = Double(Binary16.decode(Binary16.encode(value)))
+    }
+    return result.isFinite ? .init(value: result, kind: kind) : nil
+  }
 }
 
 extension WGSLScalarEvaluator {
-  func floating(_ value: Double, kind: WGSLFloatKind, at t: WGSLToken) throws -> WGSLScalarConstant
+  func floating(
+    _ value: Double, kind: WGSLFloatKind, at t: WGSLToken, nagaFloatRounding: Bool = false
+  ) throws -> WGSLScalarConstant
   {
     guard value.isFinite else {
       throw wgslError(.invalidType, "Non-finite floating constant result", t)
     }
-    if kind == .f32 {
-      guard abs(value) <= Double(Float.greatestFiniteMagnitude) else {
-        throw wgslError(.invalidType, "Floating constant outside f32 finite range", t)
-      }
-      return .floating(.init(value: Double(Float(value)), kind: .f32))
+    guard let result = WGSLFloatingConstant.rounded(value, to: kind, nagaFloatRounding: nagaFloatRounding) else {
+      throw wgslError(.invalidType, "Floating constant outside \(kind) finite range", t)
     }
-    return .floating(.init(value: value, kind: .abstract))
+    return .floating(result)
   }
   func floatValue(
     _ value: WGSLScalarConstant, kind: WGSLFloatKind, at t: WGSLToken, explicit: Bool = false
@@ -29,15 +50,19 @@ extension WGSLScalarEvaluator {
       guard explicit || f.kind == kind || f.kind == .abstract else {
         throw wgslError(.typeMismatch, "Cannot automatically widen concrete float", t)
       }
-      return try floating(f.value, kind: kind, at: t)
+      return try floating(f.value, kind: kind, at: t, nagaFloatRounding: f.kind == .abstract && parser.options.nagaFloatRounding)
     case .integer(let i):
       guard explicit || i.kind == .abstract else {
         throw wgslError(.typeMismatch, "Concrete integer cannot implicitly convert to float", t)
       }
       // Convert directly to Float, not via Double, to avoid integer double rounding.
-      if kind == .f32 { return .floating(.init(value: Double(Float(i.value)), kind: .f32)) }
-      return try floating(Double(i.value), kind: kind, at: t)
-    case .vector, .matrix:
+      if kind == .f32 {
+        let value = i.kind == .uint64 ? Float(i.bits) : Float(i.value)
+        return .floating(.init(value: Double(value), kind: .f32))
+      }
+      return try floating(i.kind == .uint64 ? Double(i.bits) : Double(i.value), kind: kind, at: t,
+                          nagaFloatRounding: i.kind == .abstract && parser.options.nagaFloatRounding)
+    case .vector, .matrix, .array, .composite, .decomposition:
       throw wgslError(.typeMismatch, "Scalar float conversion requires scalar", t)
     case .boolean(let b):
       guard explicit else { throw wgslError(.typeMismatch, "Bool is not numeric", t) }
@@ -95,6 +120,14 @@ extension WGSLScalarEvaluator {
       throw wgslError(.invalidType, "Non-finite integral conversion", t)
     }
     // Bounds are the greatest integers in range also representable by the SOURCE format.
+    if target.isWide {
+      let limit = target.isUnsigned ? Double(UInt64.max) : Double(Int64.max)
+      let upper = f.kind == .f32 ? Double(Float(limit).nextDown) : limit.nextDown
+      let lower = target.isUnsigned ? 0.0 : Double(Int64.min)
+      let clipped = min(max(f.value, lower), upper).rounded(.towardZero)
+      let value = target.isUnsigned ? Int64(bitPattern: UInt64(clipped)) : Int64(clipped)
+      return .integer(.init(value: value, kind: target))
+    }
     let low = target == .uint ? 0.0 : Double(Int32.min)
     let high: Double =
       target == .uint
@@ -106,6 +139,18 @@ extension WGSLScalarEvaluator {
   func converted(_ v: WGSLScalarConstant, to kind: WGSLConstKind, at t: WGSLToken) throws
     -> WGSLScalarConstant
   {
+    if case .array(let count, let leaf) = kind, case .array(let array) = v {
+      if v.kind == kind { return v }
+      try limit()
+      try parser.enter()
+      defer { parser.nesting -= 1 }
+      guard count == array.elements.count else {
+        throw wgslError(.typeMismatch, "Array conversion shape mismatch", t)
+      }
+      try parser.budget.consume(.nodes, amount: count)
+      let elements = try array.elements.map { try converted($0, to: leaf, at: t) }
+      return .array(.init(elements: elements, elementKind: leaf))
+    }
     if case .matrix(let c,let r,let leaf)=kind,case .matrix(let m)=v {
       guard m.columns.count == c,m.rows == r else {throw wgslError(.typeMismatch,"Matrix conversion shape",t)}
       var columns:[WGSLVectorConstant]=[]
@@ -130,7 +175,7 @@ extension WGSLScalarEvaluator {
     if case .floating(let k) = kind { return try floatValue(v, kind: k, at: t) }
     if case .integer(let k) = kind, case .integer(let x) = v {
       return .integer(
-        try WGSLIntegerEvaluator(parser: parser, tokens: [], fallback: t).checked(x.value, k, at: t)
+        try WGSLIntegerEvaluator(parser: parser, tokens: [], fallback: t).materialized(x, as: k, at: t)
       )
     }
     if v.kind == kind { return v }
@@ -142,6 +187,16 @@ extension WGSLParser {
   func annotatedConstant(_ value: WGSLScalarConstant, type: WType, at t: WGSLToken) throws
     -> WGSLScalarConstant
   {
+    switch types[type.index].kind {
+    case .array(_, .constant, _), .structure:
+      let target = try constantKind(type, at: t)
+      let evaluator = WGSLScalarEvaluator(parser: self, tokens: [], fallback: t)
+      guard try evaluator.arrayElementType(value.kind, target, at: t) == target else {
+        throw wgslError(.typeMismatch, "Incompatible composite const annotation", t)
+      }
+      return try evaluator.converted(value, to: target, at: t)
+    default: break
+    }
     if case .matrix(let c,let r,let s)=types[type.index].kind {
       return try WGSLScalarEvaluator(parser:self,tokens:[],fallback:t).converted(value,to:.matrix(Int(c.rawValue),Int(r.rawValue),.scalar(s,at:t)),at:t)
     }
@@ -152,18 +207,7 @@ extension WGSLParser {
     guard case .scalar(let s) = types[type.index].kind else {
       throw wgslError(.unsupportedConstruct, "Aggregate const annotation unsupported", t)
     }
-    let target: WGSLConstKind
-    if s == .bool {
-      target = .boolean
-    } else if s == .f32 {
-      target = .floating(.f32)
-    } else if s == .i32 {
-      target = .integer(.sint)
-    } else if s == .u32 {
-      target = .integer(.uint)
-    } else {
-      throw wgslError(.unsupportedConstruct, "Const scalar annotation unsupported", t)
-    }
+    let target = try WGSLConstKind.scalar(s, at: t)
     let e = WGSLScalarEvaluator(parser: self, tokens: [], fallback: t)
     if value.kind == target { return value }
     switch value.kind {

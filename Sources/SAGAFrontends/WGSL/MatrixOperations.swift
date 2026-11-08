@@ -19,7 +19,7 @@ extension WGSLScalarEvaluator {
     let a = nodes[lhs].kind
     let b = nodes[rhs].kind
     let leaf = try common(a.numericLeaf, b.numericLeaf, at: t)
-    guard leaf == .floating(.abstract) || leaf == .floating(.f32),
+    guard case .floating = leaf,
       canAuto(a.numericLeaf, to: leaf), canAuto(b.numericLeaf, to: leaf)
     else { throw wgslError(.typeMismatch, "Matrix operators require a common floating scalar", t) }
     let shape: WGSLConstKind
@@ -126,10 +126,12 @@ extension WGSLParser {
     }
     let x = try scalar(a)
     let y = try scalar(b)
-    let s: IRScalar = x == .f32 || y == .f32 ? .f32 : .abstractFloat
-    guard [IRScalar.f32, .abstractFloat, .abstractInt].contains(x),
-      [IRScalar.f32, .abstractFloat, .abstractInt].contains(y)
-    else { throw wgslError(.typeMismatch, "Matrix arithmetic requires floating operands", t) }
+    let evaluator = WGSLScalarEvaluator(parser: self, tokens: [], fallback: t)
+    let leaf = try evaluator.common(.scalar(x, at: t), .scalar(y, at: t), at: t)
+    guard case .floating = leaf else {
+      throw wgslError(.typeMismatch, "Matrix arithmetic requires floating operands", t)
+    }
+    let s = try leaf.irScalar(at: t)
     func replace(_ k: IRTypeKind) -> IRTypeKind {
       switch k {
       case .matrix(let c, let r, _): return .matrix(columns: c, rows: r, scalar: s)
@@ -154,9 +156,7 @@ extension WGSLParser {
     default: throw wgslError(.typeMismatch, "Invalid matrix arithmetic overload", t)
     }
     if let l = try pureCompositeConstant(left, at:t), let r = try pureCompositeConstant(right, at:t) {
-      let evaluator = WGSLScalarEvaluator(parser:self,tokens:[],fallback:t)
       let kind: WGSLConstKind
-      let leaf: WGSLConstKind = s == .f32 ? .floating(.f32) : .floating(.abstract)
       switch result {
       case .matrix(let c,let r,_):kind = .matrix(Int(c.rawValue),Int(r.rawValue),leaf)
       case .vector(let n,_):kind = .vector(Int(n.rawValue),leaf)
@@ -198,14 +198,20 @@ extension WGSLParser {
     leaf = concrete ?? leaf
     let kind:IRTypeKind
     if let (c,r) = matrix {
-      guard leaf == .f32 || leaf == .abstractFloat else {throw wgslError(.typeMismatch,"Matrix scalar must be floating",t)}
+      guard [.f16, .f32, .abstractFloat].contains(leaf) else {throw wgslError(.typeMismatch,"Matrix scalar must be floating",t)}
       guard let columns = IRVectorSize(rawValue:UInt8(c)),let rows = IRVectorSize(rawValue:UInt8(r)) else {throw ShaderFailure.invalidHandle}
       kind = .matrix(columns:columns,rows:rows,scalar:leaf)
     } else {
       guard let digit = t.text.last?.wholeNumberValue,let width = IRVectorSize(rawValue:UInt8(digit)) else {throw ShaderFailure.invalidHandle}
       kind = .vector(size:width,scalar:leaf)
     }
-    return try construct(intern(kind),at:t,supplied:args)
+    let type = try intern(kind)
+    if args.isEmpty {
+      // Keep abstract zero components available for the same conversions as literal constructors.
+      let zero = try zeroConstant(constantKind(type, at: t), at: t)
+      return try compositeRuntimeValue(zero, at: t)
+    }
+    return try construct(type,at:t,supplied:args)
   }
   func pureCompositeConstant(_ v:WGSLValue,at t:WGSLToken) throws -> WGSLScalarConstant? {
     try budget.consume(.work)
@@ -216,6 +222,7 @@ extension WGSLParser {
       case .u32(let n):return .integer(.init(value:Int64(n),kind:.uint))
       case .abstractFloat(let x):return .floating(.init(value:x,kind:.abstract))
       case .f32(let x):return .floating(.init(value:Double(x),kind:.f32))
+      case .f16Bits(let bits): return .floating(.init(value: Double(Binary16.decode(bits)), kind: .f16))
       case .bool(let x):return .boolean(x)
       default:return nil
       }

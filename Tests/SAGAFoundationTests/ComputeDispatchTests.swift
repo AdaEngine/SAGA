@@ -22,14 +22,17 @@ private let sourceSlot = ComputeBindingSlot(binding: 1)
 private let destinationSlot = ComputeBindingSlot(binding: 3)
 
 private actor ComputeTestBackend: BrowserGPUComputeHost {
-    nonisolated let capabilities = try! DeviceCapabilities(maxBufferSize: 1024)
+    nonisolated let capabilities: DeviceCapabilities
     let allocationStarted = Gate()
     let allocationGate: Gate?
     var pipelines: Set<ResourceID> = []
     var submissions = 0
     var lastShader: ComputeShaderArtifact?
 
-    init(allocationGate: Gate? = nil) { self.allocationGate = allocationGate }
+    init(allocationGate: Gate? = nil, capabilities: DeviceCapabilities = try! .init(maxBufferSize: 1024)) {
+        self.capabilities = capabilities
+        self.allocationGate = allocationGate
+    }
     func allocateBuffer(id: ResourceID, descriptor: BufferDescriptor) {}
     func destroyBuffer(id: ResourceID) {}
     func submit(_ submission: Submission) {}
@@ -90,6 +93,82 @@ private actor ComputeTestBackend: BrowserGPUComputeHost {
     #expect(await host.submissions == 1)
     await device.close()
     #expect(await host.pipelines.isEmpty)
+}
+
+@Test(arguments: [UInt32(16_384), 32_768])
+func workgroupStorageLimitRejectsBeforeHostAllocation(_ limit: UInt32) async throws {
+    let host = ComputeTestBackend(capabilities: try .init(maxBufferSize: 1024, maxComputeWorkgroupStorageSize: limit))
+    let device = try await Device.make(backend: BrowserComputeBackend(host: host))
+    let compiler = IndependentShaderCompiler()
+    let source = ShaderInput.wgsl("""
+        override count = 4096u;
+        var<workgroup> data: array<u32, count>;
+        @compute @workgroup_size(1) fn run() { data[count - 1u] = 1u; }
+        """)
+    let count = Double(limit / 4)
+    do {
+        let above = try compiler.compileWebGPUCompute(source, constants: ["count": count + 1])
+        await #expect(throws: GPUError.validation("Workgroup storage exceeds the device limit")) {
+            try await device.createComputePipeline(above)
+        }
+        #expect(await host.lastShader == nil)
+        let exact = try compiler.compileWebGPUCompute(source, constants: ["count": count])
+        _ = try await device.createComputePipeline(exact)
+        #expect(await host.lastShader == exact)
+    } catch {
+        await device.close()
+        throw error
+    }
+    await device.close()
+}
+
+@Test func computeWorkgroupLimitsRejectBeforePipelineAndCommandAllocation() async throws {
+    let capabilities = try DeviceCapabilities(maxBufferSize: 1024, maxComputeInvocationsPerWorkgroup: 8,
+        maxComputeWorkgroupSize: .init(x: 8, y: 4, z: 2), maxComputeWorkgroupsPerDimension: 4)
+    let host = ComputeTestBackend(capabilities: capabilities)
+    let device = try await Device.make(backend: BrowserComputeBackend(host: host))
+    let compiler = IndependentShaderCompiler()
+    func shader(_ size: String) throws -> ComputeShaderArtifact {
+        try compiler.compileWebGPUCompute(.wgsl("@compute @workgroup_size(\(size)) fn run() {}"))
+    }
+    do {
+        for size in ["1, 1, 3", "4, 3", "9"] {
+            let invalid = try shader(size)
+            await #expect(throws: GPUError.validation("Workgroup size exceeds the device limits")) {
+                try await device.createComputePipeline(invalid)
+            }
+        }
+        #expect(await host.pipelines.isEmpty)
+        let pipeline = try await device.createComputePipeline(shader("4, 2"))
+        for groups in [DispatchWorkgroups(x: 5), .init(x: 1, y: 5), .init(x: 0, z: 5)] {
+            await #expect(throws: GPUError.validation("Workgroup count exceeds the supported limit")) {
+                try await device.submitCommands([.dispatchCompute(pipeline: pipeline, bindings: [:], workgroups: groups)])
+            }
+        }
+        #expect(await host.submissions == 0)
+        let exact = try await device.submitCommands([
+            .dispatchCompute(pipeline: pipeline, bindings: [:], workgroups: .init(x: 4))
+        ])
+        _ = try await exact.wait()
+        #expect(await host.submissions == 1)
+    } catch {
+        await device.close()
+        throw error
+    }
+    await device.close()
+}
+
+@Test func computeWorkgroupLimitsCheckLinearDispatchWithoutOverflow() throws {
+    let pipeline = ComputePipeline(id: .init(device: 1, serial: 1), storageBindings: [],
+                                   maximumLinearWorkgroupCount: .max)
+    let oversized = BufferCommand.dispatchCompute(pipeline: pipeline, bindings: [:],
+        workgroups: .init(x: .max, y: .max, z: .max))
+    #expect(throws: GPUError.validation("Linear indexing dispatch exceeds u32")) {
+        try oversized.validate(device: 1, descriptors: [:], maxComputeWorkgroupsPerDimension: .max)
+    }
+    let empty = BufferCommand.dispatchCompute(pipeline: pipeline, bindings: [:],
+        workgroups: .init(x: .max, y: .max, z: 0))
+    try empty.validate(device: 1, descriptors: [:], maxComputeWorkgroupsPerDimension: .max)
 }
 
 private actor LegacyBrowserHost: BrowserGPUHost {
@@ -209,5 +288,109 @@ private actor LegacyBrowserHost: BrowserGPUHost {
     }
     await device.close()
     #expect(await backend.resourceCountsForTesting().pipelines == 0)
+}
+#endif
+
+@Test(arguments: [
+    ("var images: binding_array<texture_2d<f32>, 2>;", "_ = textureDimensions(images[0]);"),
+    ("var<uniform> buffers: binding_array<Settings, 2>;", "_ = buffers[0].values.x;"),
+    ("var<storage> buffers: binding_array<Settings, 2>;", "_ = buffers[0].values.x;"),
+])
+func browserRejectsNativeBindingArrayShadersBeforeHostAllocation(declaration: String, body: String) async throws {
+    let host = ComputeTestBackend()
+    let device = try await Device.make(backend: BrowserComputeBackend(host: host))
+    let shader = try IndependentShaderCompiler().compileCompute(.wgsl("""
+        enable wgpu_binding_array;
+        struct Settings { values: vec4u }
+        @group(0) @binding(0) \(declaration)
+        @compute @workgroup_size(1) fn run() { \(body) }
+        """), to: .wgsl)
+    await #expect(throws: GPUError.unsupported("wgpu_binding_array is a native WGSL extension")) {
+        try await device.createComputePipeline(shader)
+    }
+    #expect(await host.lastShader == nil)
+    await device.close()
+}
+
+@Test func indirectComputeValidatesArgumentsBeforeSubmission() async throws {
+    let host = ComputeTestBackend()
+    let device = try await Device.make(backend: BrowserComputeBackend(host: host))
+    let other = try await Device.make(backend: BrowserComputeBackend(host: host))
+    let shader = try IndependentShaderCompiler().compileCompute(.wgsl(program), to: .wgsl)
+    let pipeline = try await device.createComputePipeline(shader)
+    let arguments = try await device.createBuffer(.init(size: 512, usage: [.storage, .indirect]))
+    let output = try await device.createBuffer(.init(size: 16, usage: .storage))
+    let short = try await device.createBuffer(.init(size: 8, usage: .indirect))
+    let foreign = try await other.createBuffer(.init(size: 16, usage: .indirect))
+    let bindings: [ComputeBindingSlot: StorageBufferBinding] = [
+        sourceSlot: .init(buffer: arguments, size: 16), destinationSlot: .init(buffer: output),
+    ]
+    for (buffer, offset) in [(short, 0), (output, 0), (foreign, 0), (arguments, 2),
+                             (arguments, 504), (arguments, UInt64.max - 3)] {
+        await #expect(throws: GPUError.self) {
+            try await device.submitCommands([
+                .dispatchComputeIndirect(pipeline: pipeline, bindings: bindings, indirectBuffer: buffer, indirectOffset: offset)
+            ])
+        }
+    }
+    let input = try await device.createBuffer(.init(size: 16, usage: .storage))
+    var aliased = bindings
+    aliased[sourceSlot] = .init(buffer: input)
+    aliased[destinationSlot] = .init(buffer: arguments, offset: 256, size: 16)
+    await #expect(throws: GPUError.self) {
+        try await device.submitCommands([
+            .dispatchComputeIndirect(pipeline: pipeline, bindings: aliased, indirectBuffer: arguments)
+        ])
+    }
+    #expect(await host.submissions == 0)
+    let command = BufferCommand.dispatchComputeIndirect(pipeline: pipeline, bindings: bindings,
+                                                        indirectBuffer: arguments, indirectOffset: 500)
+    #expect(command.resources.filter { $0 == arguments }.count == 2)
+    let ticket = try await device.submitCommands([command])
+    #expect(try await ticket.wait().isEmpty)
+    #expect(await host.submissions == 1)
+    await other.close()
+    await device.close()
+}
+
+#if canImport(Metal)
+@Test func metalExecutesGPUAuthoredIndirectDispatchAndSkipsInvalidDimensions() async throws {
+    let device = try await Device.make(backend: MetalBackend.makeDevice())
+    let compiler = IndependentShaderCompiler()
+    let producer = try await device.createComputePipeline(compiler.compileCompute(.wgsl("""
+        @group(0) @binding(0) var<storage, read_write> args: array<u32, 10>;
+        @compute @workgroup_size(1)
+        fn write_args() {
+            args[1] = 2u; args[2] = 3u; args[3] = 2u;
+            args[4] = 1u; args[5] = 65536u; args[6] = 1u;
+            args[7] = 1u; args[8] = 1u; args[9] = 0u;
+        }
+        """), to: .msl))
+    let consumer = try await device.createComputePipeline(compiler.compileCompute(.wgsl("""
+        @group(0) @binding(0) var<storage, read_write> counter: atomic<u32>;
+        @compute @workgroup_size(2)
+        fn count(@builtin(num_workgroups) groups: vec3<u32>) {
+            atomicAdd(&counter, 1u + groups.x + groups.y * 10u + groups.z * 100u);
+        }
+        """), to: .msl))
+    let arguments = try await device.createBuffer(.init(size: 40, usage: [.indirect, .storage, .copySource]))
+    let counter = try await device.createBuffer(.init(size: 4, usage: [.storage, .copySource]))
+    let readback = try await device.createBuffer(.init(size: 40, usage: [.copyDestination, .mapRead]))
+    let slot = ComputeBindingSlot(binding: 0)
+    let bindings = [slot: StorageBufferBinding(buffer: counter)]
+    let ticket = try await device.submitCommands([
+        .dispatchCompute(pipeline: producer, bindings: [slot: arguments], workgroups: .init(x: 1)),
+        .dispatchComputeIndirect(pipeline: consumer, bindings: bindings, indirectBuffer: arguments, indirectOffset: 16),
+        .copy(source: counter, destination: readback, byteCount: 4),
+        .read(buffer: readback, byteCount: 4),
+        .dispatchComputeIndirect(pipeline: consumer, bindings: bindings, indirectBuffer: arguments, indirectOffset: 4),
+        .dispatchComputeIndirect(pipeline: consumer, bindings: bindings, indirectBuffer: arguments, indirectOffset: 28),
+        .copy(source: counter, destination: readback, byteCount: 4),
+        .read(buffer: readback, byteCount: 4),
+        .copy(source: arguments, destination: readback, byteCount: 40),
+        .read(buffer: readback, byteCount: 40),
+    ])
+    #expect(try await ticket.wait() == [[0], [5592], [0, 2, 3, 2, 1, 65_536, 1, 1, 1, 0]])
+    await device.close()
 }
 #endif

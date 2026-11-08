@@ -10,7 +10,7 @@ struct WGSLModuleDeclaration {
 extension WGSLParser {
   // Index immutable token ranges; tokens and source locations are never reordered or rewritten.
   func indexModuleDeclarations() throws {
-    var i = 0
+    var i = cursor
     func advance(_ index: inout Int) throws {
       try budget.consume(.work)
       guard index < tokens.count - 1 else {
@@ -42,12 +42,13 @@ extension WGSLParser {
         }
       }
       let kind = tokens[i].text
-      guard ["const", "alias", "struct", "var", "fn", "const_assert"].contains(kind) else {
+      if kind == "override" { hasOverrideDeclarations = true }
+      guard ["const", "override", "alias", "struct", "var", "fn", "const_assert"].contains(kind) else {
         throw unsupported("module declaration/directive '\(kind)'", at: tokens[i])
       }
       try advance(&i)
-      if kind == "var", tokens[i].text == "<" {
-        repeat { try advance(&i) } while tokens[i].text != ">"
+      if kind == "var", tokens[i].kind == .templateStart {
+        repeat { try advance(&i) } while tokens[i].kind != .templateEnd
         try advance(&i)
       }
       let name = kind == "const_assert" ? tokens[i-1] : tokens[i]
@@ -100,10 +101,13 @@ extension WGSLParser {
     dependencyDepth += 1
     let saved = cursor
     let savedBody = body
+    let savedPipelineEnd = pipelineExpressionEnd
+    pipelineExpressionEnd = nil
     declarationStack.append(index)
     defer {
       cursor = saved
       body = savedBody
+      pipelineExpressionEnd = savedPipelineEnd
       dependencyDepth -= 1
       declarationStack.removeLast()
     }
@@ -120,7 +124,7 @@ extension WGSLParser {
           initializer = true
           continue
         }
-        if initializer, token.kind == .word,
+        if initializer, token.kind == .word, i == d.start || tokens[i - 1].text != ".",
           let dependency = declarationNames[wgslKey(token.text)],
           declarations[dependency].kind == "const"
         {
@@ -161,7 +165,7 @@ extension WGSLParser {
   func resolveValueDeclaration(_ name: WGSLToken) throws {
     try budget.consume(.work, amount: name.text.utf8.count)
     if let i = declarationNames[wgslKey(name.text)],
-      ["const", "var"].contains(declarations[i].kind)
+      ["const", "override", "var"].contains(declarations[i].kind)
     {
       try resolveDeclaration(i, at: name)
     }
@@ -208,6 +212,10 @@ extension WGSLParser {
     }
     if try eat("const") {
       try constant(attrs)
+      return
+    }
+    if try eat("override") {
+      try overrideDeclaration(attrs)
       return
     }
     throw unsupported("indexed declaration")

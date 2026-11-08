@@ -4,6 +4,14 @@ struct GLSLToken: Sendable {
     var text: String
     let start: Int
     let end: Int
+    var barycentricsEnabled = false
+    var barycentricPerspective: Bool? {
+        switch text {
+        case "gl_BaryCoordEXT": true
+        case "gl_BaryCoordNoPerspEXT": false
+        default: nil
+        }
+    }
     var location: ShaderLocation { get throws { .source(try SourceSpan(startUTF8:start,endUTF8:end)) } }
     func mapped(to t: GLSLToken) -> GLSLToken { .init(text:text,start:t.start,end:t.end) }
 }

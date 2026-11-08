@@ -19,7 +19,7 @@ extension WGSLScalarEvaluator {
     let x = a.scalarLeaf
     let y = b.scalarLeaf
     if op == "<<" || op == ">>" {
-      guard case .integer = x, case .integer(let k) = y, k != .sint else {
+      guard case .integer = x, case .integer(let k) = y, k == .abstract || k == .uint else {
         throw wgslError(.typeMismatch, "Vector shift needs integer values and u32 counts", t)
       }
       if k == .abstract { conversions.append((rhs, .vector(width, .integer(.uint)), t)) }
@@ -70,16 +70,9 @@ extension WGSLScalarEvaluator {
       guard case .integer(let k) = try common(a.kind, b.kind, at: t) else {
         throw ShaderFailure.invalidHandle
       }
-      l = try arithmetic.checked(l.value, k, at: t)
-      r = try arithmetic.checked(r.value, k, at: t)
-      switch op {
-      case "==": return .boolean(l.value == r.value)
-      case "!=": return .boolean(l.value != r.value)
-      case "<": return .boolean(l.value < r.value)
-      case "<=": return .boolean(l.value <= r.value)
-      case ">": return .boolean(l.value > r.value)
-      default: return .boolean(l.value >= r.value)
-      }
+      l = try arithmetic.materialized(l, as: k, at: t)
+      r = try arithmetic.materialized(r, as: k, at: t)
+      return .boolean(arithmetic.compare(op, l, r))
     }
     return .integer(try arithmetic.binary(op, l, r, at: t))
   }
@@ -154,6 +147,28 @@ extension WGSLScalarEvaluator {
       if token.text == "." {
         _ = try take()
         let name = try take()
+        if case .decomposition(let function, let input) = nodes[base].kind {
+          let fraction = name.text == "fract"
+          guard fraction || name.text == function.decompositionSecondMember else {
+            throw wgslError(.unresolvedName, "No such decomposition result member", name)
+          }
+          let kind = fraction ? input : input.decompositionSecondKind(function)
+          base = try append(.decompositionMember(base, fraction: fraction), kind, name)
+          continue
+        }
+        if case .composite(let type, _) = nodes[base].kind,
+           case .structure(let members, _) = parser.types[type.index].kind {
+          var offset: Int?
+          for (i, member) in members.enumerated() {
+            try parser.budget.consume(.work, amount: name.text.utf8.count + 1)
+            if member.name?.utf8.elementsEqual(name.text.utf8) == true { offset = i; break }
+          }
+          guard let offset else { throw wgslError(.unresolvedName, "No such structure member", name) }
+          let kind = try parser.constantKind(members[offset].type, at: name)
+          let ix = try append(.value(.integer(.init(value: Int64(offset), kind: .uint))), .integer(.uint), name)
+          base = try append(.index(base, ix), kind, name)
+          continue
+        }
         guard case .vector(let width, let leaf) = nodes[base].kind, name.kind == .word else {
           throw wgslError(.typeMismatch, "Swizzle requires vector and member name", name)
         }
@@ -190,9 +205,9 @@ extension WGSLScalarEvaluator {
         let at = try take()
         let leaf: WGSLConstKind
         switch nodes[base].kind {
-        case .vector(_, let k): leaf = k
+        case .vector(_, let k), .array(_, let k): leaf = k
         case .matrix(_, let rows, let k): leaf = .vector(rows, k)
-        default: throw wgslError(.typeMismatch, "Constant index requires vector or matrix", at)
+        default: throw wgslError(.typeMismatch, "Constant index requires an array, vector or matrix", at)
         }
         let begin = index
         let ix = try parse()
@@ -202,7 +217,7 @@ extension WGSLScalarEvaluator {
         let end = index
         _ = try take()
         guard case .integer = nodes[ix].kind else {
-          throw wgslError(.typeMismatch, "Vector index must be scalar integer", tokens[begin])
+          throw wgslError(.typeMismatch, "Index must be scalar integer", tokens[begin])
         }
         let loc = WGSLToken(
           kind: .symbol, text: "index", start: tokens[begin].start,
@@ -217,8 +232,9 @@ extension WGSLScalarEvaluator {
   mutating func checkedIndex(_ base: Int, _ ix: Int, at t: WGSLToken) throws -> Int {
     let count: Int
     switch nodes[base].kind {
-    case .vector(let n, _): count = n
+    case .vector(let n, _), .array(let n, _): count = n
     case .matrix(let c, _, _): count = c
+    case .composite(_, let n): count = n
     default: throw ShaderFailure.invalidHandle
     }
     guard case .integer(let value) = try value(ix), value.value >= 0, value.value < Int64(count)
@@ -239,7 +255,7 @@ extension WGSLScalarEvaluator {
         guard r.value != 0 else {
           throw wgslError(.invalidType, "Constant vector divisor is zero", n.token)
         }
-        if r.value == -1, kind != .uint {
+        if r.value == -1, !kind.isUnsigned {
           if left == nil { left = try components(value(lhs), width: count, at: n.token) }
           guard case .integer(let l) = left![i] else { throw ShaderFailure.invalidHandle }
           let typed = try arithmetic.checked(l.value, kind, at: n.token)
@@ -248,7 +264,7 @@ extension WGSLScalarEvaluator {
           }
         }
       } else {
-        guard r.value >= 0, r.value < (kind == .abstract ? 64 : 32) else {
+        guard r.value >= 0, r.value < kind.bitWidth else {
           throw wgslError(.invalidType, "Constant vector shift exceeds bit width", n.token)
         }
         if op == "<<" {
@@ -270,6 +286,9 @@ extension WGSLParser {
     defer { nesting -= 1 }
     guard body.expressions.indices.contains(h.index) else { throw ShaderFailure.invalidHandle }
     switch body.expressions[h.index].kind {
+    case .splat(let width, let operand):
+      guard let leaf = try abstractScalarLeaf(operand, at: t) else { return nil }
+      return Array(repeating: leaf, count: Int(width.rawValue))
     case .compose(_, let xs):
       var values: [IRLiteral] = []
       guard (2...4).contains(xs.count) else { return nil }
@@ -335,5 +354,44 @@ extension WGSLParser {
       return xs[Int(i)]
     default: return nil
     }
+  }
+}
+
+extension WGSLParser {
+  func floatingVectorBinary(
+    _ operation: IRBinaryOperator, left: WGSLValue, right: WGSLValue,
+    constantTokens: Range<Int>? = nil, at token: WGSLToken
+  ) throws -> WGSLValue? {
+    func shape(_ type: WType) -> (size: IRVectorSize?, scalar: IRScalar)? {
+      switch types[type.index].kind {
+      case .scalar(let scalar): return (nil, scalar)
+      case .vector(let size, let scalar): return (size, scalar)
+      default: return nil
+      }
+    }
+    let floats: [IRScalar] = [.f16, .f32, .abstractFloat]
+    guard let a = shape(left.type), let b = shape(right.type), let size = a.size ?? b.size,
+          floats.contains(a.scalar) || floats.contains(b.scalar) else { return nil }
+    let comparison: Bool
+    switch operation {
+    case .add, .subtract, .multiply, .divide, .modulo: comparison = false
+    case .equal, .notEqual, .less, .lessEqual, .greater, .greaterEqual: comparison = true
+    default: throw wgslError(.typeMismatch, "Invalid floating vector operator", token)
+    }
+    guard a.size == b.size || (!comparison && (a.size == nil || b.size == nil)) else {
+      throw wgslError(.typeMismatch, "Floating vector operand shapes do not match", token)
+    }
+    let evaluator = WGSLScalarEvaluator(parser: self, tokens: [], fallback: token)
+    let kind = try evaluator.common(.scalar(a.scalar, at: token), .scalar(b.scalar, at: token), at: token)
+    let scalar = try kind.irScalar(at: token)
+    if let constantTokens, let value = try knownConstantValue(constantTokens, at: token) {
+      guard case .vector(let folded) = value else { throw ShaderFailure.invalidHandle }
+      return try vectorRuntimeValue(folded, to: nil, at: token)
+    }
+    let type = try intern(.vector(size: size, scalar: scalar))
+    let lhs = try vectorOperand(left, to: type, size: size, scalar: scalar, broadcast: !comparison, at: token)
+    let rhs = try vectorOperand(right, to: type, size: size, scalar: scalar, broadcast: !comparison, at: token)
+    let result = comparison ? try intern(.vector(size: size, scalar: .bool)) : type
+    return try expressionNode(.binary(op: operation, left: lhs.handle, right: rhs.handle), type: result, at: token)
   }
 }

@@ -19,20 +19,37 @@ extension WGSLConstKind {
     case .bool: return .boolean
     case .i32: return .integer(.sint)
     case .u32: return .integer(.uint)
+    case .i64: return .integer(.sint64)
+    case .u64: return .integer(.uint64)
     case .f32: return .floating(.f32)
+    case .f16: return .floating(.f16)
+    case .abstractInt: return .integer(.abstract)
+    case .abstractFloat: return .floating(.abstract)
     default: throw wgslError(.unsupportedConstruct, "Vector element scalar not implemented", t)
     }
   }
   func irScalar(at t: WGSLToken) throws -> IRScalar {
     switch self {
     case .boolean: return .bool
-    case .integer(let k): return k == .abstract ? .abstractInt : k == .sint ? .i32 : .u32
-    case .floating(let k): return k == .abstract ? .abstractFloat : .f32
-    case .vector, .matrix: throw wgslError(.invalidType, "Nested vector elements forbidden", t)
+    case .integer(let k): return k.scalar
+    case .floating(.abstract): return .abstractFloat
+    case .floating(.f32): return .f32
+    case .floating(.f16): return .f16
+    case .vector, .matrix, .array, .composite, .decomposition: throw wgslError(.invalidType, "Nested vector elements forbidden", t)
     }
   }
 }
 extension WGSLScalarEvaluator {
+  func numericConstKind(_ type: IRTypeKind, at name: WGSLToken) throws -> WGSLConstKind {
+    switch type {
+    case .scalar(let scalar): return try .scalar(scalar, at: name)
+    case .vector(let size, let scalar): return try .vector(Int(size.rawValue), .scalar(scalar, at: name))
+    case .matrix(let columns, let rows, let scalar):
+      return try .matrix(Int(columns.rawValue), Int(rows.rawValue), .scalar(scalar, at: name))
+    default: throw ShaderFailure.invalidHandle
+    }
+  }
+
   func scalarConvert(
     _ v: WGSLScalarConstant, to target: WGSLConstKind, at t: WGSLToken, explicit: Bool
   ) throws -> WGSLScalarConstant {
@@ -48,7 +65,7 @@ extension WGSLScalarEvaluator {
       case .boolean: return v
       case .integer(let x): return .boolean(x.value != 0)
       case .floating(let x): return .boolean(x.value != 0)
-      case .vector, .matrix: throw wgslError(.typeMismatch, "Scalar conversion needs scalar", t)
+      case .vector, .matrix, .array, .composite, .decomposition: throw wgslError(.typeMismatch, "Scalar conversion needs scalar", t)
       }
     case .floating(let k): return try floatValue(v, kind: k, at: t, explicit: true)
     case .integer(let k):
@@ -57,12 +74,13 @@ extension WGSLScalarEvaluator {
       case .floating(let x): return try floatToInteger(x, target: k, at: t)
       case .integer(let x):
         if x.kind == .abstract || x.kind == k { return try converted(v, to: target, at: t) }
+        if k.isWide { return .integer(.init(value: x.value, kind: k)) }
         let bits = UInt32(truncatingIfNeeded: x.value)
         return .integer(
           .init(value: k == .uint ? Int64(bits) : Int64(Int32(bitPattern: bits)), kind: k))
-      case .vector, .matrix: throw wgslError(.typeMismatch, "Scalar conversion needs scalar", t)
+      case .vector, .matrix, .array, .composite, .decomposition: throw wgslError(.typeMismatch, "Scalar conversion needs scalar", t)
       }
-    case .vector, .matrix: throw wgslError(.invalidType, "Vector scalar conversion target", t)
+    case .vector, .matrix, .array, .composite, .decomposition: throw wgslError(.invalidType, "Vector scalar conversion target", t)
     }
   }
   func canAuto(_ from: WGSLConstKind, to: WGSLConstKind) -> Bool {
@@ -73,14 +91,14 @@ extension WGSLScalarEvaluator {
       default: return false
       }
     }
-    return from == .floating(.abstract) && to == .floating(.f32)
+    return from == .floating(.abstract) && (to == .floating(.f32) || to == .floating(.f16))
   }
   func zero(_ k: WGSLConstKind, at t: WGSLToken) throws -> WGSLScalarConstant {
     switch k {
     case .boolean: return .boolean(false)
     case .integer(let i): return .integer(.init(value: 0, kind: i))
     case .floating(let f): return .floating(.init(value: 0, kind: f))
-    case .vector, .matrix: throw wgslError(.invalidType, "Nested zero vector", t)
+    case .vector, .matrix, .array, .composite, .decomposition: throw wgslError(.invalidType, "Nested zero vector", t)
     }
   }
   mutating func vectorConstructor(_ t: WGSLToken, size: Int, target: WGSLConstKind?) throws -> Int {

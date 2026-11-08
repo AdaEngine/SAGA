@@ -1,102 +1,206 @@
 /// Initial queue commands. The diagnostic dispatch has a fixed two-buffer ABI.
 public enum BufferCommand: Sendable, Equatable {
     case write(buffer: ResourceID, offset: UInt64, words: [UInt32])
+    case writeBytes(buffer: ResourceID, offset: UInt64, bytes: [UInt8], dataOffset: UInt64 = 0, byteCount: UInt64? = nil)
     case dispatch(pipeline: ResourceID, input: ResourceID, output: ResourceID, count: UInt32)
     case dispatchCompute(pipeline: ComputePipeline, bindings: [ComputeBindingSlot: ResourceID],
                          workgroups: DispatchWorkgroups, textures: [ComputeBindingSlot: ResourceID] = [:],
-                         samplers: [ComputeBindingSlot: ResourceID] = [:])
+                         samplers: [ComputeBindingSlot: ResourceID] = [:], immediates: [UInt32] = [])
     case dispatchComputeRanges(pipeline: ComputePipeline, bindings: [ComputeBindingSlot: StorageBufferBinding],
                                workgroups: DispatchWorkgroups, textures: [ComputeBindingSlot: ResourceID] = [:],
-                               samplers: [ComputeBindingSlot: ResourceID] = [:])
+                               samplers: [ComputeBindingSlot: ResourceID] = [:], immediates: [UInt32] = [])
+    /// Reads three packed UInt32 workgroup counts (X, Y, Z) from the buffer at execution time.
+    case dispatchComputeIndirect(pipeline: ComputePipeline, bindings: [ComputeBindingSlot: StorageBufferBinding],
+                                 indirectBuffer: ResourceID, indirectOffset: UInt64 = 0,
+                                 textures: [ComputeBindingSlot: ResourceID] = [:],
+                                 samplers: [ComputeBindingSlot: ResourceID] = [:], immediates: [UInt32] = [])
     case render(pipeline: RenderPipeline, target: ResourceID, colorLoad: RenderColorLoadAction,
                 vertexCount: UInt32, vertexBuffers: [VertexBufferBinding] = [],
                 firstVertex: UInt32 = 0, instances: DrawInstances = .init(),
                 uniforms: [ComputeBindingSlot: ComputeBufferBinding] = [:],
                 textures: [ComputeBindingSlot: ResourceID] = [:],
-                samplers: [ComputeBindingSlot: ResourceID] = [:], targetMipLevel: UInt32 = 0,
+                samplers: [ComputeBindingSlot: ResourceID] = [:], targetMipLevel: UInt32 = 0, targetDepthSlice: UInt32? = nil,
                 depth: RenderDepthAttachment? = nil, resolve: RenderResolveAttachment? = nil,
                 blendConstant: RenderClearColor = .transparentBlack,
-                additionalColors: [UInt32: RenderColorAttachment] = [:], raster: RenderRasterState = .init())
+                additionalColors: [UInt32: RenderColorAttachment] = [:], raster: RenderRasterState = .init(),
+                storageBuffers: [ComputeBindingSlot: ComputeBufferBinding] = [:], immediates: [UInt32] = [])
     case renderIndexed(pipeline: RenderPipeline, target: ResourceID, colorLoad: RenderColorLoadAction,
                        indexBuffer: IndexBufferBinding, draw: IndexedDraw, vertexBuffers: [VertexBufferBinding] = [],
                        uniforms: [ComputeBindingSlot: ComputeBufferBinding] = [:],
                        textures: [ComputeBindingSlot: ResourceID] = [:],
-                       samplers: [ComputeBindingSlot: ResourceID] = [:], targetMipLevel: UInt32 = 0,
+                       samplers: [ComputeBindingSlot: ResourceID] = [:], targetMipLevel: UInt32 = 0, targetDepthSlice: UInt32? = nil,
                        depth: RenderDepthAttachment? = nil, resolve: RenderResolveAttachment? = nil,
                        blendConstant: RenderClearColor = .transparentBlack,
-                       additionalColors: [UInt32: RenderColorAttachment] = [:], raster: RenderRasterState = .init())
+                       additionalColors: [UInt32: RenderColorAttachment] = [:], raster: RenderRasterState = .init(),
+                       storageBuffers: [ComputeBindingSlot: ComputeBufferBinding] = [:], immediates: [UInt32] = [])
+    /// Reads packed draw arguments at execution time. Without an index buffer, the words are
+    /// vertex count, instance count, first vertex and first instance. With an index buffer,
+    /// they are index count, instance count, first index, signed base vertex and first instance.
+    case renderIndirect(pipeline: RenderPipeline, target: ResourceID, colorLoad: RenderColorLoadAction,
+                        indirectBuffer: ResourceID, indirectOffset: UInt64 = 0, indexBuffer: IndexBufferBinding? = nil,
+                        vertexBuffers: [VertexBufferBinding] = [],
+                        uniforms: [ComputeBindingSlot: ComputeBufferBinding] = [:],
+                        textures: [ComputeBindingSlot: ResourceID] = [:],
+                        samplers: [ComputeBindingSlot: ResourceID] = [:], targetMipLevel: UInt32 = 0,
+                        targetDepthSlice: UInt32? = nil, depth: RenderDepthAttachment? = nil,
+                        resolve: RenderResolveAttachment? = nil, blendConstant: RenderClearColor = .transparentBlack,
+                        additionalColors: [UInt32: RenderColorAttachment] = [:], raster: RenderRasterState = .init(),
+                        storageBuffers: [ComputeBindingSlot: ComputeBufferBinding] = [:], immediates: [UInt32] = [])
     case copyTextureToBuffer(source: ResourceID, destination: ResourceID, bytesPerRow: UInt32, mipLevel: UInt32 = 0,
                              aspect: TextureViewAspect = .all, destinationOffset: UInt64 = 0, arrayLayer: UInt32 = 0,
                              z: UInt32 = 0, depth: UInt32 = 1)
     case copyBufferToTexture(source: ResourceID, layout: TextureBufferLayout, destination: ResourceID,
                              region: TextureCopyRegion, aspect: TextureViewAspect = .all)
+    /// Uploads a region from CPU bytes. Depth counts Z slices or successive array layers.
+    case writeTexture(destination: ResourceID, data: [UInt8], layout: TextureDataLayout = .init(),
+                      region: TextureCopyRegion, aspect: TextureViewAspect = .all)
     case copyTextureToTexture(source: ResourceID, destination: ResourceID, sourceRegion: TextureCopyRegion,
                               destinationOrigin: TextureCopyOrigin = .init())
-    case copy(source: ResourceID, destination: ResourceID, byteCount: UInt64)
+    /// Copies an aligned range. If omitted, the byte count extends to the end of the source.
+    case copy(source: ResourceID, sourceOffset: UInt64 = 0, destination: ResourceID,
+              destinationOffset: UInt64 = 0, byteCount: UInt64? = nil)
+    case clearBuffer(buffer: ResourceID, offset: UInt64 = 0, byteCount: UInt64? = nil)
     case read(buffer: ResourceID, byteCount: UInt64)
+    /// Attaches timestamp writes to a compute or render pass command.
+    indirect case timestamped(pass: BufferCommand, writes: PassTimestampWrites)
+    /// Measures visibility for one render pass. May be combined with timestamp writes on that pass.
+    indirect case occlusionQueried(pass: BufferCommand, query: PassOcclusionQuery)
+    case resolveQuerySet(querySet: ResourceID, firstQuery: UInt32, queryCount: UInt32,
+                         destination: ResourceID, destinationOffset: UInt64 = 0)
 
     public static func render(
         pipeline: RenderPipeline, target: ResourceID, clear: RenderClearColor, vertexCount: UInt32,
         vertexBuffers: [VertexBufferBinding] = [], firstVertex: UInt32 = 0, instances: DrawInstances = .init(),
         uniforms: [ComputeBindingSlot: ComputeBufferBinding] = [:], textures: [ComputeBindingSlot: ResourceID] = [:],
-        samplers: [ComputeBindingSlot: ResourceID] = [:], targetMipLevel: UInt32 = 0,
+        samplers: [ComputeBindingSlot: ResourceID] = [:], targetMipLevel: UInt32 = 0, targetDepthSlice: UInt32? = nil,
         depth: RenderDepthAttachment? = nil, resolve: RenderResolveAttachment? = nil,
         blendConstant: RenderClearColor = .transparentBlack, additionalColors: [UInt32: RenderColorAttachment] = [:],
-        raster: RenderRasterState = .init()
+        raster: RenderRasterState = .init(), storageBuffers: [ComputeBindingSlot: ComputeBufferBinding] = [:],
+        immediates: [UInt32] = []
     ) -> Self {
         .render(pipeline: pipeline, target: target, colorLoad: .clear(clear), vertexCount: vertexCount,
                 vertexBuffers: vertexBuffers, firstVertex: firstVertex, instances: instances, uniforms: uniforms,
-                textures: textures, samplers: samplers, targetMipLevel: targetMipLevel,
-                depth: depth, resolve: resolve, blendConstant: blendConstant, additionalColors: additionalColors, raster: raster)
+                textures: textures, samplers: samplers, targetMipLevel: targetMipLevel, targetDepthSlice: targetDepthSlice,
+                depth: depth, resolve: resolve, blendConstant: blendConstant, additionalColors: additionalColors, raster: raster,
+                storageBuffers: storageBuffers, immediates: immediates)
     }
 
     public static func renderIndexed(
         pipeline: RenderPipeline, target: ResourceID, clear: RenderClearColor, indexBuffer: IndexBufferBinding,
         draw: IndexedDraw, vertexBuffers: [VertexBufferBinding] = [],
         uniforms: [ComputeBindingSlot: ComputeBufferBinding] = [:], textures: [ComputeBindingSlot: ResourceID] = [:],
-        samplers: [ComputeBindingSlot: ResourceID] = [:], targetMipLevel: UInt32 = 0,
+        samplers: [ComputeBindingSlot: ResourceID] = [:], targetMipLevel: UInt32 = 0, targetDepthSlice: UInt32? = nil,
         depth: RenderDepthAttachment? = nil, resolve: RenderResolveAttachment? = nil,
         blendConstant: RenderClearColor = .transparentBlack, additionalColors: [UInt32: RenderColorAttachment] = [:],
-        raster: RenderRasterState = .init()
+        raster: RenderRasterState = .init(), storageBuffers: [ComputeBindingSlot: ComputeBufferBinding] = [:],
+        immediates: [UInt32] = []
     ) -> Self {
         .renderIndexed(pipeline: pipeline, target: target, colorLoad: .clear(clear), indexBuffer: indexBuffer, draw: draw,
                        vertexBuffers: vertexBuffers, uniforms: uniforms, textures: textures, samplers: samplers,
-                       targetMipLevel: targetMipLevel, depth: depth, resolve: resolve, blendConstant: blendConstant, additionalColors: additionalColors, raster: raster)
+                       targetMipLevel: targetMipLevel, targetDepthSlice: targetDepthSlice, depth: depth, resolve: resolve,
+                       blendConstant: blendConstant, additionalColors: additionalColors, raster: raster,
+                       storageBuffers: storageBuffers, immediates: immediates)
     }
 
     public var resources: [ResourceID] {
         switch self {
-        case .write(let id, _, _), .read(let id, _): [id]
-        case .render(_, let target, _, _, let bindings, _, _, let uniforms, let textures, let samplers, _, let depth, let resolve, _, let additionalColors, _):
-            [target] + bindings.map(\.buffer) + uniforms.values.map(\.buffer) + textures.values + samplers.values +
+        case .write(let id, _, _), .writeBytes(let id, _, _, _, _), .clearBuffer(let id, _, _), .read(let id, _): [id]
+        case .render(_, let target, _, _, let bindings, _, _, let uniforms, let textures, let samplers, _, _, let depth, let resolve, _, let additionalColors, _, let storageBuffers, _):
+            [target] + bindings.map(\.buffer) + uniforms.values.map(\.buffer) + storageBuffers.values.map(\.buffer) + textures.values + samplers.values +
                 [depth?.texture, resolve?.texture].compactMap { $0 } + additionalColors.values.flatMap { attachment in
                     [attachment.texture, attachment.resolve?.texture].compactMap { $0 }
                 }
-        case .renderIndexed(_, let target, _, let index, _, let bindings, let uniforms, let textures, let samplers, _, let depth, let resolve, _, let additionalColors, _):
-            [target, index.buffer] + bindings.map(\.buffer) + uniforms.values.map(\.buffer) + textures.values + samplers.values +
+        case .renderIndexed(_, let target, _, let index, _, let bindings, let uniforms, let textures, let samplers, _, _, let depth, let resolve, _, let additionalColors, _, let storageBuffers, _):
+            [target, index.buffer] + bindings.map(\.buffer) + uniforms.values.map(\.buffer) + storageBuffers.values.map(\.buffer) + textures.values + samplers.values +
                 [depth?.texture, resolve?.texture].compactMap { $0 } + additionalColors.values.flatMap { attachment in
+                    [attachment.texture, attachment.resolve?.texture].compactMap { $0 }
+                }
+        case .renderIndirect(_, let target, _, let arguments, _, let index, let bindings, let uniforms, let textures, let samplers, _, _, let depth, let resolve, _, let additionalColors, _, let storageBuffers, _):
+            [target, arguments] + bindings.map(\.buffer) + uniforms.values.map(\.buffer) + storageBuffers.values.map(\.buffer) + textures.values + samplers.values +
+                [index?.buffer, depth?.texture, resolve?.texture].compactMap { $0 } + additionalColors.values.flatMap { attachment in
                     [attachment.texture, attachment.resolve?.texture].compactMap { $0 }
                 }
         case .dispatch(_, let input, let output, _): [input, output]
-        case .dispatchCompute(_, let bindings, _, let textures, let samplers):
+        case .dispatchCompute(_, let bindings, _, let textures, let samplers, _):
             Array(bindings.values) + textures.values + samplers.values
-        case .dispatchComputeRanges(_, let bindings, _, let textures, let samplers):
+        case .dispatchComputeRanges(_, let bindings, _, let textures, let samplers, _):
             bindings.values.map(\.buffer) + textures.values + samplers.values
-        case .copy(let source, let destination, _), .copyTextureToBuffer(let source, let destination, _, _, _, _, _, _, _),
+        case .dispatchComputeIndirect(_, let bindings, let arguments, _, let textures, let samplers, _):
+            [arguments] + bindings.values.map(\.buffer) + textures.values + samplers.values
+        case .timestamped, .occlusionQueried:
+            measuredPassResources
+        case .resolveQuerySet(let set, _, _, let destination, _):
+            [set, destination]
+        case .writeTexture(let destination, _, _, _, _): [destination]
+        case .copy(let source, _, let destination, _, _), .copyTextureToBuffer(let source, let destination, _, _, _, _, _, _, _),
              .copyBufferToTexture(let source, _, let destination, _, _),
              .copyTextureToTexture(let source, let destination, _, _):
             [source, destination]
         }
     }
 
-    package var computeDispatch: (pipeline: ComputePipeline, bindings: [ComputeBindingSlot: StorageBufferBinding],
-                                  workgroups: DispatchWorkgroups, textures: [ComputeBindingSlot: ResourceID],
-                                  samplers: [ComputeBindingSlot: ResourceID])? {
+    package static func uploadBytes(_ bytes: [UInt8], dataOffset: UInt64, byteCount: UInt64?) throws -> ArraySlice<UInt8> {
+        let available = UInt64(bytes.count)
+        guard dataOffset <= available else { throw GPUError.validation("Upload source offset exceeds the byte array") }
+        let count = byteCount ?? (available - dataOffset)
+        guard count <= available - dataOffset else { throw GPUError.validation("Upload source range exceeds the byte array") }
+        return bytes[Int(dataOffset)..<Int(dataOffset + count)]
+    }
+
+    private var measuredPassResources: [ResourceID] {
+        let (pass, timestamps, occlusion) = recordedPass
+        let sets = [timestamps?.querySet, occlusion?.querySet].compactMap { $0 }
+        return sets + (pass.acceptsTimestampWrites ? pass.resources : [])
+    }
+
+    private var acceptsTimestampWrites: Bool {
         switch self {
-        case .dispatchCompute(let pipeline, let buffers, let groups, let textures, let samplers):
-            (pipeline, buffers.mapValues { StorageBufferBinding(buffer: $0) }, groups, textures, samplers)
-        case .dispatchComputeRanges(let pipeline, let bindings, let groups, let textures, let samplers):
-            (pipeline, bindings, groups, textures, samplers)
+        case .dispatchCompute, .dispatchComputeRanges, .dispatchComputeIndirect, .render, .renderIndexed, .renderIndirect: true
+        default: false
+        }
+    }
+
+    private var isRenderPass: Bool {
+        switch self {
+        case .render, .renderIndexed, .renderIndirect: true
+        default: false
+        }
+    }
+
+    package var recordedPass: (command: BufferCommand, timestamps: PassTimestampWrites?, occlusion: PassOcclusionQuery?) {
+        var command = self
+        var timestamps: PassTimestampWrites?
+        var occlusion: PassOcclusionQuery?
+        for _ in 0..<2 {
+            switch command {
+            case .timestamped(let pass, let writes) where timestamps == nil:
+                command = pass
+                timestamps = writes
+            case .occlusionQueried(let pass, let query) where occlusion == nil:
+                command = pass
+                occlusion = query
+            default:
+                return (command, timestamps, occlusion)
+            }
+        }
+        return (command, timestamps, occlusion)
+    }
+
+    package enum DispatchSource {
+        case direct(DispatchWorkgroups)
+        case indirect(buffer: ResourceID, offset: UInt64)
+    }
+
+    package var computeDispatch: (pipeline: ComputePipeline, bindings: [ComputeBindingSlot: StorageBufferBinding],
+                                  source: DispatchSource, textures: [ComputeBindingSlot: ResourceID],
+                                  samplers: [ComputeBindingSlot: ResourceID], immediates: [UInt32])? {
+        switch self {
+        case .dispatchCompute(let pipeline, let buffers, let groups, let textures, let samplers, let immediates):
+            (pipeline, buffers.mapValues { StorageBufferBinding(buffer: $0) }, .direct(groups), textures, samplers, immediates)
+        case .dispatchComputeRanges(let pipeline, let bindings, let groups, let textures, let samplers, let immediates):
+            (pipeline, bindings, .direct(groups), textures, samplers, immediates)
+        case .dispatchComputeIndirect(let pipeline, let bindings, let buffer, let offset, let textures, let samplers, let immediates):
+            (pipeline, bindings, .indirect(buffer: buffer, offset: offset), textures, samplers, immediates)
         default: nil
         }
     }
@@ -104,26 +208,36 @@ public enum BufferCommand: Sendable, Equatable {
     public func validate(
         device: UInt64, descriptors: [ResourceID: BufferDescriptor],
         textures: [ResourceID: TextureDescriptor] = [:], samplers: Set<ResourceID> = [],
-        comparisonSamplers: Set<ResourceID> = []
+        comparisonSamplers: Set<ResourceID> = [], querySets: [ResourceID: QuerySetDescriptor] = [:],
+        features: Set<GPUFeature> = []
     ) throws {
         let samplerDescriptors = Dictionary(uniqueKeysWithValues: samplers.union(comparisonSamplers).map {
             ($0, SamplerDescriptor(compare: comparisonSamplers.contains($0) ? .never : nil))
         })
         try validate(device: device, descriptors: descriptors, textures: textures,
-                     samplerDescriptors: samplerDescriptors, textureViews: [:])
+                     samplerDescriptors: samplerDescriptors, textureViews: [:], querySets: querySets, features: features)
     }
 
     package func validate(
         device: UInt64, descriptors: [ResourceID: BufferDescriptor], textures: [ResourceID: TextureDescriptor],
         samplerDescriptors: [ResourceID: SamplerDescriptor], textureViews: [ResourceID: TextureViewResource],
-        maximumViewportDimension: UInt32 = 8192
+        maximumViewportDimension: UInt32 = 8192, querySets: [ResourceID: QuerySetDescriptor] = [:],
+        features: Set<GPUFeature> = [], externalTextures: Set<ResourceID> = [],
+        externalPlanes: [ResourceID: [ResourceID]] = [:]
     ) throws {
-        func require(_ id: ResourceID, _ usage: BufferUsage, _ size: UInt64, offset: UInt64 = 0) throws {
+        @discardableResult
+        func require(
+            _ id: ResourceID, _ usage: BufferUsage, _ size: UInt64?, offset: UInt64 = 0, allowEmpty: Bool = false
+        ) throws -> UInt64 {
             guard id.device == device, let descriptor = descriptors[id], descriptor.usage.contains(usage),
-                  size > 0, size % 4 == 0, offset % 4 == 0,
-                  offset <= descriptor.size, size <= descriptor.size - offset else {
+                  offset % 4 == 0, offset <= descriptor.size else {
                 throw GPUError.validation("Command has invalid resource, usage, size or alignment")
             }
+            let count = size ?? (descriptor.size - offset)
+            guard (allowEmpty || count > 0), count % 4 == 0, count <= descriptor.size - offset else {
+                throw GPUError.validation("Command has invalid resource, usage, size or alignment")
+            }
+            return count
         }
         func textureBinding(
             _ id: ResourceID?, usage: TextureUsage
@@ -145,14 +259,33 @@ public enum BufferCommand: Sendable, Equatable {
             }
             let sampleType: TextureSampleType?
             switch binding.view.aspect {
-            case .all: sampleType = binding.texture.format.hasStencil ? nil : binding.texture.format.sampleType
+            case .all: sampleType = binding.texture.format.hasStencil && binding.texture.format.hasDepth ? nil : binding.texture.format.sampleType
             case .depthOnly: sampleType = .depth
             case .stencilOnly: sampleType = .uint
             }
             guard binding.texture.format.supports(aspect: binding.view.aspect), sampleType == requirement.sampleType else {
                 throw GPUError.validation("Invalid sampled texture binding")
             }
+            if requirement.requiresFiltering, binding.texture.format.isFloat32Color, !features.contains(.float32Filterable) {
+                throw GPUError.validation("Float32 sampling requires float32-filterable")
+            }
+            if requirement.requiresFiltering, binding.texture.format.isNormalized16Color, !features.contains(.normalized16Filterable) {
+                throw GPUError.validation("Normalized 16-bit sampling requires normalized16Filterable")
+            }
             return binding.view
+        }
+        func requireExternalTexture(_ id: ResourceID?) throws -> [TextureViewResource] {
+            guard let id, id.device == device, externalTextures.contains(id) else {
+                throw GPUError.validation("Invalid external texture binding")
+            }
+            return try (externalPlanes[id] ?? []).map { plane in
+                guard let view = textureBinding(plane, usage: .textureBinding)?.view else {
+                    throw GPUError.validation("Invalid external texture plane")
+                }
+                let level = view.levels.lowerBound
+                return .init(texture: view.texture, levels: level..<(level + 1), aspect: view.aspect,
+                             layers: view.layers, dimension: view.dimension)
+            }
         }
         func requireSampler(_ id: ResourceID?, _ requirement: SamplerRequirement) throws {
             guard let id, id.device == device, let descriptor = samplerDescriptors[id],
@@ -168,11 +301,12 @@ public enum BufferCommand: Sendable, Equatable {
         ) throws {
             var used = occupied
             for requirement in requirements {
-                guard let binding = textureBinding(bindings[requirement.slot], usage: .storageBinding),
+                let usage: TextureUsage = requirement.access == .atomic ? .storageAtomic : .storageBinding
+                guard let binding = textureBinding(bindings[requirement.slot], usage: usage),
                       binding.texture.format == requirement.format, binding.view.levels.count == 1 else {
                     throw GPUError.validation("Storage texture binding requires one mip level of the declared format")
                 }
-                guard binding.view.dimension == (requirement.isArrayed ? .d2Array : .d2) else {
+                guard binding.view.dimension == requirement.dimension else {
                     throw GPUError.validation("Storage texture view dimension does not match the shader binding")
                 }
                 let view = binding.view
@@ -186,13 +320,20 @@ public enum BufferCommand: Sendable, Equatable {
         }
         func requireRender(
             _ pipeline: RenderPipeline, _ target: ResourceID, _ level: UInt32, _ colorLoad: RenderColorLoadAction,
+            targetDepthSlice: UInt32?,
             _ bindings: [VertexBufferBinding], uniforms: [ComputeBindingSlot: ComputeBufferBinding],
+            storageBuffers: [ComputeBindingSlot: ComputeBufferBinding], indexBuffer: ResourceID? = nil,
+            indirectBuffer: ResourceID? = nil,
             boundTextures: [ComputeBindingSlot: ResourceID], samplerBindings: [ComputeBindingSlot: ResourceID],
             vertexEnd: UInt64, instanceEnd: UInt64, depth: RenderDepthAttachment?, resolve: RenderResolveAttachment?,
-            blendConstant: RenderClearColor, additionalColors: [UInt32: RenderColorAttachment], raster: RenderRasterState
+            blendConstant: RenderClearColor, additionalColors: [UInt32: RenderColorAttachment], raster: RenderRasterState,
+            immediates: [UInt32]
         ) throws {
             guard pipeline.id.device == device, Set(additionalColors.keys) == Set(pipeline.additionalColorTargets.keys) else {
                 throw GPUError.validation("Color attachments do not match the render pipeline")
+            }
+            guard UInt64(immediates.count) == pipeline.immediateByteSize / 4 else {
+                throw GPUError.validation("Render immediate data size does not match the pipeline layout")
             }
             guard blendConstant.channels.allSatisfy({ Float($0).isFinite }) else {
                 throw GPUError.validation("Blend constant must contain finite float values")
@@ -202,35 +343,43 @@ public enum BufferCommand: Sendable, Equatable {
             }
 
             var usedTextures: [(view: TextureViewResource, writable: Bool)] = []
-            func addWritable(_ id: ResourceID, level: UInt32, layer: UInt32) throws {
+            var colorRegions: [(view: TextureViewResource, depthSlice: UInt32?)] = []
+            func addWritable(_ id: ResourceID, level: UInt32, layer: UInt32, depthSlice: UInt32? = nil) throws {
                 let view = TextureViewResource(texture: id, levels: level..<(level + 1), layers: layer..<(layer + 1))
-                guard !usedTextures.contains(where: { $0.view.overlaps(view) }) else {
+                guard !colorRegions.contains(where: { $0.view.overlaps(view) && $0.depthSlice == depthSlice }) else {
                     throw GPUError.validation("Aliased render attachments")
                 }
+                colorRegions.append((view, depthSlice))
+                // Shader bindings cover every depth slice of a 3D mip.
                 usedTextures.append((view, true))
             }
             func attachmentBinding(
-                _ id: ResourceID, level: UInt32
+                _ id: ResourceID, level: UInt32, depthSlice: UInt32? = nil
             ) -> (id: ResourceID, level: UInt32, layer: UInt32, texture: TextureDescriptor)? {
                 guard let binding = textureBinding(id, usage: .renderAttachment), binding.view.layers.count == 1 else {
                     return nil
                 }
-                if let view = textureViews[id] {
-                    guard level == 0, view.levels.count == 1 else { return nil }
-                    return (view.texture, view.levels.lowerBound, view.layers.lowerBound, binding.texture)
+                let view = textureViews[id]
+                if let view, level != 0 || view.levels.count != 1 { return nil }
+                let mip = view?.levels.lowerBound ?? level
+                if binding.texture.dimension == .d3 {
+                    guard let depthSlice, depthSlice < binding.texture.mipDepth(mip) else { return nil }
+                } else if depthSlice != nil {
+                    return nil
                 }
-                return (id, level, 0, binding.texture)
+                return (view?.texture ?? id, mip, view?.layers.lowerBound ?? 0, binding.texture)
             }
             func addColor(_ attachment: RenderColorAttachment, format: TextureFormat) throws -> (width: UInt32, height: UInt32) {
-                guard let binding = attachmentBinding(attachment.texture, level: attachment.mipLevel),
+                guard let binding = attachmentBinding(attachment.texture, level: attachment.mipLevel,
+                                                      depthSlice: attachment.depthSlice),
                       binding.texture.format == format, binding.texture.sampleCount == pipeline.sampleCount,
                       let extent = binding.texture.mipExtent(binding.level),
                       attachment.loadAction.clearColor?.isValid(for: format) ?? true else {
                     throw GPUError.validation("Invalid render pipeline, color attachment or clear value")
                 }
-                try addWritable(binding.id, level: binding.level, layer: binding.layer)
+                try addWritable(binding.id, level: binding.level, layer: binding.layer, depthSlice: attachment.depthSlice)
                 if let resolve = attachment.resolve {
-                    guard binding.texture.sampleCount > 1, format.isNormalizedColor,
+                    guard binding.texture.sampleCount > 1, format.supportsColorResolve(features: features),
                           let resolved = attachmentBinding(resolve.texture, level: resolve.mipLevel),
                           resolved.texture.sampleCount == 1, resolved.texture.format == format,
                           let size = resolved.texture.mipExtent(resolved.level), size == extent else {
@@ -240,7 +389,8 @@ public enum BufferCommand: Sendable, Equatable {
                 }
                 return extent
             }
-            let colorExtent = try addColor(.init(texture: target, mipLevel: level, loadAction: colorLoad, resolve: resolve),
+            let colorExtent = try addColor(.init(texture: target, mipLevel: level, loadAction: colorLoad, resolve: resolve,
+                                                depthSlice: targetDepthSlice),
                                            format: pipeline.colorFormat)
             try raster.validate(width: colorExtent.width, height: colorExtent.height, maximumViewportDimension: maximumViewportDimension)
             for (location, attachment) in additionalColors {
@@ -252,13 +402,17 @@ public enum BufferCommand: Sendable, Equatable {
             if let depth, let state = pipeline.depthState {
                 guard let binding = attachmentBinding(depth.texture, level: depth.mipLevel),
                       binding.texture.format == state.format, binding.texture.sampleCount == pipeline.sampleCount,
-                      !binding.texture.format.hasStencil || textureViews[depth.texture] == nil || textureViews[depth.texture]?.aspect == .all,
+                      !binding.texture.format.hasStencil || !binding.texture.format.hasDepth ||
+                          textureViews[depth.texture] == nil || textureViews[depth.texture]?.aspect == .all,
                       let extent = binding.texture.mipExtent(binding.level), extent == colorExtent else {
                     throw GPUError.validation("Invalid depth attachment format, extent or subresource")
                 }
                 let descriptor = binding.texture
                 guard descriptor.format.hasStencil == (depth.stencil != nil) else {
                     throw GPUError.validation("Stencil load action does not match the depth attachment format")
+                }
+                guard descriptor.format.hasDepth == (depth.loadAction != .unused) else {
+                    throw GPUError.validation("Depth load action does not match the attachment format")
                 }
                 if case .clear(let value) = depth.loadAction, !(0...1).contains(value) {
                     throw GPUError.validation("Depth clear value must be between zero and one")
@@ -273,7 +427,9 @@ public enum BufferCommand: Sendable, Equatable {
                 }
                 let levels = binding.level..<(binding.level + 1)
                 let layers = binding.layer..<(binding.layer + 1)
-                usedTextures.append((.init(texture: binding.id, levels: levels, aspect: .depthOnly, layers: layers), !depthReadOnly))
+                if descriptor.format.hasDepth {
+                    usedTextures.append((.init(texture: binding.id, levels: levels, aspect: .depthOnly, layers: layers), !depthReadOnly))
+                }
                 if depth.stencil != nil {
                     usedTextures.append((.init(texture: binding.id, levels: levels, aspect: .stencilOnly, layers: layers), !stencilReadOnly))
                 }
@@ -284,7 +440,10 @@ public enum BufferCommand: Sendable, Equatable {
             guard uniforms.count == pipeline.uniforms.count else {
                 throw GPUError.validation("Uniform bindings do not match the render pipeline layout")
             }
-            guard boundTextures.count == pipeline.sampledTextures.count + pipeline.storageTextures.count else {
+            guard storageBuffers.count == pipeline.storageBuffers.count else {
+                throw GPUError.validation("Storage buffer bindings do not match the render pipeline layout")
+            }
+            guard boundTextures.count == pipeline.sampledTextures.count + pipeline.storageTextures.count + pipeline.externalTextureBindings.count else {
                 throw GPUError.validation("Texture bindings do not match the render pipeline layout")
             }
             for texture in pipeline.sampledTextures {
@@ -296,6 +455,14 @@ public enum BufferCommand: Sendable, Equatable {
                     throw GPUError.validation("Render attachment cannot be bound as a sampled texture")
                 }
                 usedTextures.append((binding, false))
+            }
+            for external in pipeline.externalTextureBindings {
+                for plane in try requireExternalTexture(boundTextures[external.slot]) {
+                    guard !usedTextures.contains(where: { $0.writable && $0.view.overlaps(plane) }) else {
+                        throw GPUError.validation("Render attachment cannot be bound as an external texture plane")
+                    }
+                    usedTextures.append((plane, false))
+                }
             }
             try requireStorageTextures(pipeline.storageTextures.map(\.requirement), bindings: boundTextures,
                                        occupied: usedTextures,
@@ -316,6 +483,32 @@ public enum BufferCommand: Sendable, Equatable {
                     throw GPUError.validation("Render uniform binding is smaller than the shader layout")
                 }
             }
+            var readOnlyBuffers = Set(uniforms.values.map(\.buffer) + bindings.map(\.buffer))
+            if let indexBuffer { readOnlyBuffers.insert(indexBuffer) }
+            if let indirectBuffer { readOnlyBuffers.insert(indirectBuffer) }
+            var writableRanges: [ResourceID: [Range<UInt64>]] = [:]
+            for requirement in pipeline.storageBuffers {
+                guard let binding = storageBuffers[requirement.handle.slot], binding.buffer.device == device,
+                      let descriptor = descriptors[binding.buffer] else {
+                    throw GPUError.validation("Invalid render storage buffer binding")
+                }
+                let range = try binding.range(in: descriptor, usage: .storage)
+                guard range.upperBound - range.lowerBound >= requirement.minimumByteSize else {
+                    throw GPUError.validation("Render storage binding is smaller than the shader layout")
+                }
+                if requirement.isReadOnly {
+                    guard writableRanges[binding.buffer] == nil else {
+                        throw GPUError.validation("Aliased writable render buffers")
+                    }
+                    readOnlyBuffers.insert(binding.buffer)
+                } else {
+                    guard !readOnlyBuffers.contains(binding.buffer),
+                          !writableRanges[binding.buffer, default: []].contains(where: { $0.overlaps(range) }) else {
+                        throw GPUError.validation("Aliased writable render buffers")
+                    }
+                    writableRanges[binding.buffer, default: []].append(range)
+                }
+            }
             let maximumEnd = UInt64(UInt32.max) + 1
             guard vertexEnd <= maximumEnd, instanceEnd <= maximumEnd else {
                 throw GPUError.validation("Draw vertex or instance range exceeds 32-bit indices")
@@ -330,28 +523,107 @@ public enum BufferCommand: Sendable, Equatable {
                 }
             }
         }
+        func requireIndex(_ index: IndexBufferBinding, pipeline: RenderPipeline, end: UInt64 = 0) throws {
+            guard !pipeline.primitive.topology.isStrip || pipeline.primitive.stripIndexFormat == index.format else {
+                throw GPUError.validation("Indexed strips require a matching strip index format")
+            }
+            let stride = UInt64(index.format.byteSize)
+            guard index.buffer.device == device, let buffer = descriptors[index.buffer],
+                  buffer.usage.contains(.index), index.offset % stride == 0, index.offset <= buffer.size else {
+                throw GPUError.validation("Invalid index buffer, usage or offset")
+            }
+            let remaining = buffer.size - index.offset
+            let size = index.size ?? remaining
+            guard size <= remaining, end <= size / stride else {
+                throw GPUError.validation("Indexed draw exceeds index buffer range")
+            }
+        }
+        func requireTextureUpload(
+            _ destination: ResourceID, region: TextureCopyRegion, aspect: TextureViewAspect, allowsArrayLayerSpan: Bool
+        ) throws -> (TextureDescriptor, TextureCopyBlock) {
+            guard destination.device == device, let texture = textures[destination],
+                  texture.usage.contains(.copyDestination), texture.sampleCount == 1,
+                  region.fits(in: texture, allowsArrayLayerSpan: allowsArrayLayerSpan),
+                  let block = texture.format.copyBlock(aspect: aspect),
+                  !texture.format.hasDepth || texture.format == .depth16Unorm || aspect == .stencilOnly,
+                  !texture.format.isDepthStencil || region.covers(texture) else {
+                throw GPUError.validation("Invalid texture upload destination, region or aspect")
+            }
+            return (texture, block)
+        }
         switch self {
+        case .timestamped, .occlusionQueried:
+            let (pass, timestamps, occlusion) = recordedPass
+            guard pass.acceptsTimestampWrites else { throw GPUError.validation("Invalid query pass") }
+            if let writes = timestamps {
+                guard writes.querySet.device == device, let set = querySets[writes.querySet], set.type == .timestamp,
+                      writes.beginningOfPassWriteIndex != writes.endOfPassWriteIndex,
+                      writes.indices.allSatisfy({ $0 < set.count }) else {
+                    throw GPUError.validation("Invalid timestamp pass or query indices")
+                }
+            }
+            if let occlusion {
+                guard pass.isRenderPass, occlusion.querySet.device == device,
+                      let set = querySets[occlusion.querySet], set.type == .occlusion, occlusion.queryIndex < set.count else {
+                    throw GPUError.validation("Invalid occlusion pass or query index")
+                }
+            }
+            try pass.validate(device: device, descriptors: descriptors, textures: textures,
+                              samplerDescriptors: samplerDescriptors, textureViews: textureViews,
+                              maximumViewportDimension: maximumViewportDimension, querySets: querySets,
+                              features: features, externalTextures: externalTextures, externalPlanes: externalPlanes)
+        case .resolveQuerySet(let set, let first, let count, let destination, let offset):
+            guard set.device == device, let query = querySets[set], first < query.count, count <= query.count - first,
+                  destination.device == device, let buffer = descriptors[destination],
+                  buffer.usage.contains(.queryResolve), offset % 256 == 0,
+                  offset <= buffer.size, UInt64(count) * 8 <= buffer.size - offset else {
+                throw GPUError.validation("Invalid query resolve range, destination or alignment")
+            }
         case .write(let id, let offset, let words):
             try require(id, .copyDestination, UInt64(words.count) * 4, offset: offset)
+        case .writeBytes(let id, let offset, let bytes, let dataOffset, let byteCount):
+            let source = try Self.uploadBytes(bytes, dataOffset: dataOffset, byteCount: byteCount)
+            try require(id, .copyDestination, UInt64(source.count), offset: offset, allowEmpty: true)
+        case .clearBuffer(let id, let offset, let size):
+            try require(id, .copyDestination, size, offset: offset, allowEmpty: true)
         case .dispatch(let pipeline, let input, let output, let count):
             guard pipeline.device == device, pipeline.serial > 0, input != output else {
                 throw GPUError.validation("Invalid pipeline identity or aliased storage buffers")
             }
             try require(input, .storage, UInt64(count) * 4)
             try require(output, .storage, UInt64(count) * 4)
-        case .dispatchCompute, .dispatchComputeRanges:
-            let (pipeline, bindings, workgroups, boundTextures, samplerBindings) = computeDispatch!
+        case .dispatchCompute, .dispatchComputeRanges, .dispatchComputeIndirect:
+            let (pipeline, bindings, source, boundTextures, samplerBindings, immediates) = computeDispatch!
             guard pipeline.id.device == device else { throw GPUError.validation("Foreign compute pipeline") }
-            guard workgroups.x <= 65_535, workgroups.y <= 65_535, workgroups.z <= 65_535 else {
-                throw GPUError.validation("Workgroup count exceeds the supported limit")
+            guard UInt64(immediates.count) == pipeline.immediateByteSize / 4 else {
+                throw GPUError.validation("Compute immediate data size does not match the pipeline layout")
+            }
+            let indirectBuffer: ResourceID?
+            switch source {
+            case .direct(let groups):
+                guard groups.x <= DispatchWorkgroups.maximumDimension, groups.y <= DispatchWorkgroups.maximumDimension,
+                      groups.z <= DispatchWorkgroups.maximumDimension else {
+                    throw GPUError.validation("Workgroup count exceeds the supported limit")
+                }
+                if let limit = pipeline.maximumLinearWorkgroupCount,
+                   UInt64(groups.x) * UInt64(groups.y) * UInt64(groups.z) > UInt64(limit) {
+                    throw GPUError.validation("Linear indexing dispatch exceeds u32")
+                }
+                indirectBuffer = nil
+            case .indirect(let buffer, let offset):
+                try require(buffer, .indirect, 12, offset: offset)
+                indirectBuffer = buffer
             }
             guard bindings.count == pipeline.bufferBindings.count,
-                  boundTextures.count == pipeline.textureBindings.count + pipeline.storageTextureBindings.count,
+                  boundTextures.count == pipeline.textureBindings.count + pipeline.storageTextureBindings.count + pipeline.externalTextureBindings.count,
                   samplerBindings.count == pipeline.samplerBindings.count else {
                 throw GPUError.validation("Compute bindings do not match the pipeline layout")
             }
-            let usedTextures = try pipeline.textureBindings.map {
+            var usedTextures = try pipeline.textureBindings.map {
                 (try requireSampledTexture(boundTextures[$0.slot], $0), false)
+            }
+            for external in pipeline.externalTextureBindings {
+                usedTextures += try requireExternalTexture(boundTextures[external]).map { ($0, false) }
             }
             try requireStorageTextures(pipeline.storageTextureBindings, bindings: boundTextures,
                                        occupied: usedTextures, aliasError: "Aliased writable compute textures")
@@ -367,6 +639,9 @@ public enum BufferCommand: Sendable, Equatable {
                     throw GPUError.validation("Command has invalid resource, usage, size or alignment")
                 }
                 let range = try binding.range(in: descriptor, usage: requirement.usage)
+                guard requirement.isReadOnly || binding.buffer != indirectBuffer else {
+                    throw GPUError.validation("Indirect dispatch arguments alias a writable compute buffer")
+                }
                 guard range.upperBound - range.lowerBound >= requirement.minimumByteSize else {
                     throw GPUError.validation("Command has invalid resource, usage, size or alignment")
                 }
@@ -380,73 +655,71 @@ public enum BufferCommand: Sendable, Equatable {
                 }
                 used[binding.buffer, default: []].append((range, requirement.isReadOnly))
             }
-        case .copy(let source, let destination, let size):
+        case .copy(let source, let sourceOffset, let destination, let destinationOffset, let size):
             guard source != destination else { throw GPUError.validation("Aliased copy") }
-            try require(source, .copySource, size)
-            try require(destination, .copyDestination, size)
-        case .render(let pipeline, let target, let colorLoad, let count, let bindings, let firstVertex, let instances, let uniforms, let boundTextures, let samplerBindings, let targetMipLevel, let depth, let resolve, let blendConstant, let additionalColors, let raster):
-            try requireRender(pipeline, target, targetMipLevel, colorLoad, bindings, uniforms: uniforms, boundTextures: boundTextures,
+            let count = try require(source, .copySource, size, offset: sourceOffset, allowEmpty: true)
+            try require(destination, .copyDestination, count, offset: destinationOffset, allowEmpty: true)
+        case .render(let pipeline, let target, let colorLoad, let count, let bindings, let firstVertex, let instances, let uniforms, let boundTextures, let samplerBindings, let targetMipLevel, let targetDepthSlice, let depth, let resolve, let blendConstant, let additionalColors, let raster, let storageBuffers, let immediates):
+            try requireRender(pipeline, target, targetMipLevel, colorLoad, targetDepthSlice: targetDepthSlice,
+                              bindings, uniforms: uniforms, storageBuffers: storageBuffers, boundTextures: boundTextures,
                               samplerBindings: samplerBindings, vertexEnd: UInt64(firstVertex) + UInt64(count), instanceEnd: instances.end,
-                              depth: depth, resolve: resolve, blendConstant: blendConstant, additionalColors: additionalColors, raster: raster)
-        case .renderIndexed(let pipeline, let target, let colorLoad, let index, let draw, let bindings, let uniforms, let boundTextures, let samplerBindings, let targetMipLevel, let depth, let resolve, let blendConstant, let additionalColors, let raster):
-            try requireRender(pipeline, target, targetMipLevel, colorLoad, bindings, uniforms: uniforms, boundTextures: boundTextures,
+                              depth: depth, resolve: resolve, blendConstant: blendConstant, additionalColors: additionalColors,
+                              raster: raster, immediates: immediates)
+        case .renderIndexed(let pipeline, let target, let colorLoad, let index, let draw, let bindings, let uniforms, let boundTextures, let samplerBindings, let targetMipLevel, let targetDepthSlice, let depth, let resolve, let blendConstant, let additionalColors, let raster, let storageBuffers, let immediates):
+            try requireRender(pipeline, target, targetMipLevel, colorLoad, targetDepthSlice: targetDepthSlice,
+                              bindings, uniforms: uniforms, storageBuffers: storageBuffers, indexBuffer: index.buffer,
+                              boundTextures: boundTextures,
                               samplerBindings: samplerBindings, vertexEnd: 0, instanceEnd: draw.instances.end,
-                              depth: depth, resolve: resolve, blendConstant: blendConstant, additionalColors: additionalColors, raster: raster)
-            guard !pipeline.primitive.topology.isStrip || pipeline.primitive.stripIndexFormat == index.format else {
-                throw GPUError.validation("Indexed strips require a matching strip index format")
-            }
-            let stride = UInt64(index.format.byteSize)
-            guard index.buffer.device == device, let buffer = descriptors[index.buffer],
-                  buffer.usage.contains(.index), index.offset % stride == 0, index.offset <= buffer.size else {
-                throw GPUError.validation("Invalid index buffer, usage or offset")
-            }
-            let remaining = buffer.size - index.offset
-            let size = index.size ?? remaining
-            let end = UInt64(draw.firstIndex) + UInt64(draw.indexCount)
-            guard size <= remaining, end <= size / stride else {
-                throw GPUError.validation("Indexed draw exceeds index buffer range")
-            }
+                              depth: depth, resolve: resolve, blendConstant: blendConstant, additionalColors: additionalColors,
+                              raster: raster, immediates: immediates)
+            try requireIndex(index, pipeline: pipeline, end: UInt64(draw.firstIndex) + UInt64(draw.indexCount))
+        case .renderIndirect(let pipeline, let target, let colorLoad, let arguments, let offset, let index, let bindings, let uniforms, let boundTextures, let samplerBindings, let targetMipLevel, let targetDepthSlice, let depth, let resolve, let blendConstant, let additionalColors, let raster, let storageBuffers, let immediates):
+            try require(arguments, .indirect, index == nil ? 16 : 20, offset: offset)
+            try requireRender(pipeline, target, targetMipLevel, colorLoad, targetDepthSlice: targetDepthSlice,
+                              bindings, uniforms: uniforms, storageBuffers: storageBuffers, indexBuffer: index?.buffer,
+                              indirectBuffer: arguments, boundTextures: boundTextures, samplerBindings: samplerBindings,
+                              vertexEnd: 0, instanceEnd: 0, depth: depth, resolve: resolve, blendConstant: blendConstant,
+                              additionalColors: additionalColors, raster: raster, immediates: immediates)
+            if let index { try requireIndex(index, pipeline: pipeline) }
         case .copyTextureToBuffer(let source, let destination, let bytesPerRow, let mipLevel, let aspect, let offset,
                                   let layer, let z, let depth):
             guard source.device == device, let texture = textures[source], texture.usage.contains(.copySource),
-                  texture.sampleCount == 1, let extent = texture.mipExtent(mipLevel), depth > 0,
+                  texture.sampleCount == 1, let extent = texture.mipPhysicalExtent(mipLevel), depth > 0,
                   TextureCopyRegion(width: extent.width, height: extent.height, mipLevel: mipLevel,
                                     arrayLayer: layer, z: z, depth: depth).fits(in: texture),
-                  let texelBytes = texture.format.copyTexelBytes(aspect: aspect) else {
+                  let block = texture.format.copyBlock(aspect: aspect) else {
                 throw GPUError.validation("Invalid texture copy source or aspect")
             }
             let size = try TextureBufferLayout(bytesPerRow: bytesPerRow)
-                .byteCount(width: extent.width, height: extent.height, texelBytes: texelBytes, depth: depth)
+                .byteCount(width: extent.width, height: extent.height, block: block, depth: depth)
             guard destination.device == device, let buffer = descriptors[destination], buffer.usage.contains(.copyDestination),
-                  offset % UInt64(max(4, texelBytes)) == 0, offset <= buffer.size, size <= buffer.size - offset else {
+                  offset % UInt64(texture.format.isDepthStencil ? 4 : block.bytes) == 0, offset <= buffer.size, size <= buffer.size - offset else {
                 throw GPUError.validation("Invalid texture copy buffer, offset or size")
             }
         case .copyBufferToTexture(let source, let layout, let destination, let region, let aspect):
-            guard destination.device == device, let texture = textures[destination],
-                  texture.usage.contains(.copyDestination), texture.sampleCount == 1, region.fits(in: texture),
-                  texture.format != .depth32Float, let texelBytes = texture.format.copyTexelBytes(aspect: aspect),
-                  !texture.format.hasStencil || region.covers(texture) else {
-                throw GPUError.validation("Invalid texture upload destination, region or aspect")
-            }
-            let count = try layout.byteCount(width: region.width, height: region.height, texelBytes: texelBytes, depth: region.depth)
+            let (texture, block) = try requireTextureUpload(destination, region: region, aspect: aspect, allowsArrayLayerSpan: false)
+            let count = try layout.byteCount(width: region.width, height: region.height, block: block, depth: region.depth)
             guard source.device == device, let buffer = descriptors[source], buffer.usage.contains(.copySource),
-                  layout.offset % UInt64(max(4, texelBytes)) == 0,
+                  layout.offset % UInt64(texture.format.isDepthStencil ? 4 : block.bytes) == 0,
                   layout.offset <= buffer.size, count <= buffer.size - layout.offset else {
                 throw GPUError.validation("Invalid texture upload buffer, offset or size")
             }
+        case .writeTexture(let destination, let data, let layout, let region, let aspect):
+            let (_, block) = try requireTextureUpload(destination, region: region, aspect: aspect, allowsArrayLayerSpan: true)
+            _ = try layout.footprint(region: region, block: block, dataSize: UInt64(data.count))
         case .copyTextureToTexture(let source, let destination, let region, let origin):
             let destinationRegion = origin.region(width: region.width, height: region.height, depth: region.depth)
             guard source.device == device, destination.device == device,
                   let src = textures[source], let dst = textures[destination],
                   src.usage.contains(.copySource), dst.usage.contains(.copyDestination),
-                  src.format == dst.format, src.sampleCount == dst.sampleCount, src.dimension == dst.dimension,
+                  src.format.copyCompatibleFormat == dst.format.copyCompatibleFormat, src.sampleCount == dst.sampleCount, src.dimension == dst.dimension,
                   region.fits(in: src), destinationRegion.fits(in: dst) else {
                 throw GPUError.validation("Invalid texture copy resources, formats, sample counts or regions")
             }
             guard source != destination || region.mipLevel != origin.mipLevel || region.arrayLayer != origin.arrayLayer else {
                 throw GPUError.validation("Texture copy subresources must be disjoint")
             }
-            if src.format.hasDepth || src.sampleCount > 1 {
+            if src.format.isDepthStencil || src.sampleCount > 1 {
                 guard region.covers(src), destinationRegion.covers(dst) else {
                     throw GPUError.validation("Depth and multisampled texture copies require full mip extents")
                 }

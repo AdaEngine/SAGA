@@ -1,14 +1,25 @@
 public struct ComputeBindingSlot: Hashable, Sendable {
     public let group: UInt32
     public let binding: UInt32
+    /// Zero-based element of a binding array. Scalar bindings use nil.
+    public let arrayElement: UInt32?
 
     public init(group: UInt32 = 0, binding: UInt32) {
+        self.init(group: group, binding: binding, arrayElement: nil)
+    }
+
+    public init(group: UInt32 = 0, binding: UInt32, arrayElement: UInt32?) {
         self.group = group
         self.binding = binding
+        self.arrayElement = arrayElement
     }
+
+    package var baseSlot: Self { .init(group: group, binding: binding) }
 }
 
 public struct DispatchWorkgroups: Equatable, Sendable {
+    package static let maximumDimension: UInt32 = 65_535
+
     public let x: UInt32
     public let y: UInt32
     public let z: UInt32
@@ -68,13 +79,17 @@ package struct SampledTextureRequirement: Equatable, Sendable {
     package let sampleType: TextureSampleType
     package let isMultisampled: Bool
     package let dimension: TextureViewDimension
+    package let requiresFiltering: Bool
+    // The browser protocol uses 4 for unfilterable-float.
+    package var webSampleType: UInt32 { sampleType == .float && !requiresFiltering ? 4 : sampleType.rawValue }
 
     package init(slot: ComputeBindingSlot, sampleType: TextureSampleType, isMultisampled: Bool = false,
-                 dimension: TextureViewDimension = .d2) {
+                 dimension: TextureViewDimension = .d2, requiresFiltering: Bool = false) {
         self.slot = slot
         self.sampleType = sampleType
         self.isMultisampled = isMultisampled
         self.dimension = dimension
+        self.requiresFiltering = requiresFiltering
     }
 }
 
@@ -82,29 +97,31 @@ package enum StorageTextureAccess: UInt32, Sendable {
     case readOnly = 1
     case writeOnly = 2
     case readWrite = 3
+    case atomic = 7
 }
 
 package struct StorageTextureRequirement: Equatable, Sendable {
     package let slot: ComputeBindingSlot
     package let format: TextureFormat
     package let access: StorageTextureAccess
-    package let isArrayed: Bool
+    package let dimension: TextureViewDimension
     package var writable: Bool { access != .readOnly }
 
-    package init(slot: ComputeBindingSlot, format: TextureFormat, access: StorageTextureAccess, isArrayed: Bool = false) {
+    package init(slot: ComputeBindingSlot, format: TextureFormat, access: StorageTextureAccess,
+                 dimension: TextureViewDimension = .d2) {
         self.slot = slot
         self.format = format
         self.access = access
-        self.isArrayed = isArrayed
+        self.dimension = dimension
     }
 }
 
 public struct ComputePipeline: Equatable, Sendable {
     package struct BufferBinding: Equatable, Sendable {
-        let slot: ComputeBindingSlot
-        let minimumByteSize: UInt64
-        let isReadOnly: Bool
-        let usage: BufferUsage
+        package let slot: ComputeBindingSlot
+        package let minimumByteSize: UInt64
+        package let isReadOnly: Bool
+        package let usage: BufferUsage
 
         package init(slot: ComputeBindingSlot, minimumByteSize: UInt64, isReadOnly: Bool, usage: BufferUsage = .storage) {
             self.slot = slot
@@ -115,19 +132,36 @@ public struct ComputePipeline: Equatable, Sendable {
     }
 
     public let id: ResourceID
-    let bufferBindings: [BufferBinding]
+    public let immediateByteSize: UInt64
+    /// Maximum total workgroup count when the entry point uses a linear index.
+    public let maximumLinearWorkgroupCount: UInt32?
+    public let requiredSubgroupSize: UInt32?
+    package let bufferBindings: [BufferBinding]
 
-    let textureBindings: [SampledTextureRequirement]
-    let storageTextureBindings: [StorageTextureRequirement]
-    let samplerBindings: [SamplerRequirement]
+    package let textureBindings: [SampledTextureRequirement]
+    package let externalTextureBindings: [ComputeBindingSlot]
+    package let storageTextureBindings: [StorageTextureRequirement]
+    package let samplerBindings: [SamplerRequirement]
+    package let webBindingIndices: [ComputeBindingSlot: UInt32]
+    /// Explicit and shader-inferred nearest-only sampler slots.
+    public var nonFilteringSamplers: Set<ComputeBindingSlot> {
+        Set(samplerBindings.filter(\.requiresNonFiltering).map(\.slot))
+    }
 
     package init(id: ResourceID, storageBindings: [BufferBinding], uniformBindings: [BufferBinding] = [],
                  textureBindings: [SampledTextureRequirement] = [], storageTextureBindings: [StorageTextureRequirement] = [],
-                 samplerBindings: [SamplerRequirement] = []) {
+                 samplerBindings: [SamplerRequirement] = [], externalTextureBindings: [ComputeBindingSlot] = [],
+                 webBindingIndices: [ComputeBindingSlot: UInt32] = [:], immediateByteSize: UInt64 = 0,
+                 maximumLinearWorkgroupCount: UInt32? = nil, requiredSubgroupSize: UInt32? = nil) {
         self.id = id
+        self.immediateByteSize = immediateByteSize
+        self.maximumLinearWorkgroupCount = maximumLinearWorkgroupCount
+        self.requiredSubgroupSize = requiredSubgroupSize
         self.bufferBindings = storageBindings + uniformBindings
         self.textureBindings = textureBindings
+        self.externalTextureBindings = externalTextureBindings
         self.storageTextureBindings = storageTextureBindings
         self.samplerBindings = samplerBindings
+        self.webBindingIndices = webBindingIndices
     }
 }

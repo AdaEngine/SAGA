@@ -26,6 +26,15 @@ struct WGSLValue {
     let type: WType // value type, not pointer type
     let pointer: Bool
     let writable: Bool
+    let swizzle: WGSLSwizzleView?
+
+    init(handle: WExpr, type: WType, pointer: Bool, writable: Bool, swizzle: WGSLSwizzleView? = nil) {
+        self.handle = handle
+        self.type = type
+        self.pointer = pointer
+        self.writable = writable
+        self.swizzle = swizzle
+    }
 }
 struct WGSLLoopScope {
     let depth: Int
@@ -37,6 +46,7 @@ final class WGSLFunctionBody {
     var result: IRFunctionResult?
     var locals: [IRLocalVariable] = []
     var expressions: [IRExpression] = []
+    var pipelineStages: [IRPipelineEvaluationStage] = []
     var statements: [IRStatement] = []
     var blocks: [IRBlock] = []
     var scopes: [[String: WGSLValue]] = [[:]]
@@ -67,20 +77,43 @@ final class WGSLParser {
     var predeclaredTypes: [IRPredeclaredTypeBinding] = []
     var globals: [IRGlobalVariable] = []
     var constants: [IRConstant] = []
+    var overrides: [IROverride] = []
+    var overrideNames: [String: IRHandle<IROverride>] = [:]
+    var hasOverrideDeclarations = false
     var globalExpressions: [IRExpression] = []
     var functions: [IRFunction] = []
     var entries: [IREntryPoint] = []
+    var diagnosticFilters: [IRDiagnosticFilter] = []
+    var float16Enabled = false
+    var clipDistancesEnabled = false
+    var primitiveIndexEnabled = false
+    var subgroupsEnabled = false
+    var subgroupIDEnabled = false
+    var requiresSubgroupUniformity = false
+    var subgroupSizeControlEnabled = false
+    var linearIndexingEnabled = false
+    var dualSourceBlendingEnabled = false
+    var bindingArraysEnabled = false
+    // Record whether the module needs pointer parameter lowering with subview bounds checks.
+    var allowsPointerSubviews = false
+    var uniformBufferStandardLayout = false
+    var allowsSwizzleAssignment = false
+    var moduleDiagnosticFilter: IRHandle<IRDiagnosticFilter>?
     var names: Set<String> = []
     var constantNames: [String: Int] = [:]
     var integerConstants: [String: WGSLIntegerConstant] = [:]
     var matrixConstants: [String:WGSLMatrixConstant] = [:]
+    var compositeConstants: [String: WGSLScalarConstant] = [:]
+    var decompositionConstants: [String: WGSLDecompositionConstant] = [:]
     var vectorConstants: [String: WGSLVectorConstant] = [:]
     var booleanConstants: [String: Bool] = [:]
     var floatConstants: [String: WGSLFloatingConstant] = [:]
     var abstractFloatConstants: [String: Double] = [:]
     var globalNames: [String: Int] = [:]
     var functionNames: [String: Int] = [:]
+    var mustUseFunctions: Set<Int> = []
     var body = WGSLFunctionBody()
+    var pipelineExpressionEnd: Int?
     init(tokens: [WGSLToken], budget: ShaderBudget, options: WGSLFrontendOptions) {
         self.tokens = tokens; self.budget = budget; self.options = options
     }
@@ -91,13 +124,19 @@ final class WGSLParser {
         if cursor < tokens.count - 1 { cursor += 1 }
         return t
     }
-    func isNext(_ text: String) -> Bool { token.text == text }
+    func isNext(_ text: String) -> Bool {
+        switch text {
+        case "<": token.kind == .templateStart
+        case ">": token.kind == .templateEnd
+        default: token.text == text
+        }
+    }
     @discardableResult func eat(_ text: String) throws -> Bool {
         try budget.consume(.work)
-        if token.text == text { _ = try take(); return true }; return false
+        if isNext(text) { _ = try take(); return true }; return false
     }
     @discardableResult func expect(_ text: String) throws -> WGSLToken {
-        guard token.text == text else { throw wgslError(.unexpectedToken,"Expected '\(text)', found '\(token.text)'",token) }
+        guard isNext(text) else { throw wgslError(.unexpectedToken,"Expected '\(text)', found '\(token.text)'",token) }
         return try take()
     }
     func unsupported(_ what: String, at t: WGSLToken? = nil) -> ShaderFailure {
@@ -130,15 +169,19 @@ final class WGSLParser {
         let h = try WType(index:types.count); types.append(IRType(name:name,kind:kind,location:t?.location)); return h
     }
     func module() throws -> IRModule {
+        try parseModuleDirectives()
         try indexModuleDeclarations()
         for i in declarations.indices {
             try resolveDeclaration(i,at:declarations[i].name)
         }
         try budget.checkCancellation()
         try compactAbstractIntermediates()
-        return IRModule(types:IRTable(types),specialTypes:.init(predeclared:predeclaredTypes),constants:IRTable(constants),
+        return IRModule(types:IRTable(types),specialTypes:.init(predeclared:predeclaredTypes),constants:IRTable(constants), overrides:IRTable(overrides),
                         globalVariables:IRTable(globals),globalExpressions:IRTable(globalExpressions),
-                        functions:IRTable(functions),entryPoints:entries)
+                        functions:IRTable(functions),entryPoints:entries,
+                        diagnosticFilters:IRTable(diagnosticFilters),diagnosticFilter:moduleDiagnosticFilter,
+                        allowsPointerSubviews: allowsPointerSubviews, uniformBufferStandardLayout: uniformBufferStandardLayout,
+                        requiresSubgroupUniformity: requiresSubgroupUniformity)
     }
     struct Attribute {
         let name: WGSLToken
@@ -148,29 +191,49 @@ final class WGSLParser {
     func attributes() throws -> [String: Attribute] {
         var out: [String: Attribute] = [:]
         while try eat("@") {
-            let n = try ident(); guard out[n.text] == nil else { throw wgslError(.duplicateName,"Duplicate attribute",n) }
-            var expressions: [[WGSLToken]] = []
-            if try eat("(") {
-                var argument: [WGSLToken] = []; var depth = 0
-                while !(isNext(")") && depth == 0) {
-                    guard token.kind != .end else { throw wgslError(.unexpectedToken,"Unterminated attribute",n) }
-                    if isNext(",") && depth == 0 {
-                        guard !argument.isEmpty else { throw wgslError(.unexpectedToken,"Empty attribute argument",token) }
-                        expressions.append(argument); argument=[]; _ = try take(); continue
-                    }
-                    if isNext("(") { try enter(); depth += 1 }
-                    else if isNext(")") { depth -= 1; nesting -= 1 }
-                    try node(); argument.append(try take())
-                }
-                if !argument.isEmpty { expressions.append(argument) }
-                try expect(")")
+            let n = try isNext("diagnostic") ? take() : ident()
+            let key = n.text == "diagnostic" ? "diagnostic@\(n.start)" : n.text
+            guard out[key] == nil else { throw wgslError(.duplicateName,"Duplicate attribute",n) }
+            let hasParentheses = try eat("(")
+            if hasParentheses && (n.text == "invariant" || n.text == "must_use") {
+                throw wgslError(.unexpectedToken, "@\(n.text) does not take parentheses", n)
             }
-            try node(); out[n.text] = Attribute(name:n,expressions:expressions)
+            let expressions: [[WGSLToken]]
+            if n.text == "early_depth_test" {
+                guard hasParentheses else {
+                    throw wgslError(.unexpectedToken, "@early_depth_test requires a mode in parentheses", n)
+                }
+                expressions = [[try ident()]]
+                try expect(")")
+            } else {
+                expressions = try hasParentheses ? attributeArguments(at: n) : []
+            }
+            try node(); out[key] = Attribute(name:n,expressions:expressions)
         }
         return out
     }
+    func attributeArguments(at name: WGSLToken) throws -> [[WGSLToken]] {
+        var expressions: [[WGSLToken]] = []
+        var argument: [WGSLToken] = []; var depth = 0
+        while !(isNext(")") && depth == 0) {
+            guard token.kind != .end else { throw wgslError(.unexpectedToken,"Unterminated attribute",name) }
+            if isNext(",") && depth == 0 {
+                guard !argument.isEmpty else { throw wgslError(.unexpectedToken,"Empty attribute argument",token) }
+                expressions.append(argument); argument=[]; _ = try take(); continue
+            }
+            if token.opensGroup { try enter(); depth += 1 }
+            else if token.closesGroup {
+                guard depth > 0 else { throw wgslError(.unexpectedToken, "Unmatched attribute delimiter", token) }
+                depth -= 1; nesting -= 1
+            }
+            try node(); argument.append(try take())
+        }
+        if !argument.isEmpty { expressions.append(argument) }
+        try expect(")")
+        return expressions
+    }
     func checkAttributes(_ attrs: [String: Attribute], allowed: Set<String>) throws {
-        for (key,a) in attrs { try budget.consume(.work); guard allowed.contains(key) else { throw unsupported("attribute @\(key)",at:a.name) } }
+        for a in attrs.values { try budget.consume(.work); guard allowed.contains(a.name.text) else { throw unsupported("attribute @\(a.name.text)",at:a.name) } }
     }
     func uint(_ t: WGSLToken) throws -> UInt32 {
         var text = t.text
@@ -183,15 +246,30 @@ final class WGSLParser {
         return try attributeValue(value,at:a.arguments.first ?? a.name)
     }
     func binding(_ attrs: [String: Attribute]) throws -> IRBinding? {
-        try checkAttributes(attrs,allowed:["builtin","location","interpolate"])
-        guard attrs["builtin"] == nil || attrs.count == 1,
+        try checkAttributes(attrs,allowed:["builtin","location","interpolate","invariant","blend_src"])
+        let invariant = attrs["invariant"]
+        if let invariant, attrs["builtin"]?.arguments.first?.text != "position" {
+            throw wgslError(.invalidBinding,"@invariant requires @builtin(position)",invariant.name)
+        }
+        var blendSource: UInt32?
+        if let blend = attrs["blend_src"] {
+            guard dualSourceBlendingEnabled else {
+                throw wgslError(.unsupportedCapability,"@blend_src requires enable dual_source_blending",blend.name)
+            }
+            let source = try attributeUInt(blend)
+            guard attrs["location"] != nil, source <= 1 else {
+                throw wgslError(.invalidBinding,"@blend_src requires @location and a source index of 0 or 1",blend.name)
+            }
+            blendSource = source
+        }
+        guard attrs["builtin"] == nil || attrs["location"] == nil,
               attrs["interpolate"] == nil || attrs["location"] != nil else {
             throw wgslError(.invalidBinding,"Conflicting binding attributes",token)
         }
         if let a = attrs["location"] {
             let index = try attributeUInt(a)
             guard let attribute = attrs["interpolate"] else {
-                return .location(index:index,interpolation:nil,sampling:nil,blendSource:nil,perPrimitive:false)
+                return .location(index:index,interpolation:nil,sampling:nil,blendSource:blendSource,perPrimitive:false)
             }
             let words = attribute.arguments
             guard (1...2).contains(words.count), attribute.expressions.count == words.count,
@@ -204,26 +282,52 @@ final class WGSLParser {
             let valid = interpolation == .flat ? sampling == .first || sampling == .either :
                 sampling == .center || sampling == .centroid || sampling == .sample
             guard valid else { throw wgslError(.invalidBinding,"Invalid interpolation sampling",attribute.name) }
-            return .location(index:index,interpolation:interpolation,sampling:sampling,blendSource:nil,perPrimitive:false)
+            return .location(index:index,interpolation:interpolation,sampling:sampling,blendSource:blendSource,perPrimitive:false)
         }
         if let a = attrs["builtin"] {
             guard a.expressions.count == 1, a.arguments.count == 1, let t = a.arguments.first, t.kind == .word else { throw wgslError(.invalidBinding,"Expected builtin name",a.name) }
             let builtin: IRBuiltIn
             switch t.text {
             case "global_invocation_id": builtin = .globalInvocationId
+            case "global_invocation_index", "workgroup_index":
+                guard linearIndexingEnabled else {
+                    throw wgslError(.unsupportedCapability, "This builtin requires linear_indexing", t)
+                }
+                builtin = t.text == "global_invocation_index" ? .globalInvocationIndex : .workgroupIndex
             case "local_invocation_id": builtin = .localInvocationId
             case "local_invocation_index": builtin = .localInvocationIndex
             case "workgroup_id": builtin = .workgroupId
             case "num_workgroups": builtin = .numWorkgroups
             case "vertex_index": builtin = .vertexIndex
             case "instance_index": builtin = .instanceIndex
-            case "position": builtin = .position(invariant:false)
+            case "position": builtin = .position(invariant: invariant != nil)
+            case "clip_distances":
+                guard clipDistancesEnabled else {
+                    throw wgslError(.unsupportedCapability, "clip_distances requires enable clip_distances", t)
+                }
+                builtin = .clipDistances
             case "front_facing": builtin = .frontFacing
+            case "primitive_index":
+                guard primitiveIndexEnabled else {
+                    throw wgslError(.unsupportedCapability, "primitive_index requires enable primitive_index", t)
+                }
+                builtin = .primitiveIndex
+            case "barycentric", "barycentric_no_perspective":
+                builtin = .barycentric(perspective: t.text == "barycentric")
             case "frag_depth": builtin = .fragDepth
             case "sample_index":
                 guard options.capabilities.contains(.multisampledShading) else { throw wgslError(.unsupportedCapability,"sample_index requires multisampledShading",t) }
                 builtin = .sampleIndex
             case "sample_mask": builtin = .sampleMask
+            case "subgroup_size", "subgroup_invocation_id":
+                try requireSubgroups(at: t)
+                builtin = t.text == "subgroup_size" ? .subgroupSize : .subgroupInvocationId
+            case "subgroup_id", "num_subgroups":
+                try requireSubgroups(at: t)
+                guard subgroupIDEnabled else {
+                    throw wgslError(.unsupportedCapability, "This builtin requires subgroup_id", t)
+                }
+                builtin = t.text == "subgroup_id" ? .subgroupId : .numSubgroups
             default: throw unsupported("builtin '\(t.text)'",at:t)
             }
             return .builtIn(builtin)
@@ -235,28 +339,37 @@ final class WGSLParser {
         let t = try take()
         try resolveTypeDeclarationIfIndexed(t)
         if let known = typeNames[wgslKey(t.text)] { return known }
-        if let kind = predeclaredType(t.text) { return try intern(kind) }
+        if let kind = predeclaredType(t.text) {
+            if kind.usesFloat16 { try requireFloat16(at: t) }
+            return try intern(kind)
+        }
         let scalar: IRScalar?
         switch t.text {
         case "u32": scalar = .u32
+        case "u64": scalar = .u64
         case "i32": scalar = .i32
+        case "i64": scalar = .i64
         case "f32": scalar = .f32
+        case "f16": try requireFloat16(at: t); scalar = .f16
         case "bool": scalar = .bool
         default: scalar = nil
         }
         if let scalar { return try intern(.scalar(scalar)) }
+        if t.text == "ptr" { return try pointerType(at: t) }
+        if t.text == "texture_external" {
+            return try intern(.image(dimension: .d2, arrayed: false, class: .external))
+        }
         if t.text == "sampler" || t.text == "sampler_comparison" {
             return try intern(.sampler(comparison: t.text == "sampler_comparison"))
         }
-        if t.text == "texture_storage_2d" || t.text == "texture_storage_2d_array" {
+        if ["texture_storage_1d", "texture_storage_2d", "texture_storage_2d_array", "texture_storage_3d"].contains(t.text) {
             try expect("<")
             let format = try take()
             try expect(",")
             let access = try take()
             _ = try eat(",")
             try expect(">")
-            guard let storageFormat = IRStorageFormat.allCases.first(where: { $0.rawValue.lowercased() == format.text }),
-                  storageFormat.coreStorageTexel != nil else {
+            guard let storageFormat = IRStorageFormat.allCases.first(where: { $0.rawValue.lowercased() == format.text }) else {
                 throw unsupported("storage texture format", at: format)
             }
             let mode: IRStorageAccess
@@ -264,11 +377,13 @@ final class WGSLParser {
             case "read": mode = .load
             case "write": mode = .store
             case "read_write": mode = [.load, .store]
+            case "atomic": mode = [.load, .store, .atomic]
             default: throw unsupported("storage texture access", at: access)
             }
-            let kind = IRTypeKind.image(dimension: .d2, arrayed: t.text == "texture_storage_2d_array",
+            let dimension: IRImageDimension = t.text == "texture_storage_1d" ? .d1 : t.text == "texture_storage_3d" ? .d3 : .d2
+            let kind = IRTypeKind.image(dimension: dimension, arrayed: t.text == "texture_storage_2d_array",
                                         class: .storage(format: storageFormat, access: mode))
-            guard kind.storageTexture2D != nil else { throw unsupported("storage texture format and access combination", at: t) }
+            guard kind.storageTexture != nil else { throw unsupported("storage texture format and access combination", at: t) }
             return try intern(kind)
         }
         if t.text == "texture_depth_2d" { return try intern(.sampledDepth2D) }
@@ -277,7 +392,7 @@ final class WGSLParser {
             return try intern(.image(dimension: dimension, arrayed: t.text.hasSuffix("_array"), class: .depth(multisampled: false)))
         }
         if t.text == "texture_depth_multisampled_2d" { return try intern(.multisampledDepth2D) }
-        if ["texture_2d", "texture_2d_array", "texture_multisampled_2d", "texture_cube", "texture_cube_array", "texture_3d"].contains(t.text) {
+        if ["texture_1d", "texture_2d", "texture_2d_array", "texture_multisampled_2d", "texture_cube", "texture_cube_array", "texture_3d"].contains(t.text) {
             try expect("<")
             let element = try type()
             try expect(">")
@@ -285,7 +400,12 @@ final class WGSLParser {
                   [.f32, .i32, .u32].contains(scalar) else {
                 throw wgslError(.typeMismatch, "Sampled texture element type must be f32, i32 or u32", t)
             }
-            let dimension: IRImageDimension = t.text == "texture_3d" ? .d3 : t.text.contains("_cube") ? .cube : .d2
+            let dimension: IRImageDimension = switch t.text {
+            case "texture_1d": .d1
+            case "texture_3d": .d3
+            case "texture_cube", "texture_cube_array": .cube
+            default: .d2
+            }
             return try intern(.image(dimension: dimension, arrayed: t.text.hasSuffix("_array"),
                                      class: .sampled(kind: scalar.kind, multisampled: t.text == "texture_multisampled_2d")))
         }
@@ -299,34 +419,50 @@ final class WGSLParser {
             guard chars[4] == "x", let c = chars[3].wholeNumberValue, let r = chars[5].wholeNumberValue,
                   let columns = IRVectorSize(rawValue:UInt8(c)), let rows = IRVectorSize(rawValue:UInt8(r)) else { throw wgslError(.invalidType,"Invalid matrix type",t) }
             try expect("<"); let elem = try type(); try expect(">")
-            guard types[elem.index].kind == .scalar(.f32) else { throw unsupported("non-f32 matrix",at:t) }
-            return try intern(.matrix(columns:columns,rows:rows,scalar:.f32))
+            guard case .scalar(let scalar) = types[elem.index].kind, scalar == .f32 || scalar == .f16 else {
+                throw wgslError(.typeMismatch, "Matrix scalar must be f32 or f16", t)
+            }
+            return try intern(.matrix(columns: columns, rows: rows, scalar: scalar))
         }
-        if t.text == "array" {
-            try expect("<"); let elem = try type(); var count: UInt32?
-            if try eat(",") {
+        if t.text == "array" || t.text == "binding_array" {
+            let bindingArray = t.text == "binding_array"
+            if bindingArray, !bindingArraysEnabled {
+                throw wgslError(.unsupportedCapability, "binding_array requires enable wgpu_binding_array", t)
+            }
+            try expect("<")
+            let elem = try type()
+            var count = IRArraySize.dynamic
+            if try eat(","), !isNext(">") {
                 var expression: [WGSLToken] = []; var depth = 0
                 while !(depth == 0 && (isNext(">") || isNext(","))) {
                     guard token.kind != .end else { throw wgslError(.unexpectedToken,"Unterminated array count",t) }
-                    if isNext("(") { try enter(); depth += 1 }
-                    else if isNext(")") {
-                        guard depth > 0 else { throw wgslError(.unexpectedToken,"Unmatched array count parenthesis",token) }
+                    if token.opensGroup { try enter(); depth += 1 }
+                    else if token.closesGroup {
+                        guard depth > 0 else { throw wgslError(.unexpectedToken,"Unmatched array count delimiter",token) }
                         depth -= 1; nesting -= 1
                     }
                     try node(); expression.append(try take())
                 }
-                count = try attributeValue(integerConstant(expression,at:t),at:expression.first ?? t)
+                if let pending = try overrideArrayCount(expression, at: expression.first ?? t) {
+                    count = .override(pending)
+                } else {
+                    let value = try attributeValue(integerConstant(expression, at: t), at: expression.first ?? t)
+                    guard value > 0 else { throw wgslError(.invalidType, "Array count must be positive", t) }
+                    count = .constant(value)
+                }
                 _ = try eat(",")
             }
             try expect(">")
-            if let count, count == 0 { throw wgslError(.invalidType,"Array count must be positive",t) }
+            if bindingArray { return try intern(.bindingArray(base: elem, size: count), at: t) }
             guard try isSized(elem) else { throw wgslError(.invalidType,"Unsized array element",t) }
             let l = try layout(elem)
-            return try intern(.array(base:elem,size:count.map(IRArraySize.constant) ?? .dynamic,stride:try aligned(l.1,to:l.0,at:t)))
+            return try intern(.array(base: elem, size: count, stride: try aligned(l.1, to: l.0, at: t)))
         }
         if t.text == "atomic" {
             try expect("<"); let elem = try type(); try expect(">")
-            guard case .scalar(let s) = types[elem.index].kind, s == .u32 || s == .i32 else { throw wgslError(.invalidType,"Atomic needs i32/u32",t) }
+            guard case .scalar(let s) = types[elem.index].kind, [.u32, .i32, .u64, .i64, .f32].contains(s) else {
+                throw wgslError(.invalidType, "Atomic requires a supported numeric scalar", t)
+            }
             return try intern(.atomic(s))
         }
         throw wgslError(.unresolvedName,"Unresolved type '\(t.text)'",t)
@@ -337,6 +473,39 @@ final class WGSLParser {
         guard wide <= UInt64(Int32.max), let out = UInt32(exactly:wide) else { throw wgslError(.invalidType,"Layout overflow",t) }; return out
     }
     // Sizedness is independent of minimum footprint: a dynamic array occupies at least one stride in IR.
+    private func pointerType(at t: WGSLToken) throws -> WType {
+        try expect("<")
+        let addressSpace = try take()
+        try expect(",")
+        let base = try type()
+        if case .bindingArray = types[base.index].kind {
+            throw wgslError(.invalidType, "A binding array cannot be the base of an explicit pointer type", t)
+        }
+        let space: IRAddressSpace
+        switch addressSpace.text {
+        case "function": space = .function
+        case "private": space = .private
+        case "workgroup": space = .workgroup
+        case "uniform": space = .uniform
+        case "immediate": space = .immediate
+        case "storage":
+            var access: IRStorageAccess = .load
+            if try eat(","), !isNext(">") {
+                let mode = try take()
+                switch mode.text {
+                case "read": break
+                case "read_write": access.insert(.store)
+                default: throw wgslError(.invalidAddressSpace, "Invalid storage pointer access mode", mode)
+                }
+            }
+            space = .storage(access: access)
+        default: throw wgslError(.invalidAddressSpace, "Invalid pointer address space", addressSpace)
+        }
+        _ = try eat(",")
+        try expect(">")
+        return try intern(.pointer(base: base, space: space), at: t)
+    }
+
     func isSized(_ h: WType) throws -> Bool {
         try enter(); defer { nesting -= 1 }
         guard types.indices.contains(h.index) else { throw wgslError(.invalidReference,"Invalid layout type",token) }
@@ -368,6 +537,7 @@ final class WGSLParser {
             let alignment = UInt32(r == .two ? 2 : 4)*UInt32(s.width)
             return (alignment,UInt32(c.rawValue)*alignment)
         case .array(let base,let count,let stride):
+            if case .override = count { throw unsupported("Workgroup array footprint requires specialization") }
             let alignment = try layout(base).0
             if case .constant(let n) = count {
                 guard UInt64(n)*UInt64(stride) <= UInt64(Int32.max), let size = UInt32(exactly:UInt64(n)*UInt64(stride)) else { throw wgslError(.invalidType,"Array layout overflow",token) }; return (alignment,size)
@@ -392,7 +562,7 @@ final class WGSLParser {
                     throw wgslError(.invalidType,"Only a direct runtime array may be an unsized member",name)
                 }
             }
-            try checkAttributes(attrs, allowed: ["align", "size", "builtin", "location", "interpolate"])
+            try checkAttributes(attrs, allowed: ["align", "size", "builtin", "location", "interpolate", "invariant", "blend_src"])
             let l = try layout(ty)
             var memberAlignment = l.0, memberSize = l.1
             if let a = attrs["align"] {
@@ -436,28 +606,53 @@ final class WGSLParser {
             switch s.text {
             case "storage": space = .storage(access:access)
             case "uniform": space = .uniform
+            case "immediate": space = .immediate
             case "private": space = .private
             case "workgroup": space = .workgroup
             default: throw unsupported("global address space",at:s)
             }
         }
-        let n = try ident(); try reserve(n); try expect(":"); let ty = try type()
+        let n = try ident()
+        try reserve(n)
+        let annotation = try eat(":") ? try type() : nil
+        let initializer: WExpr?
+        let ty: WType
+        if try eat("=") {
+            guard space == .private else {
+                throw wgslError(.invalidAddressSpace, "Only private globals can have initializers", n)
+            }
+            let tokens = try constantExpressionTokens(at: n)
+            let value = try lowerPrivateInitializer(tokens, annotation: annotation, at: n)
+            initializer = value
+            ty = globalExpressions[value.index].type
+        } else {
+            guard let annotation else { throw wgslError(.invalidType, "Global variable needs a type or initializer", n) }
+            ty = annotation
+            initializer = nil
+            try expect(";")
+        }
         let kind = types[ty.index].kind
-        if kind.isSampledTexture || kind.isSampler || kind.storageTexture2D != nil {
+        let resourceKind: IRTypeKind
+        if case .bindingArray(let element, _) = kind {
+            resourceKind = types[element.index].kind
+        } else {
+            resourceKind = kind
+        }
+        if resourceKind.isTextureOrSampler {
             guard !explicitSpace else {
                 throw wgslError(.invalidAddressSpace, "Texture and sampler address space is implicit", n)
             }
             space = .handle
         }
-        if try eat("=") { throw unsupported("global variable initializer") }
-        try expect(";")
         var bind: IRResourceBinding?
         if let group = attrs["group"], let b = attrs["binding"] { bind = IRResourceBinding(group:try attributeUInt(group),binding:try attributeUInt(b)) }
         else if !attrs.isEmpty { throw wgslError(.invalidBinding,"group and binding must occur together",n) }
         if space == .handle || space == .uniform || { if case .storage = space { true } else { false } }() {
             guard bind != nil else { throw wgslError(.invalidBinding,"Resource requires binding",n) }
         } else if bind != nil { throw wgslError(.invalidBinding,"Non-resource cannot have binding",n) }
-        try node(); globalNames[wgslKey(n.text)] = globals.count; globals.append(IRGlobalVariable(name:n.text,space:space,binding:bind,type:ty,location:n.location))
+        try node()
+        globalNames[wgslKey(n.text)] = globals.count
+        globals.append(.init(name: n.text, space: space, binding: bind, type: ty, initializer: initializer, location: n.location))
     }
     func constant(_ attrs: [String: Attribute]) throws {
         guard attrs.isEmpty else { throw unsupported("constant attributes") }
@@ -474,6 +669,8 @@ final class WGSLParser {
         try expect(";")
         let key=wgslKey(n.text)
         switch value {
+        case .array, .composite: compositeConstants[key] = value; return
+        case .decomposition(let parts): decompositionConstants[key] = parts; return
         case .matrix(let m):matrixConstants[key]=m;return
         case .vector(let v):vectorConstants[key]=v;return
         case .integer(let i):

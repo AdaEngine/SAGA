@@ -1,12 +1,14 @@
 import SAGAShaderIR
 
 struct WGSLToken {
-    enum Kind { case word, number, symbol, end }
+    enum Kind { case word, number, symbol, templateStart, templateEnd, end }
     let kind: Kind
     let text: String
     let start: Int
     let end: Int
     var location: ShaderLocation? { (try? SourceSpan(startUTF8: start, endUTF8: end)).map(ShaderLocation.source) }
+    var opensGroup: Bool { kind == .templateStart || text == "(" || text == "[" }
+    var closesGroup: Bool { kind == .templateEnd || text == ")" || text == "]" }
 }
 
 func wgslError(_ code: ShaderDiagnosticCode, _ message: String, _ token: WGSLToken) -> ShaderFailure {
@@ -85,7 +87,8 @@ struct WGSLScanner {
                     while digit(char(i)) { try budget.consume(.work); i += 1 }
                     if i == expStart { throw wgslError(.invalidToken,"Missing numeric exponent",token(begin,i,.number)) }
                 }
-                if char(i) == "u" || char(i) == "i" || char(i) == "f" || char(i) == "h" { i += 1 }
+                if char(i) == "l" && (char(i + 1) == "u" || char(i + 1) == "i") { i += 2 }
+                else if char(i) == "u" || char(i) == "i" || char(i) == "f" || char(i) == "h" { i += 1 }
                 if let next = char(i), next.properties.isXIDContinue { throw wgslError(.invalidToken,"Invalid numeric suffix",token(begin,i+1,.number)) }
                 kind = .number
             } else {
@@ -93,7 +96,7 @@ struct WGSLScanner {
                     throw wgslError(.invalidToken,"Invalid or unsupported token",token(i,i+1,.symbol))
                 }
                 i += 1
-                // Angle tokens stay separate; parser combines shifts only in expression context.
+                // Template discovery may split >=. Expression parsing combines adjacent shift tokens.
                 if let next = char(i) {
                     let pair = String(c) + String(next)
                     if ["->","==","!=","<=",">=","&&","||","+=","-=","*=","/=","%=","&=","|=","^=","++","--"].contains(pair) { i += 1 }
@@ -106,7 +109,54 @@ struct WGSLScanner {
         }
         try budget.consume(.tokens)
         result.append(WGSLToken(kind: .end,text: "",start:offset,end:offset))
-        return (result,budget)
+        let tokens = try discoverTemplates(in: result, budget: &budget)
+        return (tokens, budget)
+    }
+
+    private func discoverTemplates(in raw: [WGSLToken], budget: inout ShaderBudget) throws -> [WGSLToken] {
+        // Match candidate angle brackets at the same expression depth before parsing.
+        var tokens: [WGSLToken] = []
+        tokens.reserveCapacity(raw.count)
+        var pending: [(position: Int, depth: Int)] = []
+        var depth = 0
+        for (index, token) in raw.enumerated() {
+            try budget.consume(.work)
+            switch token.text {
+            case "<" where index > 0 && raw[index - 1].kind == .word:
+                let next = raw[index + 1]
+                if token.end != next.start || (next.text != "<" && next.text != "<=") {
+                    pending.append((tokens.count, depth))
+                }
+            case ">", ">=":
+                if let opener = pending.last, opener.depth == depth {
+                    pending.removeLast()
+                    let open = tokens[opener.position]
+                    tokens[opener.position] = .init(kind: .templateStart, text: "<", start: open.start, end: open.end)
+                    tokens.append(.init(kind: .templateEnd, text: ">", start: token.start, end: token.start + 1))
+                    if token.text == ">=" {
+                        try budget.consume(.tokens)
+                        tokens.append(.init(kind: .symbol, text: "=", start: token.start + 1, end: token.end))
+                        pending.removeAll(keepingCapacity: true)
+                        depth = 0
+                    }
+                    continue
+                }
+            case "(", "[":
+                depth += 1
+            case ")", "]", "&&", "||":
+                while let opener = pending.last, opener.depth >= depth {
+                    try budget.consume(.work)
+                    pending.removeLast()
+                }
+                if token.text == ")" || token.text == "]" { depth = max(0, depth - 1) }
+            case "=", ";", "{", ":":
+                pending.removeAll(keepingCapacity: true)
+                depth = 0
+            default: break
+            }
+            tokens.append(token)
+        }
+        return tokens
     }
 }
 

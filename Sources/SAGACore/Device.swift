@@ -46,19 +46,24 @@ public actor Device {
     public nonisolated let identity: UInt64
     public nonisolated let supportsPresentation: Bool
     private let backend: any BackendDevice
-    private enum ResourceKind: Equatable { case buffer, texture, sampler, textureView }
+    private enum ResourceKind: Equatable { case buffer, texture, externalTexture, sampler, textureView, querySet }
     private enum ResourceDescriptor {
         case buffer(BufferDescriptor)
         case texture(TextureDescriptor)
+        case externalTexture(ExternalTextureDescriptor)
+        case planarExternalTexture(PlanarExternalTextureDescriptor)
         case sampler(SamplerDescriptor)
         case textureView(TextureViewResource)
+        case querySet(QuerySetDescriptor)
 
         var kind: ResourceKind {
             switch self {
             case .buffer: .buffer
             case .texture: .texture
+            case .externalTexture, .planarExternalTexture: .externalTexture
             case .sampler: .sampler
             case .textureView: .textureView
+            case .querySet: .querySet
             }
         }
         var buffer: BufferDescriptor? {
@@ -77,12 +82,28 @@ public actor Device {
             if case .textureView(let value) = self { return value }
             return nil
         }
+        var externalPlanes: [ResourceID] {
+            if case .planarExternalTexture(let descriptor) = self { return descriptor.planes }
+            return []
+        }
+        var querySet: QuerySetDescriptor? {
+            if case .querySet(let descriptor) = self { return descriptor }
+            return nil
+        }
     }
     private struct Resource {
         let descriptor: ResourceDescriptor
         var ready = false
         var destroyed = false
         var uses = 0
+        var mapping: MappingSession?
+    }
+    private struct MappingSession {
+        enum Phase { case queued, opening, mapped, closing }
+        let handle: BufferMapping
+        var phase: Phase
+        var accessTail: Task<Void, Never>?
+        var closeWaiters: [CheckedContinuation<Void, Error>] = []
     }
     private struct Scope {
         let token: ErrorScope
@@ -94,6 +115,7 @@ public actor Device {
     }
     private var resources: [ResourceID: Resource] = [:]
     private var nextResource: UInt64 = 0
+    private var nextMapping: UInt64 = 0
     private var nextSubmission: UInt64 = 0
     private var nextScope: UInt64 = 0
     private var scopes: [ErrorScope: Scope] = [:]
@@ -164,8 +186,24 @@ public actor Device {
         try await createResource { .texture(descriptor) }
     }
 
+    public func importExternalTexture(_ descriptor: ExternalTextureDescriptor) async throws -> ResourceID {
+        try await createResource { .externalTexture(descriptor) }
+    }
+
+    public func importExternalTexture(_ descriptor: PlanarExternalTextureDescriptor) async throws -> ResourceID {
+        try await createResource { .planarExternalTexture(descriptor) }
+    }
+
+    public func destroyExternalTexture(_ id: ResourceID) async throws {
+        try await destroyResource(id, expected: .externalTexture)
+    }
+
     public func createSampler(_ descriptor: SamplerDescriptor = .init()) async throws -> ResourceID {
         try await createResource { .sampler(descriptor) }
+    }
+
+    public func createQuerySet(_ descriptor: QuerySetDescriptor) async throws -> ResourceID {
+        try await createResource { .querySet(descriptor) }
     }
 
     public func createTextureView(texture: ResourceID, _ descriptor: TextureViewDescriptor = .init()) async throws -> ResourceID {
@@ -190,7 +228,7 @@ public actor Device {
             switch descriptor {
             case .buffer(let value):
                 try value.validate(against: capabilities)
-                guard !value.mappedAtCreation else { throw GPUError.unsupported("Mapped allocation requires SAGA-4 mapping") }
+                if value.mappedAtCreation { _ = try mappingBackend() }
                 let backend = backend
                 allocate = { try await backend.allocateBuffer(id: $0, descriptor: value) }
             case .texture(let value):
@@ -199,6 +237,16 @@ public actor Device {
                     throw GPUError.unsupported("Backend does not implement textures")
                 }
                 allocate = { try await render.allocateTexture(id: $0, descriptor: value) }
+            case .externalTexture(let value):
+                let external = try externalTextureBackend()
+                guard value.videoFrame != 0 else { throw GPUError.validation("Invalid VideoFrame token") }
+                allocate = { try await external.allocateExternalTexture(id: $0, descriptor: value) }
+            case .planarExternalTexture(let value):
+                guard let external = backend as? any PlanarExternalTextureBackendDevice, external.supportsExternalTextures else {
+                    throw GPUError.unsupported("Backend does not support planar external textures")
+                }
+                try validateExternalPlanes(value)
+                allocate = { try await external.allocatePlanarExternalTexture(id: $0, descriptor: value) }
             case .sampler(let value):
                 guard let sampler = backend as? any SamplerBackendDevice else {
                     throw GPUError.unsupported("Backend does not implement samplers")
@@ -209,6 +257,12 @@ public actor Device {
                     throw GPUError.unsupported("Backend does not implement texture views")
                 }
                 allocate = { try await renderer.allocateTextureView(id: $0, texture: view.texture, descriptor: view.descriptor) }
+            case .querySet(let value):
+                try value.validate(against: capabilities)
+                guard let queryBackend = backend as? any QuerySetBackendDevice else {
+                    throw GPUError.unsupported("Backend does not implement query sets")
+                }
+                allocate = { try await queryBackend.allocateQuerySet(id: $0, descriptor: value) }
             }
             guard nextResource < UInt64.max else { throw GPUError.outOfMemory }
             nextResource += 1
@@ -219,6 +273,10 @@ public actor Device {
                 try Task.checkCancellation()
                 try requireActive()
                 if let view = descriptor.textureView { try requireResource(view.texture) }
+                for plane in descriptor.externalPlanes { try requireResource(plane) }
+                if let buffer = descriptor.buffer, buffer.mappedAtCreation {
+                    _ = try installMapping(id, mode: .write, offset: 0, size: buffer.size, phase: .mapped)
+                }
                 resources[id]?.ready = true
                 return id
             } catch {
@@ -244,6 +302,30 @@ public actor Device {
            resources[view.texture]?.destroyed != false {
             throw GPUError.validation("Texture view has a destroyed parent texture")
         }
+        for plane in resource.descriptor.externalPlanes { try requireResource(plane) }
+    }
+
+    private func validateExternalPlanes(_ descriptor: PlanarExternalTextureDescriptor) throws {
+        guard descriptor.planes.count == descriptor.format.planeComponents.count else {
+            throw GPUError.validation("Invalid external texture plane count or extent")
+        }
+        var first: (width: UInt32, height: UInt32)?
+        for (index, plane) in descriptor.planes.enumerated() {
+            try requireResource(plane)
+            let view = resources[plane]?.descriptor.textureView
+            guard let texture = resources[view?.texture ?? plane]?.descriptor.texture else {
+                throw GPUError.validation("External texture planes must be textures or views")
+            }
+            let extent = try descriptor.planeExtent(at: index, texture: texture, view: view, capabilities: capabilities)
+            if index == 0 { first = extent }
+        }
+        guard let first else { throw GPUError.validation("External texture requires a first plane") }
+        _ = try descriptor.parameterWords(planeWidth: first.width, planeHeight: first.height)
+    }
+
+    private func requireGPUResource(_ id: ResourceID) throws {
+        try requireResource(id)
+        guard resources[id]?.mapping == nil else { throw GPUError.validation("Buffer is mapped or has a pending mapping") }
     }
 
     public func validateResource(_ id: ResourceID) throws {
@@ -251,19 +333,37 @@ public actor Device {
         catch { let error = normalize(error); record(error); throw error }
     }
 
-    public func createComputePipeline(_ shader: ComputeShaderArtifact) async throws -> ComputePipeline {
+    /// Non-filtering slots accept nearest samplers and permit unfilterable float textures.
+    public func createComputePipeline(
+        _ shader: ComputeShaderArtifact, nonFilteringSamplers: Set<ComputeBindingSlot> = []
+    ) async throws -> ComputePipeline {
         let operationScopes = beginOperation()
         defer { endOperation(operationScopes) }
         do {
             try Task.checkCancellation()
             try requireActive()
+            try capabilities.requireWorkgroupStorageSize(shader.workgroupStorageByteSize)
+            if !shader.externalTextures.isEmpty { _ = try externalTextureBackend() }
+            if shader.requiresShaderF16 { try capabilities.require([.shaderF16]) }
+            if shader.requiresShaderInt64 { try capabilities.require([.shaderInt64]) }
+            try capabilities.requireShaderInt64Atomics(minMax: shader.requiresShaderInt64AtomicMinMax,
+                                                      allOps: shader.requiresShaderInt64AtomicAllOps)
+            if shader.requiresSubgroups { try capabilities.require([.subgroups]) }
+            if shader.requiresSubgroupUniformity { try capabilities.require([.subgroupUniformity]) }
+            try capabilities.requireSubgroupSize(shader.requiredSubgroupSize)
+            if shader.requiresSubgroupID { try capabilities.require([.subgroupID]) }
+            if shader.requiresLinearIndexing { try capabilities.require([.linearIndexing]) }
+            if shader.requiresUniformBufferStandardLayout {
+                try capabilities.require([.uniformBufferStandardLayout])
+            }
             guard let compute = backend as? any ComputeBackendDevice else {
                 throw GPUError.unsupported("Backend does not implement compute pipelines")
             }
             guard nextResource < UInt64.max else { throw GPUError.outOfMemory }
             nextResource += 1
             let pipeline = try ComputePipeline(
-                id: ResourceID(device: identity, serial: nextResource), shader: shader)
+                id: ResourceID(device: identity, serial: nextResource), shader: shader, nonFilteringSamplers: nonFilteringSamplers)
+            try capabilities.requireImmediateSize(pipeline.immediateByteSize)
             do {
                 try await compute.allocateComputePipeline(pipeline, shader: shader)
                 try Task.checkCancellation()
@@ -283,21 +383,56 @@ public actor Device {
         }
     }
 
+    /// Non-filtering sampler slots apply to both shader stages.
     public func createRenderPipeline(
         vertex: RenderStageArtifact, fragment: RenderStageArtifact, colorFormat: TextureFormat,
         vertexBuffers: [VertexBufferLayout] = [], depthState: RenderDepthState? = nil, sampleCount: UInt32 = 1,
         sampleMask: UInt32 = .max, alphaToCoverageEnabled: Bool = false, primitive: RenderPrimitiveState = .init(),
-        colorState: RenderColorState = .init(), additionalColorTargets: [UInt32: RenderColorTarget] = [:]
+        colorState: RenderColorState = .init(), additionalColorTargets: [UInt32: RenderColorTarget] = [:],
+        nonFilteringSamplers: Set<ComputeBindingSlot> = []
     ) async throws -> RenderPipeline {
         let operationScopes = beginOperation()
         defer { endOperation(operationScopes) }
         do {
             try Task.checkCancellation()
             try requireActive()
+            if !vertex.externalTextures.isEmpty || !fragment.externalTextures.isEmpty { _ = try externalTextureBackend() }
+            if vertex.requiresShaderF16 || fragment.requiresShaderF16 { try capabilities.require([.shaderF16]) }
+            if vertex.requiresShaderInt64 || fragment.requiresShaderInt64 { try capabilities.require([.shaderInt64]) }
+            try capabilities.requireShaderInt64Atomics(
+                minMax: vertex.requiresShaderInt64AtomicMinMax || fragment.requiresShaderInt64AtomicMinMax,
+                allOps: vertex.requiresShaderInt64AtomicAllOps || fragment.requiresShaderInt64AtomicAllOps)
+            if vertex.requiresSubgroups || fragment.requiresSubgroups { try capabilities.require([.subgroups]) }
+            if vertex.requiresSubgroupUniformity || fragment.requiresSubgroupUniformity {
+                try capabilities.require([.subgroupUniformity])
+            }
+            if fragment.usesDualSourceBlending || colorState.usesSecondBlendSource ||
+                additionalColorTargets.values.contains(where: { $0.colorState.usesSecondBlendSource }) {
+                try capabilities.require([.dualSourceBlending])
+            }
+            if fragment.readsPrimitiveIndex { try capabilities.require([.primitiveIndex]) }
+            if fragment.requiresBarycentrics { try capabilities.require([.shaderBarycentrics]) }
+            if fragment.earlyDepthTest != nil { try capabilities.require([.shaderEarlyDepthTest]) }
+            if primitive.unclippedDepth { try capabilities.require([.depthClipControl]) }
+            guard fragment.varyings.count + fragment.fragmentInputBuiltinSlots <= 16 else {
+                throw GPUError.validation("Fragment inputs exceed the inter-stage limit")
+            }
+            if vertex.clipDistanceCount > 0 {
+                try capabilities.require([.clipDistances])
+                let locationLimit = 16 - (vertex.clipDistanceCount + 3) / 4
+                let variableLimit = locationLimit - (primitive.topology == .pointList ? 1 : 0)
+                guard vertex.varyings.count <= variableLimit,
+                      vertex.varyings.allSatisfy({ Int($0.location) < locationLimit }) else {
+                    throw GPUError.validation("Vertex outputs exceed the inter-stage limit with clip distances")
+                }
+            }
+            if vertex.requiresUniformBufferStandardLayout || fragment.requiresUniformBufferStandardLayout {
+                try capabilities.require([.uniformBufferStandardLayout])
+            }
             guard colorFormat.isColorAttachment else {
                 throw GPUError.validation("Render pipeline requires a supported color attachment format")
             }
-            guard depthState?.format.hasDepth ?? true else {
+            guard depthState?.format.isDepthStencil ?? true else {
                 throw GPUError.validation("Render pipeline requires a supported depth format")
             }
             guard vertex.stage == .vertex, fragment.stage == .fragment else {
@@ -308,9 +443,9 @@ public actor Device {
             }
             let formats = try VertexBufferLayout.validate(vertexBuffers)
             guard vertex.vertexInputs.allSatisfy({ input in
-                guard let format = formats[input.location], input.scalar.width == 4 else { return false }
-                switch (input.scalar.kind, format.dataType) {
-                case (.float, .float), (.sint, .sint), (.uint, .uint): return true
+                guard let format = formats[input.location] else { return false }
+                switch (input.scalar, format.dataType) {
+                case (.f16, .float), (.f32, .float), (.i32, .sint), (.u32, .uint): return true
                 default: return false
                 }
             }) else {
@@ -325,7 +460,8 @@ public actor Device {
                                               vertexBuffers: vertexBuffers, depthState: depthState, sampleCount: sampleCount,
                                               sampleMask: sampleMask, alphaToCoverageEnabled: alphaToCoverageEnabled,
                                               primitive: primitive, colorState: colorState, additionalColorTargets: additionalColorTargets,
-                                              vertex: vertex, fragment: fragment)
+                                              vertex: vertex, fragment: fragment, nonFilteringSamplers: nonFilteringSamplers,
+                                              capabilities: capabilities)
             do {
                 try await render.allocateRenderPipeline(pipeline, vertex: vertex, fragment: fragment)
                 try Task.checkCancellation()
@@ -361,6 +497,10 @@ public actor Device {
         try await destroyResource(id, expected: .textureView)
     }
 
+    public func destroyQuerySet(_ id: ResourceID) async throws {
+        try await destroyResource(id, expected: .querySet)
+    }
+
     private func destroyResource(_ id: ResourceID, expected: ResourceKind? = nil) async throws {
         let operationScopes = beginOperation()
         defer { endOperation(operationScopes) }
@@ -380,6 +520,10 @@ public actor Device {
         }
         if resource.destroyed { return }
         resources[id]?.destroyed = true
+        if let mapping = resource.mapping {
+            await cancelMappingForDestroy(mapping)
+            return
+        }
         if resource.uses == 0 {
             resources.removeValue(forKey: id)
             await retire(id, kind: resource.descriptor.kind)
@@ -390,9 +534,18 @@ public actor Device {
         switch kind {
         case .buffer: await backend.destroyBuffer(id: id)
         case .texture: await (backend as? any RenderBackendDevice)?.destroyTexture(id: id)
+        case .externalTexture: await (backend as? any ExternalTextureBackendDevice)?.destroyExternalTexture(id: id)
         case .sampler: await (backend as? any SamplerBackendDevice)?.destroySampler(id: id)
         case .textureView: await (backend as? any TextureViewBackendDevice)?.destroyTextureView(id: id)
+        case .querySet: await (backend as? any QuerySetBackendDevice)?.destroyQuerySet(id: id)
         }
+    }
+
+    private func externalTextureBackend() throws -> any ExternalTextureBackendDevice {
+        guard let external = backend as? any ExternalTextureBackendDevice, external.supportsExternalTextures else {
+            throw GPUError.unsupported("Backend does not support external textures")
+        }
+        return external
     }
 
     public func submitResourceUse(_ ids: [ResourceID]) throws -> SubmissionTicket {
@@ -430,6 +583,22 @@ public actor Device {
         return SubmissionTicket(sequence: sequence, completion: completion)
     }
 
+    /// Enqueues a byte upload. Source offsets and counts are in bytes.
+    public func writeBuffer(
+        _ buffer: ResourceID, offset: UInt64 = 0, bytes: [UInt8], dataOffset: UInt64 = 0, byteCount: UInt64? = nil
+    ) throws -> CommandTicket {
+        try submitCommands([.writeBytes(buffer: buffer, offset: offset, bytes: bytes,
+                                        dataOffset: dataOffset, byteCount: byteCount)])
+    }
+
+    public func writeTexture(
+        _ destination: ResourceID, data: [UInt8], layout: TextureDataLayout = .init(),
+        region: TextureCopyRegion, aspect: TextureViewAspect = .all
+    ) throws -> CommandTicket {
+        try submitCommands([.writeTexture(destination: destination, data: data, layout: layout,
+                                          region: region, aspect: aspect)])
+    }
+
     public func submitCommands(_ commands: [BufferCommand]) throws -> CommandTicket {
         let commandBackend: any CommandBackendDevice
         do {
@@ -442,12 +611,22 @@ public actor Device {
             let descriptors = resources.compactMapValues { $0.descriptor.buffer }
             let textures = resources.compactMapValues { $0.descriptor.texture }
             let textureViews = resources.compactMapValues { $0.descriptor.textureView }
+            let externalTextures = Set(resources.compactMap { id, resource in
+                resource.descriptor.kind == .externalTexture ? id : nil
+            })
+            let externalPlanes = resources.compactMapValues { resource in
+                let planes = resource.descriptor.externalPlanes
+                return planes.isEmpty ? nil : planes
+            }
             let samplerDescriptors = resources.compactMapValues { $0.descriptor.sampler }
+            let querySets = resources.compactMapValues { $0.descriptor.querySet }
             for command in commands {
-                for id in command.resources { try requireResource(id) }
+                for id in command.resources { try requireGPUResource(id) }
                 try command.validate(device: identity, descriptors: descriptors, textures: textures,
                                      samplerDescriptors: samplerDescriptors, textureViews: textureViews,
-                                     maximumViewportDimension: capabilities.maxTextureDimension2D)
+                                     maximumViewportDimension: capabilities.maxTextureDimension2D, querySets: querySets,
+                                     features: capabilities.features, externalTextures: externalTextures,
+                                     externalPlanes: externalPlanes)
             }
         } catch is CancellationError {
             throw CancellationError()
@@ -466,11 +645,12 @@ public actor Device {
         do {
             try Task.checkCancellation()
             try requireActive()
-            for id in ids { try requireResource(id) }
+            for id in ids { try requireGPUResource(id) }
             guard nextSubmission < UInt64.max else { throw GPUError.outOfMemory }
             nextSubmission += 1
-            let parents = ids.compactMap { resources[$0]?.descriptor.textureView?.texture }
-            let unique = Set(ids).union(parents).sorted { $0.serial < $1.serial }
+            let planes = ids.flatMap { resources[$0]?.descriptor.externalPlanes ?? [] }
+            let parents = (ids + planes).compactMap { resources[$0]?.descriptor.textureView?.texture }
+            let unique = Set(ids).union(planes).union(parents).sorted { $0.serial < $1.serial }
             for id in unique { resources[id]!.uses += 1 }
             let submission = Submission(sequence: nextSubmission, resources: unique)
             let predecessor = tail
@@ -554,5 +734,251 @@ public actor Device {
         record(error)
         let ready = resources.compactMap { $0.value.ready && !$0.value.destroyed ? $0.key : nil }
         for id in ready { try? await destroyResource(id) }
+    }
+}
+
+extension Device {
+    public func bufferMapState(_ buffer: ResourceID) throws -> BufferMapState {
+        do {
+            try requireActive()
+            _ = try bufferDescriptor(buffer)
+            switch resources[buffer]?.mapping?.phase {
+            case .mapped: return .mapped
+            case nil: return .unmapped
+            default: return .pending
+            }
+        } catch {
+            let error = normalize(error)
+            record(error)
+            throw error
+        }
+    }
+
+    /// Returns the active handle, including for a buffer created mapped.
+    public func mappedBuffer(_ buffer: ResourceID) throws -> BufferMapping {
+        do {
+            try requireActive()
+            _ = try bufferDescriptor(buffer)
+            guard let session = resources[buffer]?.mapping, session.phase == .mapped else {
+                throw GPUError.validation("Buffer has no active mapping")
+            }
+            return session.handle
+        } catch {
+            let error = normalize(error)
+            record(error)
+            throw error
+        }
+    }
+
+    /// Reserves the buffer immediately and opens the mapping after accepted GPU work retires.
+    public func mapBuffer(
+        _ buffer: ResourceID, mode: BufferMapMode, offset: UInt64 = 0, size: UInt64? = nil
+    ) async throws -> BufferMapping {
+        let operationScopes = beginOperation()
+        defer { endOperation(operationScopes) }
+        do {
+            try Task.checkCancellation()
+            try requireActive()
+            let descriptor = try bufferDescriptor(buffer)
+            let usage: BufferUsage = mode == .read ? .mapRead : .mapWrite
+            guard resources[buffer]?.mapping == nil, descriptor.usage.contains(usage),
+                  offset % 8 == 0, offset <= descriptor.size else {
+                throw GPUError.validation("Invalid buffer mapping state, usage or offset")
+            }
+            let length = size ?? (descriptor.size - offset)
+            guard length % 4 == 0, length <= descriptor.size - offset else {
+                throw GPUError.validation("Invalid buffer mapping size")
+            }
+            let backend = try mappingBackend()
+            let handle = try installMapping(buffer, mode: mode, offset: offset, size: length, phase: .queued)
+            let predecessor = tail
+            var opened = false
+            do {
+                if let predecessor { _ = await predecessor.result }
+                try requireActive()
+                try Task.checkCancellation()
+                guard resources[buffer]?.mapping?.handle == handle,
+                      resources[buffer]?.mapping?.phase == .queued else { throw CancellationError() }
+                resources[buffer]?.mapping?.phase = .opening
+                try await backend.beginBufferMapping(id: buffer, mode: mode, offset: offset, size: length)
+                opened = true
+                try requireActive()
+                try Task.checkCancellation()
+                guard resources[buffer]?.mapping?.phase == .opening else { throw CancellationError() }
+                resources[buffer]?.mapping?.phase = .mapped
+                return handle
+            } catch {
+                let cancelled = resources[buffer]?.mapping?.handle == handle &&
+                    resources[buffer]?.mapping?.phase == .closing && loss == nil
+                if opened {
+                    do { try await backend.endBufferMapping(id: buffer) }
+                    catch {
+                        resources[buffer]?.destroyed = true
+                        await finishMapping(handle, error: normalize(error))
+                        throw error
+                    }
+                }
+                await finishMapping(handle)
+                if cancelled { throw CancellationError() }
+                throw error
+            }
+        } catch {
+            try await reportMappingError(error, in: operationScopes)
+        }
+    }
+
+    /// Copies a byte range from the mapping. Offsets are relative to the buffer.
+    public func readMappedBytes(
+        _ mapping: BufferMapping, offset: UInt64? = nil, size: UInt64? = nil
+    ) async throws -> [UInt8] {
+        try await accessMappedBuffer(mapping, offset: offset ?? mapping.offset, size: size, writable: false) {
+            backend, offset, length in
+            let bytes = try await backend.readMappedBytes(id: mapping.buffer, offset: offset, size: length)
+            guard bytes.count == Int(length) else { throw GPUError.backendFailure("Mapped readback has an invalid size") }
+            return bytes
+        }
+    }
+
+    public func writeMappedBytes(_ mapping: BufferMapping, offset: UInt64, bytes: [UInt8]) async throws {
+        try await accessMappedBuffer(mapping, offset: offset, size: UInt64(bytes.count), writable: true) {
+            backend, offset, _ in
+            try await backend.writeMappedBytes(id: mapping.buffer, offset: offset, bytes: bytes)
+        }
+    }
+
+    /// Publishes mapped writes or cancels a pending mapping.
+    public func unmapBuffer(_ buffer: ResourceID) async throws {
+        let operationScopes = beginOperation()
+        defer { endOperation(operationScopes) }
+        do {
+            try requireActive()
+            _ = try bufferDescriptor(buffer)
+            guard let session = resources[buffer]?.mapping else { return }
+            switch session.phase {
+            case .queued:
+                await finishMapping(session.handle)
+            case .opening, .closing:
+                resources[buffer]?.mapping?.phase = .closing
+                try await withCheckedThrowingContinuation { continuation in
+                    resources[buffer]!.mapping!.closeWaiters.append(continuation)
+                }
+            case .mapped:
+                try await closeActiveMapping(session, backend: mappingBackend())
+            }
+        } catch {
+            try await reportMappingError(error, in: operationScopes)
+        }
+    }
+
+    private func bufferDescriptor(_ id: ResourceID) throws -> BufferDescriptor {
+        try requireResource(id)
+        guard let descriptor = resources[id]?.descriptor.buffer else {
+            throw GPUError.validation("Mapping requires a buffer resource")
+        }
+        return descriptor
+    }
+
+    private func mappingBackend() throws -> any BufferMappingBackendDevice {
+        guard let mapping = backend as? any BufferMappingBackendDevice else {
+            throw GPUError.unsupported("Backend does not implement buffer mapping")
+        }
+        return mapping
+    }
+
+    private func installMapping(
+        _ buffer: ResourceID, mode: BufferMapMode, offset: UInt64, size: UInt64, phase: MappingSession.Phase
+    ) throws -> BufferMapping {
+        guard nextMapping < UInt64.max else { throw GPUError.outOfMemory }
+        nextMapping += 1
+        let handle = BufferMapping(buffer: buffer, mode: mode, offset: offset, size: size, generation: nextMapping)
+        resources[buffer]!.uses += 1
+        resources[buffer]!.mapping = MappingSession(handle: handle, phase: phase)
+        return handle
+    }
+
+    private func accessMappedBuffer<Result: Sendable>(
+        _ handle: BufferMapping, offset: UInt64, size: UInt64?, writable: Bool,
+        operation: @escaping @Sendable (any BufferMappingBackendDevice, UInt64, UInt64) async throws -> Result
+    ) async throws -> Result {
+        let operationScopes = beginOperation()
+        defer { endOperation(operationScopes) }
+        do {
+            try Task.checkCancellation()
+            try requireActive()
+            _ = try bufferDescriptor(handle.buffer)
+            guard let session = resources[handle.buffer]?.mapping, session.handle == handle, session.phase == .mapped,
+                  !writable || handle.mode == .write else {
+                throw GPUError.validation("Invalid or read-only mapping")
+            }
+            let length = try handle.accessSize(offset: offset, size: size)
+            let backend = try mappingBackend()
+            let predecessor = session.accessTail
+            let access = Task {
+                if let predecessor { await predecessor.value }
+                return try await operation(backend, offset, length)
+            }
+            resources[handle.buffer]?.mapping?.accessTail = Task { _ = await access.result }
+            let result = try await access.value
+            try requireActive()
+            try Task.checkCancellation()
+            return result
+        } catch {
+            try await reportMappingError(error, in: operationScopes)
+        }
+    }
+
+    private func closeActiveMapping(_ session: MappingSession, backend: any BufferMappingBackendDevice) async throws {
+        let id = session.handle.buffer
+        resources[id]?.mapping?.phase = .closing
+        if let predecessor = session.accessTail { await predecessor.value }
+        do {
+            try await backend.endBufferMapping(id: id)
+        } catch {
+            let error = normalize(error)
+            if resources[id]?.destroyed == true {
+                await finishMapping(session.handle, error: error)
+            } else {
+                let waiters = resources[id]?.mapping?.closeWaiters ?? []
+                resources[id]?.mapping?.phase = .mapped
+                resources[id]?.mapping?.closeWaiters.removeAll()
+                for waiter in waiters { waiter.resume(throwing: error) }
+            }
+            throw error
+        }
+        await finishMapping(session.handle)
+    }
+
+    private func cancelMappingForDestroy(_ session: MappingSession) async {
+        switch session.phase {
+        case .queued:
+            await finishMapping(session.handle)
+        case .opening:
+            resources[session.handle.buffer]?.mapping?.phase = .closing
+        case .mapped:
+            if let backend = backend as? any BufferMappingBackendDevice {
+                try? await closeActiveMapping(session, backend: backend)
+            }
+        case .closing:
+            break
+        }
+    }
+
+    private func finishMapping(_ handle: BufferMapping, error: GPUError? = nil) async {
+        guard let session = resources[handle.buffer]?.mapping, session.handle == handle else { return }
+        resources[handle.buffer]?.mapping = nil
+        await finish([handle.buffer])
+        for waiter in session.closeWaiters {
+            if let error { waiter.resume(throwing: error) }
+            else { waiter.resume() }
+        }
+    }
+
+    private func reportMappingError(_ error: any Error, in scopes: [ErrorScope]) async throws -> Never {
+        if error is CancellationError { throw CancellationError() }
+        let error = normalize(error)
+        if case .deviceLost(let reason) = error { await lose(reason: reason) }
+        else if error == .timeout { await lose(reason: "GPU buffer mapping timeout") }
+        else { record(error, in: scopes) }
+        throw error
     }
 }

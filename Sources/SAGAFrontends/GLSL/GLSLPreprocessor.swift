@@ -5,6 +5,8 @@ struct GLSLMacro {
     let replacement: [GLSLToken]
 }
 struct GLSLPreprocessor {
+    static let barycentricExtension = "GL_EXT_fragment_shader_barycentric"
+    private var barycentricsEnabled = false
     var macros:[String:GLSLMacro]=[:]
     var version=0
     var nesting=0
@@ -57,6 +59,10 @@ struct GLSLPreprocessor {
                             version=v
                             let value=GLSLToken(text:String(v),start:anchor.start,end:anchor.end)
                             macros["__VERSION__"] = .init(parameters:nil,replacement:[value])
+                            if v >= 450 {
+                                let supported = GLSLToken(text: "1", start: anchor.start, end: anchor.end)
+                                macros[Self.barycentricExtension] = .init(parameters: nil, replacement: [supported])
+                            }
                         case "define":
                             guard version != 0, let name=args.first, glslIdentifier(name.text), !name.text.hasPrefix("__"), !name.text.hasPrefix("GL_") else { throw glslError(anchor,.unexpectedToken,"Invalid define") }
                             var index=1; var parameters:[String]?=nil
@@ -79,7 +85,15 @@ struct GLSLPreprocessor {
                             guard args.count==1, !args[0].text.hasPrefix("__") else { throw glslError(anchor,.unexpectedToken,"Invalid undef") }
                             macros.removeValue(forKey:args[0].text)
                         case "error": throw glslError(anchor,.unexpectedToken,"Preprocessor error: \(args.map(\.text).joined(separator:" "))")
-                        case "extension": throw glslError(anchor,.unsupportedConstruct,"GLSL extension directives not implemented")
+                        case "extension":
+                            guard args.count == 3, args[1].text == ":" else {
+                                throw glslError(anchor, .unexpectedToken, "Expected extension name : behavior")
+                            }
+                            guard version >= 450, args[0].text == Self.barycentricExtension,
+                                  ["require", "enable", "warn", "disable"].contains(args[2].text) else {
+                                throw glslError(anchor, .unsupportedConstruct, "Unsupported GLSL extension or behavior")
+                            }
+                            barycentricsEnabled = args[2].text != "disable"
                         default: throw glslError(anchor,.unsupportedConstruct,"Unsupported directive: \(directive)")
                         }
                     }
@@ -87,7 +101,10 @@ struct GLSLPreprocessor {
                 sawAnything=true
             } else if active {
                 guard version != 0 else { throw glslError(line[0],.unexpectedToken,"Missing version directive") }
-                output += try expand(line,disabled:[],budget:&budget)
+                for var token in try expand(line, disabled: [], budget: &budget) {
+                    if token.barycentricPerspective != nil { token.barycentricsEnabled = barycentricsEnabled }
+                    output.append(token)
+                }
                 sawAnything=true
             }
             line=[]

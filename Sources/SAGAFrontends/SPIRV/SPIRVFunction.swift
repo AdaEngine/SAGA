@@ -8,10 +8,14 @@ struct SPVBlockRecord {
     var continuing: UInt32?
     var terminator: SPVInstruction?
 }
-struct SPVValue { let expression: IRHandle<IRExpression>; let type: UInt32 }
+struct SPVValue {
+    let expression: IRHandle<IRExpression>
+    let type: UInt32
+    var anchor: IRHandle<IRStatement>? = nil
+}
 
 struct SPVFunctionLowerer {
-    let module: SPVDecoder
+    var module: SPVDecoder
     let record: SPVFunctionRecord
     var budget: ShaderBudget
     var blocks: [UInt32: SPVBlockRecord] = [:]
@@ -23,11 +27,23 @@ struct SPVFunctionLowerer {
     var irBlocks: [IRBlock] = []
     var locals: [IRLocalVariable] = []
     var values: [UInt32: SPVValue] = [:]
+    var definitions: [UInt32: SPVValueDefinition] = [:]
+    var provenDominance: Set<SPVDominancePair> = []
+    var spillSlots: [IRHandle<IRExpression>: IRHandle<IRExpression>] = [:]
+    var spillWrites: [IRHandle<IRStatement>: [IRHandle<IRStatement>]] = [:]
+    var accessPaths: [IRHandle<IRExpression>: SPVAccessPath] = [:]
     var phiPointers: [UInt32: IRHandle<IRExpression>] = [:]
     var visited: Set<UInt32> = []
     var resultType: UInt32 = 0
     var entryLabel: UInt32 = 0
-    var deferredPhiReloads: [SPVInstruction] = []
+    var currentBlock: UInt32 = 0
+    var builtinInputs: [IRHandle<IRGlobalVariable>] = []
+    var builtinArguments: [IRHandle<IRGlobalVariable>: IRHandle<IRExpression>] = [:]
+    var builtinLocals: [IRHandle<IRGlobalVariable>: SPVValue] = [:]
+    var builtinSetup: [IRHandle<IRStatement>] = []
+    var atomicPaths: [IRHandle<IRGlobalVariable>: Set<[SPVAtomicStep]>] = [:]
+    var switchBoundaries: [SPVSwitchBoundary] = []
+    var loopBoundaries: [SPVLoopBoundary] = []
 
     mutating func work(_ n:Int=1) throws { try budget.consume(.work,amount:n) }
     mutating func node() throws { try budget.consume(.nodes) }
@@ -37,26 +53,50 @@ struct SPVFunctionLowerer {
     mutating func stmt(_ k:IRStatementKind,_ i:SPVInstruction) throws -> IRHandle<IRStatement> {
         try node();try work();let h=try IRHandle<IRStatement>(index:statements.count);statements.append(.init(kind:k,location:i.location));return h
     }
+    mutating func emitValue(
+        _ type: IRHandle<IRType>, _ kind: IRExpressionKind, _ statements: inout [IRHandle<IRStatement>],
+        _ site: SPVInstruction
+    ) throws -> IRHandle<IRExpression> {
+        let value = try expr(type, kind, site)
+        statements.append(try stmt(.emit([value]), site))
+        return value
+    }
+
     mutating func block(_ ss:[IRHandle<IRStatement>],_ i:SPVInstruction) throws -> IRHandle<IRBlock> {
         try node();let h=try IRHandle<IRBlock>(index:irBlocks.count);irBlocks.append(.init(statements:ss,location:i.location));return h
     }
-    mutating func value(_ id:UInt32,_ i:SPVInstruction) throws -> SPVValue {
+    mutating func value(
+        _ id: UInt32, _ i: SPVInstruction, _ ss: inout [IRHandle<IRStatement>], from source: UInt32? = nil
+    ) throws -> SPVValue {
         try work()
         if let v=values[id] { return v }
         if let c=module.constantMap[id] {
             let e=try expr(module.type(c.type,i),.constant(c.handle),i);let v=SPVValue(expression:e,type:c.type);values[id]=v;return v
         }
         if let (g,t)=module.globalMap[id] {
+            if module.forwardedInputGlobals.contains(g) { return try builtinInputPointer(g, rawType: t, at: i) }
             let e=try expr(module.type(t,i),.globalVariable(g),i);let v=SPVValue(expression:e,type:t);values[id]=v;return v
+        }
+        if let definition = definitions[id] {
+            return try reload(definition, in: source ?? currentBlock, statements: &ss, at: i)
         }
         throw i.fail("Undefined, forward or non-dominating value %\(id)")
     }
-    mutating func typed(_ id:UInt32,_ type:UInt32,_ i:SPVInstruction) throws -> IRHandle<IRExpression> {
-        let v=try value(id,i);guard try module.type(v.type,i) == module.type(type,i) else {throw i.fail("Operand type mismatch")};return v.expression
+    mutating func typed(
+        _ id: UInt32, _ type: UInt32, _ i: SPVInstruction, _ ss: inout [IRHandle<IRStatement>], from source: UInt32? = nil
+    ) throws -> IRHandle<IRExpression> {
+        let v=try value(id,i,&ss,from:source);guard try module.type(v.type,i) == module.type(type,i) else {throw i.fail("Operand type mismatch")};return v.expression
     }
-    mutating func result(_ i:SPVInstruction,_ k:IRExpressionKind,_ ss:inout [IRHandle<IRStatement>],emit:Bool=true) throws {
+    mutating func result(
+        _ i: SPVInstruction, _ k: IRExpressionKind, _ ss: inout [IRHandle<IRStatement>],
+        emit: Bool = true, recordDefinition: Bool = true
+    ) throws {
         let t=try module.type(i.a[0],i);let e=try expr(t,k,i)
-        values[i.a[1]]=SPVValue(expression:e,type:i.a[0]);if emit {ss.append(try stmt(.emit([e]),i))}
+        let anchor = try emit ? stmt(.emit([e]), i) : nil
+        if let anchor { ss.append(anchor) }
+        let value = SPVValue(expression: e, type: i.a[0], anchor: anchor)
+        if recordDefinition { defineValue(i.a[1], value) }
+        else { values[i.a[1]] = value }
     }
     mutating func lower() throws -> IRFunction {
         let h=record.header,a=h.a;resultType=a[0]
@@ -92,6 +132,7 @@ struct SPVFunctionLowerer {
             blocks[id]=b
         }
         guard count==signature.parameters.count,let first=order.first else {throw h.fail("Missing parameters or function body")};entryLabel=first
+        var merges: Set<UInt32> = []
         for id in order {
             guard let b=blocks[id],let term=b.terminator else {throw h.fail("Missing terminator")}
             let targets:[UInt32]
@@ -99,14 +140,28 @@ struct SPVFunctionLowerer {
             case 249:try term.count(1);targets=[term.a[0]]
             case 250:
                 guard term.a.count==3 || term.a.count==5 else {throw term.fail("Invalid conditional operands")};targets=[term.a[1],term.a[2]]
-                guard b.merge != nil else {throw term.fail("Conditional requires SelectionMerge",code:.unsupportedConstruct)}
             case 253,252,255:try term.count(0);targets=[]
             case 254:try term.count(1);targets=[]
-            case 251:throw term.fail("Switch reconstruction not implemented",code:.unsupportedConstruct)
+            case 251:
+                try term.minimum(2)
+                _ = try switchSelectorType(term)
+                guard term.a.count.isMultiple(of: 2), b.merge != nil, b.continuing == nil else {
+                    throw term.fail("Invalid OpSwitch operands or missing OpSelectionMerge")
+                }
+                try work(term.a.count / 2)
+                targets = [term.a[1]] + stride(from: 3, to: term.a.count, by: 2).map { term.a[$0] }
             default:throw term.fail("Unknown terminator")
             }
-            if let merge=b.merge {guard blocks[merge] != nil,merge != id,term.op==250 else {throw term.fail("Invalid structured merge")}}
-            if let continuing=b.continuing {guard blocks[continuing] != nil,continuing != id,continuing != b.merge else {throw term.fail("Loop continuing shape unavailable",code:.unsupportedConstruct)}}
+            if let merge = b.merge {
+                let validTerminator = b.continuing == nil ? [250, 251].contains(term.op) : [249, 250].contains(term.op)
+                guard blocks[merge] != nil, merge != id, merge != first,
+                      validTerminator, merges.insert(merge).inserted else {
+                    throw term.fail("Invalid or reused structured merge")
+                }
+            }
+            if let continuing = b.continuing, blocks[continuing] == nil || continuing == b.merge {
+                throw term.fail("Invalid loop continue target")
+            }
             for target in targets {try work();guard blocks[target] != nil,target != first else {throw term.fail("Invalid branch target/entry predecessor")};predecessors[target,default:[]].insert(id)}
         }
         for id in order {
@@ -124,6 +179,12 @@ struct SPVFunctionLowerer {
         }
         let body=try region(first,stop:nil,depth:1)
         guard visited.count==blocks.count else {throw h.fail("Unreachable/unstructured blocks not lowered",code:.unsupportedConstruct)}
+        if !builtinSetup.isEmpty {
+            let root = irBlocks[body.index]
+            try work(root.statements.count)
+            irBlocks[body.index] = .init(statements: builtinSetup + root.statements, location: root.location)
+        }
+        try insertSpillWrites()
         let result:IRFunctionResult? = module.voids.contains(a[0]) ? nil : .init(type:try module.type(a[0],h))
         return IRFunction(name:module.names[a[1]],arguments:parameters,result:result,localVariables:IRTable(locals),expressions:IRTable(expressions),statements:IRTable(statements),blocks:IRTable(irBlocks),body:body,location:h.location)
     }
@@ -135,160 +196,171 @@ struct SPVFunctionLowerer {
             try work();var incoming:UInt32?
             for j in stride(from:2,to:p.a.count,by:2) {try work();if p.a[j+1]==from {incoming=p.a[j]}}
             guard let incoming,let pointer=phiPointers[p.a[1]] else {throw p.fail("Phi missing incoming edge")}
-            let v=try typed(incoming,p.a[0],p)
+            let v=try typed(incoming,p.a[0],p,&ss,from:from)
             stores.append((pointer,v))
         }
         for (p,v) in stores {ss.append(try stmt(.store(pointer:p,value:v),i))}
         return ss
     }
-    mutating func region(_ start:UInt32,stop:UInt32?,depth:Int) throws -> IRHandle<IRBlock> {
+    mutating func region(_ start:UInt32,stop:UInt32?,depth:Int,loopHeader:UInt32? = nil) throws -> IRHandle<IRBlock> {
         guard depth<=budget.limits.depth else {throw ShaderFailure.budgetExceeded(.depth)}
         var ss:[IRHandle<IRStatement>]=[];var next:UInt32?=start
         while let id=next,id != stop {
             try work()
             guard let candidate=blocks[id] else {throw record.header.fail("Missing block")}
-            if candidate.continuing != nil {
-                let loop=try canonicalLoop(id,depth:depth+1)
+            if let merge = candidate.merge, let boundary = switchBoundaries.last,
+               merge == boundary.merge || boundary.targets.contains(merge) {
+                throw candidate.label.fail("Nested construct merges outside its switch case")
+            }
+            if id != loopHeader, let merge = candidate.merge, loopBoundaries.last?.owns(merge) == true {
+                throw candidate.label.fail("Nested construct merges outside its loop region")
+            }
+            if candidate.continuing != nil, id != loopHeader {
+                let loop=try lowerLoop(id,depth:depth+1)
                 ss.append(try stmt(loop,candidate.label))
-                let reloads=deferredPhiReloads;deferredPhiReloads=[]
-                for p in reloads {guard let ptr=phiPointers[p.a[1]] else {throw p.fail("Missing phi pointer")};try result(p,.load(pointer:ptr),&ss)}
+                for p in candidate.phis {
+                    guard let ptr = phiPointers[p.a[1]] else { throw p.fail("Missing phi pointer") }
+                    try result(p, .load(pointer: ptr), &ss, recordDefinition: false)
+                }
                 next=candidate.merge;continue
             }
             guard visited.insert(id).inserted,let b=blocks[id],let term=b.terminator else {throw record.header.fail("Cyclic/nonstructured CFG",code:.unsupportedConstruct)}
+            currentBlock = id
             for p in b.phis {
                 guard let pointer=phiPointers[p.a[1]] else {throw p.fail("Missing phi spill")}
                 try result(p,.load(pointer:pointer),&ss)
             }
-            for i in b.instructions {try operation(i,&ss,blockID:id)}
+            try lowerBlockInstructions(b.instructions, into: &ss, block: id)
             switch term.op {
             case 249:
-                let dest=term.a[0];ss += try edge(from:id,to:dest,term);next=dest
+                let dest=term.a[0];ss += try edge(from:id,to:dest,term)
+                next = try regionDestination(dest, from: id, stop: stop, depth: depth, statements: &ss, at: term).destination
             case 250:
-                guard let merge=b.merge else {throw term.fail("Missing merge")}
-                let condition=try value(term.a[0],term)
+                let condition=try value(term.a[0],term,&ss)
                 guard try module.kind(condition.type,term) == .scalar(.bool) else {throw term.fail("Branch condition must be bool")}
+                guard let merge = b.merge, b.continuing == nil else {
+                    next = try lowerUnmergedBranch(from: id, condition: condition, stop: stop,
+                                                   depth: depth, statements: &ss, at: term)
+                    continue
+                }
                 let saved=values
                 var yes=try edge(from:id,to:term.a[1],term)
-                if term.a[1] != merge {yes.append(try stmt(.block(region(term.a[1],stop:merge,depth:depth+1)),term))}
+                if let dest = try regionDestination(term.a[1], from: id, stop: merge, depth: depth + 1, statements: &yes, at: term).destination {
+                    yes.append(try stmt(.block(region(dest,stop:merge,depth:depth+1)),term))
+                }
                 let accept=try block(yes,term);values=saved
                 var no=try edge(from:id,to:term.a[2],term)
-                if term.a[2] != merge {no.append(try stmt(.block(region(term.a[2],stop:merge,depth:depth+1)),term))}
+                if let dest = try regionDestination(term.a[2], from: id, stop: merge, depth: depth + 1, statements: &no, at: term).destination {
+                    no.append(try stmt(.block(region(dest,stop:merge,depth:depth+1)),term))
+                }
                 let reject=try block(no,term);values=saved
                 ss.append(try stmt(.ifCondition(condition:condition.expression,accept:accept,reject:reject),term));next=merge
+            case 251:
+                guard let merge = b.merge else { throw term.fail("OpSwitch requires a merge") }
+                let relays = loopBoundaries.last?.relays
+                ss += try lowerSwitch(from: id, merge: merge, instruction: term, depth: depth + 1)
+                if relays != loopBoundaries.last?.relays {
+                    ss += try checkLoopExit(at: term)
+                }
+                next = merge
             case 253:
                 guard module.voids.contains(resultType) else {throw term.fail("Return without value in nonvoid function")};ss.append(try stmt(.returnValue(nil),term));next=nil
             case 254:
-                guard !module.voids.contains(resultType) else {throw term.fail("ReturnValue in void function")};let v=try typed(term.a[0],resultType,term);ss.append(try stmt(.returnValue(v),term));next=nil
+                guard !module.voids.contains(resultType) else {throw term.fail("ReturnValue in void function")};let v=try typed(term.a[0],resultType,term,&ss);ss.append(try stmt(.returnValue(v),term));next=nil
             case 252:ss.append(try stmt(.kill,term));next=nil
-            case 255:throw term.fail("OpUnreachable cannot be represented faithfully",code:.unsupportedConstruct)
+            case 255:
+                guard id != entryLabel, predecessors[id, default: []].isEmpty,
+                      b.instructions.isEmpty, b.phis.isEmpty else {
+                    throw term.fail("OpUnreachable cannot be represented faithfully",code:.unsupportedConstruct)
+                }
+                next = nil
             default:throw term.fail("Unsupported control flow",code:.unsupportedConstruct)
             }
         }
         return try block(ss,blocks[start]?.label ?? record.header)
     }
-    // Deliberately narrow canonical while-loop reconstruction. Noncanonical shapes fail,
-    // never flatten a back edge or discard a continuing block.
-    mutating func canonicalLoop(_ id:UInt32,depth:Int) throws -> IRStatementKind {
-        guard depth<=budget.limits.depth else {throw ShaderFailure.budgetExceeded(.depth)}
-        guard visited.insert(id).inserted,let h=blocks[id],let term=h.terminator,
-              let merge=h.merge,let continuing=h.continuing,term.op==250 else {throw record.header.fail("Invalid canonical loop")}
-        let trueExit=term.a[1]==merge,falseExit=term.a[2]==merge
-        guard trueExit != falseExit else {throw term.fail("Canonical loop must have one exit edge",code:.unsupportedConstruct)}
-        let bodyID=trueExit ? term.a[2]:term.a[1]
-        guard bodyID != continuing,bodyID != id else {throw term.fail("Loop body shape unavailable",code:.unsupportedConstruct)}
-        let outer=values
-        var body:[IRHandle<IRStatement>]=[]
-        for p in h.phis {guard let ptr=phiPointers[p.a[1]] else {throw p.fail("Missing phi pointer")};try result(p,.load(pointer:ptr),&body)}
-        for i in h.instructions {try operation(i,&body,blockID:id)}
-        let condition=try value(term.a[0],term)
-        guard try module.kind(condition.type,term) == .scalar(.bool) else {throw term.fail("Loop condition must be bool")}
-        let headerValues=values
-        var live=try edge(from:id,to:bodyID,term)
-        live += try linearLoopPath(bodyID,stop:continuing)
-        live.append(try stmt(.continue,term))
-        let liveBlock=try block(live,term)
-        values=headerValues
-        var exit=try edge(from:id,to:merge,term);exit.append(try stmt(.break,term));let exitBlock=try block(exit,term)
-        body.append(try stmt(.ifCondition(condition:condition.expression,accept:trueExit ? exitBlock:liveBlock,reject:trueExit ? liveBlock:exitBlock),term))
-        let bodyBlock=try block(body,h.label)
-        // Only header-dominating expressions are available in the continuing region.
-        // Values produced in a nested body block need general spilling (explicitly rejected).
-        values=headerValues
-        let cont=try linearLoopPath(continuing,stop:id)
-        let contBlock=try block(cont,blocks[continuing]?.label ?? term)
-        values=outer
-        // Header phi loads inside loop body cannot escape their lexical scope.
-        // Reload spills into the outer expression scope after the loop statement.
-        // The caller injects these after constructing .loop via deferredPhiReloads.
-        deferredPhiReloads=h.phis
-        return .loop(body:bodyBlock,continuing:contBlock,breakIf:nil)
-    }
-    mutating func linearLoopPath(_ start:UInt32,stop:UInt32) throws -> [IRHandle<IRStatement>] {
-        var result:[IRHandle<IRStatement>]=[];var id=start
-        while id != stop {
-            try work()
-            guard visited.insert(id).inserted,let b=blocks[id],b.merge==nil,let term=b.terminator,term.op==249 else {throw record.header.fail("Generalized loop CFG not implemented",code:.unsupportedConstruct)}
-            for p in b.phis {guard let ptr=phiPointers[p.a[1]] else {throw p.fail("Missing phi pointer")};try self.result(p,.load(pointer:ptr),&result)}
-            for i in b.instructions {try operation(i,&result,blockID:id)}
-            result += try edge(from:id,to:term.a[0],term);id=term.a[0]
-        }
-        return result
-    }
     mutating func operation(_ i:SPVInstruction,_ ss:inout [IRHandle<IRStatement>],blockID:UInt32) throws {
         let a=i.a;try work()
         switch i.op {
         case 0:try i.count(0)
+        case 12: try glslMath(i, &ss)
         case 59:
             guard a.count==3 || a.count==4 else {throw i.fail("Invalid local operands")}
             guard blockID==entryLabel,let p=module.pointers[a[0]],p.storage==7,a[2]==7 else {throw i.fail("Invalid local type/position")}
             let t=try module.type(p.base,i);let initExpr:IRHandle<IRExpression>?
-            if a.count==4 {guard module.constantMap[a[3]] != nil else {throw i.fail("Local initializer must be constant")};initExpr=try typed(a[3],p.base,i)} else {initExpr=nil}
+            if a.count==4 {guard module.constantMap[a[3]] != nil else {throw i.fail("Local initializer must be constant")};initExpr=try typed(a[3],p.base,i,&ss)} else {initExpr=nil}
             try node();let local=try IRHandle<IRLocalVariable>(index:locals.count);locals.append(.init(name:module.names[a[1]],type:t,initializer:initExpr,location:i.location))
             try result(i,.localVariable(local),&ss,emit:false)
         case 61:
-            try i.count(3);let v=try value(a[2],i)
+            try i.count(3);let v=try value(a[2],i,&ss)
+            try checkOmittedInterfaceAccess(v, at: i)
             guard let p=module.pointers[v.type],p.base==a[0] else {throw i.fail("Load pointer/result mismatch")}
             try result(i,.load(pointer:v.expression),&ss)
         case 62:
-            try i.count(2);let p=try value(a[0],i)
-            guard let pointer=module.pointers[p.type],![2].contains(pointer.storage) else {throw i.fail("Store target not writable")}
-            let v=try typed(a[1],pointer.base,i);ss.append(try stmt(.store(pointer:p.expression,value:v),i))
+            try i.count(2);let p=try value(a[0],i,&ss)
+            try checkOmittedInterfaceAccess(p, at: i)
+            guard let pointer=module.pointers[p.type],![1,2].contains(pointer.storage) else {throw i.fail("Store target not writable")}
+            let v=try typed(a[1],pointer.base,i,&ss);ss.append(try stmt(.store(pointer:p.expression,value:v),i))
         case 83:
-            try i.count(3);let v=try typed(a[2],a[0],i);values[a[1]]=SPVValue(expression:v,type:a[0])
+            try i.count(3)
+            let value = try value(a[2], i, &ss)
+            guard try module.type(value.type, i) == module.type(a[0], i) else { throw i.fail("Copy operand type mismatch") }
+            if value.anchor != nil, module.pointers[a[0]] == nil {
+                try result(i, .runtimeValue(value.expression), &ss)
+            } else {
+                defineValue(a[1], .init(expression: value.expression, type: a[0], anchor: value.anchor))
+            }
         case 57:
             try i.minimum(3)
             guard let h=module.functionMap[a[2]],h.index<module.functions.count else {throw i.fail("Undefined function")}
-            guard h.index < (module.functionMap[record.header.a[1]]?.index ?? 0) else {throw i.fail("Recursive/forward calls need topological remapping",code:.unsupportedConstruct)}
+            guard h.index < (module.functionMap[record.header.a[1]]?.index ?? 0) else {throw i.fail("Invalid function call order")}
             let target=module.functions[h.index].header
             guard let sig=module.functionTypes[target.a[3]],sig.result==a[0],sig.parameters.count==a.count-3 else {throw i.fail("Call signature mismatch")}
             var args:[IRHandle<IRExpression>]=[]
-            for (j,p) in sig.parameters.enumerated() {args.append(try typed(a[j+3],p,i))}
+            for (j,p) in sig.parameters.enumerated() {
+                let argument = try typed(a[j+3],p,i,&ss)
+                try checkOmittedInterfaceAccess(.init(expression: argument, type: p), at: i)
+                if module.pointers[p]?.storage == 1, expressions[argument.index].type != (try module.type(p, i)) {
+                    throw i.fail("Passing a builtin input pointer explicitly is not implemented", code: .unsupportedConstruct)
+                }
+                args.append(argument)
+            }
+            for global in module.builtinFunctionInputs[h.index] {
+                args.append(try builtinArgument(global, at: i))
+            }
             let r:IRHandle<IRExpression>?
-            if module.voids.contains(a[0]) {r=nil} else {let e=try expr(module.type(a[0],i),.callResult(h),i);values[a[1]]=SPVValue(expression:e,type:a[0]);r=e}
-            ss.append(try stmt(.call(function:h,arguments:args,result:r),i))
-        case 65:try accessChain(i,&ss)
+            if module.voids.contains(a[0]) { r = nil }
+            else { r = try expr(module.type(a[0], i), .callResult(h), i) }
+            let call = try stmt(.call(function: h, arguments: args, result: r), i)
+            ss.append(call)
+            if let r { defineValue(a[1], .init(expression: r, type: a[0], anchor: call)) }
+        case 65,66:try accessChain(i,&ss)
+        case 224:
+            ss.append(try stmt(.controlBarrier(controlBarrierFlags(i)), i))
+        case 227...230,232...242,SPVFloatAtomicAdd.opcode:
+            try lowerAtomic(i, &ss)
         case 80:
             try i.minimum(2);let t=try module.type(a[0],i);let components=try componentTypes(t,i)
             guard a.count-2 == components.count else {throw i.fail("CompositeConstruct arity")}
             var es:[IRHandle<IRExpression>]=[]
             for (j,id) in a.dropFirst(2).enumerated() {
-                let v=try value(id,i);guard try module.type(v.type,i)==components[j] else {throw i.fail("CompositeConstruct type mismatch")};es.append(v.expression)
+                let v=try value(id,i,&ss);guard try module.type(v.type,i)==components[j] else {throw i.fail("CompositeConstruct type mismatch")};es.append(v.expression)
             }
             try result(i,.compose(type:t,components:es),&ss)
         case 81:
-            try i.minimum(4);let v=try value(a[2],i);var t=try module.type(v.type,i),e=v.expression
+            try i.minimum(4);let v=try value(a[2],i,&ss);var t=try module.type(v.type,i),e=v.expression
             for index in a.dropFirst(3) {
                 try work();t=try indexedType(t,index,i)
                 e=try expr(t,.accessIndex(base:e,index:index),i);ss.append(try stmt(.emit([e]),i))
             }
             guard t == module.typeMap[a[0]] else {throw i.fail("CompositeExtract result type mismatch")}
-            values[a[1]]=SPVValue(expression:e,type:a[0])
+            defineValue(a[1], .init(expression: e, type: a[0], anchor: ss.last))
         case 124:
-            try i.count(3);let v=try value(a[2],i);let t=try module.type(a[0],i)
+            try i.count(3);let v=try value(a[2],i,&ss);let t=try module.type(a[0],i)
             guard try module.byteSize(t,i)==module.byteSize(module.type(v.type,i),i) else {throw i.fail("Bitcast width mismatch")}
             try result(i,.bitcast(expression:v.expression,type:t),&ss)
         case 126,127,168,200:
-            try i.count(3);let v=try typed(a[2],a[0],i)
+            try i.count(3);let v=try typed(a[2],a[0],i,&ss)
             let k=try module.kind(a[0],i)
             let scalar:IRScalar
             switch k {case .scalar(let s),.vector(_,let s):scalar=s;default:throw i.fail("Unary operand shape invalid")}
@@ -296,11 +368,16 @@ struct SPVFunctionLowerer {
             let op:IRUnaryOperator=i.op==168 ? .logicalNot : i.op==200 ? .bitwiseNot:.negate
             try result(i,.unary(op:op,expression:v),&ss)
         case 169:
-            try i.count(5);let c=try value(a[2],i)
+            try i.count(5);let c=try value(a[2],i,&ss)
             guard try module.kind(c.type,i) == .scalar(.bool) else {throw i.fail("Select vector conditions not implemented",code:.unsupportedConstruct)}
-            let yes=try typed(a[3],a[0],i),no=try typed(a[4],a[0],i)
+            let yes=try typed(a[3],a[0],i,&ss),no=try typed(a[4],a[0],i,&ss)
             try result(i,.select(condition:c.expression,accept:yes,reject:no),&ss)
-        default:try binary(i,&ss)
+        default:
+            if let capability = SPVSubgroup.capability(for: i.op) {
+                try lowerSubgroup(i, capability: capability, &ss)
+            } else {
+                try binary(i, &ss)
+            }
         }
     }
     mutating func componentTypes(_ t:IRHandle<IRType>,_ i:SPVInstruction) throws -> [IRHandle<IRType>] {
@@ -309,6 +386,9 @@ struct SPVFunctionLowerer {
             try work(module.types.count)
             guard let j=module.types.indices.first(where:{module.types[$0].kind == .scalar(s)}) else {throw i.fail("Missing scalar type")}
             return Array(repeating:try IRHandle(index:j),count:Int(n.rawValue))
+        case .matrix(let columns, _, _):
+            guard let column = module.matrixColumnTypes[t] else { throw i.fail("Missing matrix column type") }
+            return Array(repeating: column, count: Int(columns.rawValue))
         case .structure(let ms,_):try work(ms.count);return ms.map(\.type)
         case .array(let b,.constant(let n),_):
             guard UInt64(n)<=UInt64(i.a.count) else {throw i.fail("Composite arity")};try work(Int(n));return Array(repeating:b,count:Int(n))
@@ -323,19 +403,36 @@ struct SPVFunctionLowerer {
         case .vector(let n,let scalar):
             guard index<UInt32(n.rawValue) else {throw i.fail("Vector index out of bounds")};try work(module.types.count)
             guard let j=module.types.indices.first(where:{module.types[$0].kind == .scalar(scalar)}) else {throw i.fail("Missing scalar type")};return try IRHandle(index:j)
+        case .matrix(let columns, _, _):
+            guard index < UInt32(columns.rawValue), let column = module.matrixColumnTypes[t] else {
+                throw i.fail("Matrix column index or type is invalid")
+            }
+            return column
         default:throw i.fail("Indexed type unavailable",code:.unsupportedConstruct)
         }
     }
     mutating func accessChain(_ i:SPVInstruction,_ ss:inout [IRHandle<IRStatement>]) throws {
-        let a=i.a;try i.minimum(4);let base=try value(a[2],i)
+        let a=i.a;try i.minimum(3);let base=try value(a[2],i,&ss)
         guard let pointer=module.pointers[base.type],let resultPointer=module.pointers[a[0]],pointer.storage==resultPointer.storage else {throw i.fail("AccessChain pointer storage mismatch")}
-        var t=try module.type(pointer.base,i),e=base.expression
+        var t = try module.type(pointer.base, i)
+        if a.count == 3 {
+            guard try module.type(resultPointer.base, i) == t else { throw i.fail("Empty access chain changes pointee type") }
+            defineValue(a[1], .init(expression: base.expression, type: a[0], anchor: base.anchor))
+            return
+        }
+        var expression = base.expression
+        guard case .pointer(_, let loweredSpace) = module.types[expressions[expression.index].type.index].kind else {
+            throw i.fail("AccessChain base is not an IR pointer")
+        }
+        var steps: [SPVAccessStep] = []
         for (j,indexID) in a.dropFirst(3).enumerated() {
-            let index=try value(indexID,i)
+            let index=try value(indexID,i,&ss)
             let ik=try module.kind(index.type,i)
             guard ik == .scalar(.u32) || ik == .scalar(.i32) else {throw i.fail("Index must be i32/u32")}
+            let constant = module.constantMap[indexID]?.nonnegativeInteger
+            if j == 0 { try checkOmittedInterfaceAccess(base, member: constant, at: i) }
             let next:IRHandle<IRType>
-            if let c=module.constantMap[indexID]?.unsigned {next=try indexedType(t,c,i)}
+            if let constant {next=try indexedType(t,constant,i)}
             else {
                 switch module.types[t.index].kind {
                 case .array(let b,_,_):next=b
@@ -344,23 +441,33 @@ struct SPVFunctionLowerer {
             }
             let last=j==a.count-4
             let pt:IRHandle<IRType>
-            if last {pt=try module.type(a[0],i);guard try module.type(resultPointer.base,i)==next else {throw i.fail("AccessChain result pointee mismatch")}}
+            if last, try module.type(resultPointer.base,i) != next { throw i.fail("AccessChain result pointee mismatch") }
+            if loweredSpace == .function, pointer.storage == 1 {
+                guard let local = module.localPointerTypes[next] else { throw i.fail("Invalid builtin input projection type") }
+                pt = local
+            } else if last { pt = try module.type(a[0],i) }
             else {
                 try work(module.types.count)
-                let space=try module.storage(pointer.storage,i)
-                guard let found=module.types.indices.first(where:{module.types[$0].kind == .pointer(base:next,space:space)}) else {throw i.fail("Missing intermediate pointer type",code:.unsupportedConstruct)}
-                pt=try IRHandle(index:found)
+                let kind = IRTypeKind.pointer(base: next, space: loweredSpace)
+                if let found = module.types.firstIndex(where: { $0.kind == kind }) {
+                    pt = try IRHandle(index: found)
+                } else {
+                    // OpAccessChain declares only the final pointer type.
+                    try node()
+                    pt = try IRHandle(index: module.types.count)
+                    module.types.append(.init(kind: kind))
+                }
             }
-            let access: IRExpressionKind
-            if let constantIndex = module.constantMap[indexID]?.unsigned {
-                access = .accessIndex(base:e,index:constantIndex)
-            } else { access = .access(base:e,index:index.expression) }
-            e=try expr(pt,access,i);ss.append(try stmt(.emit([e]),i));t=next
+            let step = SPVAccessStep(type: pt, index: constant.map { .constant($0) } ?? .dynamic(index))
+            expression = try project(expression, through: step, statements: &ss, at: i)
+            steps.append(step)
+            t = next
         }
-        values[a[1]]=SPVValue(expression:e,type:a[0])
+        accessPaths[expression] = .init(base: base, steps: steps)
+        defineValue(a[1], .init(expression: expression, type: a[0], anchor: ss.last))
     }
     mutating func binary(_ i:SPVInstruction,_ ss:inout [IRHandle<IRStatement>]) throws {
-        try i.count(4);let a=i.a,l=try value(a[2],i),r=try value(a[3],i)
+        try i.count(4);let a=i.a,l=try value(a[2],i,&ss),r=try value(a[3],i,&ss)
         let lk=try module.kind(l.type,i)
         guard try module.type(l.type,i)==module.type(r.type,i) else {throw i.fail("Binary operands differ")}
         let scalar:IRScalar;let size:IRVectorSize?

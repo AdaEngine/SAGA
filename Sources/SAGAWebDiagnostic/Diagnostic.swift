@@ -14,7 +14,9 @@ import SAGAShaderIR
 import SAGACompiler
 import SAGAWebGPU
 
-func runWebDiagnostic(capabilities: DeviceCapabilities, supportsPresentation: Bool) async throws -> String {
+func runWebDiagnostic(
+    capabilities: DeviceCapabilities, supportsPresentation: Bool, videoFrames: (UInt64, UInt64, UInt64)
+) async throws -> String {
     let source = """
         @group(0) @binding(1) var<storage, read> input: array<u32, 4>;
         @group(0) @binding(3) var<storage, read_write> output: array<u32, 4>;
@@ -37,10 +39,11 @@ func runWebDiagnostic(capabilities: DeviceCapabilities, supportsPresentation: Bo
             var progress = 0u;
             loop {
                 if progress == bonus { break; }
+                let next = progress + 1u;
                 continue;
                 continuing {
-                    progress += 1u;
-                    break if progress >= bonus;
+                    progress = next;
+                    break if next >= bonus;
                 }
             }
             let original = writeAndRead(i, baseValue(i));
@@ -51,6 +54,7 @@ func runWebDiagnostic(capabilities: DeviceCapabilities, supportsPresentation: Bo
     let host = WebGPUHost(capabilities: capabilities, supportsPresentation: supportsPresentation)
     let device = try await Device.make(backend: BrowserComputeBackend(host: host))
     do {
+        try await validateNativeEarlyDepthFeature(device)
         let shader = try IndependentShaderCompiler().compileCompute(.wgsl(source), to: .wgsl)
         let pipeline = try await device.createComputePipeline(shader)
         let input = try await device.createBuffer(.init(size: 16, usage: [.storage, .copyDestination]))
@@ -91,6 +95,8 @@ func runWebDiagnostic(capabilities: DeviceCapabilities, supportsPresentation: Bo
         let storageVectors = try await storageVectorDiagnostic(device)
         let groupedStorage = try await groupedStorageDiagnostic(device)
         let builtinInvocations = try await computeBuiltinDiagnostic(device)
+        let linearIndexingInvocations = capabilities.features.contains(.linearIndexing)
+            ? try await linearIndexingDiagnostic(device) : 0
         let workgroupWords = try await workgroupMemoryDiagnostic(device)
         let storageBarrierWords = try await storageBarrierDiagnostic(device)
         let atomicTickets = try await atomicDiagnostic(device)
@@ -150,6 +156,106 @@ func runWebDiagnostic(capabilities: DeviceCapabilities, supportsPresentation: Bo
         let storageFormats = try await storageFormatDiagnostic(device)
         let cubeWords = try await cubeTextureDiagnostic(device)
         let volumeWords = try await volumeTextureDiagnostic(device)
+        let volumeStorageWords = try await volumeStorageDiagnostic(device)
+        let volumeRenderWords = try await volumeRenderDiagnostic(device)
+        let lineTextureWords = try await lineTextureDiagnostic(device)
+        let bitcastWords = try await bitcastDiagnostic(device)
+        let integerBitWords = try await integerBitDiagnostic(device)
+        let packingWords = try await packingDiagnostic(device)
+        let geometricWords = try await geometricDiagnostic(device)
+        let matrixBuiltinWords = try await matrixBuiltinDiagnostic(device)
+        let derivativeWords = try await derivativeDiagnostic(device)
+        let derivativeFilterWords = try await derivativeFilterDiagnostic(device)
+        let numericBuiltinWords = try await numericBuiltinDiagnostic(device)
+        let transcendentalWords = try await transcendentalDiagnostic(device)
+        let decompositionWords = try await decompositionDiagnostic(device)
+        let halfPrecisionWords = try await halfPrecisionDiagnostic(device)
+        let halfBufferWords = try await halfBufferDiagnostic(device)
+        let halfMatrixWords = try await halfMatrixDiagnostic(device)
+        let halfGeometryWords = try await halfGeometryDiagnostic(device)
+        let halfBitcastWords = try await halfBitcastDiagnostic(device)
+        let halfNumericWords = try await halfNumericDiagnostic(device)
+        let quantizeWords = try await quantizeDiagnostic(device)
+        let floatingVectorWords = try await floatingVectorDiagnostic(device)
+        let overrideWords = try await overrideDiagnostic(device)
+        let computedOverrideWords = try await computedOverrideDiagnostic(device)
+        let overrideArrayWords = try await overrideArrayDiagnostic(device)
+        let pipelineBodyWords = try await pipelineBodyDiagnostic(device)
+        let pipelineAggregateWords = try await pipelineAggregateDiagnostic(device)
+        let pipelineCompositeWords = try await pipelineCompositeDiagnostic(device)
+        let arrayConstantWords = try await arrayConstantDiagnostic(device)
+        let pipelineBuiltinWords = try await pipelineBuiltinDiagnostic(device)
+        let conversionWords = try await conversionDiagnostic(device)
+        let halfConversionWords = try await halfConversionDiagnostic(device)
+        let localArrayWords = try await localArrayDiagnostic(device)
+        let workgroupAggregateWords = try await workgroupAggregateDiagnostic(device)
+        let privateVariableWords = try await privateVariableDiagnostic(device)
+        let privateRenderWords = try await privateRenderDiagnostic(device)
+        let pointerWords = try await pointerDiagnostic(device)
+        let pointerSubviewWords = try await pointerSubviewDiagnostic(device)
+        let sharedPointerWords = try await sharedPointerDiagnostic(device)
+        let swizzleAssignmentWords = try await swizzleAssignmentDiagnostic(device)
+        let nestedStorageWords = try await nestedStorageDiagnostic(device)
+        let nestedHalfStorageWords = try await nestedHalfStorageDiagnostic(device)
+        let nestedAtomicWords = try await nestedAtomicDiagnostic(device)
+        let nestedUniformWords = try await nestedUniformDiagnostic(device)
+        let nestedHalfUniformWords = try await nestedHalfUniformDiagnostic(device)
+        let standardUniformWords = try await standardUniformDiagnostic(device)
+        let renderStorageBufferWords = try await renderStorageBufferDiagnostic(device)
+        let indirectDispatchWords = try await indirectDispatchDiagnostic(device)
+        let indirectDrawWords = try await indirectDrawDiagnostic(device)
+        let clipDistancePixels = try await clipDistanceDiagnostic(device)
+        try await verifyNativeBarycentricsAreUnavailable(device)
+        let primitiveIndexPixels = try await primitiveIndexDiagnostic(device)
+        let invariantPositionPixels = try await invariantPositionDiagnostic(device)
+        let voidFragmentPixels = try await voidFragmentDiagnostic(device)
+        let discardContinuationWords = try await discardContinuationDiagnostic(device)
+        let depthClipWords = try await depthClipControlDiagnostic(device)
+        let timestampQueryWords = try await timestampQueryDiagnostic(device)
+        let occlusionQueryWords = try await occlusionQueryDiagnostic(device)
+        let mappedBufferWords = try await mappedBufferDiagnostic(device)
+        let bufferRangeWords = try await bufferRangeDiagnostic(device)
+        let queueTextureWords = try await queueTextureDiagnostic(device)
+        let subgroupGatherWords = try await subgroupGatherDiagnostic(device)
+        let subgroupCollectiveWords = try await subgroupCollectiveDiagnostic(device)
+        let subgroupIndexWords = try await subgroupIndexDiagnostic(device)
+        let requestedSubgroupSize = try await subgroupSizeControlDiagnostic(device)
+        let subgroupUniformityWords = try await subgroupUniformityDiagnostic(device)
+        let dualSourcePixels = try await dualSourceDiagnostic(device)
+        let bcTextureWords = try await bcTextureDiagnostic(device)
+        let etc2TextureWords = try await etc2TextureDiagnostic(device)
+        let astcTextureWords = try await astcTextureDiagnostic(device)
+        let bcVolumeWords = try await compressedVolumeDiagnostic(device, format: .bc1RGBAUnorm, feature: .textureCompressionBCSliced3D)
+        let astcVolumeWords = try await compressedVolumeDiagnostic(device, format: .astc5x4Unorm, feature: .textureCompressionASTCSliced3D)
+        let callStatementWords = try await callStatementDiagnostic(device)
+        let matrixCompoundWords = try await matrixCompoundDiagnostic(device)
+        let float32TextureWords = try await float32TextureDiagnostic(device)
+        let float32ColorWords = try await float32ColorDiagnostic(device)
+        let halfTexelWords = try await halfTexelTransferDiagnostic(device).flatMap { $0 }
+        let halfColorWords = try await halfColorResolveDiagnostic(device).flatMap { $0 }
+        let halfStorageWords = try await halfStorageDiagnostic(device)
+        let integer16ColorWords = try await integer16ColorDiagnostic(device)
+        let integer16MSAAWords = try await integer16ColorDiagnostic(device, sampleCount: 4)
+        let integer16StorageWords = try await integer16StorageDiagnostic(device)
+        let normalized16StorageWords = try await normalized16StorageDiagnostic(device)
+        let normalized16ColorWords = try await normalized16ColorDiagnostic(device)
+        let packedColorWords = try await packedColorDiagnostic(device)
+        let packedStorageWords = try await packedStorageDiagnostic(device)
+        let srgbWords = try await srgbDiagnostic(device)
+        let sharedExponentWords = try await sharedExponentDiagnostic(device)
+        let byteTransferWords = try await byteTransferDiagnostic(device)
+        let byteColorWords = try await byteColorDiagnostic(device)
+        let byteStorageWords = try await byteStorageDiagnostic(device)
+        let depthOnlyFormatWords = try await depthOnlyFormatDiagnostic(device)
+        let depth32StencilWords = try await depth32StencilDiagnostic(device)
+        let stencilOnlyWords = try await stencilOnlyDiagnostic(device)
+        let bgraStorageWords = try await bgraStorageDiagnostic(device)
+        let wideStorageWords = try await wideStorageDiagnostic(device)
+        let forwardedResourceWords = try await forwardedResourcesDiagnostic(device)
+        let webBufferArrayWords = try await webBufferArraysDiagnostic(device)
+        let externalTextureWords = videoFrames.0 == 0 ? [] : try await webExternalTextureDiagnostic(device, frames: videoFrames)
+        let immediateWords = capabilities.maxImmediateSize < 32 ? [] : try await computeImmediateDiagnostic(device)
+        let renderImmediateWords = capabilities.maxImmediateSize < 32 ? [] : try await renderImmediateDiagnostic(device)
         let fragmentDepthWords = try await fragmentDepthDiagnostic(device)
         let fragmentRasterWords = try await fragmentRasterDiagnostic(device)
         let interpolationWord = try await interpolationDiagnostic(device)
@@ -171,12 +277,106 @@ func runWebDiagnostic(capabilities: DeviceCapabilities, supportsPresentation: Bo
                        csv(renderSamplerPixels), csv(mipTextureWords), csv(textureViewWords), csv(textureGatherLanes),
                        csv(storageTextureWords), csv(fragmentStorageTextureWords), csv(readWriteStorageWords),
                        csv(textureBarrierWords), csv(renderReadableStorageWords), csv(depthAttachmentWords), csv(depthTextureWords),
-                       csv(depthComparisonWords), csv(depthGatherLanes), rawDepthGather, csv(multisampleWords), csv(integerTextureWords), csv(integerGatherWords), csv(sampleCoverageWords), csv(fragmentDepthWords), csv(fragmentRasterWords), String(interpolationWord), csv(topologyWords), csv(blendWords), csv(alphaCoverageWords), csv(multipleColorWords), csv(viewportWords), csv(depthBiasWords), csv(stencilWords + msaaStencilWords), csv(readOnlyDepthWords), csv(aspectWords + msaaAspectWords), csv(stencilCopyWords), csv(textureCopyWords), csv(arrayWords), csv(layerViewWords), csv(arraySamplingWords), csv(storageArrayWords), String(storageFormats), csv(cubeWords), csv(volumeWords)]
-        return (["swift"] + snapshots + metrics).joined(separator: "|")
+                       csv(depthComparisonWords), csv(depthGatherLanes), rawDepthGather, csv(multisampleWords), csv(integerTextureWords), csv(integerGatherWords), csv(sampleCoverageWords), csv(fragmentDepthWords), csv(fragmentRasterWords), String(interpolationWord), csv(topologyWords), csv(blendWords), csv(alphaCoverageWords), csv(multipleColorWords), csv(viewportWords), csv(depthBiasWords), csv(stencilWords + msaaStencilWords), csv(readOnlyDepthWords), csv(aspectWords + msaaAspectWords), csv(stencilCopyWords), csv(textureCopyWords), csv(arrayWords), csv(layerViewWords), csv(arraySamplingWords), csv(storageArrayWords), String(storageFormats), csv(cubeWords), csv(volumeWords), csv(volumeStorageWords), csv(volumeRenderWords), csv(lineTextureWords), csv(bitcastWords), csv(integerBitWords), csv(packingWords), csv(geometricWords), csv(matrixBuiltinWords), csv(derivativeWords), csv(derivativeFilterWords), csv(numericBuiltinWords), csv(transcendentalWords), csv(decompositionWords), csv(halfPrecisionWords), csv(halfBufferWords), csv(halfMatrixWords), csv(halfGeometryWords), csv(halfBitcastWords), csv(halfNumericWords), csv(quantizeWords), csv(floatingVectorWords), csv(overrideWords), csv(computedOverrideWords), csv(overrideArrayWords), csv(pipelineBodyWords), csv(pipelineAggregateWords), csv(pipelineCompositeWords), csv(arrayConstantWords), csv(pipelineBuiltinWords), csv(conversionWords), csv(halfConversionWords), csv(localArrayWords), csv(workgroupAggregateWords), csv(privateVariableWords), csv(privateRenderWords), csv(pointerWords), csv(pointerSubviewWords), csv(sharedPointerWords), csv(swizzleAssignmentWords), csv(nestedStorageWords), csv(nestedHalfStorageWords), csv(nestedAtomicWords), csv(nestedUniformWords), csv(nestedHalfUniformWords), csv(standardUniformWords), csv(renderStorageBufferWords), csv(indirectDispatchWords), csv(indirectDrawWords), csv(clipDistancePixels), csv(primitiveIndexPixels), csv(invariantPositionPixels), csv(voidFragmentPixels), csv(discardContinuationWords), csv(depthClipWords), csv(timestampQueryWords), csv(occlusionQueryWords), csv(mappedBufferWords), csv(bufferRangeWords), csv(queueTextureWords), csv(subgroupGatherWords), csv(subgroupCollectiveWords), csv(subgroupIndexWords), csv(dualSourcePixels), csv(bcTextureWords), csv(etc2TextureWords), csv(astcTextureWords), csv(bcVolumeWords), csv(astcVolumeWords), csv(callStatementWords), csv(matrixCompoundWords), csv(float32TextureWords), csv(float32ColorWords), csv(halfTexelWords), csv(halfColorWords), csv(halfStorageWords), csv(integer16ColorWords), csv(integer16MSAAWords), csv(integer16StorageWords), csv(normalized16StorageWords), csv(normalized16ColorWords), csv(packedColorWords), csv(packedStorageWords), csv(srgbWords), csv(sharedExponentWords), csv(byteTransferWords), csv(byteColorWords), csv(byteStorageWords), csv(depthOnlyFormatWords), csv(depth32StencilWords), csv(stencilOnlyWords), csv(bgraStorageWords), csv(wideStorageWords), csv(forwardedResourceWords), csv(webBufferArrayWords), csv(externalTextureWords)]
+        return (["swift"] + snapshots + metrics + [csv(immediateWords), csv(renderImmediateWords),
+                                                   String(linearIndexingInvocations), String(requestedSubgroupSize),
+                                                   csv(subgroupUniformityWords)]).joined(separator: "|")
     } catch {
         await device.close()
         throw error
     }
+}
+
+private func computeImmediateDiagnostic(_ device: Device) async throws -> [UInt32] {
+    let source = ShaderInput.wgsl("""
+        requires immediate_address_space;
+        struct Pair { first: u32, second: u32, }
+        struct Settings { axis: vec3u, pair: Pair, last: u32, }
+        var<immediate> settings: Settings;
+        @group(0) @binding(0) var<storage, read_write> output: array<u32, 4>;
+        fn second() -> u32 { return settings.pair.second; }
+        @compute @workgroup_size(1) fn run() {
+            output[0] = settings.axis.z;
+            output[1] = settings.pair.first;
+            output[2] = second();
+            output[3] = settings.last;
+        }
+        """)
+    let shader = try IndependentShaderCompiler().compileWebGPUCompute(source)
+    let pipeline = try await device.createComputePipeline(shader)
+    let output = try await device.createBuffer(.init(size: 16, usage: [.storage, .copySource]))
+    let readback = try await device.createBuffer(.init(size: 16, usage: [.copyDestination, .mapRead]))
+    let arguments = try await device.createBuffer(.init(size: 12, usage: [.copyDestination, .indirect]))
+    let slot = ComputeBindingSlot(binding: 0)
+    let words = try await device.submitCommands([
+        .write(buffer: arguments, offset: 0, words: [1, 1, 1]),
+        .dispatchCompute(pipeline: pipeline, bindings: [slot: output], workgroups: .init(x: 1),
+                         immediates: [1, 2, 0x1122_3344, 0xaabb_ccdd, 0x8123_4567, 9, .max, .max]),
+        .copy(source: output, destination: readback, byteCount: 16),
+        .read(buffer: readback, byteCount: 16),
+        .dispatchComputeIndirect(pipeline: pipeline, bindings: [slot: .init(buffer: output)], indirectBuffer: arguments,
+                                 immediates: [1, 2, 21, 22, 23, 0, .max, .max]),
+        .copy(source: output, destination: readback, byteCount: 16),
+        .read(buffer: readback, byteCount: 16),
+    ]).wait()
+    guard words == [[0x1122_3344, 0xaabb_ccdd, 0x8123_4567, 9], [21, 22, 23, 0]] else {
+        throw GPUError.backendFailure("Unexpected compute immediate values: \(words)")
+    }
+    return words.flatMap { $0 }
+}
+
+private func renderImmediateDiagnostic(_ device: Device) async throws -> [UInt32] {
+    let source = ShaderInput.wgsl("""
+        requires immediate_address_space;
+        struct FragmentData { reserved: vec2f, color: vec4f, }
+        var<immediate> vertex_data: vec2f;
+        var<immediate> fragment_data: FragmentData;
+        @vertex fn vs(@location(0) position: vec2f) -> @builtin(position) vec4f {
+            return vec4f(position + vertex_data, 0, 1);
+        }
+        @fragment fn fs() -> @location(0) vec4f { return fragment_data.color; }
+        """)
+    let compiler = IndependentShaderCompiler()
+    let vertex = try compiler.compileWebGPURenderStage(source, entryPoint: "vs")
+    let fragment = try compiler.compileWebGPURenderStage(source, entryPoint: "fs")
+    let pipeline = try await device.createRenderPipeline(vertex: vertex, fragment: fragment, colorFormat: .rgba8Unorm,
+        vertexBuffers: [.init(stride: 8, attributes: [.init(location: 0, offset: 0, format: .float32x2)])])
+    let positions = try await device.createBuffer(.init(size: 24, usage: [.vertex, .copyDestination]))
+    let indices = try await device.createBuffer(.init(size: 12, usage: [.index, .copyDestination]))
+    let arguments = try await device.createBuffer(.init(size: 36, usage: [.indirect, .copyDestination]))
+    let target = try await device.createTexture(.init(width: 1, height: 1, format: .rgba8Unorm,
+                                                      usage: [.renderAttachment, .copySource]))
+    let readback = try await device.createBuffer(.init(size: 256, usage: [.mapRead, .copyDestination]))
+    let streams = [VertexBufferBinding(buffer: positions)]
+    let index = IndexBufferBinding(buffer: indices, format: .uint32)
+    let clear = RenderClearColor(red: 0, green: 0, blue: 1, alpha: 1)
+    func words(_ x: Float, _ r: Float, _ g: Float, _ b: Float) -> [UInt32] {
+        [x, 0, -7, -9, r, g, b, 1].map(\.bitPattern)
+    }
+    let setup: [BufferCommand] = [
+        .write(buffer: positions, offset: 0, words: [Float(-1), -1, 3, -1, -1, 3].map(\.bitPattern)),
+        .write(buffer: indices, offset: 0, words: [0, 1, 2]),
+        .write(buffer: arguments, offset: 0, words: [3, 1, 0, 0, 3, 1, 0, 0, 0]),
+    ]
+    let draws: [BufferCommand] = [
+        .render(pipeline: pipeline, target: target, clear: clear, vertexCount: 3,
+                vertexBuffers: streams, immediates: words(0, 1, 0, 0)),
+        .renderIndexed(pipeline: pipeline, target: target, clear: clear, indexBuffer: index,
+                       draw: .init(indexCount: 3), vertexBuffers: streams, immediates: words(0, 0, 1, 0)),
+        .renderIndirect(pipeline: pipeline, target: target, colorLoad: .clear(clear), indirectBuffer: arguments,
+                        vertexBuffers: streams, immediates: words(4, 1, 0, 0)),
+        .renderIndirect(pipeline: pipeline, target: target, colorLoad: .clear(clear), indirectBuffer: arguments,
+                        indirectOffset: 16, indexBuffer: index, vertexBuffers: streams, immediates: words(0, 1, 1, 0)),
+    ]
+    let capture: [BufferCommand] = [
+        .copyTextureToBuffer(source: target, destination: readback, bytesPerRow: 256),
+        .read(buffer: readback, byteCount: 4),
+    ]
+    let snapshots = try await device.submitCommands(setup + draws.flatMap { [$0] + capture }).wait()
+    guard snapshots == [[0xff00_00ff], [0xff00_ff00], [0xffff_0000], [0xff00_ffff]] else {
+        throw GPUError.backendFailure("Unexpected render immediate colors: \(snapshots)")
+    }
+    return snapshots.flatMap { $0 }
 }
 
 private func integerDiagnostic(_ device: Device) async throws -> Int {
@@ -432,7 +632,9 @@ private func computeBuiltinDiagnostic(_ device: Device) async throws -> Int {
     let pipeline = try await device.createComputePipeline(shader)
     var checked = 0
     func pack(_ x: UInt32, _ y: UInt32, _ z: UInt32) -> UInt32 { x + y * 16 + z * 256 }
-    for groups in [DispatchWorkgroups(x: 3, y: 2, z: 2), .init(x: 1, y: 2, z: 1)] {
+    let spirv = try IndependentShaderCompiler().compileWebGPUCompute(.spirv(computeBuiltinsSPIRV()))
+    let spirvPipeline = try await device.createComputePipeline(spirv)
+    for (index, groups) in [DispatchWorkgroups(x: 3, y: 2, z: 2), .init(x: 1, y: 2, z: 1)].enumerated() {
         var expected: [UInt32] = []
         for z in 0..<(groups.z * 2) {
             for y in 0..<(groups.y * 3) {
@@ -448,17 +650,98 @@ private func computeBuiltinDiagnostic(_ device: Device) async throws -> Int {
         let size = UInt64(expected.count * 4)
         let buffer = try await device.createBuffer(.init(size: size, usage: [.storage, .copySource]))
         let readback = try await device.createBuffer(.init(size: size, usage: [.copyDestination, .mapRead]))
-        let ticket = try await device.submitCommands([
+        var commands: [BufferCommand] = [
             .dispatchCompute(pipeline: pipeline, bindings: [.init(binding: 2): buffer], workgroups: groups),
             .copy(source: buffer, destination: readback, byteCount: size),
             .read(buffer: readback, byteCount: size),
-        ])
-        guard try await ticket.wait() == [expected] else {
+        ]
+        var results = [expected]
+        if index == 0 {
+            commands += [
+                .dispatchCompute(pipeline: spirvPipeline, bindings: [.init(binding: 0): buffer], workgroups: .init(x: 3)),
+                .copy(source: buffer, destination: readback, byteCount: 24), .read(buffer: readback, byteCount: 24),
+            ]
+            results.append([192, 197, 208, 213, 224, 229])
+            checked += 6
+        }
+        guard try await device.submitCommands(commands).wait() == results else {
             throw GPUError.backendFailure("Unexpected WebGPU compute builtin values for \(groups)")
         }
         checked += expected.count / 5
     }
     return checked
+}
+
+private func computeBuiltinsSPIRV() -> [UInt32] {
+    func op(_ code: UInt32, _ operands: UInt32...) -> [UInt32] {
+        [UInt32(operands.count + 1) << 16 | code] + operands
+    }
+    var words: [UInt32] = [0x07230203, 0x00010300, 0, 100, 0]
+    for instruction in [
+        op(17, 1), op(14, 0, 1), op(15, 5, 12, 0x6e69616d, 0, 15, 16, 17, 18, 19), op(16, 12, 17, 1, 1, 1),
+        op(71, 15, 11, 28), op(71, 16, 11, 27), op(71, 17, 11, 26), op(71, 18, 11, 24), op(71, 19, 11, 29),
+        op(71, 28, 11, 25), op(71, 5, 6, 4), op(71, 6, 2), op(72, 6, 0, 35, 0), op(71, 14, 34, 0), op(71, 14, 33, 0),
+        op(19, 1), op(21, 2, 32, 0), op(20, 3), op(23, 4, 2, 3),
+        op(43, 2, 20, 0), op(43, 2, 21, 1), op(43, 2, 22, 2), op(43, 2, 23, 4),
+        op(43, 2, 24, 16), op(43, 2, 25, 64), op(43, 2, 26, 0x108), op(43, 2, 27, 32),
+        op(44, 4, 28, 22, 21, 21), op(28, 5, 2, 27), op(30, 6, 5),
+        op(32, 7, 1, 4), op(32, 8, 1, 2), op(32, 9, 12, 6), op(32, 10, 12, 2), op(33, 11, 1),
+        op(59, 9, 14, 12), op(59, 7, 15, 1), op(59, 7, 16, 1), op(59, 7, 17, 1), op(59, 7, 18, 1), op(59, 8, 19, 1),
+        op(54, 1, 12, 0, 11), op(248, 30), op(57, 1, 31, 13), op(253), op(56),
+        op(54, 1, 13, 0, 11), op(248, 40),
+        op(65, 8, 41, 15, 20), op(61, 2, 42, 41), op(65, 8, 43, 16, 20), op(61, 2, 44, 43),
+        op(65, 8, 45, 17, 20), op(61, 2, 46, 45), op(65, 8, 47, 18, 20), op(61, 2, 48, 47), op(61, 2, 49, 19),
+        op(170, 3, 50, 46, 20), op(247, 53, 0), op(250, 50, 52, 53),
+        op(248, 52), op(224, 22, 22, 26), op(249, 53), op(248, 53),
+        op(132, 2, 54, 49, 23), op(132, 2, 55, 46, 24), op(132, 2, 56, 48, 25),
+        op(128, 2, 57, 44, 54), op(128, 2, 58, 57, 55), op(128, 2, 59, 58, 56),
+        op(65, 10, 60, 14, 20, 42), op(62, 60, 59), op(253), op(56),
+    ] { words += instruction }
+    return words
+}
+
+private func linearIndexingDiagnostic(_ device: Device) async throws -> Int {
+    let source = ShaderInput.wgsl("""
+        requires linear_indexing;
+        struct Inputs { @builtin(workgroup_index) group: u32, }
+        @group(0) @binding(0) var<storage, read_write> output: array<vec2u>;
+        @compute @workgroup_size(2, 3, 2)
+        fn run(input: Inputs, @builtin(global_invocation_index) index: u32) {
+            output[index] = vec2u(index, input.group);
+        }
+        """)
+    let shader = try IndependentShaderCompiler().compileWebGPUCompute(source)
+    let pipeline = try await device.createComputePipeline(shader)
+    let direct = DispatchWorkgroups(x: 2, y: 3, z: 2)
+    let indirect = DispatchWorkgroups(x: 3, y: 2, z: 2)
+    func expected(_ counts: DispatchWorkgroups) -> [UInt32] {
+        var words: [UInt32] = []
+        for z in 0..<(2 * counts.z) {
+            for y in 0..<(3 * counts.y) {
+                for x in 0..<(2 * counts.x) {
+                    words += [UInt32(words.count / 2), x / 2 + counts.x * (y / 3 + counts.y * (z / 2))]
+                }
+            }
+        }
+        return words
+    }
+    let first = expected(direct), second = expected(indirect)
+    let byteCount = UInt64(first.count) * 4
+    let output = try await device.createBuffer(.init(size: byteCount, usage: [.storage, .copySource]))
+    let readback = try await device.createBuffer(.init(size: byteCount, usage: [.mapRead, .copyDestination]))
+    let arguments = try await device.createBuffer(.init(size: 12, usage: [.indirect, .copyDestination]))
+    let slot = ComputeBindingSlot(binding: 0)
+    let results = try await device.submitCommands([
+        .write(buffer: arguments, offset: 0, words: [indirect.x, indirect.y, indirect.z]),
+        .dispatchCompute(pipeline: pipeline, bindings: [slot: output], workgroups: direct),
+        .copy(source: output, destination: readback, byteCount: byteCount),
+        .read(buffer: readback, byteCount: byteCount),
+        .dispatchComputeIndirect(pipeline: pipeline, bindings: [slot: .init(buffer: output)], indirectBuffer: arguments),
+        .copy(source: output, destination: readback, byteCount: byteCount),
+        .read(buffer: readback, byteCount: byteCount),
+    ]).wait()
+    guard results == [first, second] else { throw GPUError.backendFailure("Unexpected linear index readback") }
+    return (first.count + second.count) / 2
 }
 
 private func workgroupMemoryDiagnostic(_ device: Device) async throws -> [UInt32] {
@@ -472,27 +755,67 @@ private func workgroupMemoryDiagnostic(_ device: Device) async throws -> [UInt32
         fn run(@builtin(local_invocation_index) lane: u32, @builtin(workgroup_id) group: vec3u) {
             let initial = scratch[lane + 3u] + flag;
             workgroupBarrier();
-            fill(lane, group.x * 100u + lane + 10u);
-            if lane == 0u { flag = 7u; }
-            sync();
+            var step = 0u;
+            loop {
+                fill(lane, group.x * 100u + lane + 9u + step);
+                if lane == 0u { flag = 7u; }
+                sync();
+                continuing {
+                    step++;
+                    break if step >= 2u;
+                }
+            }
             output[group.x * 4u + lane] = initial * 1000u + scratch[(lane + 1u) % 4u] + flag;
         }
         """
     let shader = try IndependentShaderCompiler().compileCompute(.wgsl(source), to: .wgsl)
     let pipeline = try await device.createComputePipeline(shader)
+    let largeWorkgroup = ShaderInput.wgsl("""
+        override scratchWords: u32 = 8188u;
+        var<workgroup> scratch: array<u32, scratchWords>;
+        var<workgroup> flag: u32;
+        @group(0) @binding(0) var<storage, read_write> output: array<u32, 4>;
+
+        @compute @workgroup_size(4)
+        fn run(@builtin(local_invocation_index) lane: u32) {
+            let index = scratchWords - 1u - lane;
+            let initial = scratch[index] + flag;
+            workgroupBarrier();
+            scratch[index] = 10u + lane;
+            if lane == 0u { flag = 70u; }
+            workgroupBarrier();
+            output[lane] = initial * 1000u + flag + scratch[scratchWords - 1u - (lane + 1u) % 4u];
+        }
+        """)
+    let compiler = IndependentShaderCompiler()
+    let limitWords = device.capabilities.maxComputeWorkgroupStorageSize / 16 * 4
+    let oversized = try compiler.compileWebGPUCompute(largeWorkgroup, constants: ["scratchWords": Double(limitWords)])
+    do {
+        _ = try await device.createComputePipeline(oversized)
+        throw GPUError.backendFailure("Workgroup storage accepted above the negotiated limit")
+    } catch GPUError.validation("Workgroup storage exceeds the device limit") {
+        // The limit is checked before invoking the browser pipeline allocator.
+    }
+    let largeShader = try compiler.compileWebGPUCompute(largeWorkgroup,
+        constants: ["scratchWords": Double(min(limitWords, 8192) - 4)])
+    let largePipeline = try await device.createComputePipeline(largeShader)
     let buffer = try await device.createBuffer(.init(size: 48, usage: [.storage, .copySource]))
     let readback = try await device.createBuffer(.init(size: 48, usage: [.copyDestination, .mapRead]))
     let ticket = try await device.submitCommands([
         .dispatchCompute(pipeline: pipeline, bindings: [.init(binding: 2): buffer], workgroups: .init(x: 3)),
         .copy(source: buffer, destination: readback, byteCount: 48),
         .read(buffer: readback, byteCount: 48),
+        .dispatchCompute(pipeline: largePipeline, bindings: [.init(binding: 0): buffer], workgroups: .init(x: 1)),
+        .copy(source: buffer, destination: readback, byteCount: 16),
+        .read(buffer: readback, byteCount: 16),
     ])
     let result = try await ticket.wait()
     let expected: [UInt32] = [18, 19, 20, 17, 118, 119, 120, 117, 218, 219, 220, 217]
-    guard result == [expected] else {
+    let largeExpected: [UInt32] = [81, 82, 83, 80]
+    guard result == [expected, largeExpected] else {
         throw GPUError.backendFailure("Unexpected workgroup memory WebGPU readback: \(result)")
     }
-    return expected
+    return expected + largeExpected
 }
 
 private func storageBarrierDiagnostic(_ device: Device) async throws -> [UInt32] {
@@ -517,6 +840,8 @@ private func storageBarrierDiagnostic(_ device: Device) async throws -> [UInt32]
     let scratch = try await device.createBuffer(.init(size: scratchBytes, usage: [.storage, .copyDestination, .copySource]))
     let output = try await device.createBuffer(.init(size: outputBytes, usage: [.storage, .copySource]))
     let readback = try await device.createBuffer(.init(size: scratchBytes, usage: [.copyDestination, .mapRead]))
+    let spirv = try IndependentShaderCompiler().compileWebGPUCompute(.spirv(storageBarrierSPIRV()))
+    let spirvPipeline = try await device.createComputePipeline(spirv)
     let ticket = try await device.submitCommands([
         .write(buffer: scratch, offset: sentinelOffset, words: [999]),
         .dispatchComputeRanges(pipeline: pipeline, bindings: [
@@ -527,6 +852,10 @@ private func storageBarrierDiagnostic(_ device: Device) async throws -> [UInt32]
         .read(buffer: readback, byteCount: outputBytes),
         .copy(source: scratch, destination: readback, byteCount: scratchBytes),
         .read(buffer: readback, byteCount: scratchBytes),
+        .dispatchCompute(pipeline: spirvPipeline, bindings: [.init(binding: 0): scratch, .init(binding: 1): output],
+                         workgroups: .init(x: 3)),
+        .copy(source: output, destination: readback, byteCount: outputBytes),
+        .read(buffer: readback, byteCount: outputBytes),
     ])
     let writes = (0..<384).map { (index: Int) -> UInt32 in
         let group = UInt32(index / 128)
@@ -540,10 +869,35 @@ private func storageBarrierDiagnostic(_ device: Device) async throws -> [UInt32]
     }
     let result = try await ticket.wait()
     let scratchExpected = Array(repeating: UInt32(0), count: 64) + writes + [999]
-    guard result == [rotated, scratchExpected] else {
+    let spirvExpected = (0..<384).map { (index: Int) -> UInt32 in UInt32((index ^ 64) + 10) }
+    guard result == [rotated, scratchExpected, spirvExpected] else {
         throw GPUError.backendFailure("Unexpected storage barrier WebGPU readback")
     }
-    return [0, 127, 128, 255, 256, 383].map { result[0][$0] }
+    let probes = [0, 127, 128, 255, 256, 383]
+    return probes.map { result[0][$0] } + probes.map { result[2][$0] }
+}
+
+private func storageBarrierSPIRV() -> [UInt32] {
+    func op(_ code: UInt32, _ operands: UInt32...) -> [UInt32] {
+        [UInt32(operands.count + 1) << 16 | code] + operands
+    }
+    var words: [UInt32] = [0x07230203, 0x00010300, 0, 100, 0]
+    for instruction in [
+        op(17, 1), op(14, 0, 1), op(15, 5, 11, 0x6e69616d, 0, 16), op(16, 11, 17, 128, 1, 1),
+        op(71, 16, 11, 28), op(71, 5, 6, 4), op(71, 6, 2), op(72, 6, 0, 35, 0),
+        op(71, 14, 34, 0), op(71, 14, 33, 0), op(71, 15, 34, 0), op(71, 15, 33, 1),
+        op(19, 1), op(21, 2, 32, 0), op(23, 3, 2, 3), op(43, 2, 4, 384),
+        op(28, 5, 2, 4), op(30, 6, 5), op(32, 7, 12, 6), op(32, 8, 12, 2), op(32, 9, 1, 3),
+        op(32, 10, 1, 2), op(33, 12, 1), op(43, 2, 20, 0), op(43, 2, 21, 10), op(43, 2, 22, 64),
+        op(43, 2, 23, 2), op(43, 2, 25, 0x48), op(43, 2, 26, 0x108),
+        op(59, 7, 14, 12), op(59, 7, 15, 12), op(59, 9, 16, 1),
+        op(54, 1, 11, 0, 12), op(248, 30), op(65, 10, 31, 16, 20), op(61, 2, 32, 31),
+        op(65, 8, 33, 14, 20, 32), op(128, 2, 34, 32, 21), op(62, 33, 34),
+        op(225, 23, 25), op(224, 23, 23, 26),
+        op(198, 2, 35, 32, 22), op(65, 8, 36, 14, 20, 35), op(61, 2, 37, 36),
+        op(65, 8, 38, 15, 20, 32), op(62, 38, 37), op(253), op(56),
+    ] { words += instruction }
+    return words
 }
 
 private func atomicDiagnostic(_ device: Device) async throws -> Int {
@@ -569,7 +923,9 @@ private func atomicDiagnostic(_ device: Device) async throws -> Int {
         """
     let shader = try IndependentShaderCompiler().compileCompute(.wgsl(source), to: .wgsl)
     let pipeline = try await device.createComputePipeline(shader)
-    let counter = try await device.createBuffer(.init(size: 264, usage: [.storage, .copyDestination, .copySource]))
+    let spirv = try IndependentShaderCompiler().compileWebGPUCompute(.spirv(atomicTicketsSPIRV()))
+    let spirvPipeline = try await device.createComputePipeline(spirv)
+    let counter = try await device.createBuffer(.init(size: 516, usage: [.storage, .copyDestination, .copySource]))
     let output = try await device.createBuffer(.init(size: 2048, usage: [.storage, .copySource]))
     let readback = try await device.createBuffer(.init(size: 2048, usage: [.copyDestination, .mapRead]))
     let ticket = try await device.submitCommands([
@@ -582,10 +938,16 @@ private func atomicDiagnostic(_ device: Device) async throws -> Int {
         .read(buffer: readback, byteCount: 2048),
         .copy(source: counter, destination: readback, byteCount: 264),
         .read(buffer: readback, byteCount: 264),
+        .write(buffer: counter, offset: 0, words: [0, 0, 128]),
+        .dispatchCompute(pipeline: spirvPipeline, bindings: [.init(binding: 0): counter, .init(binding: 1): output],
+                         workgroups: .init(x: 2)),
+        .copy(source: output, destination: readback, byteCount: 512), .read(buffer: readback, byteCount: 512),
+        .copy(source: counter, destination: readback, byteCount: 12), .read(buffer: readback, byteCount: 12),
     ])
     let result = try await ticket.wait()
     let expectedCounter = Array(repeating: UInt32(0), count: 64) + [128, 999]
-    guard result.count == 2, result[0].count == 512, result[1] == expectedCounter else {
+    guard result.count == 4, result[0].count == 512, result[1] == expectedCounter,
+          result[2].sorted() == Array(UInt32(0)..<128), result[3] == [128, 17, 0] else {
         throw GPUError.backendFailure("Unexpected WebGPU atomic counter")
     }
     let words = result[0]
@@ -600,7 +962,29 @@ private func atomicDiagnostic(_ device: Device) async throws -> Int {
             throw GPUError.backendFailure("Unexpected WebGPU workgroup atomic sequence")
         }
     }
-    return tickets.count
+    return tickets.count + result[2].count
+}
+
+private func atomicTicketsSPIRV() -> [UInt32] {
+    func op(_ code: UInt32, _ operands: UInt32...) -> [UInt32] {
+        [UInt32(operands.count + 1) << 16 | code] + operands
+    }
+    var words: [UInt32] = [0x07230203, 0x00010300, 0, 100, 0]
+    for instruction in [
+        op(17, 1), op(14, 0, 1), op(15, 5, 11, 0x6e69616d, 0, 16), op(16, 11, 17, 64, 1, 1),
+        op(71, 16, 11, 28), op(71, 5, 6, 4), op(71, 6, 2), op(72, 6, 0, 35, 0), op(72, 6, 1, 35, 512),
+        op(71, 14, 34, 0), op(71, 14, 33, 0), op(71, 15, 34, 0), op(71, 15, 33, 1),
+        op(19, 1), op(21, 2, 32, 0), op(23, 3, 2, 3), op(43, 2, 4, 128),
+        op(28, 5, 2, 4), op(30, 6, 5, 2), op(32, 7, 12, 6), op(32, 8, 12, 2), op(32, 9, 1, 3),
+        op(32, 10, 1, 2), op(33, 12, 1), op(43, 2, 20, 0), op(43, 2, 21, 1), op(43, 2, 22, 2),
+        op(43, 2, 23, 0), op(43, 2, 24, 17), op(59, 7, 14, 12), op(59, 7, 15, 12), op(59, 9, 16, 1),
+        op(54, 1, 11, 0, 12), op(248, 30), op(65, 10, 31, 16, 20), op(61, 2, 32, 31),
+        op(65, 8, 33, 14, 20, 20), op(234, 2, 34, 33, 21, 23, 21),
+        op(65, 8, 35, 14, 20, 21), op(228, 35, 21, 23, 24), op(227, 2, 36, 35, 21, 23),
+        op(65, 8, 37, 14, 20, 22), op(233, 2, 38, 37, 21, 23),
+        op(65, 8, 39, 15, 20, 32), op(62, 39, 34), op(253), op(56),
+    ] { words += instruction }
+    return words
 }
 
 private func atomicRMWDiagnostic(_ device: Device) async throws -> Int {
@@ -632,8 +1016,46 @@ private func atomicRMWDiagnostic(_ device: Device) async throws -> Int {
         """
     let shader = try IndependentShaderCompiler().compileCompute(.wgsl(source), to: .wgsl)
     let pipeline = try await device.createComputePipeline(shader)
+    let floatShader = try IndependentShaderCompiler().compileWebGPUCompute(.wgsl("""
+        struct Data { counters: array<array<atomic<f32>, 2>, 1>, @size(12) sentinel: u32 }
+        @group(0) @binding(0) var<storage, read_write> scalar: atomic<f32>;
+        @group(0) @binding(1) var<storage, read_write> data: Data;
+        @group(0) @binding(2) var<storage, read_write> output: array<vec4u, 4>;
+        var<workgroup> sharedValue: atomic<f32>;
+
+        fn increment(p: ptr<storage, atomic<f32>, read_write>) -> f32 {
+            return atomicAdd(p, 0.5);
+        }
+
+        @compute @workgroup_size(4)
+        fn run(@builtin(local_invocation_index) lane: u32) {
+            if lane == 0u {
+                atomicStore(&scalar, -0.0);
+                atomicStore(&data.counters[0][0], 1.25);
+                atomicStore(&data.counters[0][1], 5.0);
+                atomicStore(&sharedValue, -0.0);
+            }
+            storageBarrier();
+            workgroupBarrier();
+            let sharedBits = bitcast<u32>(workgroupUniformLoad(&sharedValue));
+            let before = increment(&scalar);
+            let nested = atomicSub(&data.counters[0][0], 0.25);
+            let invalid = increment(&data.counters[0][lane + 2u]);
+            output[lane] = vec4u(bitcast<u32>(before), bitcast<u32>(nested), bitcast<u32>(invalid), sharedBits);
+            storageBarrier();
+            if lane == 0u {
+                output[0].z = bitcast<u32>(atomicExchange(&data.counters[0][1], -0.0));
+                output[0].w = bitcast<u32>(atomicLoad(&scalar));
+                output[1].w = bitcast<u32>(atomicLoad(&data.counters[0][0]));
+                output[2].w = bitcast<u32>(atomicLoad(&data.counters[0][1]));
+            }
+        }
+        """))
+    let floatPipeline = try await device.createComputePipeline(floatShader)
+    let spirvShader = try IndependentShaderCompiler().compileWebGPUCompute(.spirv(floatAtomicSPIRV()))
+    let spirvPipeline = try await device.createComputePipeline(spirvShader)
     let signed = try await device.createBuffer(.init(size: 4, usage: .storage))
-    let unsigned = try await device.createBuffer(.init(size: 8, usage: [.storage, .copyDestination, .copySource]))
+    let unsigned = try await device.createBuffer(.init(size: 20, usage: [.storage, .copyDestination, .copySource]))
     let output = try await device.createBuffer(.init(size: 68, usage: [.storage, .copySource]))
     let readback = try await device.createBuffer(.init(size: 68, usage: [.copyDestination, .mapRead]))
     let ticket = try await device.submitCommands([
@@ -647,15 +1069,78 @@ private func atomicRMWDiagnostic(_ device: Device) async throws -> Int {
         .read(buffer: readback, byteCount: 68),
         .copy(source: unsigned, destination: readback, byteCount: 8),
         .read(buffer: readback, byteCount: 8),
+        .write(buffer: unsigned, offset: 8, words: [99, 100, 101]),
+        .dispatchCompute(pipeline: floatPipeline, bindings: [
+            .init(binding: 0): signed, .init(binding: 1): unsigned, .init(binding: 2): output,
+        ], workgroups: .init(x: 1)),
+        .copy(source: output, destination: readback, byteCount: 64),
+        .read(buffer: readback, byteCount: 64),
+        .copy(source: unsigned, destination: readback, byteCount: 20),
+        .read(buffer: readback, byteCount: 20),
+        .dispatchCompute(pipeline: spirvPipeline, bindings: [.init(binding: 0): unsigned, .init(binding: 1): output],
+                         workgroups: .init(x: 1)),
+        .copy(source: output, destination: readback, byteCount: 20),
+        .read(buffer: readback, byteCount: 20),
+        .copy(source: unsigned, destination: readback, byteCount: 8),
+        .read(buffer: readback, byteCount: 8),
     ])
     let expected: [UInt32] = [
         0, 0x80000000, 0x80000000, 0xfffffff9, 9, 41, 42, .max,
         0, .max, .max, 7, 6, 14, 13, 23, 0,
     ]
-    guard try await ticket.wait() == [expected, [23, 999]] else {
+    let snapshots = try await ticket.wait()
+    guard snapshots.count == 6, snapshots[0] == expected, snapshots[1] == [23, 999],
+          snapshots[2].count == 16 else {
         throw GPUError.backendFailure("Unexpected WebGPU atomic read-modify-write results")
     }
-    return expected.count
+    let floats = snapshots[2]
+    guard [0, 4, 8, 12].map({ floats[$0] }).sorted() == [0x3f000000, 0x3f800000, 0x3fc00000, 0x80000000],
+          [1, 5, 9, 13].map({ floats[$0] }).sorted() == [0x3f000000, 0x3f400000, 0x3f800000, 0x3fa00000],
+          [2, 6, 10, 14].map({ floats[$0] }) == [0x40a00000, 0, 0, 0],
+          [3, 7, 11, 15].map({ floats[$0] }) == [0x40000000, 0x3e800000, 0x80000000, 0x80000000],
+          snapshots[3] == [0x3e800000, 0x80000000, 99, 100, 101] else {
+        throw GPUError.backendFailure("Unexpected WebGPU float atomic results: \(snapshots)")
+    }
+    let spirvExpected: [UInt32] = [0x80000000, 0x3f000000, 0x40e00000, 0, 0x40100000]
+    guard snapshots[4] == spirvExpected, snapshots[5] == [0x40e00000, 0x40100000] else {
+        throw GPUError.backendFailure("Unexpected WebGPU SPIR-V float atomic results")
+    }
+    return expected.count + floats.count + spirvExpected.count
+}
+
+private func floatAtomicSPIRV() -> [UInt32] {
+    func op(_ code: UInt32, _ operands: UInt32...) -> [UInt32] {
+        [UInt32(operands.count + 1) << 16 | code] + operands
+    }
+    var words: [UInt32] = [0x07230203, 0x00010300, 0, 100, 0]
+    for instruction in [
+        op(17, 1), op(17, 6033),
+        op(10, 0x5f565053, 0x5f545845, 0x64616873, 0x615f7265, 0x696d6f74, 0x6c665f63, 0x5f74616f, 0x646461),
+        op(14, 0, 1), op(15, 5, 20, 0x6e69616d, 0, 17), op(16, 20, 17, 1, 1, 1),
+        op(4, 0x455f4c47, 0x735f5458, 0x65646168, 0x74615f72, 0x63696d6f, 0x6f6c665f, 0x7461),
+        op(71, 17, 11, 28), op(71, 5, 6, 4), op(71, 6, 2), op(72, 6, 0, 35, 0), op(72, 6, 1, 35, 4),
+        op(71, 7, 2), op(72, 7, 0, 35, 0), op(72, 7, 1, 35, 4), op(72, 7, 2, 35, 8),
+        op(72, 7, 3, 35, 12), op(72, 7, 4, 35, 16),
+        op(71, 15, 34, 0), op(71, 15, 33, 0), op(71, 16, 34, 0), op(71, 16, 33, 1),
+        op(19, 1), op(21, 2, 32, 0), op(22, 3, 32), op(23, 4, 2, 3),
+        op(43, 2, 30, 0), op(43, 2, 31, 1), op(43, 2, 32, 2), op(43, 2, 33, 3), op(43, 2, 34, 4),
+        op(43, 3, 35, 0x80000000), op(43, 3, 36, 0x3f000000), op(43, 3, 37, 0x40e00000),
+        op(43, 3, 38, 0x40100000), op(43, 2, 39, 0),
+        op(28, 5, 3, 31), op(30, 6, 5, 3), op(30, 7, 2, 2, 2, 2, 2),
+        op(32, 8, 12, 6), op(32, 9, 12, 7), op(32, 10, 12, 3), op(32, 11, 12, 2),
+        op(32, 12, 1, 4), op(32, 13, 1, 2), op(33, 14, 1),
+        op(59, 8, 15, 12), op(59, 9, 16, 12), op(59, 12, 17, 1), op(54, 1, 20, 0, 14), op(248, 21),
+        op(65, 10, 50, 15, 30, 30), op(228, 50, 31, 30, 35),
+        op(6035, 3, 51, 50, 31, 39, 36), op(229, 3, 52, 50, 31, 30, 37),
+        op(65, 13, 53, 17, 30), op(61, 2, 54, 53), op(128, 2, 55, 54, 31),
+        op(65, 10, 56, 15, 30, 55), op(6035, 3, 57, 56, 31, 39, 36),
+        op(227, 3, 58, 50, 31, 30), op(65, 10, 59, 15, 31), op(62, 59, 38), op(61, 3, 60, 59),
+        op(124, 2, 61, 51), op(124, 2, 62, 52), op(124, 2, 63, 58), op(124, 2, 64, 57), op(124, 2, 65, 60),
+        op(65, 11, 70, 16, 30), op(62, 70, 61), op(65, 11, 71, 16, 31), op(62, 71, 62),
+        op(65, 11, 72, 16, 32), op(62, 72, 63), op(65, 11, 73, 16, 33), op(62, 73, 64),
+        op(65, 11, 74, 16, 34), op(62, 74, 65), op(253), op(56),
+    ] { words += instruction }
+    return words
 }
 
 private func atomicCompareDiagnostic(_ device: Device) async throws -> Int {
@@ -684,6 +1169,8 @@ private func atomicCompareDiagnostic(_ device: Device) async throws -> Int {
         """
     let shader = try IndependentShaderCompiler().compileCompute(.wgsl(source), to: .wgsl)
     let pipeline = try await device.createComputePipeline(shader)
+    let spirv = try IndependentShaderCompiler().compileWebGPUCompute(.spirv(atomicCompareExchangeSPIRV()))
+    let spirvPipeline = try await device.createComputePipeline(spirv)
     let counter = try await device.createBuffer(.init(size: 8, usage: [.storage, .copyDestination, .copySource]))
     let output = try await device.createBuffer(.init(size: 40, usage: [.storage, .copySource]))
     let readback = try await device.createBuffer(.init(size: 40, usage: [.copyDestination, .mapRead]))
@@ -697,9 +1184,16 @@ private func atomicCompareDiagnostic(_ device: Device) async throws -> Int {
         .read(buffer: readback, byteCount: 40),
         .copy(source: counter, destination: readback, byteCount: 8),
         .read(buffer: readback, byteCount: 8),
+        .write(buffer: counter, offset: 0, words: [0]),
+        .dispatchComputeRanges(pipeline: spirvPipeline, bindings: [
+            .init(binding: 0): .init(buffer: counter, size: 4),
+            .init(binding: 1): .init(buffer: output),
+        ], workgroups: .init(x: 1)),
+        .copy(source: output, destination: readback, byteCount: 16), .read(buffer: readback, byteCount: 16),
+        .copy(source: counter, destination: readback, byteCount: 8), .read(buffer: readback, byteCount: 8),
     ])
     let snapshots = try await ticket.wait()
-    guard snapshots.count == 2, snapshots[0].count == 10 else {
+    guard snapshots.count == 4, snapshots[0].count == 10 else {
         throw GPUError.backendFailure("Unexpected WebGPU atomic comparison readback size")
     }
     let result = snapshots[0]
@@ -710,7 +1204,42 @@ private func atomicCompareDiagnostic(_ device: Device) async throws -> Int {
     guard result[1] <= 1, result[6] <= 1, result == expected, snapshots[1] == [unsignedAfter, 999] else {
         throw GPUError.backendFailure("Unexpected WebGPU atomic comparison results")
     }
-    return expected.count
+    let expectedSPIRV: [UInt32] = [0, 7, 7, 0]
+    guard snapshots[2] == expectedSPIRV, snapshots[3] == [7, 999] else {
+        throw GPUError.backendFailure("Unexpected WebGPU SPIR-V compare-exchange results")
+    }
+    return expected.count + expectedSPIRV.count
+}
+
+private func atomicCompareExchangeSPIRV() -> [UInt32] {
+    func op(_ code: UInt32, _ operands: UInt32...) -> [UInt32] {
+        [UInt32(operands.count + 1) << 16 | code] + operands
+    }
+    var words: [UInt32] = [0x07230203, 0x00010300, 0, 100, 0]
+    for instruction in [
+        op(17, 1), op(14, 0, 1),
+        op(15, 5, 10, 0x6e69616d, 0, 14), op(16, 10, 17, 1, 1, 1),
+        op(71, 14, 11, 28), op(71, 3, 6, 4), op(71, 4, 2), op(72, 4, 0, 35, 0),
+        op(71, 5, 2), op(72, 5, 0, 35, 0), op(72, 5, 1, 35, 4), op(72, 5, 2, 35, 8), op(72, 5, 3, 35, 12),
+        op(71, 11, 34, 0), op(71, 11, 33, 0), op(71, 12, 34, 0), op(71, 12, 33, 1),
+        op(19, 1), op(21, 2, 32, 0), op(43, 2, 20, 0), op(43, 2, 21, 1), op(43, 2, 22, 2), op(43, 2, 23, 3),
+        op(43, 2, 24, 7), op(43, 2, 25, 99), op(43, 2, 26, 11), op(43, 2, 27, 0),
+        op(28, 3, 2, 21), op(30, 4, 3), op(30, 5, 2, 2, 2, 2), op(32, 6, 12, 4), op(32, 7, 12, 5),
+        op(32, 8, 12, 2), op(33, 9, 1), op(23, 15, 2, 3), op(32, 16, 1, 15), op(32, 17, 1, 2),
+        op(59, 6, 11, 12), op(59, 7, 12, 12), op(59, 16, 14, 1),
+        op(54, 1, 10, 0, 9), op(248, 13),
+        op(65, 8, 30, 11, 20, 20),
+        op(230, 2, 31, 30, 21, 20, 27, 24, 20), // Successful exchange returns 0.
+        op(230, 2, 32, 30, 21, 20, 27, 26, 25), // Mismatch returns 7.
+        op(65, 17, 33, 14, 20), op(61, 2, 34, 33), op(128, 2, 35, 34, 21),
+        op(65, 8, 36, 11, 20, 35),
+        op(230, 2, 37, 36, 21, 20, 27, 25, 20), // Robust out-of-bounds exchange returns 0.
+        op(227, 2, 38, 30, 21, 20),
+        op(65, 8, 40, 12, 20), op(62, 40, 31), op(65, 8, 41, 12, 21), op(62, 41, 32),
+        op(65, 8, 42, 12, 22), op(62, 42, 38), op(65, 8, 43, 12, 23), op(62, 43, 37),
+        op(253), op(56),
+    ] { words += instruction }
+    return words
 }
 
 private func mixedAtomicDiagnostic(_ device: Device) async throws -> Int {
@@ -1091,49 +1620,229 @@ private func matrixBufferDiagnostic(_ device: Device) async throws -> [Float] {
 }
 
 private func switchDiagnostic(_ device: Device) async throws -> [UInt32] {
-    let source = """
-        @group(0) @binding(0) var<storage, read_write> output: array<u32, 8>;
-        const alternative = select(-2i, -1i, true);
-        fn mapped(i: i32) -> u32 {
-            switch i {
-                case -2i, alternative: { return 7u; }
-                case 0i: { return 11u; }
-                case 9i, (-2147483647i - 1i), default: { return 19u; }
+    let source = ShaderInput.glsl("""
+        #version 450
+        layout(local_size_x=1) in;
+        layout(set=0,binding=0,std430) buffer Data { uint words[8]; } data;
+        uint mapped(int i) {
+            const int alternative = -2 + 1;
+            switch (i) {
+                case -2: case alternative: return 7u;
+                case 0: return 11u;
+                case 9: case (-2147483647 - 1): default: return 19u;
             }
         }
-        fn choose() -> u32 { output[7] += 1u; return 2u; }
-        @compute @workgroup_size(1)
-        fn run() {
-            var total = 0u;
-            var i = 0u;
-            loop {
-                switch i {
-                    case 0u, 2u: { total += 2u; continue; }
-                    case 1u: { total += 10u; break; }
-                    default: { total += 1u; }
+        uint choose() { data.words[7] += 1u; return 2u; }
+        void main() {
+            uint total = 0u;
+            for (uint i = 0u; i < 4u; i++) {
+                switch (i) {
+                    case 0u: case 2u: total += 2u; continue;
+                    case 1u: total += 9u;
+                    default: total += 1u; break;
                 }
                 total += 100u;
-                continuing { i += 1u; break if i >= 4u; }
             }
-            output[0] = mapped(-2i); output[1] = mapped(-1i); output[2] = mapped(0i);
-            output[3] = mapped(9i); output[4] = mapped(5i); output[5] = total;
-            switch choose() {
-                case 2u: { output[6] = 23u; }
-                default: { output[6] = 99u; }
+            data.words[0] = mapped(-2); data.words[1] = mapped(-1); data.words[2] = mapped(0);
+            data.words[3] = mapped(9); data.words[4] = mapped(5); data.words[5] = total;
+            switch (choose()) {
+                case 2u: data.words[6] = 23u; break;
+                default: data.words[6] = 99u;
             }
         }
-        """
-    let shader = try IndependentShaderCompiler().compileCompute(.wgsl(source), to: .wgsl)
+        """, stage: .compute, defines: [:])
+    let shader = try IndependentShaderCompiler().compileWebGPUCompute(source)
     let pipeline = try await device.createComputePipeline(shader)
-    let output = try await device.createBuffer(.init(size: 32, usage: [.storage, .copySource]))
+    let spirvShader = try IndependentShaderCompiler().compileWebGPUCompute(.spirv(switchPhiSPIRV()))
+    let spirvPipeline = try await device.createComputePipeline(spirvShader)
+    let output = try await device.createBuffer(.init(size: 32, usage: [.storage, .copySource, .copyDestination]))
     let read = try await device.createBuffer(.init(size: 32, usage: [.copyDestination, .mapRead]))
-    let ticket = try await device.submitCommands([
+    var commands: [BufferCommand] = [
         .dispatchCompute(pipeline: pipeline, bindings: [.init(binding: 0): output], workgroups: .init(x: 1)),
         .copy(source: output, destination: read, byteCount: 32),
         .read(buffer: read, byteCount: 32),
-    ])
+    ]
+    for selector: UInt32 in [.max, 0, 2, 9, 17] {
+        commands += [
+            .write(buffer: output, offset: 0, words: [selector]),
+            .dispatchCompute(pipeline: spirvPipeline, bindings: [.init(binding: 0): output], workgroups: .init(x: 1)),
+            .copy(source: output, sourceOffset: 4, destination: read, byteCount: 4),
+            .read(buffer: read, byteCount: 4),
+        ]
+    }
+    for postTest in [false, true] {
+        let loopShader = try IndependentShaderCompiler().compileWebGPUCompute(.spirv(structuredLoopSPIRV(postTest: postTest)))
+        let loopPipeline = try await device.createComputePipeline(loopShader)
+        commands += [
+            .dispatchCompute(pipeline: loopPipeline, bindings: [.init(binding: 0): output], workgroups: .init(x: 1)),
+            .copy(source: output, destination: read, byteCount: 4),
+            .read(buffer: read, byteCount: 4),
+        ]
+    }
+    let snapshotShader = try IndependentShaderCompiler().compileWebGPUCompute(.spirv(escapingLoopValueSPIRV()))
+    let snapshotPipeline = try await device.createComputePipeline(snapshotShader)
+    commands += [
+        .write(buffer: output, offset: 0, words: [7, 0, 0]),
+        .dispatchCompute(pipeline: snapshotPipeline, bindings: [.init(binding: 0): output], workgroups: .init(x: 1)),
+        .copy(source: output, destination: read, byteCount: 12),
+        .read(buffer: read, byteCount: 12),
+    ]
+    let pathShader = try IndependentShaderCompiler().compileWebGPUCompute(.spirv(escapingAccessPathSPIRV()))
+    let pathPipeline = try await device.createComputePipeline(pathShader)
+    commands += [
+        .write(buffer: output, offset: 0, words: [0, 10, 20, 30, 40]),
+        .dispatchCompute(pipeline: pathPipeline, bindings: [.init(binding: 0): output], workgroups: .init(x: 1)),
+        .copy(source: output, destination: read, byteCount: 20),
+        .read(buffer: read, byteCount: 20),
+    ]
+    let callShader = try IndependentShaderCompiler().compileWebGPUCompute(.spirv(forwardLoopSPIRV()))
+    let callPipeline = try await device.createComputePipeline(callShader)
+    commands += [
+        .dispatchCompute(pipeline: callPipeline, bindings: [.init(binding: 0): output], workgroups: .init(x: 1)),
+        .copy(source: output, destination: read, byteCount: 4),
+        .read(buffer: read, byteCount: 4),
+    ]
     let words: [UInt32] = [7, 7, 11, 19, 19, 215, 23, 1]
-    guard try await ticket.wait() == [words] else { throw GPUError.backendFailure("Unexpected WebGPU switch results") }
+    let result = try await device.submitCommands(commands).wait()
+    guard result == [words, [28], [28], [50], [99], [38], [22], [64], [99, 40, 43], [0, 10, 20, 99, 40], [3]] else {
+        throw GPUError.backendFailure("Unexpected WebGPU switch results: \(result)")
+    }
+    return result.flatMap { $0 }
+}
+
+private func switchPhiSPIRV() -> [UInt32] {
+    func op(_ code: UInt32, _ operands: UInt32...) -> [UInt32] {
+        [UInt32(operands.count + 1) << 16 | code] + operands
+    }
+    // Grouped cases enter the default and then the next case, with separate phi inputs on each edge.
+    var words: [UInt32] = [0x07230203, 0x00010300, 0, 100, 0]
+    for instruction in [
+        op(17, 1), op(14, 0, 1), op(15, 5, 10, 0x6e69616d, 0), op(16, 10, 17, 1, 1, 1),
+        op(71, 4, 2), op(72, 4, 0, 35, 0), op(72, 4, 1, 35, 4), op(71, 8, 34, 0), op(71, 8, 33, 0),
+        op(19, 1), op(21, 2, 32, 1), op(21, 3, 32, 0), op(30, 4, 2, 2), op(32, 5, 12, 4), op(32, 6, 12, 2), op(33, 7, 1),
+        op(43, 3, 11, 0), op(43, 3, 12, 1), op(43, 2, 13, 10), op(43, 2, 14, 11),
+        op(43, 2, 15, 31), op(43, 2, 16, 7), op(43, 2, 17, 50), op(43, 2, 18, 99), op(59, 5, 8, 12),
+        op(54, 1, 10, 0, 7), op(248, 20), op(65, 6, 25, 8, 11), op(61, 2, 26, 25), op(247, 24, 0),
+        op(251, 26, 22, .max, 21, 0, 21, 2, 23, 9, 24),
+        op(248, 21), op(128, 2, 27, 13, 14), op(249, 22),
+        op(248, 22), op(245, 2, 28, 15, 20, 27, 21), op(128, 2, 29, 28, 16), op(249, 23),
+        op(248, 23), op(245, 2, 30, 17, 20, 29, 22), op(249, 24),
+        op(248, 24), op(245, 2, 31, 18, 20, 30, 23), op(65, 6, 32, 8, 12), op(62, 32, 31), op(253), op(56),
+    ] {
+        words += instruction
+    }
+    return words
+}
+
+private func structuredLoopSPIRV(postTest: Bool) -> [UInt32] {
+    func op(_ code: UInt32, _ operands: UInt32...) -> [UInt32] {
+        [UInt32(operands.count + 1) << 16 | code] + operands
+    }
+    // A switch continues or exits the loop while the header and latch carry separate phi values.
+    var words: [UInt32] = [0x07230203, 0x00010300, 0, 100, 0]
+    for instruction in [
+        op(17, 1), op(14, 0, 1), op(15, 5, 10, 0x6e69616d, 0), op(16, 10, 17, 1, 1, 1),
+        op(71, 5, 2), op(72, 5, 0, 35, 0), op(71, 8, 34, 0), op(71, 8, 33, 0),
+        op(19, 1), op(20, 2), op(21, 3, 32, 0), op(30, 5, 3), op(32, 6, 12, 5), op(32, 7, 12, 3), op(33, 9, 1),
+        op(43, 3, 11, 0), op(43, 3, 12, 1), op(43, 3, 13, 6), op(43, 3, 14, 10), op(59, 6, 8, 12),
+        op(54, 1, 10, 0, 9), op(248, 20), op(249, 21),
+        op(248, 21), op(245, 3, 32, 11, 20, 41, 28), op(245, 3, 33, 11, 20, 40, 28),
+        op(246, 29, 28, 0), op(249, 22), op(248, 22),
+    ] {
+        words += instruction
+    }
+    if postTest { words += op(249, 23) }
+    else { words += op(176, 2, 34, 32, 13) + op(250, 34, 23, 29) }
+    for instruction in [
+        op(248, 23), op(247, 27, 0), op(251, 32, 26, 1, 24, postTest ? 9 : 3, 25),
+        op(248, 24), op(249, 28), op(248, 25), op(249, 29), op(248, 26), op(249, 27),
+        op(248, 27), op(128, 3, 37, 32, 14), op(128, 3, 38, 33, 37), op(249, 28),
+        op(248, 28), op(245, 3, 40, 33, 24, 38, 27), op(128, 3, 41, 32, 12),
+    ] {
+        words += instruction
+    }
+    if postTest {
+        words += op(176, 2, 42, 41, 13) + op(250, 42, 21, 29)
+        words += op(248, 29) + op(245, 3, 43, 33, 25, 40, 28)
+    } else {
+        words += op(249, 21) + op(248, 29) + op(245, 3, 43, 33, 22, 33, 25)
+    }
+    return words + op(65, 7, 44, 8, 11) + op(62, 44, 43) + op(253) + op(56)
+}
+
+private func escapingLoopValueSPIRV() -> [UInt32] {
+    func op(_ code: UInt32, _ operands: UInt32...) -> [UInt32] {
+        [UInt32(operands.count + 1) << 16 | code] + operands
+    }
+    // The final header load and computation survive a write to the same buffer after the loop.
+    var words: [UInt32] = [0x07230203, 0x00010300, 0, 100, 0]
+    for instruction in [
+        op(17, 1), op(14, 0, 1), op(15, 5, 10, 0x6e69616d, 0), op(16, 10, 17, 1, 1, 1),
+        op(71, 4, 2), op(72, 4, 0, 35, 0), op(72, 4, 1, 35, 4), op(72, 4, 2, 35, 8), op(71, 8, 34, 0), op(71, 8, 33, 0),
+        op(19, 1), op(20, 2), op(21, 3, 32, 0), op(30, 4, 3, 3, 3), op(32, 5, 12, 4), op(32, 6, 12, 3), op(33, 9, 1),
+        op(43, 3, 11, 0), op(43, 3, 12, 1), op(43, 3, 13, 2), op(43, 3, 14, 3), op(43, 3, 15, 10), op(43, 3, 16, 99),
+        op(59, 5, 8, 12), op(33, 40, 3, 3, 3),
+        op(54, 3, 41, 0, 40), op(55, 3, 42), op(55, 3, 43), op(248, 44), op(128, 3, 45, 42, 43), op(254, 45), op(56),
+        op(54, 1, 10, 0, 9), op(248, 20),
+        op(65, 6, 21, 8, 11), op(65, 6, 22, 8, 12), op(65, 6, 23, 8, 13), op(249, 24),
+        op(248, 24), op(245, 3, 30, 11, 20, 35, 25), op(61, 3, 31, 21), op(83, 3, 32, 31),
+        op(57, 3, 33, 41, 32, 30), op(176, 2, 34, 30, 14), op(246, 26, 25, 0), op(250, 34, 25, 26), op(248, 25),
+        op(128, 3, 36, 33, 15), op(62, 21, 36), op(128, 3, 35, 30, 12), op(249, 24),
+        op(248, 26), op(62, 21, 16), op(62, 22, 32), op(62, 23, 33), op(253), op(56),
+    ] {
+        words += instruction
+    }
+    return words
+}
+
+private func escapingAccessPathSPIRV() -> [UInt32] {
+    func op(_ code: UInt32, _ operands: UInt32...) -> [UInt32] {
+        [UInt32(operands.count + 1) << 16 | code] + operands
+    }
+    // The row and column come from the last loop iteration, before the index is cleared.
+    var words: [UInt32] = [0x07230203, 0x00010300, 0, 100, 0]
+    for instruction in [
+        op(17, 1), op(14, 0, 1), op(15, 5, 10, 0x6e69616d, 0), op(16, 10, 17, 1, 1, 1),
+        op(71, 4, 6, 4), op(71, 42, 6, 8), op(71, 5, 2), op(72, 5, 0, 35, 0), op(72, 5, 1, 35, 4), op(71, 8, 34, 0), op(71, 8, 33, 0),
+        op(19, 1), op(20, 2), op(21, 3, 32, 0), op(21, 40, 32, 1), op(43, 40, 41, 1), op(43, 3, 13, 2),
+        op(28, 4, 3, 13), op(28, 42, 4, 13), op(30, 5, 3, 42),
+        op(32, 6, 12, 5), op(32, 7, 12, 3), op(32, 9, 12, 4), op(32, 43, 12, 42), op(33, 15, 1),
+        op(43, 3, 11, 0), op(43, 3, 12, 1), op(43, 3, 16, 99), op(59, 6, 8, 12),
+        op(54, 1, 10, 0, 15), op(248, 20), op(65, 7, 21, 8, 11), op(249, 22),
+        op(248, 22), op(245, 3, 30, 11, 20, 37, 23), op(61, 3, 31, 21),
+        op(194, 3, 45, 31, 12), op(199, 3, 46, 31, 12),
+        op(65, 9, 32, 8, 41, 45), op(66, 7, 33, 32, 46), op(65, 7, 34, 33),
+        op(176, 2, 35, 30, 13), op(246, 24, 23, 0), op(250, 35, 23, 24), op(248, 23),
+        op(128, 3, 36, 31, 12), op(62, 21, 36), op(128, 3, 37, 30, 12), op(249, 22),
+        op(248, 24), op(62, 21, 11), op(62, 34, 16), op(253), op(56),
+    ] {
+        words += instruction
+    }
+    return words
+}
+
+private func forwardLoopSPIRV() -> [UInt32] {
+    func op(_ code: UInt32, _ operands: UInt32...) -> [UInt32] {
+        [UInt32(operands.count + 1) << 16 | code] + operands
+    }
+    // The entry calls a later function and passes the local counter updated by its loop.
+    var words: [UInt32] = [0x07230203, 0x00010300, 0, 100, 0]
+    for instruction in [
+        op(17, 1), op(11, 80, 0x4c534c47, 0x6474732e, 0x3035342e, 0),
+        op(14, 0, 1), op(15, 5, 10, 0x6e69616d, 0), op(16, 10, 17, 1, 1, 1),
+        op(3, 2, 450), op(5, 20, 0x6574616c, 0x72), op(6, 4, 0, 0x64726f77, 0),
+        op(71, 4, 2), op(72, 4, 0, 35, 0), op(71, 8, 34, 0), op(71, 8, 33, 0),
+        op(19, 1), op(20, 2), op(21, 3, 32, 0), op(30, 4, 3), op(32, 5, 12, 4), op(32, 6, 12, 3), op(32, 7, 7, 3),
+        op(33, 9, 1), op(33, 11, 1, 7), op(43, 3, 12, 0), op(43, 3, 13, 1), op(43, 3, 14, 3), op(59, 5, 8, 12),
+        op(54, 1, 10, 0, 9), op(248, 21), op(59, 7, 22, 7), op(62, 22, 12), op(57, 1, 23, 20, 22),
+        op(61, 3, 24, 22), op(65, 6, 25, 8, 12), op(62, 25, 24), op(253), op(56),
+        op(54, 1, 20, 0, 11), op(55, 7, 26), op(248, 27), op(249, 28),
+        op(248, 28), op(246, 31, 30, 0), op(249, 29),
+        op(248, 29), op(61, 3, 32, 26), op(128, 3, 33, 32, 13), op(62, 26, 33), op(249, 30),
+        op(248, 30), op(61, 3, 34, 26), op(176, 2, 35, 34, 14), op(250, 35, 28, 31), op(248, 31), op(253), op(56),
+    ] {
+        words += instruction
+    }
     return words
 }
 
@@ -2726,19 +3435,76 @@ private func fragmentRasterDiagnostic(_ device: Device) async throws -> [UInt32]
             .read(buffer: read, byteCount: 264),
         ]
     }
+    let locationVertex = try compiler.compileWebGPURenderStage(.spirv(vertexInterfaceSPIRV()), entryPoint: "main")
+    let locationFragment = try compiler.compileWebGPURenderStage(.spirv(fragmentLocationsSPIRV()), entryPoint: "main")
+    let locationPipeline = try await device.createRenderPipeline(vertex: locationVertex, fragment: locationFragment,
+                                                                 colorFormat: .rgba8Unorm)
+    let locationTexture = try await device.createTexture(.init(width: 2, height: 2, format: .rgba8Unorm,
+                                                               usage: [.renderAttachment, .copySource]))
+    commands += [
+        .render(pipeline: locationPipeline, target: locationTexture, clear: clear, vertexCount: 3),
+        .copyTextureToBuffer(source: locationTexture, destination: read, bytesPerRow: 256),
+        .read(buffer: read, byteCount: 264),
+    ]
     let ticket = try await device.submitCommands(commands)
     let snapshots = try await ticket.wait()
-    guard snapshots.count == 5, snapshots.allSatisfy({ $0.count == 66 }) else {
+    guard snapshots.count == 6, snapshots.allSatisfy({ $0.count == 66 }),
+          let locationWords = snapshots.last, locationWords[0] == 0xff004039, locationWords[65] == 0 else {
         throw GPUError.backendFailure("Unexpected fragment raster readback size")
     }
-    let pixels = snapshots.map { [$0[0], $0[1], $0[64], $0[65]] }
+    let pixels = snapshots.prefix(5).map { [$0[0], $0[1], $0[64], $0[65]] }
     let front: [UInt32] = [0x01650101, 0x01650102, 0x01650201, 0x01650202]
     let back = front.map { $0 & 0x00ff_ffff }
     let culled: [UInt32] = [0, 0, 0, 0]
     guard pixels == [front, back, culled, front, culled] else {
         throw GPUError.backendFailure("Unexpected fragment raster inputs: \(pixels)")
     }
-    return pixels.flatMap { $0 }
+    return pixels.flatMap { $0 } + [locationWords[0], locationWords[65]]
+}
+
+private func vertexInterfaceSPIRV() -> [UInt32] {
+    func op(_ code: UInt32, _ operands: UInt32...) -> [UInt32] {
+        [UInt32(operands.count + 1) << 16 | code] + operands
+    }
+    var words: [UInt32] = [0x07230203, 0x00010300, 0, 100, 0]
+    for instruction in [
+        op(17, 1), op(14, 0, 1), op(15, 0, 10, 0x6e69616d, 0, 11, 12, 13),
+        op(71, 11, 11, 42), op(71, 13, 30, 1), op(71, 13, 14),
+        op(71, 8, 2), op(72, 8, 0, 11, 0), op(72, 8, 1, 11, 1),
+        op(72, 8, 2, 11, 3), op(72, 8, 3, 11, 4),
+        op(19, 1), op(20, 2), op(21, 3, 32, 1), op(22, 4, 32), op(23, 5, 4, 4),
+        op(32, 6, 1, 3), op(32, 7, 3, 5), op(32, 9, 3, 4), op(33, 14, 1),
+        op(43, 3, 20, 0), op(43, 3, 21, 1), op(43, 3, 22, 2),
+        op(43, 4, 23, Float(-1).bitPattern), op(43, 4, 24, Float(1).bitPattern),
+        op(43, 4, 25, 0), op(43, 4, 26, Float(90).bitPattern),
+        op(28, 15, 4, 21), op(30, 8, 5, 4, 15, 15), op(32, 16, 3, 8),
+        op(59, 6, 11, 1), op(59, 16, 12, 3), op(59, 9, 13, 3),
+        op(54, 1, 10, 0, 14), op(248, 30), op(61, 3, 31, 11),
+        op(170, 2, 32, 31, 21), op(170, 2, 33, 31, 22),
+        op(169, 4, 34, 32, 24, 23), op(169, 4, 35, 33, 24, 23),
+        op(80, 5, 36, 34, 35, 25, 24), op(65, 7, 37, 12, 20),
+        op(62, 37, 36), op(62, 13, 26), op(253), op(56),
+    ] { words += instruction }
+    return words
+}
+
+private func fragmentLocationsSPIRV() -> [UInt32] {
+    func op(_ code: UInt32, _ operands: UInt32...) -> [UInt32] {
+        [UInt32(operands.count + 1) << 16 | code] + operands
+    }
+    var words: [UInt32] = [0x07230203, 0x00010300, 0, 100, 0]
+    for instruction in [
+        op(17, 1), op(11, 80, 0x4c534c47, 0x6474732e, 0x3035342e, 0), op(14, 0, 1),
+        op(15, 4, 10, 0x6e69616d, 0, 12, 11), op(16, 10, 7), op(71, 11, 30, 1), op(71, 11, 14), op(71, 12, 30, 0),
+        op(19, 1), op(22, 2, 32), op(23, 3, 2, 4), op(32, 4, 1, 2), op(32, 5, 3, 3), op(33, 6, 1), op(33, 7, 2),
+        op(43, 2, 20, Float(400).bitPattern), op(43, 2, 21, Float(0.25).bitPattern),
+        op(43, 2, 22, 0), op(43, 2, 23, Float(1).bitPattern), op(59, 4, 11, 1), op(59, 5, 12, 3),
+        op(54, 1, 10, 0, 6), op(248, 30), op(57, 2, 33, 14),
+        op(136, 2, 34, 33, 20), op(80, 3, 35, 34, 21, 22, 23), op(62, 12, 35), op(253), op(56),
+        op(54, 2, 14, 0, 7), op(248, 39), op(61, 2, 31, 11),
+        op(12, 2, 32, 80, 11, 31), op(12, 2, 36, 80, 12, 32), op(254, 36), op(56),
+    ] { words += instruction }
+    return words
 }
 
 private func interpolationDiagnostic(_ device: Device) async throws -> UInt32 {
@@ -3733,7 +4499,7 @@ private func storageFormatDiagnostic(_ device: Device) async throws -> Int {
         guard let binding = shader.storageTextures.first else {
             throw GPUError.backendFailure("Missing \(fixture.name) storage reflection")
         }
-        let format = try binding.textureFormat()
+        let format = binding.textureFormat()
         let pipeline = try await device.createComputePipeline(shader)
         let source = try await device.createTexture(.init(width: 1, height: 1, format: format,
             usage: [.storageBinding, .copyDestination]))
@@ -3899,7 +4665,7 @@ private func volumeTextureDiagnostic(_ device: Device) async throws -> [UInt32] 
     let shader = try IndependentShaderCompiler().compileCompute(.wgsl("""
         @group(0) @binding(0) var volume: texture_3d<f32>;
         @group(0) @binding(1) var nearest: sampler;
-        @group(0) @binding(2) var<storage, read_write> result: array<vec4f, 9>;
+        @group(0) @binding(2) var<storage, read_write> result: array<vec4f, 10>;
         @compute @workgroup_size(1) fn run() {
             result[0] = textureLoad(volume, vec3i(0, 0, 0), 0i);
             result[1] = textureLoad(volume, vec3u(0, 0, 1), 0u);
@@ -3912,6 +4678,7 @@ private func volumeTextureDiagnostic(_ device: Device) async throws -> [UInt32] 
             result[7] = vec4f(f32(size.x), f32(size.y), f32(size.z), f32(textureNumLevels(volume)));
             let invalid = textureDimensions(volume, 1u);
             result[8] = vec4f(f32(invalid.x), f32(invalid.y), f32(invalid.z), textureLoad(volume, vec3u(0), -1i).a);
+            result[9] = textureSampleLevel(volume, nearest, vec3f(0.25, 0.5, 0.5), 0.0, vec3i(0, 0, -1));
         }
         """), to: .wgsl)
     let pipeline = try await device.createComputePipeline(shader)
@@ -3926,7 +4693,7 @@ private func volumeTextureDiagnostic(_ device: Device) async throws -> [UInt32] 
     } catch GPUError.validation("Texture view dimension does not match the texture") {}
     let nearest = try await device.createSampler(.init())
     let upload = try await device.createBuffer(.init(size: 264, usage: [.copySource, .copyDestination]))
-    let out = try await device.createBuffer(.init(size: 144, usage: [.storage, .copySource]))
+    let out = try await device.createBuffer(.init(size: 160, usage: [.storage, .copySource]))
     let read = try await device.createBuffer(.init(size: 520, usage: [.copyDestination, .mapRead]))
     let region = TextureCopyRegion(width: 2, height: 1, mipLevel: 1, depth: 2)
     do {
@@ -3943,19 +4710,2746 @@ private func volumeTextureDiagnostic(_ device: Device) async throws -> [UInt32] 
             sourceRegion: .init(width: 1, height: 1, mipLevel: 1, z: 1), destinationOrigin: .init(x: 1, mipLevel: 1, z: 2)),
         .dispatchCompute(pipeline: pipeline, bindings: [.init(binding: 2): out], workgroups: .init(x: 1),
                          textures: [.init(binding: 0): view], samplers: [.init(binding: 1): nearest]),
-        .copy(source: out, destination: read, byteCount: 144), .read(buffer: read, byteCount: 144),
+        .copy(source: out, destination: read, byteCount: 160), .read(buffer: read, byteCount: 160),
         .copyTextureToBuffer(source: volume, destination: read, bytesPerRow: 256, mipLevel: 1, depth: 3),
         .read(buffer: read, byteCount: 520),
     ])
     let snapshots = try await ticket.wait()
     let expected: [Float] = [1, 0, 0, 1, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                             0, 1, 0, 1, 0, 1, 0, 1, 2, 1, 3, 1, 0, 0, 0, 0]
+                             0, 1, 0, 1, 0, 1, 0, 1, 2, 1, 3, 1, 0, 0, 0, 0, 1, 0, 0, 1]
     let planes = [0, 1, 64, 65, 128, 129].map { snapshots[1][$0] }
     guard snapshots[0] == expected.map(\.bitPattern),
           planes == [0xff0000ff, 0xff0000ff, 0xff00ff00, 0xff00ff00, 0, 0xff00ff00] else {
         throw GPUError.backendFailure("Unexpected volume texture readback: \(snapshots[0]), \(planes)")
     }
     return snapshots[0] + planes
+}
+
+private func volumeStorageDiagnostic(_ device: Device) async throws -> [UInt32] {
+    let compiler = IndependentShaderCompiler()
+    let compute = try await device.createComputePipeline(compiler.compileCompute(.wgsl("""
+        @group(0) @binding(0) var source: texture_storage_3d<r32uint, read>;
+        @group(0) @binding(1) var image: texture_storage_3d<r32uint, read_write>;
+        @group(0) @binding(2) var<storage, read_write> result: array<vec4u, 5>;
+        @compute @workgroup_size(1) fn run() {
+            let input = textureLoad(source, vec3u(0, 0, 2));
+            let previous = textureLoad(image, vec3i(0, 0, 1));
+            result[0] = vec4u(textureDimensions(image), input.x);
+            result[1] = previous;
+            result[2] = textureLoad(source, vec3u(0, 0, 4));
+            result[3] = textureLoad(image, vec3i(0, 0, -1));
+            result[4] = textureLoad(image, vec3u(0, 0, 0xffffffffu));
+            textureStore(image, vec3i(0, 0, 1), previous + input);
+            textureStore(image, vec3u(1, 0, 0), input + vec4u(1u));
+            textureStore(image, vec3i(0, 0, -1), vec4u(99u));
+            textureStore(image, vec3u(0, 0, 2), vec4u(99u));
+            textureStore(image, vec3u(0, 0, 0xffffffffu), vec4u(99u));
+        }
+        """), to: .wgsl))
+    let shader = ShaderInput.wgsl("""
+        @group(1) @binding(3) var volume: texture_storage_3d<rgba8unorm, write>;
+        @vertex fn vs(@builtin(vertex_index) index: u32) -> @builtin(position) vec4f {
+            if index == 0u { return vec4f(-1, -1, 0, 1); }
+            if index == 1u { return vec4f(3, -1, 0, 1); }
+            return vec4f(-1, 3, 0, 1);
+        }
+        @fragment fn fs() -> @location(0) vec4f {
+            textureStore(volume, vec3u(0, 0, 1), vec4f(1, 0, 1, 1));
+            return vec4f(0, 1, 0, 1);
+        }
+        """)
+    let draw = try await device.createRenderPipeline(
+        vertex: compiler.compileRenderStage(shader, entryPoint: "vs", to: .wgsl),
+        fragment: compiler.compileRenderStage(shader, entryPoint: "fs", to: .wgsl), colorFormat: .rgba8Unorm)
+    let volume = try await device.createTexture(.init(width: 4, height: 2, format: .r32Uint,
+        usage: [.storageBinding, .copySource, .copyDestination], mipLevelCount: 2, dimension: .d3, depth: 4))
+    let source = try await device.createTextureView(texture: volume, .init(mipLevelCount: 1))
+    let image = try await device.createTextureView(texture: volume, .init(baseMipLevel: 1))
+    let plane = try await device.createTexture(.init(width: 2, height: 1, format: .r32Uint, usage: .storageBinding))
+    let color = try await device.createTexture(.init(width: 1, height: 1, format: .rgba8Unorm,
+        usage: [.storageBinding, .copySource], dimension: .d3, depth: 2))
+    let target = try await device.createTexture(.init(width: 1, height: 1, format: .rgba8Unorm, usage: .renderAttachment))
+    let upload = try await device.createBuffer(.init(size: 12, usage: [.copyDestination, .copySource]))
+    let output = try await device.createBuffer(.init(size: 80, usage: [.storage, .copySource]))
+    let read = try await device.createBuffer(.init(size: 80, usage: [.mapRead, .copyDestination]))
+    func dispatch(_ input: ResourceID, _ outputImage: ResourceID) -> BufferCommand {
+        .dispatchCompute(pipeline: compute, bindings: [.init(binding: 2): output], workgroups: .init(x: 1),
+                         textures: [.init(binding: 0): input, .init(binding: 1): outputImage])
+    }
+    do {
+        _ = try await device.submitCommands([dispatch(source, plane)])
+        throw GPUError.backendFailure("Accepted a 2D view for a 3D storage binding")
+    } catch GPUError.validation("Storage texture view dimension does not match the shader binding") {}
+    do {
+        _ = try await device.submitCommands([dispatch(volume, image)])
+        throw GPUError.backendFailure("Accepted a multi-mip storage binding")
+    } catch GPUError.validation("Storage texture binding requires one mip level of the declared format") {}
+    do {
+        _ = try await device.submitCommands([dispatch(image, image)])
+        throw GPUError.backendFailure("Accepted overlapping writable storage mips")
+    } catch GPUError.validation("Aliased writable compute textures") {}
+    let ticket = try await device.submitCommands([
+        .write(buffer: upload, offset: 0, words: [7, 20, 21]),
+        .copyBufferToTexture(source: upload, layout: .init(), destination: volume,
+                             region: .init(width: 1, height: 1, z: 2)),
+        .copyBufferToTexture(source: upload, layout: .init(offset: 4), destination: volume,
+                             region: .init(width: 2, height: 1, mipLevel: 1, z: 1)),
+        dispatch(source, image),
+        .copy(source: output, destination: read, byteCount: 80), .read(buffer: read, byteCount: 80),
+        .copyTextureToBuffer(source: volume, destination: read, bytesPerRow: 256, mipLevel: 1), .read(buffer: read, byteCount: 8),
+        .copyTextureToBuffer(source: volume, destination: read, bytesPerRow: 256, mipLevel: 1, z: 1), .read(buffer: read, byteCount: 8),
+        .render(pipeline: draw, target: target, clear: .transparentBlack, vertexCount: 3,
+                textures: [.init(group: 1, binding: 3): color]),
+        .copyTextureToBuffer(source: color, destination: read, bytesPerRow: 256), .read(buffer: read, byteCount: 4),
+        .copyTextureToBuffer(source: color, destination: read, bytesPerRow: 256, z: 1), .read(buffer: read, byteCount: 4),
+    ])
+    let expected: [[UInt32]] = [[2, 1, 2, 7, 20, 0, 0, 1] + Array(repeating: 0, count: 12),
+                                [0, 8], [27, 21], [0], [0xffff00ff]]
+    let snapshots = try await ticket.wait()
+    guard snapshots == expected else {
+        throw GPUError.backendFailure("Unexpected volume storage readback: \(snapshots)")
+    }
+    return snapshots.flatMap { $0 }
+}
+
+private func volumeRenderDiagnostic(_ device: Device) async throws -> [UInt32] {
+    let compiler = IndependentShaderCompiler()
+    let source = ShaderInput.wgsl("""
+        @group(0) @binding(0) var input: texture_3d<f32>;
+        struct FragmentOutput {
+            @location(0) red: vec4f,
+            @location(2) green: vec4f,
+        }
+        @vertex fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f {
+            if i == 0u { return vec4f(-1, -1, 0, 1); }
+            if i == 1u { return vec4f(3, -1, 0, 1); }
+            return vec4f(-1, 3, 0, 1);
+        }
+        @fragment fn fs() -> FragmentOutput {
+            let red = textureLoad(input, vec3i(0), 0i).r;
+            return FragmentOutput(vec4f(red, 0, 0, 1), vec4f(0, 1, 0, 1));
+        }
+        """)
+    let pipeline = try await device.createRenderPipeline(
+        vertex: compiler.compileRenderStage(source, entryPoint: "vs", to: .wgsl),
+        fragment: compiler.compileRenderStage(source, entryPoint: "fs", to: .wgsl),
+        colorFormat: .rgba8Unorm, colorState: .init(writeMask: .red),
+        additionalColorTargets: [2: .init(format: .rgba8Unorm, colorState: .init(writeMask: .green))])
+    let texture = try await device.createTexture(.init(width: 4, height: 2, format: .rgba8Unorm,
+        usage: [.renderAttachment, .textureBinding, .copySource, .copyDestination], mipLevelCount: 2,
+        dimension: .d3, depth: 6))
+    let input = try await device.createTextureView(texture: texture, .init(mipLevelCount: 1))
+    let output = try await device.createTextureView(texture: texture, .init(baseMipLevel: 1))
+    let multiMip = try await device.createTextureView(texture: texture, .init())
+    let flat = try await device.createTexture(.init(width: 2, height: 1, format: .rgba8Unorm, usage: .renderAttachment))
+    let upload = try await device.createBuffer(.init(size: 12, usage: [.copySource, .copyDestination]))
+    let indices = try await device.createBuffer(.init(size: 12, usage: [.index, .copyDestination]))
+    let read = try await device.createBuffer(.init(size: 520, usage: [.copyDestination, .mapRead]))
+    let firstColors: [UInt32: RenderColorAttachment] = [
+        2: .init(texture: output, loadAction: .clear(.init(red: 0.25, green: 0, blue: 0, alpha: 1)), depthSlice: 1),
+    ]
+    func draw(target: ResourceID, slice: UInt32?, sampled: ResourceID, colors: [UInt32: RenderColorAttachment]) -> BufferCommand {
+        .render(pipeline: pipeline, target: target, colorLoad: .load, vertexCount: 3,
+                textures: [.init(binding: 0): sampled], targetDepthSlice: slice, additionalColors: colors)
+    }
+    for invalid in [draw(target: output, slice: nil, sampled: input, colors: firstColors),
+                    draw(target: output, slice: 3, sampled: input, colors: firstColors),
+                    draw(target: flat, slice: 0, sampled: input, colors: firstColors),
+                    draw(target: multiMip, slice: 0, sampled: input, colors: firstColors)] {
+        do {
+            _ = try await device.submitCommands([invalid])
+            throw GPUError.backendFailure("Accepted an invalid volume color attachment")
+        } catch GPUError.validation("Invalid render pipeline, color attachment or clear value") {}
+    }
+    do {
+        _ = try await device.submitCommands([draw(target: output, slice: 1, sampled: input, colors: firstColors)])
+        throw GPUError.backendFailure("Accepted the same volume slice twice")
+    } catch GPUError.validation("Aliased render attachments") {}
+    do {
+        _ = try await device.submitCommands([draw(target: output, slice: 0, sampled: output, colors: firstColors)])
+        throw GPUError.backendFailure("Accepted sampling an attached volume mip")
+    } catch GPUError.validation("Render attachment cannot be bound as a sampled texture") {}
+    let ticket = try await device.submitCommands([
+        .write(buffer: upload, offset: 0, words: [0xff0000ff, 0xff00ffff, 0xff00ffff]),
+        .write(buffer: indices, offset: 0, words: [0, 1, 2]),
+        .copyBufferToTexture(source: upload, layout: .init(), destination: texture, region: .init(width: 1, height: 1)),
+        .copyBufferToTexture(source: upload, layout: .init(offset: 4), destination: texture,
+                             region: .init(width: 2, height: 1, mipLevel: 1, z: 2)),
+        draw(target: output, slice: 0, sampled: input, colors: firstColors),
+        .copyTextureToBuffer(source: texture, destination: read, bytesPerRow: 256, mipLevel: 1, depth: 3),
+        .read(buffer: read, byteCount: 520),
+        .renderIndexed(pipeline: pipeline, target: texture, colorLoad: .load,
+                       indexBuffer: .init(buffer: indices, format: .uint32), draw: .init(indexCount: 3),
+                       textures: [.init(binding: 0): input], targetMipLevel: 1, targetDepthSlice: 1,
+                       additionalColors: [2: .init(texture: output, depthSlice: 0)],
+                       raster: .init(scissor: .init(x: 0, y: 0, width: 1, height: 1))),
+        .copyTextureToBuffer(source: texture, destination: read, bytesPerRow: 256, mipLevel: 1, depth: 3),
+        .read(buffer: read, byteCount: 520),
+    ])
+    let snapshots = try await ticket.wait()
+    let planes = snapshots.map { words in [0, 1, 64, 65, 128, 129].map { words[$0] } }
+    guard planes == [[0xff, 0xff, 0xff00ff40, 0xff00ff40, 0xff00ffff, 0xff00ffff],
+                       [0xffff, 0xff, 0xff00ffff, 0xff00ff40, 0xff00ffff, 0xff00ffff]] else {
+        throw GPUError.backendFailure("Unexpected volume color attachment readback: \(planes)")
+    }
+    return planes.flatMap { $0 }
+}
+
+private func lineTextureDiagnostic(_ device: Device) async throws -> [UInt32] {
+    let compiler = IndependentShaderCompiler()
+    let compute = try await device.createComputePipeline(compiler.compileCompute(.wgsl("""
+        @group(0) @binding(0) var line: texture_1d<f32>;
+        @group(0) @binding(1) var nearest: sampler;
+        @group(0) @binding(2) var readLine: texture_storage_1d<r32sint, read>;
+        @group(0) @binding(3) var writeLine: texture_storage_1d<r32sint, read_write>;
+        @group(0) @binding(4) var<storage, read_write> result: array<vec4f, 4>;
+        @compute @workgroup_size(1) fn run() {
+            result[0] = textureLoad(line, 0i, 0i);
+            result[1] = textureSampleLevel(line, nearest, 0.75, 3.0);
+            let previous = textureLoad(writeLine, 1u);
+            let input = textureLoad(readLine, 0u);
+            result[2] = vec4f(f32(textureDimensions(line)), f32(textureNumLevels(line)),
+                             f32(textureDimensions(writeLine)), f32(previous.x + input.x));
+            result[3] = vec4f(textureLoad(line, -1i, 0i).a, textureLoad(line, 0xffffffffu, 0u).a,
+                             f32(textureDimensions(line, 1u)), f32(textureLoad(readLine, 2u).a));
+            textureStore(writeLine, 1i, previous + input);
+            textureStore(writeLine, -1i, vec4i(99));
+            textureStore(writeLine, 0xffffffffu, vec4i(99));
+        }
+        """), to: .wgsl))
+    let source = ShaderInput.wgsl("""
+        @group(0) @binding(0) var line: texture_1d<f32>;
+        @group(0) @binding(1) var nearest: sampler;
+        @vertex fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f {
+            if i == 0u { return vec4f(-1, -1, 0, 1); }
+            if i == 1u { return vec4f(3, -1, 0, 1); }
+            return vec4f(-1, 3, 0, 1);
+        }
+        @fragment fn fs() -> @location(0) vec4f { return textureSample(line, nearest, 0.75); }
+        """)
+    let draw = try await device.createRenderPipeline(
+        vertex: compiler.compileRenderStage(source, entryPoint: "vs", to: .wgsl),
+        fragment: compiler.compileRenderStage(source, entryPoint: "fs", to: .wgsl), colorFormat: .rgba8Unorm)
+    let line = try await device.createTexture(.init(width: 2, height: 1, format: .rgba8Unorm,
+        usage: [.textureBinding, .copyDestination], dimension: .d1))
+    let view = try await device.createTextureView(texture: line, .init())
+    do {
+        _ = try await device.createTextureView(texture: line, .init(dimension: .d2))
+        throw GPUError.backendFailure("Accepted a 2D view of a 1D texture")
+    } catch GPUError.validation("Texture view dimension does not match the texture") {}
+    do {
+        _ = try await device.createTexture(.init(width: 2, height: 1, format: .rgba8Unorm,
+            usage: .textureBinding, mipLevelCount: 2, dimension: .d1))
+        throw GPUError.backendFailure("Accepted multiple mips for a 1D texture")
+    } catch GPUError.validation("Invalid 1D texture extent, mip levels, format or usage") {}
+    let desc = TextureDescriptor(width: 2, height: 1, format: .r32Sint,
+        usage: [.storageBinding, .copyDestination, .copySource], dimension: .d1)
+    let readLine = try await device.createTexture(desc)
+    let writeLine = try await device.createTexture(desc)
+    let target = try await device.createTexture(.init(width: 1, height: 1, format: .rgba8Unorm,
+        usage: [.renderAttachment, .copySource]))
+    let sampler = try await device.createSampler(.init())
+    let upload = try await device.createBuffer(.init(size: 16, usage: [.copySource, .copyDestination]))
+    let output = try await device.createBuffer(.init(size: 64, usage: [.storage, .copySource]))
+    let read = try await device.createBuffer(.init(size: 64, usage: [.mapRead, .copyDestination]))
+    let ticket = try await device.submitCommands([
+        .write(buffer: upload, offset: 0, words: [0xff0000ff, 0xff00ff00, 5, UInt32(bitPattern: -3)]),
+        .copyBufferToTexture(source: upload, layout: .init(), destination: line, region: .init(width: 2, height: 1)),
+        .copyBufferToTexture(source: upload, layout: .init(offset: 8), destination: readLine, region: .init(width: 1, height: 1)),
+        .copyBufferToTexture(source: upload, layout: .init(offset: 12), destination: writeLine,
+                             region: .init(x: 1, width: 1, height: 1)),
+        .dispatchCompute(pipeline: compute, bindings: [.init(binding: 4): output], workgroups: .init(x: 1),
+                         textures: [.init(binding: 0): view, .init(binding: 2): readLine, .init(binding: 3): writeLine],
+                         samplers: [.init(binding: 1): sampler]),
+        .copy(source: output, destination: read, byteCount: 64), .read(buffer: read, byteCount: 64),
+        .copyTextureToBuffer(source: writeLine, destination: read, bytesPerRow: 256), .read(buffer: read, byteCount: 8),
+        .render(pipeline: draw, target: target, clear: .transparentBlack, vertexCount: 3,
+                textures: [.init(binding: 0): view], samplers: [.init(binding: 1): sampler]),
+        .copyTextureToBuffer(source: target, destination: read, bytesPerRow: 256), .read(buffer: read, byteCount: 4),
+    ])
+    let expected: [Float] = [1, 0, 0, 1, 0, 1, 0, 1, 2, 1, 2, 2, 0, 0, 0, 0]
+    let snapshots = try await ticket.wait()
+    guard snapshots == [expected.map(\.bitPattern), [0, 2], [0xff00ff00]] else {
+        throw GPUError.backendFailure("Unexpected 1D texture readback: \(snapshots)")
+    }
+    return snapshots.flatMap { $0 }
+}
+
+private func bitcastDiagnostic(_ device: Device) async throws -> [UInt32] {
+
+    let shader = try IndependentShaderCompiler().compileCompute(.wgsl("""
+        alias Words = vec4<u32>;
+        const FLOATS = bitcast<vec4f>(vec4u(0x3f800000u, 0xc0200000u, 0x80000000u, 0x3f000000u));
+        const PACKED: Words = bitcast<Words>(FLOATS);
+        const_assert bitcast<u32>(4294967295) == 0xffffffffu;
+        const_assert bitcast<vec2u>(vec2(1, 4294967295)).y == 0xffffffffu;
+        const_assert bitcast<u32>(bitcast<f32>(-2147483648)) == 0x80000000u;
+        @group(0) @binding(0) var<storage, read> input: array<vec4u, 1>;
+        @group(0) @binding(1) var<storage, read_write> output: array<vec4u, 5>;
+        @compute @workgroup_size(1) fn run() {
+            let words = input[0];
+            let floats = bitcast<vec4<f32>>(words);
+            output[0] = bitcast<vec4u>(floats);
+            output[1] = bitcast<vec4u>(bitcast<vec4i>(floats));
+            output[2] = bitcast<vec4u>(bitcast<vec4f>(bitcast<vec4i>(words)));
+            let pairs = bitcast<vec2u>(bitcast<vec2f>(words.xy));
+            let triple = bitcast<vec3u>(bitcast<vec3f>(words.yzw));
+            output[3] = vec4u(pairs, triple.z, bitcast<u32>(floats.x + 1.0));
+            const high = bitcast<u32>(-1i);
+            output[4] = vec4u(PACKED.xy, bitcast<u32>(-0.0f), high);
+        }
+        """), to: .wgsl)
+    let pipeline = try await device.createComputePipeline(shader)
+    let input = try await device.createBuffer(.init(size: 16, usage: [.storage, .copyDestination]))
+    let output = try await device.createBuffer(.init(size: 80, usage: [.storage, .copySource]))
+    let read = try await device.createBuffer(.init(size: 80, usage: [.mapRead, .copyDestination]))
+    let words: [UInt32] = [0x3f800000, 0xc0200000, 0x3f000000, 0x00800000]
+    let ticket = try await device.submitCommands([
+        .write(buffer: input, offset: 0, words: words),
+        .dispatchCompute(pipeline: pipeline, bindings: [.init(binding: 0): input, .init(binding: 1): output],
+                         workgroups: .init(x: 1)),
+        .copy(source: output, destination: read, byteCount: 80), .read(buffer: read, byteCount: 80),
+    ])
+    let expected = words + words + words + [words[0], words[1], words[3], 0x40000000] +
+        [0x3f800000, 0xc0200000, 0x80000000, 0xffffffff]
+    let snapshots = try await ticket.wait()
+    guard snapshots == [expected] else {
+        throw GPUError.backendFailure("Unexpected bitcast readback: \(snapshots)")
+    }
+    return snapshots[0]
+}
+
+private func integerBitDiagnostic(_ device: Device) async throws -> [UInt32] {
+
+    let shader = try IndependentShaderCompiler().compileCompute(.wgsl("""
+        const edges = vec4u(countLeadingZeros(0u), countTrailingZeros(0u), countOneBits(0xffffffffu), reverseBits(1u));
+        const_assert firstLeadingBit(-1i) == -1i;
+        const_assert firstLeadingBit(-2147483647i - 1i) == 30i;
+        const_assert firstTrailingBit(0u) == 0xffffffffu;
+        const_assert extractBits(vec2i(-1, 8), 0u, 4u).y == -8i;
+        const_assert insertBits(7u, 9u, 32u, 0u) == 7u;
+        const_assert insertBits(vec2(0, 1), vec2u(3, 2), 28u, 4u).y == 0x20000001u;
+        @group(0) @binding(0) var<storage, read> input: array<vec4u, 2>;
+        @group(0) @binding(1) var<storage, read_write> output: array<vec4u, 14>;
+        @compute @workgroup_size(1) fn run() {
+            let bits = input[0];
+            let signed = bitcast<vec4i>(bits);
+            let ranges = input[1];
+            output[0] = countLeadingZeros(bits);
+            output[1] = bitcast<vec4u>(countTrailingZeros(signed));
+            output[2] = countOneBits(bits);
+            output[3] = bitcast<vec4u>(reverseBits(signed));
+            output[4] = firstLeadingBit(bits);
+            output[5] = bitcast<vec4u>(firstLeadingBit(signed));
+            output[6] = bitcast<vec4u>(firstTrailingBit(signed));
+            output[7] = extractBits(bits, ranges.x, ranges.y);
+            output[8] = bitcast<vec4u>(extractBits(signed, ranges.x, ranges.y));
+            output[9] = insertBits(bits, vec4u(5u), ranges.x, ranges.y);
+            output[10] = bitcast<vec4u>(extractBits(signed, 0u, ranges.w));
+            output[11] = bitcast<vec4u>(insertBits(signed, vec4i(-1), ranges.z, ranges.y));
+            output[12] = vec4u(extractBits(bits.w, ranges.z, ranges.y), firstTrailingBit(bits.x),
+                               bitcast<u32>(countLeadingZeros(signed.z)), insertBits(bits.x, 7, 0u, ranges.w));
+            output[13] = edges;
+        }
+        """), to: .wgsl)
+    let pipeline = try await device.createComputePipeline(shader)
+    let boolean = try IndependentShaderCompiler().compileCompute(.wgsl("""
+        const_assert all((vec2(true, false) & vec2(true, true)) == vec2(true, false));
+        const_assert all(!(vec2(false, true) | vec2(false, false)) == vec2(true, false));
+
+        @group(0) @binding(0) var<storage, read_write> output: array<vec4u, 6>;
+        var<private> trace: u32;
+
+        fn mark(tag: u32, value: bool) -> bool {
+            trace = trace * 10u + tag;
+            return value;
+        }
+
+        fn markVector(tag: u32, value: vec4<bool>) -> vec4<bool> {
+            trace = trace * 10u + tag;
+            return value;
+        }
+
+        @compute @workgroup_size(1) fn run() {
+            let both = mark(1u, false) & mark(2u, true);
+            let either = mark(3u, true) | mark(4u, false);
+            let short = (false && mark(9u, true)) || (true || mark(9u, false));
+            output[0] = vec4u(u32(both), u32(either), trace, u32(short));
+            let lhs = vec4(true, true, false, false);
+            let rhs = vec4(true, false, true, false);
+            output[1] = select(vec4u(0), vec4u(1), markVector(5u, lhs) & markVector(6u, rhs));
+            output[2] = select(vec4u(0), vec4u(1), !(markVector(7u, lhs) | markVector(8u, rhs)));
+            output[3] = select(vec4u(0), vec4u(1), lhs == rhs);
+            output[4] = select(vec4u(0), vec4u(1), lhs != rhs);
+            var combined = lhs;
+            combined &= rhs;
+            combined |= vec4(false, false, false, true);
+            output[5] = vec4u(trace, u32(combined.x), u32(combined.y), u32(combined.w));
+        }
+        """), to: .wgsl)
+    let booleanPipeline = try await device.createComputePipeline(boolean)
+    let input = try await device.createBuffer(.init(size: 32, usage: [.storage, .copyDestination]))
+    let output = try await device.createBuffer(.init(size: 224, usage: [.storage, .copySource]))
+    let read = try await device.createBuffer(.init(size: 224, usage: [.mapRead, .copyDestination]))
+    let ticket = try await device.submitCommands([
+        .write(buffer: input, offset: 0, words: [0, 1, 0x80000000, 0xffffffff, 28, 8, 0xffffffff, 32]),
+        .dispatchCompute(pipeline: pipeline, bindings: [.init(binding: 0): input, .init(binding: 1): output],
+                         workgroups: .init(x: 1)),
+        .copy(source: output, destination: read, byteCount: 224), .read(buffer: read, byteCount: 224),
+        .dispatchCompute(pipeline: booleanPipeline, bindings: [.init(binding: 0): output], workgroups: .init(x: 1)),
+        .copy(source: output, destination: read, byteCount: 96), .read(buffer: read, byteCount: 96),
+    ])
+    let expected: [UInt32] = [
+        32, 31, 0, 0, 32, 0, 31, 0, 0, 1, 1, 32, 0, 0x80000000, 1, 0xffffffff,
+        0xffffffff, 0, 31, 31, 0xffffffff, 0, 30, 0xffffffff, 0xffffffff, 0, 31, 0,
+        0, 0, 8, 15, 0, 0, 0xfffffff8, 0xffffffff, 0x50000000, 0x50000001, 0x50000000, 0x5fffffff,
+        0, 1, 0x80000000, 0xffffffff, 0, 1, 0x80000000, 0xffffffff, 0, 0xffffffff, 0, 7,
+        32, 32, 32, 0x80000000,
+    ]
+    let snapshots = try await ticket.wait()
+    let booleanExpected: [UInt32] = [0, 1, 1234, 1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 1,
+                                     0, 1, 1, 0, 12345678, 1, 0, 1]
+    guard snapshots == [expected, booleanExpected] else {
+        throw GPUError.backendFailure("Unexpected integer bit builtin readback: \(snapshots)")
+    }
+    return snapshots[0] + snapshots[1]
+}
+
+private func packingDiagnostic(_ device: Device) async throws -> [UInt32] {
+
+    let shader = try IndependentShaderCompiler().compileCompute(.wgsl("""
+        const packed = vec4u(pack4x8snorm(vec4f(-2, -0.5, 0.5, 2)), pack4x8unorm(vec4f(-2, -0.5, 0.5, 2)),
+                            pack2x16snorm(vec2f(-0.5, 0.5)), pack2x16float(vec2f(1, -2)));
+        const_assert unpack4xI8(0x7f00ff80u).x == -128i;
+        const_assert unpack4xU8(0x7f00ff80u).w == 127u;
+        const_assert unpack2x16float(pack2x16float(vec2f(1.00048828125, 5.960464477539063e-8))).x == 1.0f;
+        const_assert pack2x16float(vec2f(5.960464477539063e-8, -0.0)) == 0x80000001u;
+        const_assert pack4xI8Clamp(vec4(-129, -1, 127, 128)) == 0x7f7fff80u;
+        @group(0) @binding(0) var<storage, read> input: array<vec4u, 5>;
+        @group(0) @binding(1) var<storage, read_write> output: array<vec4u, 9>;
+        @compute @workgroup_size(1) fn run() {
+            let normalized = bitcast<vec4f>(input[0]);
+            let halfValues = bitcast<vec2f>(input[1].xy);
+            let word = input[1].z;
+            let signed = bitcast<vec4i>(input[2]);
+            let unsigned = input[3];
+            let channels = input[4];
+            output[0] = vec4u(pack4x8snorm(normalized), pack4x8unorm(normalized),
+                              pack2x16snorm(normalized.yz), pack2x16unorm(normalized.zw));
+            output[1] = vec4u(pack4xI8(signed), pack4xI8Clamp(signed), pack4xU8(unsigned), pack4xU8Clamp(unsigned));
+            output[2] = bitcast<vec4u>(unpack4xI8(word));
+            output[3] = unpack4xU8(word);
+            output[4] = bitcast<vec4u>(unpack4x8snorm(channels.x));
+            output[5] = bitcast<vec4u>(unpack4x8unorm(channels.y));
+            output[6] = vec4u(bitcast<vec2u>(unpack2x16snorm(channels.z)), bitcast<vec2u>(unpack2x16unorm(channels.w)));
+            output[7] = vec4u(pack2x16float(halfValues), bitcast<vec2u>(unpack2x16float(input[1].w)), pack2x16float(unpack2x16float(input[1].w)));
+            output[8] = packed;
+        }
+        """), to: .wgsl)
+    let pipeline = try await device.createComputePipeline(shader)
+    let input = try await device.createBuffer(.init(size: 80, usage: [.storage, .copyDestination]))
+    let output = try await device.createBuffer(.init(size: 144, usage: [.storage, .copySource]))
+    let read = try await device.createBuffer(.init(size: 144, usage: [.mapRead, .copyDestination]))
+    let packingInputWords: [UInt32] = [
+        0xc0000000, 0xbf000000, 0x3f000000, 0x40000000,
+        0x3f800000, 0xc0000000, 0x7f00ff80, 0xc0003c00,
+        0xffffff7f, 0xffffffff, 127, 128, 256, 255, 511, 0x12345678,
+        0x7f008081, 0xff00ff00, 0x7fff8000, 0xffff0000,
+    ]
+    let ticket = try await device.submitCommands([
+        .write(buffer: input, offset: 0, words: packingInputWords),
+        .dispatchCompute(pipeline: pipeline, bindings: [.init(binding: 0): input, .init(binding: 1): output],
+                         workgroups: .init(x: 1)),
+        .copy(source: output, destination: read, byteCount: 144), .read(buffer: read, byteCount: 144),
+    ])
+    let expected: [UInt32] = [
+        0x7f40c181, 0xff800000, 0x4000c001, 0xffff8000,
+        0x807fff7f, 0x7f7fff80, 0x78ffff00, 0xffffffff,
+        0xffffff80, 0xffffffff, 0, 127, 128, 255, 0, 127,
+        0xbf800000, 0xbf800000, 0, 0x3f800000, 0, 0x3f800000, 0, 0x3f800000,
+        0xbf800000, 0x3f800000, 0, 0x3f800000,
+        0xc0003c00, 0x3f800000, 0xc0000000, 0xc0003c00,
+        0x7f40c181, 0xff800000, 0x4000c001, 0xc0003c00,
+    ]
+    let snapshots = try await ticket.wait()
+    guard snapshots == [expected] else {
+        throw GPUError.backendFailure("Unexpected packing readback: \(snapshots)")
+    }
+    return snapshots[0]
+}
+
+private func geometricDiagnostic(_ device: Device) async throws -> [UInt32] {
+
+    let shader = try IndependentShaderCompiler().compileCompute(.wgsl("""
+        const_assert dot(vec3(1, 2, 3), vec3(3, 2, 1)) == 10;
+        const_assert length(vec2(3, 4)) == 5.0;
+        const_assert cross(vec3f(1, 0, 0), vec3f(0, 1, 0)).z == 1.0f;
+        const_assert dot(vec2i(2147483647, 1), vec2i(2, 1)) == -1i;
+        const_assert dot4I8Packed(0x7f00ff80u, 0x01020304u) == -388i;
+        const_assert dot4U8Packed(0x7f00ff80u, 0x01020304u) == 1404u;
+        const_assert refract(vec2f(1, 0), vec2f(0, 1), 2.0f).x == 0.0f;
+        @group(0) @binding(0) var<storage, read> input: array<vec4u, 4>;
+        @group(0) @binding(1) var<storage, read_write> output: array<vec4u, 7>;
+        @compute @workgroup_size(1) fn run() {
+            let a = bitcast<vec4f>(input[0]);
+            let b = bitcast<vec4f>(input[1]);
+            let axis = vec3f(0, 1, 0);
+            let incidence = vec3f(0, -1, 0);
+            let tangent = vec3f(1, 0, 0);
+            output[0] = bitcast<vec4u>(vec4f(dot(a.xy, a.xy), length(a.xy), distance(a.xy, b.xy), distance(a.x, -2.0)));
+            output[1] = bitcast<vec4u>(vec4f(cross(a.xyz, b.xyz), length(-a.y)));
+            output[2] = bitcast<vec4u>(vec4f(normalize(vec3f(0, a.y, 0)), dot(a.xyz, b.xyz)));
+            output[3] = bitcast<vec4u>(vec4f(faceForward(axis, incidence, axis), faceForward(axis, axis, axis).y));
+            output[4] = bitcast<vec4u>(vec4f(reflect(incidence, axis), refract(incidence, axis, 0.5).y));
+            output[5] = bitcast<vec4u>(vec4f(refract(tangent, axis, a.x), dot(a, b)));
+            let words = input[2];
+            let products = input[3];
+            output[6] = vec4u(bitcast<u32>(dot(bitcast<vec4i>(words), vec4i(2, 2, 3, 4))), dot(words, vec4u(1)),
+                              bitcast<u32>(dot4I8Packed(products.x, products.y)), dot4U8Packed(products.x, products.y));
+        }
+        """), to: .wgsl)
+    let pipeline = try await device.createComputePipeline(shader)
+    let input = try await device.createBuffer(.init(size: 64, usage: [.storage, .copyDestination]))
+    let output = try await device.createBuffer(.init(size: 112, usage: [.storage, .copySource]))
+    let read = try await device.createBuffer(.init(size: 112, usage: [.mapRead, .copyDestination]))
+    let geometricInput: [UInt32] = [
+        0x40400000, 0x40800000, 0, 0, 0, 0, 0x3f800000, 0,
+        0x7fffffff, 0x80000000, 0xffffffff, 2, 0x7f00ff80, 0x01020304, 0, 0,
+    ]
+    let ticket = try await device.submitCommands([
+        .write(buffer: input, offset: 0, words: geometricInput),
+        .dispatchCompute(pipeline: pipeline, bindings: [.init(binding: 0): input, .init(binding: 1): output],
+                         workgroups: .init(x: 1)),
+        .copy(source: output, destination: read, byteCount: 112), .read(buffer: read, byteCount: 112),
+    ])
+    let expectedGeometry: [Float] = [
+        25, 5, 5, 5, 4, -3, 0, 4, 0, 1, 0, 0,
+        0, 1, 0, -1, 0, 1, 0, -1, 0, 0, 0, 0,
+    ]
+    let expectedPackedDots: [UInt32] = [3, 0, 0xfffffe7c, 1404]
+    guard let snapshot = try await ticket.wait().first,
+          snapshot.prefix(24).map({ Float(bitPattern: $0) }) == expectedGeometry,
+          Array(snapshot.suffix(4)) == expectedPackedDots else {
+        throw GPUError.backendFailure("Unexpected geometric builtin readback")
+    }
+    return snapshot.prefix(24).map { $0 == 0x80000000 ? 0 : $0 } + snapshot.suffix(4)
+}
+
+private func matrixBuiltinDiagnostic(_ device: Device) async throws -> [UInt32] {
+
+    let shader = try IndependentShaderCompiler().compileCompute(.wgsl("""
+        const FLIP = transpose(mat2x3(1, 2, 3, 4, 5, 6));
+        const_assert FLIP[2][1] == 6.0;
+        const_assert transpose(FLIP)[1][0] == 4.0;
+        const_assert determinant(mat3x3(1, 0, 5, 2, 1, 6, 3, 4, 0)) == 1.0;
+        const_assert determinant(mat4x4f(0, 2, 0, 0, 3, 0, 0, 0, 1, 2, 4, 0, 5, 6, 7, -1)) == 24.0f;
+        @group(0) @binding(0) var<storage, read> input: array<vec4f, 9>;
+        @group(0) @binding(1) var<storage, read_write> output: array<vec4f, 3>;
+        @group(0) @binding(2) var<storage, read_write> columns: array<mat3x2f, 1>;
+        fn flip(m: mat2x3f) -> mat3x2f { return transpose(m); }
+        @compute @workgroup_size(1) fn run() {
+            let rect = mat2x3f(input[0].xyz, input[1].xyz);
+            let square = mat2x2f(input[0].xy, input[1].xy);
+            let m3 = mat3x3f(input[2].xyz, input[3].xyz, input[4].xyz);
+            let m4 = mat4x4f(input[5], input[6], input[7], input[8]);
+            let turned = flip(rect);
+            let restored = transpose(turned);
+            const local = determinant(mat2x2f(1, 2, 3, 4));
+            columns[0] = turned;
+            output[0] = vec4f(determinant(square), determinant(m3), determinant(m4), local);
+            output[1] = vec4f(restored[0], turned[2].y);
+            output[2] = vec4f(turned * vec3f(1, 2, 3), restored[1].xy);
+        }
+        """), to: .wgsl)
+    let pipeline = try await device.createComputePipeline(shader)
+    let input = try await device.createBuffer(.init(size: 144, usage: [.storage, .copyDestination]))
+    let output = try await device.createBuffer(.init(size: 48, usage: [.storage, .copySource]))
+    let columns = try await device.createBuffer(.init(size: 24, usage: [.storage, .copySource]))
+    let read = try await device.createBuffer(.init(size: 116, usage: [.mapRead, .copyDestination]))
+    let inverseScale: Float = 1e-12
+    let inverseShader = try IndependentShaderCompiler().compileWebGPUCompute(.spirv(inverseMatrixSPIRV(scale: inverseScale)))
+    let inversePipeline = try await device.createComputePipeline(inverseShader)
+    let inverses = try await device.createBuffer(.init(size: 116, usage: [.storage, .copySource]))
+    let matrixBuiltinInput: [Float] = [
+        1, 2, 3, 0, 4, 5, 6, 0,
+        1, 0, 5, 0, 2, 1, 6, 0, 3, 4, 0, 0,
+        0, 2, 0, 0, 3, 0, 0, 0, 1, 2, 4, 0, 5, 6, 7, -1,
+    ]
+    let ticket = try await device.submitCommands([
+        .write(buffer: input, offset: 0, words: matrixBuiltinInput.map(\.bitPattern)),
+        .dispatchCompute(pipeline: pipeline, bindings: [.init(binding: 0): input, .init(binding: 1): output,
+                         .init(binding: 2): columns], workgroups: .init(x: 1)),
+        .copy(source: output, destination: read, byteCount: 48), .read(buffer: read, byteCount: 48),
+        .copy(source: columns, destination: read, byteCount: 24), .read(buffer: read, byteCount: 24),
+        .dispatchCompute(pipeline: inversePipeline, bindings: [.init(binding: 0): inverses], workgroups: .init(x: 1)),
+        .copy(source: inverses, destination: read, byteCount: 116), .read(buffer: read, byteCount: 116),
+    ])
+    let expected: [[Float]] = [[-3, 1, 24, -2, 1, 2, 3, 6, 14, 32, 4, 5], [1, 4, 2, 5, 3, 6]]
+    let inverseExpected: [Float] = [
+        0.5, 0, -0.125, 0.25, -24, 20, -5, 18, -15, 4, 5, -4, 1,
+        0.5, 0, 0, 0, -0.125, 0.25, 0, 0, 0.03125, -0.0625, 0.125, 0, -0.0078125, 0.015625, -0.03125, 0.0625,
+    ]
+    let snapshots = try await ticket.wait()
+    guard snapshots.count == 3, Array(snapshots.prefix(2)) == expected.map({ $0.map(\.bitPattern) }),
+          let inverseWords = snapshots.last, inverseWords.count == inverseExpected.count,
+          zip(inverseWords, inverseExpected).allSatisfy({
+              abs(Float(bitPattern: $0) * inverseScale - $1) <= max(1, abs($1)) * 0.0008
+          }) else {
+        throw GPUError.backendFailure("Unexpected matrix builtin readback: \(snapshots)")
+    }
+    return snapshots.flatMap { $0 }
+}
+
+private func inverseMatrixSPIRV(scale: Float) -> [UInt32] {
+    func inst(_ code: UInt32, _ operands: UInt32...) -> [UInt32] {
+        [UInt32(operands.count + 1) << 16 | code] + operands
+    }
+    var words: [UInt32] = [0x07230203, 0x00010300, 0, 1024, 0]
+    words += inst(17, 1) + inst(11, 80, 0x4c534c47, 0x6474732e, 0x3035342e, 0) + inst(14, 0, 1)
+    words += inst(15, 5, 15, 0x6e69616d, 0) + inst(16, 15, 17, 1, 1, 1)
+    words += inst(71, 10, 2) + inst(71, 14, 34, 0) + inst(71, 14, 33, 0)
+    for index: UInt32 in 0..<29 { words += inst(72, 10, index, 35, index * 4) }
+    func op(_ opcode: UInt32, _ operands: [UInt32]) -> [UInt32] {
+        [UInt32(operands.count + 1) << 16 | opcode] + operands
+    }
+    for instruction in [
+        inst(19, 1), inst(21, 2, 32, 0), inst(22, 3, 32), inst(23, 4, 3, 2), inst(23, 5, 3, 3), inst(23, 6, 3, 4),
+        inst(24, 7, 4, 2), inst(24, 8, 5, 3), inst(24, 9, 6, 4),
+        op(30, [10] + Array(repeating: 3, count: 29)),
+        inst(32, 11, 12, 10), inst(32, 12, 12, 3), inst(33, 13, 1),
+    ] {
+        words += instruction
+    }
+    let matrices: [[[Float]]] = [
+        [[2, 0], [1, 4]],
+        [[1, 0, 5], [2, 1, 6], [3, 4, 0]],
+        [[2, 0, 0, 0], [1, 4, 0, 0], [0, 2, 8, 0], [0, 0, 4, 16]],
+    ]
+    var next: UInt32 = 100
+    var columns: [[UInt32]] = []
+    for (matrixIndex, matrix) in matrices.enumerated() {
+        var columnIDs: [UInt32] = []
+        for column in matrix {
+            var elements: [UInt32] = []
+            for value in column {
+                words += inst(43, 3, next, (value * scale).bitPattern)
+                elements.append(next)
+                next += 1
+            }
+            words += op(44, [UInt32(4 + matrixIndex), next] + elements)
+            columnIDs.append(next)
+            next += 1
+        }
+        columns.append(columnIDs)
+    }
+    let smallMatrix = next
+    next += 1
+    words += op(44, [7, smallMatrix] + columns[0])
+    let indexBase = next
+    for index: UInt32 in 0..<29 { words += inst(43, 2, indexBase + index, index) }
+    next += 29
+    words += inst(59, 11, 14, 12) + inst(54, 1, 15, 0, 13) + inst(248, 16)
+    var outputIndex: UInt32 = 0
+    for (index, columnIDs) in columns.enumerated() {
+        let type = UInt32(7 + index)
+        let matrix: UInt32
+        if index == 0 {
+            matrix = smallMatrix
+        } else {
+            matrix = next
+            next += 1
+            words += op(80, [type, matrix] + columnIDs)
+        }
+        let inverted = next
+        next += 1
+        words += inst(12, type, inverted, 80, 34, matrix)
+        let size = UInt32(columnIDs.count)
+        for column: UInt32 in 0..<size {
+            for row: UInt32 in 0..<size {
+                words += inst(81, 3, next, inverted, column, row)
+                words += inst(65, 12, next + 1, 14, indexBase + outputIndex)
+                words += inst(62, next + 1, next)
+                outputIndex += 1
+                next += 2
+            }
+        }
+    }
+    return words + inst(253) + inst(56)
+}
+
+private func derivativeDiagnostic(_ device: Device) async throws -> [UInt32] {
+
+    let compiler = IndependentShaderCompiler()
+    let source = ShaderInput.wgsl("""
+        struct Outputs {
+            @location(0) regular: vec4u,
+            @location(1) fine: vec4u,
+            @location(2) coarse: vec4u,
+        }
+        @vertex fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f {
+            if i == 0u { return vec4f(-1, -1, 0, 1); }
+            if i == 1u { return vec4f(3, -1, 0, 1); }
+            return vec4f(-1, 3, 0, 1);
+        }
+        fn encode(dx: f32, dy: f32, width: vec2f) -> vec4u {
+            return vec4u(u32(dx), u32(8.0 + dy), u32(width.x), u32(width.y));
+        }
+        fn derivatives(p: vec2f) -> Outputs {
+            let q = vec2f(2.0 * p.x - 3.0 * p.y, 5.0 * p.y - 4.0 * p.x);
+            let regular = encode(dpdx(q.x), dpdy(q.x), fwidth(q));
+            let fine = encode(dpdxFine(q).x, dpdyFine(q).x, fwidthFine(q));
+            let coarse = encode(dpdxCoarse(q).x, dpdyCoarse(q).x, fwidthCoarse(q));
+            if p.x > 0.0 { return Outputs(regular, fine, coarse); }
+            return Outputs(vec4u(0), vec4u(0), vec4u(0));
+        }
+        @fragment fn fs(@builtin(position) p: vec4f) -> Outputs { return derivatives(p.xy); }
+        """)
+    let pipeline = try await device.createRenderPipeline(
+        vertex: compiler.compileRenderStage(source, entryPoint: "vs", to: .wgsl),
+        fragment: compiler.compileRenderStage(source, entryPoint: "fs", to: .wgsl),
+        colorFormat: .rgba8Uint, additionalColorTargets: [1: .init(format: .rgba8Uint), 2: .init(format: .rgba8Uint)])
+    let descriptor = TextureDescriptor(width: 2, height: 2, format: .rgba8Uint, usage: [.renderAttachment, .copySource])
+    let regular = try await device.createTexture(descriptor)
+    let fine = try await device.createTexture(descriptor)
+    let coarse = try await device.createTexture(descriptor)
+    let read = try await device.createBuffer(.init(size: 264, usage: [.mapRead, .copyDestination]))
+    var commands: [BufferCommand] = [
+        .render(pipeline: pipeline, target: regular, clear: .transparentBlack, vertexCount: 3,
+                additionalColors: [1: .init(texture: fine, loadAction: .clear(.transparentBlack)),
+                                   2: .init(texture: coarse, loadAction: .clear(.transparentBlack))]),
+    ]
+    for texture in [regular, fine, coarse] {
+        commands += [.copyTextureToBuffer(source: texture, destination: read, bytesPerRow: 256), .read(buffer: read, byteCount: 264)]
+    }
+    let ticket = try await device.submitCommands(commands)
+    let pixels = try await ticket.wait().flatMap { snapshot in [0, 1, 64, 65].map { snapshot[$0] } }
+    guard pixels == Array(repeating: 0x09050502, count: 12) else {
+        throw GPUError.backendFailure("Unexpected fragment derivative readback: \(pixels)")
+    }
+    return pixels
+}
+
+private func derivativeFilterDiagnostic(_ device: Device) async throws -> [UInt32] {
+    let compiler = IndependentShaderCompiler()
+    let source = ShaderInput.wgsl("""
+        diagnostic(off, derivative_uniformity);
+        @vertex fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f {
+            if i == 0u { return vec4f(-1, -1, 0, 1); }
+            if i == 1u { return vec4f(3, -1, 0, 1); }
+            return vec4f(-1, 3, 0, 1);
+        }
+        @diagnostic(info, derivative_uniformity)
+        fn helper(x: f32) -> f32 {
+            if x < 0.0 { return dpdx(x); }
+            return 0.0;
+        }
+        @fragment fn fs(@builtin(position) p: vec4f) -> @location(0) vec4f {
+            let red = helper(p.x);
+            if p.y < 0.0 { return vec4f(dpdy(p.x)); }
+            return vec4f(red, 1, 0, 1);
+        }
+        """)
+    let pipeline = try await device.createRenderPipeline(
+        vertex: compiler.compileRenderStage(source, entryPoint: "vs", to: .wgsl),
+        fragment: compiler.compileRenderStage(source, entryPoint: "fs", to: .wgsl), colorFormat: .rgba8Unorm)
+    let texture = try await device.createTexture(.init(width: 2, height: 2, format: .rgba8Unorm,
+        usage: [.renderAttachment, .copySource]))
+    let read = try await device.createBuffer(.init(size: 264, usage: [.mapRead, .copyDestination]))
+    let ticket = try await device.submitCommands([
+        .render(pipeline: pipeline, target: texture, clear: .transparentBlack, vertexCount: 3),
+        .copyTextureToBuffer(source: texture, destination: read, bytesPerRow: 256),
+        .read(buffer: read, byteCount: 264),
+    ])
+    guard let pixels = try await ticket.wait().first else {
+        throw GPUError.backendFailure("Missing diagnostic-filter readback")
+    }
+    let result = [0, 1, 64, 65].map { pixels[$0] }
+    guard result == Array(repeating: 0xff00ff00, count: 4) else {
+        throw GPUError.backendFailure("Unexpected diagnostic-filter readback: \(result)")
+    }
+    return result
+}
+
+private func numericBuiltinDiagnostic(_ device: Device) async throws -> [UInt32] {
+
+    let shader = try IndependentShaderCompiler().compileCompute(.wgsl("""
+        const_assert abs(vec2i(-2147483647i - 1i, -7i)).x == bitcast<i32>(0x80000000u);
+        const_assert max(vec2(4294967295, 1), vec2u(0)).x == 0xffffffffu;
+        const_assert round(vec4f(-2.5, -1.5, 1.5, 2.5)).w == 2.0f;
+        const_assert fract(-1.25f) == 0.75f;
+        const_assert sign(vec2(-4, 0)).x == -1;
+        const_assert clamp(vec2f(-4, 5), vec2f(-1, 0), vec2f(2, 3)).y == 3.0f;
+        @group(0) @binding(0) var<storage, read> input: array<vec4u, 6>;
+        @group(0) @binding(1) var<storage, read_write> output: array<vec4u, 13>;
+        @compute @workgroup_size(1) fn run() {
+            let signed = bitcast<vec4i>(input[0]);
+            let unsigned = input[1];
+            let values = bitcast<vec4f>(input[2]);
+            let scales = bitcast<vec4f>(input[5]);
+            output[0] = bitcast<vec4u>(abs(signed));
+            output[1] = bitcast<vec4u>(sign(signed));
+            output[2] = min(unsigned, vec4(3));
+            output[3] = max(unsigned, vec4(3));
+            output[4] = clamp(unsigned, input[3], input[4]);
+            output[5] = bitcast<vec4u>(round(values));
+            output[6] = bitcast<vec4u>(floor(values));
+            output[7] = bitcast<vec4u>(ceil(values));
+            output[8] = bitcast<vec4u>(trunc(values));
+            output[9] = bitcast<vec4u>(fract(values));
+            output[10] = bitcast<vec4u>(saturate(values));
+            output[11] = bitcast<vec4u>(vec4f(sqrt(scales.x), inverseSqrt(scales.x), sin(scales.y), cos(scales.y)));
+            output[12] = bitcast<vec4u>(vec4f(abs(values.x), sign(values.x), min(values.x, values.w), max(values.x, values.w)));
+        }
+        """), to: .wgsl)
+    let pipeline = try await device.createComputePipeline(shader)
+    let input = try await device.createBuffer(.init(size: 96, usage: [.storage, .copyDestination]))
+    let output = try await device.createBuffer(.init(size: 208, usage: [.storage, .copySource]))
+    let read = try await device.createBuffer(.init(size: 208, usage: [.mapRead, .copyDestination]))
+    let numericInput: [UInt32] = [
+        0x80000000, 0xfffffff9, 0, 9, 0xffffffff, 1, 8, 2,
+        0xc0200000, 0xbfc00000, 0x3fc00000, 0x40200000, 0, 4, 0, 5, 4, 2, 3, 1, 0x40800000, 0, 0, 0,
+    ]
+    let spirv = try IndependentShaderCompiler().compileWebGPUCompute(.spirv(glslMathSPIRV()))
+    let spirvPipeline = try await device.createComputePipeline(spirv)
+    let ticket = try await device.submitCommands([
+        .write(buffer: input, offset: 0, words: numericInput),
+        .dispatchCompute(pipeline: pipeline, bindings: [.init(binding: 0): input, .init(binding: 1): output],
+                         workgroups: .init(x: 1)),
+        .copy(source: output, destination: read, byteCount: 208), .read(buffer: read, byteCount: 208),
+        .dispatchCompute(pipeline: spirvPipeline, bindings: [.init(binding: 0): output], workgroups: .init(x: 1)),
+        .copy(source: output, destination: read, byteCount: 32), .read(buffer: read, byteCount: 32),
+    ])
+    let expectedIntegers: [UInt32] = [
+        0x80000000, 7, 0, 9, 0xffffffff, 0xffffffff, 0, 1,
+        3, 1, 3, 2, 0xffffffff, 3, 8, 3, 4, 2, 3, 1,
+    ]
+    let expectedFloats: [Float] = [
+        -2, -2, 2, 2, -3, -2, 1, 2, -2, -1, 2, 3, -2, -1, 1, 2,
+        0.5, 0.5, 0.5, 0.5, 0, 0, 1, 1, 2, 0.5, 0, 1, 2.5, -1, -2.5, 2.5,
+    ]
+    let snapshots = try await ticket.wait()
+    guard snapshots.count == 2, let words = snapshots.first, Array(words.prefix(20)) == expectedIntegers,
+          words.dropFirst(20).map({ Float(bitPattern: $0) }) == expectedFloats,
+          let math = snapshots.last, math.count == 8,
+          abs(Float(bitPattern: math[0]) - 90) < 0.001,
+          abs(Float(bitPattern: math[1]) - 0.54930615) < 0.00001,
+          Array(math[2...]) == [5, 0xff00ff00, Float(5).bitPattern, Float(2).bitPattern, Float(-3).bitPattern, 2] else {
+        throw GPUError.backendFailure("Unexpected numeric builtin readback: \(snapshots)")
+    }
+    return Array(words.prefix(20)) + words.dropFirst(20).map { $0 == 0x80000000 ? 0 : $0 } + math
+}
+
+private func glslMathSPIRV() -> [UInt32] {
+    func op(_ code: UInt32, _ operands: UInt32...) -> [UInt32] {
+        [UInt32(operands.count + 1) << 16 | code] + operands
+    }
+    var words: [UInt32] = [0x07230203, 0x00010300, 0, 100, 0] + op(17, 1) + op(11, 80, 0x4c534c47, 0x6474732e, 0x3035342e, 0) + op(14, 0, 1)
+    for instruction in [
+        op(15, 5, 10, 0x6e69616d, 0), op(16, 10, 17, 1, 1, 1),
+        op(71, 6, 2), op(72, 6, 0, 35, 0), op(72, 6, 1, 35, 4), op(72, 6, 2, 35, 8),
+        op(72, 6, 3, 35, 12), op(72, 6, 4, 35, 16), op(72, 6, 5, 35, 20),
+        op(72, 6, 6, 35, 24), op(72, 6, 7, 35, 28), op(71, 11, 34, 0), op(71, 11, 33, 0),
+        op(19, 1), op(21, 2, 32, 0), op(22, 3, 32), op(23, 4, 3, 4), op(23, 5, 3, 3),
+        op(30, 6, 3, 3, 2, 2, 3, 3, 3, 2), op(32, 7, 12, 6), op(32, 8, 12, 3), op(32, 9, 12, 2), op(33, 12, 1),
+        op(43, 3, 20, Float(90).bitPattern), op(43, 3, 21, 0), op(43, 3, 22, Float(1).bitPattern),
+        op(43, 3, 23, Float(0.5).bitPattern), op(43, 3, 24, Float(3).bitPattern), op(43, 3, 25, Float(4).bitPattern),
+        op(43, 2, 26, UInt32(bitPattern: -5)), op(44, 4, 27, 21, 22, 21, 22), op(44, 5, 28, 24, 25, 21),
+        op(43, 2, 30, 0), op(43, 2, 31, 1), op(43, 2, 32, 2), op(43, 2, 33, 3),
+        op(43, 2, 34, 4), op(43, 2, 35, 5), op(43, 2, 36, 6), op(43, 2, 37, 7),
+        op(59, 7, 11, 12), op(54, 1, 10, 0, 12), op(248, 40),
+        op(12, 3, 41, 80, 11, 20),
+        op(12, 3, 42, 80, 12, 41), op(12, 3, 43, 80, 22, 21), op(12, 3, 44, 80, 23, 22), op(12, 3, 45, 80, 24, 23),
+        op(129, 3, 46, 43, 44), op(129, 3, 47, 46, 45), op(12, 2, 48, 80, 5, 26),
+        op(12, 2, 49, 80, 55, 27), op(12, 3, 50, 80, 66, 28), op(12, 3, 51, 80, 53, 23, 32),
+        op(12, 3, 58, 80, 71, 24, 22), op(12, 2, 59, 80, 74, 26),
+        op(65, 8, 52, 11, 30), op(62, 52, 42), op(65, 8, 53, 11, 31), op(62, 53, 47),
+        op(65, 9, 54, 11, 32), op(62, 54, 48), op(65, 9, 55, 11, 33), op(62, 55, 49),
+        op(65, 8, 56, 11, 34), op(62, 56, 50), op(65, 8, 57, 11, 35), op(62, 57, 51),
+        op(65, 8, 60, 11, 36), op(62, 60, 58), op(65, 9, 61, 11, 37), op(62, 61, 59), op(253), op(56),
+    ] {
+        words += instruction
+    }
+    return words
+}
+
+private func transcendentalDiagnostic(_ device: Device) async throws -> [UInt32] {
+
+    let shader = try IndependentShaderCompiler().compileCompute(.wgsl("""
+        const_assert exp2(4.0) == 16.0;
+        const_assert log2(0.125) == -3.0;
+        const_assert log2(4.9406564584124654e-324) == -1074.0;
+        const_assert log2(exp2(-1074.0)) == -1074.0;
+        const_assert abs(exp2(1023.5) / exp2(1023.0) - 1.4142135623730951) < 1e-14;
+        const_assert abs(log(exp(0.5)) - 0.5) < 1e-14;
+        const_assert abs(atan2(1.0, -1.0) - 2.356194490192345) < 1e-14;
+        const_assert abs(sin(1e300) + 0.8178819121159085) < 1e-14;
+        const_assert abs(cos(1e30f) + 0.6116048f) < 2e-6f;
+        const_assert abs(tan(1e100) + 0.41162296288324984) < 1e-14;
+        const_assert abs(asinh(sinh(-2.0)) + 2.0) < 1e-14;
+        const_assert abs(acosh(cosh(2.0)) - 2.0) < 1e-14;
+        const_assert abs(atanh(tanh(0.5)) - 0.5) < 1e-14;
+        const_assert abs(pow(vec2f(9, 16), vec2f(0.5)).y - 4.0f) < 1e-6f;
+        @group(0) @binding(0) var<storage, read> input: array<vec4f, 3>;
+        @group(0) @binding(1) var<storage, read_write> output: array<vec4f, 6>;
+        @compute @workgroup_size(1) fn run() {
+            let x = input[0];
+            let y = input[1];
+            let angle = atan2(x.z, x.w);
+            output[0] = vec4f(sin(x.x), cos(x.y), tan(x.x), angle);
+            output[1] = vec4f(asin(x.x), acos(x.x), atan(x.z), degrees(angle));
+            output[2] = vec4f(sinh(x.x), cosh(x.x), tanh(x.y), radians(y.w));
+            output[3] = vec4f(asinh(x).y, acosh(y).x, atanh(x.x), pow(y.z, x.x));
+            output[4] = vec4f(exp(x.x), exp2(y.x), log(y.x), log2(y.y));
+            output[5] = exp2(input[2]);
+        }
+        """), to: .wgsl)
+    let pipeline = try await device.createComputePipeline(shader)
+    let input = try await device.createBuffer(.init(size: 48, usage: [.storage, .copyDestination]))
+    let output = try await device.createBuffer(.init(size: 96, usage: [.storage, .copySource]))
+    let read = try await device.createBuffer(.init(size: 96, usage: [.mapRead, .copyDestination]))
+    let transcendentalInput: [Float] = [0.5, -0.5, 1, -1, 2, 8, 9, 180, 1, 2, 3, 4]
+    let ticket = try await device.submitCommands([
+        .write(buffer: input, offset: 0, words: transcendentalInput.map(\.bitPattern)),
+        .dispatchCompute(pipeline: pipeline, bindings: [.init(binding: 0): input, .init(binding: 1): output],
+                         workgroups: .init(x: 1)),
+        .copy(source: output, destination: read, byteCount: 96), .read(buffer: read, byteCount: 96),
+    ])
+    let expected: [Float] = [
+        0.47942555, 0.87758255, 0.5463025, 2.3561945,
+        0.5235988, 1.0471976, 0.7853982, 135,
+        0.5210953, 1.127626, -0.46211717, 3.1415927,
+        -0.48121184, 1.316958, 0.54930615, 3,
+        1.6487213, 4, 0.6931472, 3, 2, 4, 8, 16,
+    ]
+    let snapshots = try await ticket.wait()
+    guard let words = snapshots.first, words.count == expected.count,
+          zip(words, expected).allSatisfy({ abs(Float(bitPattern: $0) - $1) <= max(1, abs($1)) * 0.0004 }) else {
+        throw GPUError.backendFailure("Unexpected transcendental builtin readback: \(snapshots)")
+    }
+    return words
+}
+
+private func decompositionDiagnostic(_ device: Device) async throws -> [UInt32] {
+    let shader = try IndependentShaderCompiler().compileCompute(.wgsl("""
+        const abstractParts = frexp(-0.125);
+        const_assert abstractParts.fract == -0.5 && abstractParts.exp == -2;
+        const_assert frexp(vec3(8, -1, 3)).exp.z == 2;
+        const_assert modf(vec4f(-1, -0.25, 2.5, 3.75)).fract.w == 0.75f;
+        const_assert modf(1e300).whole == 1e300;
+        const_assert modf(-3.25f).fract == -0.25f;
+        const_assert modf(vec2f(-3.25, 2.75)).whole.y == 2.0f;
+        const_assert frexp(vec2f(8, -0.125)).exp.y == -2i;
+        const_assert ldexp(0.5, 1024) == 0x1p1023;
+        const_assert ldexp(0.5f, 128) == 0x1p127f;
+        @group(0) @binding(0) var<storage, read> input: array<vec4f, 2>;
+        @group(0) @binding(1) var<storage, read_write> output: array<vec4f, 6>;
+        @compute @workgroup_size(1) fn run() {
+            const parts = modf(vec3(-1.75, 5.25, 3.0));
+            const_assert parts.whole.x == -1.0;
+            let x = input[0];
+            let fraction = frexp(x);
+            let whole = modf(x.zw);
+            var scalar = frexp(x.y);
+            let huge = frexp(1e300);
+            scalar.exp += huge.exp - 997i;
+            let triple = modf(x.xyz);
+            output[0] = fraction.fract;
+            output[1] = vec4f(fraction.exp);
+            output[2] = vec4f(whole.fract, whole.whole);
+            output[3] = vec4f(scalar.fract, f32(scalar.exp), triple.fract.z, parts.fract.y);
+            let boundary = input[1];
+            let split = frexp(boundary);
+            output[4] = ldexp(split.fract, split.exp);
+            output[5] = vec4f(ldexp(boundary.y, -4), ldexp(boundary.z, 3i), ldexp(0.5, split.exp.x), ldexp(0.5f, 128));
+        }
+        """), to: .wgsl)
+    let pipeline = try await device.createComputePipeline(shader)
+    let input = try await device.createBuffer(.init(size: 32, usage: [.storage, .copyDestination]))
+    let output = try await device.createBuffer(.init(size: 96, usage: [.storage, .copySource]))
+    let read = try await device.createBuffer(.init(size: 96, usage: [.mapRead, .copyDestination]))
+    let values: [Float] = [8, -0.125, -3.25, 2.75, .greatestFiniteMagnitude, -3.25, 0.125, .leastNormalMagnitude]
+    let spirv = try IndependentShaderCompiler().compileWebGPUCompute(.spirv(glslDecompositionSPIRV()))
+    let spirvPipeline = try await device.createComputePipeline(spirv)
+    let ticket = try await device.submitCommands([
+        .write(buffer: input, offset: 0, words: values.map(\.bitPattern)),
+        .dispatchCompute(pipeline: pipeline, bindings: [.init(binding: 0): input, .init(binding: 1): output],
+                         workgroups: .init(x: 1)),
+        .copy(source: output, destination: read, byteCount: 96), .read(buffer: read, byteCount: 96),
+        .dispatchCompute(pipeline: spirvPipeline, bindings: [.init(binding: 0): output], workgroups: .init(x: 1)),
+        .copy(source: output, destination: read, byteCount: 48), .read(buffer: read, byteCount: 48),
+    ])
+    let snapshots = try await ticket.wait()
+    let expected: [Float] = [-0.25, 0.125, 0.5, -3, 0, 8, -0.8125, 0.5, 0.53125]
+    guard snapshots.count == 2, let words = snapshots.first, words.count == 24,
+          let parts = snapshots.last, parts == expected.map(\.bitPattern) + [2, UInt32(bitPattern: -2), 4] else {
+        throw GPUError.backendFailure("Unexpected decomposition readback: \(snapshots)")
+    }
+    return words + parts
+}
+
+private func glslDecompositionSPIRV() -> [UInt32] {
+    func op(_ code: UInt32, _ operands: UInt32...) -> [UInt32] {
+        [UInt32(operands.count + 1) << 16 | code] + operands
+    }
+    var words: [UInt32] = [0x07230203, 0x00010300, 0, 100, 0] + op(17, 1) + op(11, 80, 0x4c534c47, 0x6474732e, 0x3035342e, 0) + op(14, 0, 1)
+    words += op(15, 5, 10, 0x6e69616d, 0) + op(16, 10, 17, 1, 1, 1)
+    words += op(6, 5, 1, 0x74726170, 0) + op(71, 11, 34, 0) + op(71, 11, 33, 0) + op(71, 7, 2)
+    for index: UInt32 in 0..<12 { words += op(72, 7, index, 35, index * 4) }
+    for instruction in [
+        op(19, 1), op(21, 2, 32, 0), op(22, 3, 32), op(23, 4, 3, 3), op(23, 13, 2, 3),
+        op(30, 5, 4, 4), op(30, 6, 4, 13),
+        op(30, 7, 3, 3, 3, 3, 3, 3, 3, 3, 3, 2, 2, 2),
+        op(32, 8, 12, 7), op(32, 9, 12, 3), op(32, 12, 12, 2), op(33, 14, 1),
+        op(43, 3, 20, Float(-3.25).bitPattern), op(43, 3, 21, Float(0.125).bitPattern), op(43, 3, 22, Float(8.5).bitPattern),
+        op(44, 4, 23, 20, 21, 22),
+    ] {
+        words += instruction
+    }
+    for index: UInt32 in 0..<12 { words += op(43, 2, 24 + index, index) }
+    words += op(59, 8, 11, 12) + op(54, 1, 10, 0, 14) + op(248, 40)
+    words += op(12, 5, 41, 80, 36, 23) + op(12, 6, 42, 80, 52, 23) + op(12, 5, 43, 80, 36, 23)
+    for index: UInt32 in 0..<12 {
+        let type: UInt32 = index < 9 ? 3 : 2
+        let result: UInt32 = index < 6 ? 41 : 42
+        words += op(81, type, 44 + index, result, (index / 3) % 2, index % 3)
+        words += op(65, index < 9 ? 9 : 12, 56 + index, 11, 24 + index)
+        words += op(62, 56 + index, 44 + index)
+    }
+    return words + op(253) + op(56)
+}
+
+private func halfPrecisionDiagnostic(_ device: Device) async throws -> [UInt32] {
+    guard device.capabilities.features.contains(.shaderF16) else { return [] }
+    let shader = try IndependentShaderCompiler().compileCompute(.wgsl("""
+        enable f16;
+        alias HalfPair = vec2h;
+        const half: f16 = 1.00048828125;
+        const_assert half == 1.0h;
+        const_assert f16(0x1.002p0) == 0x1p0h;
+        const_assert f16(2i) == 2h;
+        const_assert f32(f16(1.0009765625)) == 1.0009765625f;
+        const_assert modf(vec2h(-3.25, 2.75)).whole.x == -3h;
+        const_assert frexp(vec3h(4, -0.125, 65504)).exp.z == 16i;
+        const_assert ldexp(0.5h, 16) == 32768h;
+        const_assert ldexp(0.5h, -23i) == 0x1p-24h;
+        const_assert ldexp(0.5h, 1i) + 0x1p-11h == 1h;
+        @group(0) @binding(0) var<storage, read> input: array<vec4f, 1>;
+        @group(0) @binding(1) var<storage, read_write> output: array<vec4f, 3>;
+        fn splitPair(x: HalfPair) -> vec4f {
+            var parts = modf(x);
+            parts.whole = -parts.whole;
+            return vec4f(vec2f(parts.fract), vec2f(parts.whole));
+        }
+        @compute @workgroup_size(1) fn run() {
+            let x = vec4h(input[0]);
+            let parts = frexp(x);
+            let triple = frexp(x.xyz);
+            let scalar = frexp(x.y);
+            output[0] = vec4f(ldexp(parts.fract, parts.exp));
+            output[1] = splitPair(x.yz);
+            output[2] = vec4f(f32(triple.fract.x), f32(triple.exp.z), f32(scalar.fract), f32(scalar.exp));
+        }
+        """), to: .wgsl)
+    let pipeline = try await device.createComputePipeline(shader)
+    let input = try await device.createBuffer(.init(size: 16, usage: [.storage, .copyDestination]))
+    let output = try await device.createBuffer(.init(size: 48, usage: [.storage, .copySource]))
+    let read = try await device.createBuffer(.init(size: 48, usage: [.mapRead, .copyDestination]))
+    let values: [Float] = [65504, -3.25, 2.75, 0x1p-14]
+    let ticket = try await device.submitCommands([
+        .write(buffer: input, offset: 0, words: values.map(\.bitPattern)),
+        .dispatchCompute(pipeline: pipeline, bindings: [.init(binding: 0): input, .init(binding: 1): output],
+                         workgroups: .init(x: 1)),
+        .copy(source: output, destination: read, byteCount: 48), .read(buffer: read, byteCount: 48),
+    ])
+    let snapshots = try await ticket.wait()
+    guard let words = snapshots.first, words.count == 12 else {
+        throw GPUError.backendFailure("Unexpected half-precision readback: \(snapshots)")
+    }
+    return words
+}
+
+private func halfBufferDiagnostic(_ device: Device) async throws -> [UInt32] {
+    guard device.capabilities.features.contains(.shaderF16) else { return [] }
+    let shader = try IndependentShaderCompiler().compileCompute(.wgsl("""
+        enable f16;
+        struct Input {
+            low: f16,
+            high: f16,
+            @align(8) values: array<vec3h>,
+        }
+        struct Output {
+            @align(4) @size(4) mark: f16,
+            values: array<f16>,
+        }
+        struct Settings {
+            low: f16,
+            bias: f16,
+            tag: u32,
+            lanes: vec3h,
+            tail: f16,
+        }
+        @group(0) @binding(0) var<storage, read> input: Input;
+        @group(0) @binding(1) var<storage, read_write> output: Output;
+        @group(0) @binding(2) var<storage, read_write> vectors: array<vec3h>;
+        @group(0) @binding(3) var<uniform> settings: Settings;
+        fn sample(i: u32) -> vec3h { return input.values[i]; }
+        @compute @workgroup_size(1)
+        fn run(@builtin(global_invocation_id) id: vec3u) {
+            let v = sample(id.x);
+            vectors[id.x] = v;
+            output.values[id.x] = v.x + settings.bias;
+            if id.x == 0u {
+                output.mark = f16(arrayLength(&input.values) + arrayLength(&output.values));
+                vectors[0u].z = settings.tail;
+            }
+        }
+        """), to: .wgsl)
+    let pipeline = try await device.createComputePipeline(shader)
+    let input = try await device.createBuffer(.init(size: 32, usage: [.storage, .copyDestination]))
+    let output = try await device.createBuffer(.init(size: 16, usage: [.storage, .copyDestination, .copySource]))
+    let vectors = try await device.createBuffer(.init(size: 24, usage: [.storage, .copyDestination, .copySource]))
+    let settings = try await device.createBuffer(.init(size: 16, usage: [.uniform, .copyDestination]))
+    let readScalars = try await device.createBuffer(.init(size: 16, usage: [.mapRead, .copyDestination]))
+    let readVectors = try await device.createBuffer(.init(size: 24, usage: [.mapRead, .copyDestination]))
+    func pair(_ low: Double, _ high: Double) -> UInt32 {
+        UInt32(Binary16.encode(low)) | (UInt32(Binary16.encode(high)) << 16)
+    }
+    let ticket = try await device.submitCommands([
+        .write(buffer: input, offset: 0, words: [
+            pair(50, 60), 0, pair(1, 2), pair(3, -9), pair(4, 5), pair(6, -9), pair(7, 8), pair(9, -9),
+        ]),
+        .write(buffer: output, offset: 0, words: [pair(99, -7), 0, 0, 0]),
+        .write(buffer: vectors, offset: 0, words: Array(repeating: [0, pair(0, -7)], count: 3).flatMap { $0 }),
+        .write(buffer: settings, offset: 0, words: [pair(-5, 0.5), 0, pair(11, 12), pair(13, 2.5)]),
+        .dispatchCompute(pipeline: pipeline, bindings: [
+            .init(binding: 0): input, .init(binding: 1): output, .init(binding: 2): vectors, .init(binding: 3): settings,
+        ], workgroups: .init(x: 8)),
+        .copy(source: output, destination: readScalars, byteCount: 16), .read(buffer: readScalars, byteCount: 16),
+        .copy(source: vectors, destination: readVectors, byteCount: 24), .read(buffer: readVectors, byteCount: 24),
+    ])
+    let snapshots = try await ticket.wait()
+    guard snapshots.map(\.count) == [4, 6] else {
+        throw GPUError.backendFailure("Unexpected half-precision buffer readback: \(snapshots)")
+    }
+    return snapshots.flatMap { $0 }
+}
+
+private func halfMatrixDiagnostic(_ device: Device) async throws -> [UInt32] {
+    guard device.capabilities.features.contains(.shaderF16) else { return [] }
+    let shader = try IndependentShaderCompiler().compileCompute(.wgsl("""
+        enable f16;
+        const rounded = mat2x2h(mat2x2f(1.00048828125, 2, 3, 4));
+        const_assert rounded[0][0] == 1h;
+        const_assert determinant(mat2x2<f16>(1, 2, 3, 4)) == -2h;
+        const_assert transpose(mat2x3(1h, 2, 3, 4, 5, 6))[2].y == 6h;
+        const_assert (mat2x2h(1, 2, 3, 4) * vec2(2, 3)).y == 16h;
+        struct Data { basis: mat2x3h, transforms: array<mat2x3h> }
+        @group(0) @binding(0) var<storage, read_write> data: Data;
+        @group(0) @binding(1) var<uniform> scale: mat2x2<f16>;
+        @group(0) @binding(2) var<storage, read_write> output: array<vec4f, 4>;
+        fn flip(value: mat2x3h) -> mat3x2h { return transpose(value); }
+        @compute @workgroup_size(1)
+        fn run(@builtin(global_invocation_id) id: vec3u) {
+            let saved = data.basis;
+            let turned = flip(saved);
+            let gram = turned * saved;
+            let widened = mat2x3f(saved);
+            let adjusted = 2 * (mat2x3h(widened) + saved - saved);
+            data.basis = saved * scale;
+            let i = id.x + 1u;
+            data.transforms[i] = data.transforms[0u] * scale;
+            data.transforms[i][id.x] = vec3h(21, 22, 23);
+            data.transforms[i][1u][1u] = 55h;
+            data.transforms[id.x + 2u] = saved;
+            let missing = data.transforms[id.x + 2u];
+            output[0] = vec4f(vec3f(saved * vec2h(2, 3)), f32(determinant(scale)));
+            output[1] = vec4f(vec2f(vec3h(1, 2, 3) * saved), vec2f(turned[2]));
+            output[2] = vec4f(f32(missing[0].x), f32(arrayLength(&data.transforms)), f32(data.transforms[i][1].y), f32(adjusted[1].z));
+            output[3] = vec4f(vec2f(gram[0]), vec2f(gram[1]));
+        }
+        """), to: .wgsl)
+    let pipeline = try await device.createComputePipeline(shader)
+    let data = try await device.createBuffer(.init(size: 52, usage: [.storage, .copyDestination, .copySource]))
+    let scale = try await device.createBuffer(.init(size: 8, usage: [.uniform, .copyDestination]))
+    let output = try await device.createBuffer(.init(size: 64, usage: [.storage, .copySource]))
+    let read = try await device.createBuffer(.init(size: 64, usage: [.copyDestination, .mapRead]))
+    func pair(_ x: Double, _ y: Double) -> UInt32 {
+        UInt32(Binary16.encode(x)) | (UInt32(Binary16.encode(y)) << 16)
+    }
+    let initial: [UInt32] = [
+        pair(1, 2), pair(3, -1), pair(4, 5), pair(6, -2),
+        pair(7, 8), pair(9, -3), pair(10, 11), pair(12, -4),
+        pair(13, 14), pair(15, -5), pair(16, 17), pair(18, -6), 999,
+    ]
+    let ticket = try await device.submitCommands([
+        .write(buffer: data, offset: 0, words: initial),
+        .write(buffer: scale, offset: 0, words: [pair(2, 0), pair(0, 3)]),
+        .dispatchCompute(pipeline: pipeline, bindings: [.init(binding: 0): data, .init(binding: 1): scale,
+                         .init(binding: 2): output], workgroups: .init(x: 1)),
+        .copy(source: output, destination: read, byteCount: 64), .read(buffer: read, byteCount: 64),
+        .copy(source: data, destination: read, byteCount: 52), .read(buffer: read, byteCount: 52),
+    ])
+    let snapshots = try await ticket.wait()
+    guard snapshots.map(\.count) == [16, 13] else {
+        throw GPUError.backendFailure("Unexpected half-precision matrix readback: \(snapshots)")
+    }
+    return snapshots.flatMap { $0 }
+}
+
+private func halfGeometryDiagnostic(_ device: Device) async throws -> [UInt32] {
+    guard device.capabilities.features.contains(.shaderF16) else { return [] }
+    let shader = try IndependentShaderCompiler().compileCompute(.wgsl("""
+        enable f16;
+        const_assert dot(vec2h(1, 0x1p-11h), vec2(1.0, 1.0)) == 1h;
+        const_assert length(vec2h(60000, 0)) == 60000h;
+        const_assert normalize(vec2h(0x1p-14h, 0)).x == 1h;
+        const_assert distance(3h, -2) == 5h;
+        const_assert cross(vec3h(1, 0, 0), vec3(0.0, 1.0, 0.0)).z == 1h;
+        const_assert reflect(vec2h(0, -1), vec2h(0, 1)).y == 1h;
+        const_assert refract(vec2h(1, 0), vec2h(0, 1), 2.0).x == 0h;
+        const_assert faceForward(vec2h(0, 1), vec2h(0, -1), vec2h(0, 1)).y == 1h;
+        @group(0) @binding(0) var<storage, read> input: array<vec4h, 4>;
+        @group(0) @binding(1) var<storage, read_write> output: array<vec4f, 7>;
+        @compute @workgroup_size(1) fn run() {
+            let a = input[0];
+            let b = input[1];
+            let axis = input[2].xyz;
+            let settings = input[3];
+            let incidence = vec3h(0, -axis.y, 0);
+            let tangent = vec3h(1, 0, 0);
+            output[0] = vec4f(f32(dot(a.xy, a.xy)), f32(length(a.xy)), f32(distance(a.xy, b.xy)), f32(distance(a.x, -2.0)));
+            output[1] = vec4f(vec3f(cross(a.xyz, b.xyz)), f32(length(-a.y)));
+            output[2] = vec4f(vec3f(normalize(vec3h(0, a.y, 0))), f32(dot(a.xyz, b.xyz)));
+            output[3] = vec4f(vec3f(faceForward(axis, incidence, axis)), f32(faceForward(axis, axis, axis).y));
+            output[4] = vec4f(vec3f(reflect(incidence, axis)), f32(refract(incidence, axis, settings.z).y));
+            output[5] = vec4f(vec3f(refract(tangent, axis, settings.y)), f32(dot(a, b)));
+            let wide = vec3h(settings.x, 0, 0);
+            let tiny = vec3h(0, settings.w, 0);
+            output[6] = vec4f(f32(length(wide)), f32(normalize(wide).x),
+                              f32(normalize(tiny).y), f32(distance(wide, vec3h(0))));
+        }
+        """), to: .wgsl)
+    let pipeline = try await device.createComputePipeline(shader)
+    let input = try await device.createBuffer(.init(size: 32, usage: [.storage, .copyDestination]))
+    let output = try await device.createBuffer(.init(size: 112, usage: [.storage, .copySource]))
+    let read = try await device.createBuffer(.init(size: 112, usage: [.mapRead, .copyDestination]))
+    let data: [Double] = [3, 4, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 60000, 2, 0.5, 0x1p-14]
+    let words = stride(from: 0, to: data.count, by: 2).map { i in
+        UInt32(Binary16.encode(data[i])) | (UInt32(Binary16.encode(data[i + 1])) << 16)
+    }
+    let ticket = try await device.submitCommands([
+        .write(buffer: input, offset: 0, words: words),
+        .dispatchCompute(pipeline: pipeline, bindings: [.init(binding: 0): input, .init(binding: 1): output],
+                         workgroups: .init(x: 1)),
+        .copy(source: output, destination: read, byteCount: 112), .read(buffer: read, byteCount: 112),
+    ])
+    let snapshots = try await ticket.wait()
+    guard let snapshot = snapshots.first, snapshot.count == 28 else {
+        throw GPUError.backendFailure("Unexpected half-precision geometry readback: \(snapshots)")
+    }
+    return snapshot
+}
+
+private func halfBitcastDiagnostic(_ device: Device) async throws -> [UInt32] {
+    guard device.capabilities.features.contains(.shaderF16) else { return [] }
+    let shader = try IndependentShaderCompiler().compileCompute(.wgsl("""
+        enable f16;
+        alias HalfPair = vec2h;
+        const PAIR = bitcast<HalfPair>(0xc0003c00u);
+        const_assert PAIR.x == 1h && PAIR.y == -2h;
+        const_assert bitcast<u32>(vec2h(-0.0h, 0x1p-24h)) == 0x00018000u;
+        const_assert bitcast<vec2u>(bitcast<vec4h>(vec2u(0xc0003c00u, 0x04008000u))).y == 0x04008000u;
+        const_assert bitcast<u32>(bitcast<vec2h>(1.0)) == 0x3f800000u;
+        const_assert bitcast<u32>(vec2(1, 2)) == 0x40003c00u;
+        const_assert bitcast<f16>(0.5) == 0.5h;
+        @group(0) @binding(0) var<storage, read> input: array<vec4u, 1>;
+        @group(0) @binding(1) var<storage, read_write> output: array<vec4u, 5>;
+        struct UniformBits { basis: mat2x2h, halfWords: vec4h }
+        @group(0) @binding(2) var<uniform> settings: UniformBits;
+        @compute @workgroup_size(1) fn run() {
+            let words = input[0];
+            let halves = bitcast<vec4h>(words.xy);
+            let fromSigned = bitcast<vec4h>(bitcast<vec2i>(words.zw));
+            let fromFloats = bitcast<vec4h>(bitcast<vec2f>(words.zw));
+            output[0] = vec4u(bitcast<vec2u>(halves), bitcast<vec2u>(fromSigned));
+            output[1] = vec4u(bitcast<u32>(bitcast<vec2h>(words.x)), bitcast<u32>(bitcast<i32>(halves.xy)),
+                              bitcast<u32>(bitcast<f32>(fromFloats.xy)), bitcast<u32>(bitcast<vec2h>(bitcast<f32>(words.w))));
+            output[2] = vec4u(bitcast<vec2u>(bitcast<vec2f>(fromFloats)), bitcast<vec2u>(bitcast<vec2i>(halves)));
+            let same = bitcast<vec3h>(halves.xyz);
+            output[3] = vec4u(bitcast<u32>(vec2h(same.x, bitcast<f16>(same.y))), bitcast<u32>(halves.zw),
+                              bitcast<u32>(PAIR), bitcast<u32>(vec2h(PAIR.y, PAIR.x)));
+            output[4] = vec4u(bitcast<vec2u>(settings.halfWords), bitcast<u32>(settings.basis[0]), bitcast<u32>(settings.basis[1]));
+        }
+        """), to: .wgsl)
+    let pipeline = try await device.createComputePipeline(shader)
+    let boundaryShader = try IndependentShaderCompiler(nagaFloatRounding: true).compileWebGPUCompute(.wgsl("""
+        enable f16;
+        const positive: f32 = 3.40282347e38;
+        const halfMaximum: f16 = 65519.0;
+        @group(0) @binding(0) var<storage, read_write> output: array<u32, 4>;
+
+        @compute @workgroup_size(1)
+        fn run() {
+            let negative: f32 = -3.40282347e38;
+            let halfMinimum: f16 = -65519;
+            output[0] = bitcast<u32>(positive);
+            output[1] = bitcast<u32>(negative);
+            output[2] = bitcast<u32>(vec2h(halfMaximum, halfMinimum));
+            let consistent = (1.5 + 2) == (2 + 1.5);
+            output[3] = select(0u, bitcast<u32>(f32(3.40282347e38)), consistent);
+        }
+        """))
+    let boundaryPipeline = try await device.createComputePipeline(boundaryShader)
+    let input = try await device.createBuffer(.init(size: 16, usage: [.storage, .copyDestination]))
+    let output = try await device.createBuffer(.init(size: 80, usage: [.storage, .copySource]))
+    let settings = try await device.createBuffer(.init(size: 16, usage: [.uniform, .copyDestination]))
+    let read = try await device.createBuffer(.init(size: 80, usage: [.mapRead, .copyDestination]))
+    let words: [UInt32] = [0xc0003c00, 0x04008000, 0xbc004400, 0x3c003800]
+    let ticket = try await device.submitCommands([
+        .write(buffer: input, offset: 0, words: words),
+        .write(buffer: settings, offset: 0, words: [0x00018000, 0x04003c00, 0x80000001, 0x4400c000]),
+        .dispatchCompute(pipeline: pipeline, bindings: [.init(binding: 0): input, .init(binding: 1): output,
+                         .init(binding: 2): settings],
+                         workgroups: .init(x: 1)),
+        .copy(source: output, destination: read, byteCount: 80), .read(buffer: read, byteCount: 80),
+        .dispatchCompute(pipeline: boundaryPipeline, bindings: [.init(binding: 0): output], workgroups: .init(x: 1)),
+        .copy(source: output, destination: read, byteCount: 16), .read(buffer: read, byteCount: 16),
+    ])
+    let snapshots = try await ticket.wait()
+    guard snapshots.map(\.count) == [20, 4] else {
+        throw GPUError.backendFailure("Unexpected half bitcast readback: \(snapshots)")
+    }
+    return snapshots.flatMap { $0 }
+}
+
+private func halfNumericDiagnostic(_ device: Device) async throws -> [UInt32] {
+    guard device.capabilities.features.contains(.shaderF16) else { return [] }
+    let shader = try IndependentShaderCompiler().compileCompute(.wgsl("""
+        enable f16;
+        const_assert fma(0x1.004p0h, 0x1.ff8p-1h, -1h) == -0x1p-20h;
+        const_assert fma(60000h, 2h, -60000h) == 60000h;
+        const_assert mix(vec2h(1, 2), vec2h(5, 6), 0.25).y == 3h;
+        const_assert mix(vec2f(1, 2), vec2f(5, 6), 0.25).x == 2.0f;
+        const_assert smoothstep(1h, 0h, 0.25h) == 0.84375h;
+        const_assert step(vec2h(0), vec2h(-1, 0)).y == 1h;
+        const_assert exp2(4h) == 16h;
+        @group(0) @binding(0) var<storage, read> input: array<vec4h, 4>;
+        @group(0) @binding(1) var<storage, read_write> output: array<vec4f, 16>;
+        @compute @workgroup_size(1) fn run() {
+            let a = input[0];
+            let b = input[1];
+            let c = input[2];
+            let d = input[3];
+            output[0] = vec4f(round(a));
+            output[1] = vec4f(clamp(a, vec4(-1.0), vec4(1.0)));
+            output[2] = vec4f(saturate(a));
+            output[3] = vec4f(fract(a));
+            output[4] = vec4f(fma(b, vec4h(2), vec4h(-1)));
+            output[5] = vec4f(mix(vec4h(0), b, c.x));
+            output[6] = vec4f(mix(vec4h(0), b, vec4h(c.x, 0.5h, 0.75h, 1h)));
+            output[7] = vec4f(f32(step(c.z, c.x)), f32(step(c.x, c.z)),
+                              f32(smoothstep(c.y, b.w, c.z)), f32(smoothstep(c.z, c.w, c.x)));
+            let blend = smoothstep(vec2h(c.y, c.z), vec2h(b.w, c.w), vec2h(c.z, c.x));
+            output[8] = vec4f(vec2f(blend), f32(max(a.z, b.x)), f32(min(a.w, b.x)));
+            output[9] = vec4f(f32(sqrt(b.w)), f32(inverseSqrt(c.y)), f32(log2(b.z)), f32(exp2(b.y)));
+            output[10] = vec4f(f32(sin(b.x)), f32(cos(b.x)), f32(atan2(c.z, c.w)), f32(asinh(b.y)));
+            output[11] = vec4f(f32(acosh(b.y)), f32(atanh(b.x)), f32(degrees(atan2(c.z, c.z))), f32(radians(d.x)));
+            output[12] = vec4f(f32(exp(b.x)), f32(log(b.y)), f32(pow(b.w, b.x)), f32(sign(c.w)));
+            output[13] = vec4f(f32(tan(b.x)), f32(asin(b.x)), f32(acos(b.x)), f32(atan(c.z)));
+            output[14] = vec4f(f32(sinh(b.x)), f32(cosh(b.x)), f32(tanh(b.x)), f32(abs(a.x)));
+            output[15] = vec4f(f32(ceil(a.x)), f32(floor(a.x)), f32(trunc(a.y)), f32(min(a.w, b.x)));
+        }
+        """), to: .wgsl)
+    let pipeline = try await device.createComputePipeline(shader)
+    let input = try await device.createBuffer(.init(size: 32, usage: [.storage, .copyDestination]))
+    let output = try await device.createBuffer(.init(size: 256, usage: [.storage, .copySource]))
+    let read = try await device.createBuffer(.init(size: 256, usage: [.mapRead, .copyDestination]))
+    let samples: [Double] = [-2.5, -1.5, 1.5, 2.5, 0.5, 2, 8, 9, 0.25, 4, 1, -1, 180, 0, 1, 2]
+    let words = stride(from: 0, to: samples.count, by: 2).map { i in
+        UInt32(Binary16.encode(samples[i])) | (UInt32(Binary16.encode(samples[i + 1])) << 16)
+    }
+    let ticket = try await device.submitCommands([
+        .write(buffer: input, offset: 0, words: words),
+        .dispatchCompute(pipeline: pipeline, bindings: [.init(binding: 0): input, .init(binding: 1): output],
+                         workgroups: .init(x: 1)),
+        .copy(source: output, destination: read, byteCount: 256), .read(buffer: read, byteCount: 256),
+    ])
+    let snapshots = try await ticket.wait()
+    guard let snapshot = snapshots.first, snapshot.count == 64 else {
+        throw GPUError.backendFailure("Unexpected half-precision numeric readback: \(snapshots)")
+    }
+    return snapshot
+}
+
+private func quantizeDiagnostic(_ device: Device) async throws -> [UInt32] {
+    let shader = try IndependentShaderCompiler().compileCompute(.wgsl("""
+        const_assert quantizeToF16(65504) == 65504.0f;
+        const_assert quantizeToF16(0x1.002p0f) == 1.0f;
+        const_assert quantizeToF16(0x1.006p0f) == 0x1.008p0f;
+        const_assert quantizeToF16(0x1p-24f) == 0x1p-24f;
+        const_assert bitcast<u32>(quantizeToF16(-0x1p-26f)) == 0x80000000u;
+        const_assert bitcast<u32>(quantizeToF16(-0.0)) == 0x80000000u;
+        const_assert quantizeToF16(vec2(0.5, -1.0)).y == -1.0f;
+        const_assert quantizeToF16(vec4f(0.125, 0.25, 0.5, 1)).z == 0.5f;
+        @group(0) @binding(0) var<storage, read> input: array<vec4f, 3>;
+        @group(0) @binding(1) var<storage, read_write> output: array<vec4u, 3>;
+        @compute @workgroup_size(1) fn run() {
+            let b = input[1];
+            let c = input[2];
+            output[0] = bitcast<vec4u>(quantizeToF16(input[0]));
+            output[1] = bitcast<vec4u>(vec4f(quantizeToF16(b.xy), quantizeToF16(b.z), quantizeToF16(b.w)));
+            output[2] = bitcast<vec4u>(vec4f(quantizeToF16(c.xyz), quantizeToF16(c.w)));
+        }
+        """), to: .wgsl)
+    guard !shader.requiresShaderF16 else { throw GPUError.backendFailure("Quantize must use core f32 types") }
+    let pipeline = try await device.createComputePipeline(shader)
+    let input = try await device.createBuffer(.init(size: 48, usage: [.storage, .copyDestination]))
+    let output = try await device.createBuffer(.init(size: 48, usage: [.storage, .copySource]))
+    let read = try await device.createBuffer(.init(size: 48, usage: [.mapRead, .copyDestination]))
+    let words: [UInt32] = [
+        0x3f800800, 0x3f803800, 0x80000000, 0x477fe000,
+        0x38800000, 0xb2800000, 0x33800000, 0xbf802000,
+        0x402001a3, 0x3eaaaaab, 0xba83126f, 0xc77fe000,
+    ]
+    let ticket = try await device.submitCommands([
+        .write(buffer: input, offset: 0, words: words),
+        .dispatchCompute(pipeline: pipeline, bindings: [.init(binding: 0): input, .init(binding: 1): output],
+                         workgroups: .init(x: 1)),
+        .copy(source: output, destination: read, byteCount: 48), .read(buffer: read, byteCount: 48),
+    ])
+    let snapshots = try await ticket.wait()
+    guard let snapshot = snapshots.first, snapshot.count == 12 else {
+        throw GPUError.backendFailure("Unexpected quantizeToF16 readback: \(snapshots)")
+    }
+    return snapshot
+}
+
+private func floatingVectorDiagnostic(_ device: Device) async throws -> [UInt32] {
+    guard device.capabilities.features.contains(.shaderF16) else { return [] }
+    let shader = try IndependentShaderCompiler().compileCompute(.wgsl("""
+        enable f16;
+        const_assert (vec2(1.5, 2.5) + 0.5).x == 2.0;
+        const_assert (vec2h(-5.5, 7.5) % 2h).x == -1.5h;
+        @group(0) @binding(0) var<storage, read> input: array<vec4f, 2>;
+        @group(0) @binding(1) var<storage, read_write> output: array<vec4f, 8>;
+        @compute @workgroup_size(1) fn run() {
+            let a = input[0];
+            let b = input[1];
+            var adjusted = -a;
+            adjusted += 2.0;
+            adjusted *= 0.5;
+            output[0] = quantizeToF16(adjusted);
+            output[1] = a / b;
+            output[2] = a % b;
+            let mask = a < b;
+            output[3] = vec4f(a.x / b.x, a.y % b.y, select(0f, 1f, mask.x), select(0f, 1f, mask.y));
+            let ah = vec4h(a);
+            let bh = vec4h(b);
+            output[4] = vec4f((ah + 2.0) * bh);
+            output[5] = vec4f((ah % 2h) / (1h + bh));
+            output[6] = vec4f(select(vec4h(0), vec4h(1), ah < bh));
+            output[7] = 2.0 - a;
+        }
+        """), to: .wgsl)
+    let pipeline = try await device.createComputePipeline(shader)
+    let input = try await device.createBuffer(.init(size: 32, usage: [.storage, .copyDestination]))
+    let output = try await device.createBuffer(.init(size: 128, usage: [.storage, .copySource]))
+    let read = try await device.createBuffer(.init(size: 128, usage: [.mapRead, .copyDestination]))
+    let values: [Float] = [-5.5, 7.5, -4, 8, 2, 2, 2, 4]
+    let ticket = try await device.submitCommands([
+        .write(buffer: input, offset: 0, words: values.map(\.bitPattern)),
+        .dispatchCompute(pipeline: pipeline, bindings: [.init(binding: 0): input, .init(binding: 1): output],
+                         workgroups: .init(x: 1)),
+        .copy(source: output, destination: read, byteCount: 128), .read(buffer: read, byteCount: 128),
+    ])
+    let snapshots = try await ticket.wait()
+    guard let snapshot = snapshots.first, snapshot.count == 32 else {
+        throw GPUError.backendFailure("Unexpected floating vector arithmetic readback: \(snapshots)")
+    }
+    return snapshot
+}
+
+private func overrideDiagnostic(_ device: Device) async throws -> [UInt32] {
+    let source = ShaderInput.wgsl("""
+        @id(7) override width = 2u;
+        override offset = base;
+        override base = 3u;
+        override addLane: bool = true;
+        override unused: u32;
+        @group(0) @binding(0) var<storage, read_write> output: array<u32, 4>;
+        fn ignored() -> u32 { return unused; }
+        fn bias() -> u32 { return offset; }
+        @compute @workgroup_size(width)
+        fn run(@builtin(local_invocation_index) i: u32) {
+            let initial = bias();
+            output[i] = select(initial, initial + i, addLane);
+        }
+        """)
+    let compiler = IndependentShaderCompiler()
+    let defaultShader = try compiler.compileCompute(source, to: .wgsl)
+    let specializedShader = try compiler.compileCompute(source, to: .wgsl, constants: ["7": 4, "base": 8, "addLane": 0])
+    guard defaultShader.workgroupSize.x == 2, specializedShader.workgroupSize.x == 4 else {
+        throw GPUError.backendFailure("Unexpected specialized workgroup sizes")
+    }
+    let first = try await device.createComputePipeline(defaultShader)
+    let second = try await device.createComputePipeline(specializedShader)
+    let a = try await device.createBuffer(.init(size: 16, usage: [.storage, .copySource]))
+    let b = try await device.createBuffer(.init(size: 16, usage: [.storage, .copySource]))
+    let read = try await device.createBuffer(.init(size: 16, usage: [.copyDestination, .mapRead]))
+    let ticket = try await device.submitCommands([
+        .dispatchCompute(pipeline: first, bindings: [.init(binding: 0): a], workgroups: .init(x: 1)),
+        .dispatchCompute(pipeline: second, bindings: [.init(binding: 0): b], workgroups: .init(x: 1)),
+        .copy(source: a, destination: read, byteCount: 16), .read(buffer: read, byteCount: 16),
+        .copy(source: b, destination: read, byteCount: 16), .read(buffer: read, byteCount: 16),
+    ])
+    let values = try await ticket.wait()
+    guard values.map(\.count) == [4, 4] else {
+        throw GPUError.backendFailure("Unexpected override readback: \(values)")
+    }
+    return values.flatMap { $0 }
+}
+
+private func computedOverrideDiagnostic(_ device: Device) async throws -> [UInt32] {
+    let source = ShaderInput.wgsl("""
+        @id(21) override lanes: u32 = 2u;
+        override divisor = 2u;
+        const numerator = 8u;
+        override bias = numerator / divisor + lanes;
+        override enableOffsets = lanes > 1u && (10u / divisor > 2u);
+        @group(0) @binding(0) var<storage, read_write> output: array<u32, 4>;
+        @compute @workgroup_size(min(lanes + 1u, 4u), 1u, 1u)
+        fn run(@builtin(local_invocation_index) i: u32) {
+            output[i] = select(bias, bias + i, enableOffsets);
+        }
+        """)
+    let compiler = IndependentShaderCompiler()
+    let defaultShader = try compiler.compileCompute(source, to: .wgsl)
+    let specializedShader = try compiler.compileCompute(source, to: .wgsl, constants: ["21": 1, "divisor": 4])
+    guard defaultShader.workgroupSize.x == 3, specializedShader.workgroupSize.x == 2 else {
+        throw GPUError.backendFailure("Unexpected specialized workgroup sizes")
+    }
+    let first = try await device.createComputePipeline(defaultShader)
+    let second = try await device.createComputePipeline(specializedShader)
+    let multiple = ShaderInput.wgsl("""
+        override width = 2u;
+        override start: u32;
+        @group(0) @binding(0) var<storage, read_write> products: array<u32, 4>;
+        @group(0) @binding(0) var<storage, read_write> sequence: array<u32, 3>;
+        @group(2) @binding(2) var<uniform> color: vec4f;
+
+        fn product(index: u32) -> u32 { return (index + 1u) * width; }
+
+        @compute @workgroup_size(width)
+        fn scale(@builtin(local_invocation_index) lane: u32) {
+            products[lane] = product(lane);
+        }
+
+        @compute @workgroup_size(3)
+        fn fill(@builtin(local_invocation_index) lane: u32) {
+            sequence[lane] = start + lane;
+        }
+
+        @fragment fn shade() -> @location(0) vec4f { return color; }
+        """)
+    let scale = try compiler.compileWebGPUCompute(multiple, entryPoint: "scale", constants: ["width": 4])
+    let fill = try compiler.compileWebGPUCompute(multiple, entryPoint: "fill", constants: ["start": 70])
+    let scalePipeline = try await device.createComputePipeline(scale)
+    let fillPipeline = try await device.createComputePipeline(fill)
+    let a = try await device.createBuffer(.init(size: 16, usage: [.storage, .copySource]))
+    let b = try await device.createBuffer(.init(size: 16, usage: [.storage, .copySource]))
+    let read = try await device.createBuffer(.init(size: 16, usage: [.copyDestination, .mapRead]))
+    let ticket = try await device.submitCommands([
+        .dispatchCompute(pipeline: first, bindings: [.init(binding: 0): a], workgroups: .init(x: 1)),
+        .dispatchCompute(pipeline: second, bindings: [.init(binding: 0): b], workgroups: .init(x: 1)),
+        .copy(source: a, destination: read, byteCount: 16), .read(buffer: read, byteCount: 16),
+        .copy(source: b, destination: read, byteCount: 16), .read(buffer: read, byteCount: 16),
+        .dispatchCompute(pipeline: scalePipeline, bindings: [.init(binding: 0): a], workgroups: .init(x: 1)),
+        .dispatchCompute(pipeline: fillPipeline, bindings: [.init(binding: 0): b], workgroups: .init(x: 1)),
+        .copy(source: a, destination: read, byteCount: 16), .read(buffer: read, byteCount: 16),
+        .copy(source: b, destination: read, byteCount: 12), .read(buffer: read, byteCount: 12),
+    ])
+    let values = try await ticket.wait()
+    guard values.map(\.count) == [4, 4, 4, 3] else {
+        throw GPUError.backendFailure("Unexpected override readback: \(values)")
+    }
+    return values.flatMap { $0 }
+}
+
+private func overrideArrayDiagnostic(_ device: Device) async throws -> [UInt32] {
+    let source = ShaderInput.wgsl("""
+        @id(4) override lanes = 2u;
+        override count = lanes * 2u + 1u;
+        override unused: u32;
+        alias Scratch = array<u32, count>;
+        var<workgroup> scratch: Scratch;
+        var<workgroup> extra: array<u32, lanes + 1u>;
+        var<workgroup> uncalled: array<u32, unused>;
+        @group(0) @binding(0) var<storage, read_write> output: array<u32, 4>;
+        fn neverCalled() { uncalled[7u] = 100u; }
+        fn readNext(i: u32) -> u32 { return scratch[(i + 1u) % lanes]; }
+        @compute @workgroup_size(lanes)
+        fn run(@builtin(local_invocation_index) i: u32) {
+            let initial = scratch[lanes + i] + extra[i];
+            workgroupBarrier();
+            scratch[i] = 10u + i;
+            extra[i] = 20u + i;
+            workgroupBarrier();
+            output[i] = initial * 1000u + readNext(i) + extra[i];
+        }
+        """)
+    let compiler = IndependentShaderCompiler()
+    let defaultShader = try compiler.compileCompute(source, to: .wgsl)
+    let specializedShader = try compiler.compileCompute(source, to: .wgsl, constants: ["4": 4])
+    guard defaultShader.workgroupStorageByteSize == 48, specializedShader.workgroupStorageByteSize == 80 else {
+        throw GPUError.backendFailure("Unexpected specialized workgroup array footprints")
+    }
+    let first = try await device.createComputePipeline(defaultShader)
+    let second = try await device.createComputePipeline(specializedShader)
+    let a = try await device.createBuffer(.init(size: 16, usage: [.storage, .copySource]))
+    let b = try await device.createBuffer(.init(size: 16, usage: [.storage, .copySource]))
+    let read = try await device.createBuffer(.init(size: 16, usage: [.copyDestination, .mapRead]))
+    let ticket = try await device.submitCommands([
+        .dispatchCompute(pipeline: first, bindings: [.init(binding: 0): a], workgroups: .init(x: 1)),
+        .dispatchCompute(pipeline: second, bindings: [.init(binding: 0): b], workgroups: .init(x: 1)),
+        .copy(source: a, destination: read, byteCount: 16), .read(buffer: read, byteCount: 16),
+        .copy(source: b, destination: read, byteCount: 16), .read(buffer: read, byteCount: 16),
+    ])
+    let values = try await ticket.wait()
+    guard values.map(\.count) == [4, 4] else {
+        throw GPUError.backendFailure("Unexpected override readback: \(values)")
+    }
+    return values.flatMap { $0 }
+}
+
+private func pipelineBodyDiagnostic(_ device: Device) async throws -> [UInt32] {
+    let source = ShaderInput.wgsl("""
+        override divisor = 2u;
+        override lane = 0u;
+        @group(0) @binding(0) var<storage, read> input: array<u32, 4>;
+        @group(0) @binding(1) var<storage, read_write> output: array<u32, 4>;
+        fn unused() -> u32 { return 4u / (divisor - divisor); }
+        @compute @workgroup_size(1)
+        fn run(@builtin(global_invocation_id) id: vec3u) {
+            output[0] = input[lane + 1u] / divisor;
+            output[1] = (12u / divisor) + id.x;
+            let runtimeIndex = lane + 1u;
+            output[2] = input[runtimeIndex];
+        }
+        """)
+    let shader = try IndependentShaderCompiler().compileCompute(source, to: .wgsl,
+                                                                 constants: ["divisor": 4, "lane": 1])
+    let pipeline = try await device.createComputePipeline(shader)
+    let input = try await device.createBuffer(.init(size: 16, usage: [.storage, .copyDestination]))
+    let output = try await device.createBuffer(.init(size: 16, usage: [.storage, .copySource]))
+    let read = try await device.createBuffer(.init(size: 16, usage: [.copyDestination, .mapRead]))
+    let ticket = try await device.submitCommands([
+        .write(buffer: input, offset: 0, words: [6, 8, 10, 12]),
+        .dispatchCompute(pipeline: pipeline, bindings: [.init(binding: 0): input, .init(binding: 1): output],
+                         workgroups: .init(x: 1)),
+        .copy(source: output, destination: read, byteCount: 16), .read(buffer: read, byteCount: 16),
+    ])
+    let values = try await ticket.wait()
+    guard let result = values.first, result.count == 4 else {
+        throw GPUError.backendFailure("Unexpected pipeline body readback: \(values)")
+    }
+    return result
+}
+
+private func pipelineAggregateDiagnostic(_ device: Device) async throws -> [UInt32] {
+    let source = ShaderInput.wgsl("""
+        override scale = 2.0f;
+        override lane = 0u;
+        override divisor = 2u;
+        override width = u32(dot(vec2f(scale, 1.0f), vec2f(1.0f)));
+        @group(0) @binding(0) var<storage, read_write> output: array<vec4f, 2>;
+        @compute @workgroup_size(width)
+        fn run(@builtin(local_invocation_index) i: u32) {
+            if i != 0u { return; }
+            let lanes = quantizeToF16(vec2f(scale, scale + 1.0f));
+            let matrix = transpose(mat2x2f(scale, 1, 2, 3));
+            let pair = matrix * vec2f(2, 1);
+            let picked = vec4u(11, 22, 33, 44).wzyx[lane + 1u];
+            let quotient = vec2u(8, 9) / vec2u(divisor, 3);
+            output[0] = vec4f(lanes, pair);
+            output[1] = vec4f(f32(picked), f32(quotient.x), f32(quotient.y), f32(width));
+        }
+        """)
+    let shader = try IndependentShaderCompiler().compileCompute(source, to: .wgsl,
+                                                                 constants: ["scale": 3, "lane": 1, "divisor": 4])
+    let pipeline = try await device.createComputePipeline(shader)
+    let output = try await device.createBuffer(.init(size: 32, usage: [.storage, .copySource]))
+    let read = try await device.createBuffer(.init(size: 32, usage: [.copyDestination, .mapRead]))
+    let ticket = try await device.submitCommands([
+        .dispatchCompute(pipeline: pipeline, bindings: [.init(binding: 0): output], workgroups: .init(x: 1)),
+        .copy(source: output, destination: read, byteCount: 32), .read(buffer: read, byteCount: 32),
+    ])
+    let values = try await ticket.wait()
+    guard let result = values.first, result.count == 8 else {
+        throw GPUError.backendFailure("Unexpected pipeline aggregate readback: \(values)")
+    }
+    return result
+}
+
+private func pipelineCompositeDiagnostic(_ device: Device) async throws -> [UInt32] {
+    let source = ShaderInput.wgsl("""
+        struct Pair { count: u32, values: array<u32, 2>, }
+        override first = 3u;
+        override lane = 0i;
+        override width = Pair(2u, array<u32, 2>(first, first + 1u)).values[lane];
+        @group(0) @binding(0) var<storage, read_write> output: array<u32, 4>;
+        @compute @workgroup_size(width)
+        fn run(@builtin(local_invocation_index) id: u32) {
+            if id >= 2u { return; }
+            let pair = Pair(first, array<u32, 2>(width, first + 10u));
+            output[id] = pair.values[id] + pair.count;
+            output[id + 2u] = array<Pair, 2>(Pair(), Pair(first, array<u32, 2>()))[lane].count;
+        }
+        """)
+    let shader = try IndependentShaderCompiler().compileCompute(source, to: .wgsl,
+                                                                 constants: ["first": 4, "lane": 1])
+    let pipeline = try await device.createComputePipeline(shader)
+    let output = try await device.createBuffer(.init(size: 16, usage: [.storage, .copySource]))
+    let read = try await device.createBuffer(.init(size: 16, usage: [.copyDestination, .mapRead]))
+    let ticket = try await device.submitCommands([
+        .dispatchCompute(pipeline: pipeline, bindings: [.init(binding: 0): output], workgroups: .init(x: 1)),
+        .copy(source: output, destination: read, byteCount: 16), .read(buffer: read, byteCount: 16),
+    ])
+    let values = try await ticket.wait()
+    guard let result = values.first, result.count == 4 else {
+        throw GPUError.backendFailure("Unexpected pipeline composite readback: \(values)")
+    }
+    return result
+}
+
+private func arrayConstantDiagnostic(_ device: Device) async throws -> [UInt32] {
+    let source = ShaderInput.wgsl("""
+        alias Row = array<u32, 2>;
+        struct Record { row: Row, tag: u32, }
+        const empty = Record();
+        const table = array(Record(Row(2u, 3u), 8u), Record(array(4u, 5), 10u));
+        const_assert table[1].row[0] == 4u && empty.row[1] == 0u;
+        override lane = 0u;
+        override width = table[lane].row[1];
+        @group(0) @binding(0) var<storage, read_write> output: array<u32, 2>;
+        @compute @workgroup_size(width)
+        fn run(@builtin(local_invocation_index) id: u32) {
+            if id >= 2u { return; }
+            const local: Row = array(6, 7);
+            const_assert local[1] == 7u;
+            let values = array(table[lane].tag, local[1] + id);
+            output[id] = values[id];
+        }
+        """)
+    let shader = try IndependentShaderCompiler().compileCompute(source, to: .wgsl, constants: ["lane": 1])
+    let pipeline = try await device.createComputePipeline(shader)
+    let zeroShader = try IndependentShaderCompiler().compileWebGPUCompute(.wgsl("""
+        var<private> globalZero: vec2u = vec2();
+        @group(0) @binding(0) var<storage, read_write> output: array<u32, 4>;
+
+        fn sum(value: vec2u) -> u32 { return value.x + value.y + 3u; }
+        fn zeroMatrix() -> mat2x2f { return mat2x2(vec2(), vec2()); }
+
+        @compute @workgroup_size(1) fn run() {
+            let inferred = vec2();
+            let signed: vec2i = vec2();
+            let unsigned: vec2u = vec2();
+            let floating: vec2f = vec2();
+            let nested: array<vec2f, 2> = array(vec2(), vec2(0, 3));
+            var replaced = vec2u(17u, 19u);
+            replaced = vec2();
+            let matrix: mat2x2f = mat2x2();
+            let returned = zeroMatrix();
+            let spread: vec3u = vec3(vec2(), 7);
+
+            output[0] = sum(vec2()) + globalZero.x + unsigned.x + replaced.x;
+            output[1] = u32(nested[0].x + nested[1].y + floating.y);
+            output[2] = u32(matrix[1].y + returned[0].x) + u32(inferred.x + signed.y);
+            output[3] = spread.x + spread.y + spread.z;
+        }
+        """))
+    let zeroPipeline = try await device.createComputePipeline(zeroShader)
+    let indexShader = try IndependentShaderCompiler().compileWebGPUCompute(.wgsl("""
+        const lanes = vec3(9, -4, 7);
+        const pairs = array(vec2(21, 22), vec2(33, 34));
+        const transform = mat3x2(1, 2, 3, 4, 5, 6);
+        const large = vec2(2147483648, 7);
+        const last = 2u;
+        @id(4) override selected = 1u;
+        @group(0) @binding(0) var<storage, read_write> output: array<vec4u, 5>;
+
+        @compute @workgroup_size(5)
+        fn run(@builtin(local_invocation_index) lane: u32) {
+            let i = i32(lane) - 1i;
+            let value: i32 = lanes[i];
+            let pair: vec2i = pairs[i];
+            let column: vec2f = transform[i];
+            let named: u32 = lanes[last];
+            let folded: u32 = large[last - 1u];
+            output[lane] = vec4u(bitcast<u32>(value), u32(pair.y), u32(column.y),
+                                named + folded + u32(lanes[selected]));
+        }
+        """), constants: ["4": 0])
+    let indexPipeline = try await device.createComputePipeline(indexShader)
+    let templateShader = try IndependentShaderCompiler().compileWebGPUCompute(.wgsl("""
+        const A = 1u;
+        const B = 2u;
+        const C = 3u;
+        const D = 4u;
+        const_assert A<B || C>D;
+        const counted: array<u32, (8u >> 2u)>=array(4u, 9u);
+        const nested: array<u32, array<u32, 2>(2u, 3u)[0]>=array(5u, 11u);
+        @group(0) @binding(0) var<storage, read_write> output: array<u32, 4>;
+
+        @compute @workgroup_size(array<u32, 1>(1u)[0])
+        fn run() {
+            var sized: array<u32, 1u << 1u>=array(13u, 17u);
+            let pointer: ptr<function, array<u32, 2>>=&sized;
+            let pair: vec2<u32>=vec2u(19, 23);
+            let bits = bitcast<vec2<u32>>(vec2f(1.0, 2.0));
+            var shifted = 8u;
+            shifted <<= 1u;
+            shifted >>= 3u;
+            var compared: array<u32, select(1u, 2u, B>=A)>=array(29u, 31u);
+
+            output[0] = counted[1] + nested[0];
+            output[1] = pointer[1] + pair.x;
+            output[2] = select(0u, compared[1] + shifted, shifted>=B);
+            output[3] = bits.x;
+        }
+        """))
+    let templatePipeline = try await device.createComputePipeline(templateShader)
+    let output = try await device.createBuffer(.init(size: 80, usage: [.storage, .copySource]))
+    let read = try await device.createBuffer(.init(size: 80, usage: [.copyDestination, .mapRead]))
+    let ticket = try await device.submitCommands([
+        .dispatchCompute(pipeline: pipeline, bindings: [.init(binding: 0): output], workgroups: .init(x: 1)),
+        .copy(source: output, destination: read, byteCount: 8), .read(buffer: read, byteCount: 8),
+        .dispatchCompute(pipeline: zeroPipeline, bindings: [.init(binding: 0): output], workgroups: .init(x: 1)),
+        .copy(source: output, destination: read, byteCount: 16), .read(buffer: read, byteCount: 16),
+        .dispatchCompute(pipeline: indexPipeline, bindings: [.init(binding: 0): output], workgroups: .init(x: 1)),
+        .copy(source: output, destination: read, byteCount: 80), .read(buffer: read, byteCount: 80),
+        .dispatchCompute(pipeline: templatePipeline, bindings: [.init(binding: 0): output], workgroups: .init(x: 1)),
+        .copy(source: output, destination: read, byteCount: 16), .read(buffer: read, byteCount: 16),
+    ])
+    let values = try await ticket.wait()
+    guard values.map(\.count) == [2, 4, 20, 4] else {
+        throw GPUError.backendFailure("Unexpected array constant readback: \(values)")
+    }
+    return values.flatMap { $0 }
+}
+
+private func pipelineBuiltinDiagnostic(_ device: Device) async throws -> [UInt32] {
+    let source = ShaderInput.wgsl("""
+        override amplitude = 3.5f;
+        override active = true;
+        override width = select(1u, u32(frexp(amplitude).exp + i32(modf(amplitude).whole)),
+                                all(vec2<bool>(active, amplitude > 0.0f)));
+        @group(0) @binding(0) var<storage, read_write> output: array<vec4f, 2>;
+        @compute @workgroup_size(width)
+        fn run(@builtin(local_invocation_index) id: u32) {
+            if id != 0u { return; }
+            let split = frexp(vec2f(amplitude, -amplitude));
+            let parts = modf(vec2f(amplitude, -amplitude));
+            let enabled = any(vec2<bool>(false, active));
+            output[0] = vec4f(split.fract, parts.fract);
+            output[1] = vec4f(f32(split.exp.x), parts.whole.y,
+                              select(0.0f, 1.0f, all(all(vec2<bool>(id == 0u, enabled)))),
+                              select(0.0f, 1.0f, any(vec2<bool>(id != 0u, false))));
+        }
+        """)
+    let shader = try IndependentShaderCompiler().compileCompute(source, to: .wgsl, constants: ["amplitude": 6.75])
+    let pipeline = try await device.createComputePipeline(shader)
+    let output = try await device.createBuffer(.init(size: 32, usage: [.storage, .copySource]))
+    let read = try await device.createBuffer(.init(size: 32, usage: [.copyDestination, .mapRead]))
+    let ticket = try await device.submitCommands([
+        .dispatchCompute(pipeline: pipeline, bindings: [.init(binding: 0): output], workgroups: .init(x: 1)),
+        .copy(source: output, destination: read, byteCount: 32), .read(buffer: read, byteCount: 32),
+    ])
+    let values = try await ticket.wait()
+    guard let result = values.first, result.count == 8 else {
+        throw GPUError.backendFailure("Unexpected pipeline builtin readback: \(values)")
+    }
+    return result
+}
+
+private func conversionDiagnostic(_ device: Device) async throws -> [UInt32] {
+    let source = ShaderInput.wgsl("""
+        override gain = 0.0f;
+        override width = 1u + u32(bool(gain));
+        @group(0) @binding(0) var<storage, read> input: array<vec4f, 1>;
+        @group(0) @binding(1) var<storage, read_write> output: array<vec4u, 4>;
+        @compute @workgroup_size(width)
+        fn run(@builtin(local_invocation_index) id: u32) {
+            if id != 0u { return; }
+            let samples = input[0];
+            let mask = vec4<bool>(samples);
+            output[0] = bitcast<vec4u>(vec4i(samples));
+            output[1] = vec4u(samples);
+            output[2] = vec4u(mask);
+            output[3] = vec4u(u32(bool(samples.w)), u32(bool(samples.z)),
+                              bitcast<u32>(f32(bool(samples.y))), bitcast<u32>(i32(bool(samples.x))));
+        }
+        """)
+    let shader = try IndependentShaderCompiler().compileCompute(source, to: .wgsl, constants: ["gain": -3])
+    let pipeline = try await device.createComputePipeline(shader)
+    let input = try await device.createBuffer(.init(size: 16, usage: [.storage, .copyDestination]))
+    let output = try await device.createBuffer(.init(size: 64, usage: [.storage, .copySource]))
+    let read = try await device.createBuffer(.init(size: 64, usage: [.copyDestination, .mapRead]))
+    let samples: [Float] = [-1e20, 1e20, -3.75, -0.0]
+    let ticket = try await device.submitCommands([
+        .write(buffer: input, offset: 0, words: samples.map(\.bitPattern)),
+        .dispatchCompute(pipeline: pipeline, bindings: [.init(binding: 0): input, .init(binding: 1): output],
+                         workgroups: .init(x: 1)),
+        .copy(source: output, destination: read, byteCount: 64), .read(buffer: read, byteCount: 64),
+    ])
+    let values = try await ticket.wait()
+    guard let result = values.first, result.count == 16 else {
+        throw GPUError.backendFailure("Unexpected conversion readback: \(values)")
+    }
+    return result
+}
+
+private func halfConversionDiagnostic(_ device: Device) async throws -> [UInt32] {
+    guard device.capabilities.features.contains(.shaderF16) else { return [] }
+    let source = ShaderInput.wgsl("""
+        enable f16;
+        override value = 4.5h;
+        override width = u32(vec2i(vec2h(value)).x) + u32(vec2<bool>(vec2h(value)).y);
+        @group(0) @binding(0) var<storage, read_write> output: array<vec4i, 1>;
+        @compute @workgroup_size(width)
+        fn run(@builtin(local_invocation_index) id: u32) {
+            if id == 0u {
+                let samples = vec2h(f16(id), -2.75h);
+                let mask = vec2<bool>(id == 0u, id != 0u);
+                output[0] = vec4i(vec2i(samples), vec2i(vec2h(mask)));
+            }
+        }
+        """)
+    let shader = try IndependentShaderCompiler().compileCompute(source, to: .wgsl, constants: ["value": 6.75])
+    let pipeline = try await device.createComputePipeline(shader)
+    let output = try await device.createBuffer(.init(size: 16, usage: [.storage, .copySource]))
+    let read = try await device.createBuffer(.init(size: 16, usage: [.copyDestination, .mapRead]))
+    let ticket = try await device.submitCommands([
+        .dispatchCompute(pipeline: pipeline, bindings: [.init(binding: 0): output], workgroups: .init(x: 1)),
+        .copy(source: output, destination: read, byteCount: 16), .read(buffer: read, byteCount: 16),
+    ])
+    let values = try await ticket.wait()
+    guard let result = values.first, result.count == 4 else {
+        throw GPUError.backendFailure("Unexpected f16 conversion readback: \(values)")
+    }
+    return result
+}
+
+private func localArrayDiagnostic(_ device: Device) async throws -> [UInt32] {
+    let source = ShaderInput.wgsl("""
+        struct Cell { data: array<vec2u, 2>, stamp: u32, }
+        @group(0) @binding(0) var<storage, read_write> output: array<vec4u, 4>;
+
+        fn update(outer: i32, inner: i32) -> vec4u {
+            var cells: array<Cell, 2>;
+            cells[0].data[0] = vec2u(3u, 5u);
+            cells[1].data[1] = vec2u(7u, 11u);
+            cells[0].stamp = 41u;
+            cells[1].stamp = 101u;
+            let before = cells;
+            cells[outer].data[inner].y = 19u;
+            cells[outer].stamp += 1u;
+            var reset = 0u;
+            for (var i = 0u; i < 3u; i += 1u) {
+                var frame: array<u32, 2>;
+                let slot = i & 1u;
+                reset += frame[slot];
+                frame[slot] = 123u;
+            }
+            return vec4u(before[outer].data[inner].y, cells[outer].data[inner].y,
+                         cells[0].stamp + reset, cells[1].stamp);
+        }
+
+        @compute @workgroup_size(4)
+        fn run(@builtin(local_invocation_index) id: u32) {
+            let outer = i32(id) - 1i;
+            let inner = select(1i, 2i, id == 1u);
+            output[id] = update(outer, inner);
+        }
+        """)
+    let shader = try IndependentShaderCompiler().compileCompute(source, to: .wgsl)
+    let pipeline = try await device.createComputePipeline(shader)
+    let output = try await device.createBuffer(.init(size: 64, usage: [.storage, .copySource]))
+    let read = try await device.createBuffer(.init(size: 64, usage: [.copyDestination, .mapRead]))
+    let ticket = try await device.submitCommands([
+        .dispatchCompute(pipeline: pipeline, bindings: [.init(binding: 0): output], workgroups: .init(x: 1)),
+        .copy(source: output, destination: read, byteCount: 64), .read(buffer: read, byteCount: 64),
+    ])
+    let values = try await ticket.wait()
+    guard let result = values.first, result.count == 16 else {
+        throw GPUError.backendFailure("Unexpected mutable local array readback: \(values)")
+    }
+    return result
+}
+
+private func workgroupAggregateDiagnostic(_ device: Device) async throws -> [UInt32] {
+    let source = ShaderInput.wgsl("""
+        struct Slot { bins: array<vec2u, 2>, stamp: u32, }
+        struct Counters { hits: atomic<u32>, parity: array<atomic<u32>, 2>, }
+        override count = 4u;
+        var<workgroup> slots: array<Slot, count>;
+        var<workgroup> counters: Counters;
+        @group(0) @binding(0) var<storage, read_write> output: array<vec4u, 8>;
+
+        fn fill(lane: u32, base: u32) {
+            slots[lane].bins[1] = vec2u(base + lane + 1u, 2u);
+            slots[lane].stamp = 31u + lane;
+            atomicAdd(&counters.hits, 1u);
+            atomicAdd(&counters.parity[lane % 2u], 1u);
+        }
+
+        @compute @workgroup_size(4)
+        fn run(@builtin(local_invocation_index) lane: u32, @builtin(workgroup_id) group: vec3u) {
+            let initial = slots[lane].bins[1].x + slots[lane].stamp
+                        + atomicLoad(&counters.hits) + atomicLoad(&counters.parity[lane % 2u]);
+            workgroupBarrier();
+            fill(lane, group.x * 10u);
+            workgroupBarrier();
+            let next = slots[(lane + 1u) % 4u];
+            let shared = workgroupUniformLoad(&slots[group.x]);
+            let missing = workgroupUniformLoad(&slots[count + group.x]);
+            let uniformBin = workgroupUniformLoad(&slots[group.x].bins[group.x + 1u]);
+            if shared.stamp != 0u { workgroupBarrier(); }
+            let invalid = lane + 2u;
+            slots[lane].bins[invalid].x = 999u;
+            output[group.x * 4u + lane] = vec4u(next.bins[1].x + initial * 1000u, slots[lane].stamp,
+                                              atomicLoad(&counters.hits),
+                                              atomicLoad(&counters.parity[lane % 2u]) + slots[lane].bins[invalid].x
+                                                  + shared.stamp + missing.stamp + uniformBin.y);
+        }
+        """)
+    let shader = try IndependentShaderCompiler().compileCompute(source, to: .wgsl, constants: ["count": 5])
+    let pipeline = try await device.createComputePipeline(shader)
+    let output = try await device.createBuffer(.init(size: 128, usage: [.storage, .copySource]))
+    let read = try await device.createBuffer(.init(size: 128, usage: [.copyDestination, .mapRead]))
+    let ticket = try await device.submitCommands([
+        .dispatchCompute(pipeline: pipeline, bindings: [.init(binding: 0): output], workgroups: .init(x: 2)),
+        .copy(source: output, destination: read, byteCount: 128), .read(buffer: read, byteCount: 128),
+    ])
+    let values = try await ticket.wait()
+    guard let result = values.first, result.count == 32 else {
+        throw GPUError.backendFailure("Unexpected workgroup aggregate readback: \(values)")
+    }
+    return result
+}
+
+private func privateVariableDiagnostic(_ device: Device) async throws -> [UInt32] {
+    let source = ShaderInput.wgsl("""
+        struct State { samples: array<vec2u, 2>, counter: u32, }
+        const seed = array(vec2u(3u, 7u), vec2u(11u, 13u));
+        override base = 17u;
+        var<private> state = State(seed, base);
+        var<private> baseline: vec2u = vec2u(1u, 2u);
+        var<private> ticks: u32;
+        @group(0) @binding(0) var<storage, read_write> output: array<vec4u, 8>;
+
+        fn bump(index: i32, id: u32) -> u32 {
+            let old = ticks;
+            ticks += 1u;
+            state.samples[index].y = 41u + id;
+            state.counter += id;
+            return old;
+        }
+        fn forward(index: i32, id: u32) -> u32 { return bump(index, id); }
+
+        @compute @workgroup_size(4)
+        fn run(@builtin(global_invocation_id) gid: vec3u) {
+            let id = gid.x;
+            let index = i32(id) - 1i;
+            let initial = state.counter + baseline.x;
+            let first = forward(index, id);
+            let second = forward(index, id);
+            output[id] = vec4u(initial + first * 100u, state.counter + second * 100u,
+                              state.samples[index].y, state.samples[1].x);
+        }
+        """)
+    let shader = try IndependentShaderCompiler().compileCompute(source, to: .wgsl, constants: ["base": 29])
+    let pipeline = try await device.createComputePipeline(shader)
+    let output = try await device.createBuffer(.init(size: 128, usage: [.storage, .copySource]))
+    let read = try await device.createBuffer(.init(size: 128, usage: [.copyDestination, .mapRead]))
+    let ticket = try await device.submitCommands([
+        .dispatchCompute(pipeline: pipeline, bindings: [.init(binding: 0): output], workgroups: .init(x: 2)),
+        .copy(source: output, destination: read, byteCount: 128), .read(buffer: read, byteCount: 128),
+    ])
+    let values = try await ticket.wait()
+    guard let result = values.first, result.count == 32 else {
+        throw GPUError.backendFailure("Unexpected private variable readback: \(values)")
+    }
+    return result
+}
+
+private func privateRenderDiagnostic(_ device: Device) async throws -> [UInt32] {
+    let source = ShaderInput.wgsl("""
+        override red = 0.25f;
+        var<private> state = vec4f(red, 0.0f, 0.0f, 1.0f);
+        fn take() -> vec4f {
+            state.x += 0.25f;
+            return state;
+        }
+        @vertex fn vertexMain(@builtin(vertex_index) id: u32) -> @builtin(position) vec4f {
+            let reach = 1.0f + 4.0f * take().x;
+            if id == 0u { return vec4f(-1.0f, -1.0f, 0.0f, 1.0f); }
+            if id == 1u { return vec4f(reach, -1.0f, 0.0f, 1.0f); }
+            return vec4f(-1.0f, reach, 0.0f, 1.0f);
+        }
+        @fragment fn fragmentMain() -> @location(0) vec4f {
+            let color = take();
+            return vec4f(select(0.0f, 1.0f, color.x == 0.75f), color.yzw);
+        }
+        """)
+    let compiler = IndependentShaderCompiler()
+    let vertex = try compiler.compileRenderStage(source, entryPoint: "vertexMain", to: .wgsl, constants: ["red": 0.5])
+    let fragment = try compiler.compileRenderStage(source, entryPoint: "fragmentMain", to: .wgsl, constants: ["red": 0.5])
+    let pipeline = try await device.createRenderPipeline(vertex: vertex, fragment: fragment, colorFormat: .rgba8Unorm)
+    let target = try await device.createTexture(.init(width: 2, height: 2, format: .rgba8Unorm,
+                                                       usage: [.renderAttachment, .copySource]))
+    let read = try await device.createBuffer(.init(size: 512, usage: [.copyDestination, .mapRead]))
+    let ticket = try await device.submitCommands([
+        .render(pipeline: pipeline, target: target, clear: .init(red: 0, green: 0, blue: 1, alpha: 1), vertexCount: 3),
+        .copyTextureToBuffer(source: target, destination: read, bytesPerRow: 256),
+        .read(buffer: read, byteCount: 512),
+    ])
+    let values = try await ticket.wait()
+    guard let pixels = values.first, pixels.count == 128 else {
+        throw GPUError.backendFailure("Unexpected private render readback: \(values)")
+    }
+    return [pixels[0], pixels[1], pixels[64], pixels[65]]
+}
+
+private func pointerDiagnostic(_ device: Device) async throws -> [UInt32] {
+    let source = ShaderInput.wgsl("""
+        struct Packet { values: array<u32, 2>, stamp: u32, }
+        var<private> seed = 4u;
+        @group(0) @binding(0) var<storage, read_write> output: array<vec4u>;
+
+        fn mutate(packet: ptr<function, Packet>, increment: ptr<private, u32>, index: i32) -> u32 {
+            let target = &(*packet).values[index];
+            let old = *target;
+            *target = old + *increment;
+            *increment += 1u;
+            (*packet).stamp += *increment;
+            return old;
+        }
+
+        fn forward(packet: ptr<function, Packet>, increment: ptr<private, u32>, index: i32) -> u32 {
+            let again: ptr<function, Packet> = &*packet;
+            return mutate(again, increment, index);
+        }
+
+        fn readBoth(a: ptr<function, u32>, b: ptr<function, u32>) -> u32 { return *a + *b; }
+
+        @compute @workgroup_size(4)
+        fn run(@builtin(local_invocation_index) lane: u32) {
+            var packet = Packet(array(10u, 20u), 100u);
+            var index = i32(lane) - 1i;
+            let chosen = &packet.values[index];
+            index = 0i;
+            let before = *chosen;
+            *chosen = before + 1u;
+            let previous = forward(&packet, &seed, i32(lane) - 1i);
+            var tag = packet.stamp;
+            let outputAddress = &output;
+            output[lane] = vec4u(before, previous, packet.values[0] + packet.values[1],
+                                 readBoth(&tag, &tag) + seed + arrayLength(outputAddress));
+        }
+        """)
+    let shader = try IndependentShaderCompiler().compileCompute(source, to: .wgsl)
+    let pipeline = try await device.createComputePipeline(shader)
+    let output = try await device.createBuffer(.init(size: 64, usage: [.storage, .copySource]))
+    let read = try await device.createBuffer(.init(size: 64, usage: [.copyDestination, .mapRead]))
+    let ticket = try await device.submitCommands([
+        .dispatchCompute(pipeline: pipeline, bindings: [.init(binding: 0): output], workgroups: .init(x: 1)),
+        .copy(source: output, destination: read, byteCount: 64), .read(buffer: read, byteCount: 64),
+    ])
+    let values = try await ticket.wait()
+    guard let result = values.first, result.count == 16 else {
+        throw GPUError.backendFailure("Unexpected pointer readback: \(values)")
+    }
+    return result
+}
+
+private func pointerSubviewDiagnostic(_ device: Device) async throws -> [UInt32] {
+    let source = ShaderInput.wgsl("""
+        struct Packet { samples: array<u32, 2>, sentinel: u32, }
+        override base = 30u;
+        var<private> state = Packet(array(base, 40u), 222u);
+        var<private> calls: u32;
+        @group(0) @binding(0) var<storage, read_write> output: array<vec4u, 4>;
+
+        fn modify(p: ptr<function, u32>, q: ptr<private, u32>) -> vec2u {
+            calls += 1u;
+            let previous = *p + *q;
+            *p += 3u;
+            *q += 7u;
+            return vec2u(previous, *p + *q);
+        }
+
+        fn forward(p: ptr<function, u32>, q: ptr<private, u32>) -> vec2u {
+            return modify(&*p, &*q);
+        }
+
+        fn touch(unused: ptr<private, u32>, lane: u32) {
+            state.samples[lane] += 1u;
+        }
+
+        @compute @workgroup_size(4)
+        fn run(@builtin(local_invocation_index) lane: u32) {
+            var packet = Packet(array(10u, 20u), 111u);
+            var index = i32(lane) - 1i;
+            let packetRef = &packet;
+            let samples = &packetRef.samples;
+            let p = &samples[index];
+            let stateRef = &state;
+            let q = &stateRef.samples[lane];
+            index = 0i;
+            let result = forward(p, q);
+            touch(q, lane);
+            output[lane] = vec4u(result, packet.samples[0] + packet.samples[1] + packet.sentinel + 1000u * calls,
+                                state.samples[0] + state.samples[1] + state.sentinel);
+        }
+        """)
+    let shader = try IndependentShaderCompiler().compileWebGPUCompute(source, constants: ["base": 50])
+    let pipeline = try await device.createComputePipeline(shader)
+    let output = try await device.createBuffer(.init(size: 64, usage: [.storage, .copySource]))
+    let read = try await device.createBuffer(.init(size: 64, usage: [.copyDestination, .mapRead]))
+    let ticket = try await device.submitCommands([
+        .dispatchCompute(pipeline: pipeline, bindings: [.init(binding: 0): output], workgroups: .init(x: 1)),
+        .copy(source: output, destination: read, byteCount: 64), .read(buffer: read, byteCount: 64),
+    ])
+    let values = try await ticket.wait()
+    guard let result = values.first, result.count == 16 else {
+        throw GPUError.backendFailure("Unexpected pointer subview readback: \(values)")
+    }
+    return result
+}
+
+private func sharedPointerDiagnostic(_ device: Device) async throws -> [UInt32] {
+    let source = ShaderInput.wgsl("""
+        struct Config { values: vec4u, }
+        @group(0) @binding(0) var<uniform> config: Config;
+        @group(0) @binding(1) var<storage, read> input: array<u32>;
+        @group(0) @binding(2) var<storage, read_write> output: array<vec4u, 8>;
+        var<workgroup> totals: array<atomic<u32>, 2>;
+        var<workgroup> counts: array<atomic<u32>, 2>;
+
+        fn sample(values: ptr<uniform, vec4u>, source: ptr<storage, array<u32>, read>, lane: u32) -> u32 {
+            return (*values)[lane] + (*source)[lane] + arrayLength(source);
+        }
+
+        fn accumulate(cell: ptr<workgroup, atomic<u32>>, value: u32) -> u32 {
+            atomicAdd(cell, value);
+            workgroupBarrier();
+            return atomicLoad(cell);
+        }
+
+        fn relay(cell: ptr<workgroup, atomic<u32>>, value: u32) -> u32 {
+            return accumulate(cell, value);
+        }
+
+        fn sumAt(cells: ptr<workgroup, array<atomic<u32>, 2>>, index: u32, value: u32) -> u32 {
+            return relay(&(*cells)[index], value);
+        }
+
+        fn snapshot(cell: ptr<workgroup, atomic<u32>>) -> u32 {
+            return workgroupUniformLoad(cell);
+        }
+
+        fn publish(destination: ptr<storage, vec4u, read_write>, value: vec4u) {
+            *destination = value;
+        }
+
+        @compute @workgroup_size(4)
+        fn run(@builtin(local_invocation_index) lane: u32, @builtin(workgroup_id) group: vec3u) {
+            let value = sample(&config.values, &input, lane);
+            let total = sumAt(&totals, group.x, value);
+            let count = sumAt(&counts, 1u - group.x, lane + 1u);
+            let invalid = sumAt(&totals, group.x + 2u, 999u);
+            let synchronized = snapshot(&totals[group.x]);
+            let index = group.x * 4u + lane;
+            publish(&output[index], vec4u(value, total, count, lane + invalid + synchronized));
+            publish(&output[index + 8u], vec4u(999u));
+        }
+        """)
+    let shader = try IndependentShaderCompiler().compileCompute(source, to: .wgsl)
+    let pipeline = try await device.createComputePipeline(shader)
+    let uniform = try await device.createBuffer(.init(size: 16, usage: [.uniform, .copyDestination]))
+    let input = try await device.createBuffer(.init(size: 16, usage: [.storage, .copyDestination]))
+    let output = try await device.createBuffer(.init(size: 128, usage: [.storage, .copySource]))
+    let read = try await device.createBuffer(.init(size: 128, usage: [.copyDestination, .mapRead]))
+    let ticket = try await device.submitCommands([
+        .write(buffer: uniform, offset: 0, words: [10, 20, 30, 40]),
+        .write(buffer: input, offset: 0, words: [1, 2, 3, 4]),
+        .dispatchCompute(pipeline: pipeline,
+                         bindings: [.init(binding: 0): uniform, .init(binding: 1): input, .init(binding: 2): output],
+                         workgroups: .init(x: 2)),
+        .copy(source: output, destination: read, byteCount: 128), .read(buffer: read, byteCount: 128),
+    ])
+    let values = try await ticket.wait()
+    guard let result = values.first, result.count == 32 else {
+        throw GPUError.backendFailure("Unexpected shared pointer readback: \(values)")
+    }
+    return result
+}
+
+private func swizzleAssignmentDiagnostic(_ device: Device) async throws -> [UInt32] {
+    let source = ShaderInput.wgsl("""
+        requires swizzle_assignment, pointer_composite_access;
+
+        var<private> values: array<vec4u, 1>;
+        var<private> events: u32;
+        @group(0) @binding(0) var<storage, read_write> output: array<vec4u, 6>;
+
+        fn updateIndex() -> u32 {
+            events = events * 10u + 1u;
+            values[0] = values[0] + vec4u(2u, 4u, 8u, 10u);
+            return 0u;
+        }
+
+        fn updateRHS() -> vec2u {
+            events = events * 10u + 2u;
+            values[0].x = 900u;
+            values[0].z = 100u;
+            return vec2u(55u, 66u);
+        }
+
+        @compute @workgroup_size(1) fn run() {
+            values[updateIndex()].yx = updateRHS();
+            output[0] = values[0];
+            let simpleEvents = events;
+            values[0] = vec4u();
+            events = 0u;
+            values[updateIndex()].yx += updateRHS();
+            output[1] = values[0];
+            output[2] = vec4u(simpleEvents, events, 0u, 0u);
+
+            var local = vec4u(1u, 2u, 3u, 4u);
+            let p = &local;
+            p.wzyx.xy = p.xy;
+            p.yxz[1u] = 9u;
+            p.yxz.y += 2u;
+            var invalid = -1i;
+            p.yxz[invalid] = 999u;
+            p.zy <<= vec2u(1u, 2u);
+            p.yx = p.xy;
+            output[3] = local;
+            let destination = &output;
+            destination[3u].yx = destination[3u].xy;
+
+            var f = vec4f(1.0f, 2.0f, 3.0f, 4.0f);
+            f.wy *= vec2f(2.0f, 3.0f);
+            output[4] = bitcast<vec4u>(f);
+            var b = vec4<bool>(true, true, false, true);
+            b.yx &= vec2<bool>(true, false);
+            b.zx |= vec2<bool>(true, false);
+            b.wy.y &= false;
+            output[5] = vec4u(b);
+        }
+        """)
+    let shader = try IndependentShaderCompiler().compileCompute(source, to: .wgsl)
+    let pipeline = try await device.createComputePipeline(shader)
+    let output = try await device.createBuffer(.init(size: 96, usage: [.storage, .copySource]))
+    let read = try await device.createBuffer(.init(size: 96, usage: [.copyDestination, .mapRead]))
+    let ticket = try await device.submitCommands([
+        .dispatchCompute(pipeline: pipeline, bindings: [.init(binding: 0): output], workgroups: .init(x: 1)),
+        .copy(source: output, destination: read, byteCount: 96), .read(buffer: read, byteCount: 96),
+    ])
+    let values = try await ticket.wait()
+    guard let result = values.first, result.count == 24 else {
+        throw GPUError.backendFailure("Unexpected swizzle assignment readback: \(values)")
+    }
+    return result
+}
+
+private func nestedStorageDiagnostic(_ device: Device) async throws -> [UInt32] {
+    let source = ShaderInput.wgsl("""
+        struct Row { values: array<vec3u, 2>, @size(16) marker: u32, }
+        struct Data { @size(16) generation: u32, rows: array<Row>, }
+        @group(0) @binding(0) var<storage, read_write> data: Data;
+        @group(0) @binding(1) var<storage, read_write> output: array<vec4u, 4>;
+
+        @compute @workgroup_size(4) fn run(@builtin(local_invocation_index) lane: u32) {
+            let outer = i32(lane) - 1i;
+            let inner = select(1u, 2u, lane == 2u);
+            let before = data.rows[outer].values[inner];
+            data.rows[outer].values[inner].z = 70u + lane;
+            var row = data.rows[outer];
+            row.marker += lane;
+            data.rows[outer] = row;
+            output[lane] = vec4u(before, arrayLength(&data.rows) + data.rows[outer].marker);
+        }
+        """)
+    let shader = try IndependentShaderCompiler().compileCompute(source, to: .wgsl)
+    let pipeline = try await device.createComputePipeline(shader)
+    let aggregateShader = try IndependentShaderCompiler().compileWebGPUCompute(.wgsl("""
+        struct Record {
+            @size(16) tag: u32,
+            points: array<vec3u, 2>,
+            @size(16) marker: u32,
+        }
+        struct Config { bias: u32, matrix: mat2x2f, }
+        @group(0) @binding(0) var<storage, read> source: Record;
+        @group(0) @binding(1) var<storage, read_write> destination: Record;
+        @group(0) @binding(2) var<storage, read_write> words: array<u32, 4>;
+        @group(0) @binding(3) var<uniform> config: Config;
+
+        fn readRecord() -> Record { return source; }
+
+        @compute @workgroup_size(1) fn run() {
+            var snapshot = readRecord();
+            let settings = config;
+            let previous = words;
+            words = array<u32, 4>(previous[3], snapshot.tag, u32(settings.matrix[1].y), settings.bias);
+            snapshot.tag += 4u;
+            snapshot.points[0].y += settings.bias;
+            destination = snapshot;
+        }
+        """))
+    let aggregatePipeline = try await device.createComputePipeline(aggregateShader)
+    let words = try await device.createBuffer(.init(size: 16, usage: [.storage, .copySource, .copyDestination]))
+    let config = try await device.createBuffer(.init(size: 24, usage: [.uniform, .copyDestination]))
+    let matrix = [Float(10), 20, 30, 40].map(\.bitPattern)
+    let data = try await device.createBuffer(.init(size: 112, usage: [.storage, .copySource, .copyDestination]))
+    let output = try await device.createBuffer(.init(size: 64, usage: [.storage, .copySource, .copyDestination]))
+    let read = try await device.createBuffer(.init(size: 112, usage: [.copyDestination, .mapRead]))
+    let ticket = try await device.submitCommands([
+        .write(buffer: data, offset: 0, words: [
+            7, 700, 701, 702,
+            1, 2, 3, 703, 4, 5, 6, 704, 100, 705, 706, 707,
+            11, 12, 13, 708, 14, 15, 16, 709, 200, 710, 711, 712,
+        ]),
+        .dispatchCompute(pipeline: pipeline, bindings: [.init(binding: 0): data, .init(binding: 1): output],
+                         workgroups: .init(x: 1)),
+        .copy(source: output, destination: read, byteCount: 64), .read(buffer: read, byteCount: 64),
+        .copy(source: data, destination: read, byteCount: 112), .read(buffer: read, byteCount: 112),
+        .write(buffer: data, offset: 0, words: [11, 1001, 1002, 1003, 1, 2, 3, 1004, 4, 5, 6, 1005, 17, 1006, 1007, 1008]),
+        .write(buffer: output, offset: 0, words: Array(repeating: 900, count: 16)),
+        .write(buffer: words, offset: 0, words: [21, 22, 23, 24]),
+        .write(buffer: config, offset: 0, words: [7, 999] + matrix),
+        .dispatchCompute(pipeline: aggregatePipeline, bindings: [
+            .init(binding: 0): data, .init(binding: 1): output,
+            .init(binding: 2): words, .init(binding: 3): config,
+        ], workgroups: .init(x: 1)),
+        .copy(source: output, destination: read, byteCount: 64), .read(buffer: read, byteCount: 64),
+        .copy(source: words, destination: read, byteCount: 16), .read(buffer: read, byteCount: 16),
+    ])
+    let snapshots = try await ticket.wait()
+    guard snapshots.map(\.count) == [16, 28, 16, 4] else {
+        throw GPUError.backendFailure("Unexpected nested storage readback: \(snapshots)")
+    }
+    return snapshots.flatMap { $0 }
+}
+
+private func nestedHalfStorageDiagnostic(_ device: Device) async throws -> [UInt32] {
+    guard device.capabilities.features.contains(.shaderF16) else { return [] }
+    let source = ShaderInput.wgsl("""
+        enable f16;
+        struct Cell { halves: array<f16, 2>, @size(4) marker: f16, }
+        @group(0) @binding(0) var<storage, read_write> data: array<Cell>;
+
+        @compute @workgroup_size(4) fn run(@builtin(local_invocation_index) lane: u32) {
+            let row = lane / 2u;
+            let item = lane % 2u;
+            data[row].halves[item] += f16(lane + 1u);
+        }
+        """)
+    let shader = try IndependentShaderCompiler().compileCompute(source, to: .wgsl)
+    let pipeline = try await device.createComputePipeline(shader)
+    let data = try await device.createBuffer(.init(size: 16, usage: [.storage, .copySource, .copyDestination]))
+    let read = try await device.createBuffer(.init(size: 16, usage: [.copyDestination, .mapRead]))
+    func pair(_ low: Double, _ high: Double) -> UInt32 {
+        UInt32(Binary16.encode(low)) | (UInt32(Binary16.encode(high)) << 16)
+    }
+    let ticket = try await device.submitCommands([
+        .write(buffer: data, offset: 0, words: [pair(1, 2), pair(9, -7), pair(3, 4), pair(10, -8)]),
+        .dispatchCompute(pipeline: pipeline, bindings: [.init(binding: 0): data], workgroups: .init(x: 1)),
+        .copy(source: data, destination: read, byteCount: 16), .read(buffer: read, byteCount: 16),
+    ])
+    let snapshots = try await ticket.wait()
+    guard let result = snapshots.first, result.count == 4 else {
+        throw GPUError.backendFailure("Unexpected nested half storage readback: \(snapshots)")
+    }
+    return result
+}
+
+private func nestedAtomicDiagnostic(_ device: Device) async throws -> [UInt32] {
+    let source = ShaderInput.wgsl("""
+        requires unrestricted_pointer_parameters;
+        struct Cell { @size(16) signedValues: array<atomic<i32>, 2>, count: atomic<u32>, @size(12) tag: u32, }
+        struct Data { @size(8) header: u32, cells: array<Cell>, }
+        @group(0) @binding(0) var<storage, read_write> data: Data;
+        @group(0) @binding(1) var<storage, read_write> output: array<vec4u, 8>;
+
+        fn update(p: ptr<storage, atomic<i32>, read_write>) -> vec4i {
+            let beforeMin = atomicMin(p, -20i);
+            let beforeMax = atomicMax(p, -8i);
+            let mismatch = atomicCompareExchangeWeak(p, -99i, 100i);
+            var succeeded = false;
+            loop {
+                let attempt = atomicCompareExchangeWeak(p, -8i, -2i);
+                succeeded = attempt.exchanged;
+                if succeeded || attempt.old_value != -8i { break; }
+            }
+            let beforeSub = atomicSub(p, -4i);
+            return vec4i(beforeMin, beforeMax, mismatch.old_value + select(0i, 100i, mismatch.exchanged),
+                         beforeSub + select(0i, 100i, succeeded));
+        }
+
+        @compute @workgroup_size(4) fn run(@builtin(local_invocation_index) lane: u32) {
+            let row = i32(lane) - 1i;
+            let index = select(1u, 2u, lane == 2u);
+            let values = update(&data.cells[row].signedValues[index]);
+            let old = atomicAdd(&data.cells[row].count, lane + 1u);
+            let beforeExchange = atomicExchange(&data.cells[row].count, old + 20u);
+            output[lane * 2u] = bitcast<vec4u>(values);
+            output[lane * 2u + 1u] = vec4u(old, beforeExchange, data.cells[row].tag, arrayLength(&data.cells));
+            storageBarrier();
+            atomicAdd(&data.cells[0].count, 1u);
+        }
+        """)
+    let shader = try IndependentShaderCompiler().compileCompute(source, to: .wgsl)
+    let pipeline = try await device.createComputePipeline(shader)
+    let data = try await device.createBuffer(.init(size: 72, usage: [.storage, .copySource, .copyDestination]))
+    let output = try await device.createBuffer(.init(size: 128, usage: [.storage, .copySource]))
+    let read = try await device.createBuffer(.init(size: 128, usage: [.copyDestination, .mapRead]))
+    let ticket = try await device.submitCommands([
+        .write(buffer: data, offset: 0, words: [
+            7, 800, UInt32(bitPattern: -4), 5, 801, 802, 10, 100, 803, 804,
+            UInt32(bitPattern: -5), UInt32(bitPattern: -6), 805, 806, 20, 200, 807, 808,
+        ]),
+        .dispatchCompute(pipeline: pipeline, bindings: [.init(binding: 0): data, .init(binding: 1): output],
+                         workgroups: .init(x: 1)),
+        .copy(source: output, destination: read, byteCount: 128), .read(buffer: read, byteCount: 128),
+        .copy(source: data, destination: read, byteCount: 72), .read(buffer: read, byteCount: 72),
+    ])
+    let snapshots = try await ticket.wait()
+    guard snapshots.map(\.count) == [32, 18] else {
+        throw GPUError.backendFailure("Unexpected nested atomic readback: \(snapshots)")
+    }
+    return snapshots.flatMap { $0 }
+}
+
+private func nestedUniformDiagnostic(_ device: Device) async throws -> [UInt32] {
+    let declarations = """
+        struct Pair { dims: vec2u, @size(8) tag: u32, }
+        struct Cell { entries: array<Pair, 2>, transform: mat2x2f, }
+        struct Settings { @size(16) flags: u32, cells: array<Cell, 2>, @size(16) tail: u32, }
+        @group(0) @binding(0) var<uniform> settings: Settings;
+
+        """
+    let computeSource = ShaderInput.wgsl(declarations + """
+        @group(0) @binding(1) var<storage, read_write> output: array<vec4u, 4>;
+        @compute @workgroup_size(4) fn run(@builtin(local_invocation_index) lane: u32) {
+            let outer = i32(lane) - 1i;
+            let inner = select(1u, 2u, lane == 2u);
+            let cell = settings.cells[outer];
+            let entry = cell.entries[inner];
+            output[lane] = vec4u(entry.dims, entry.tag + settings.flags, u32(cell.transform[1].y) + settings.tail);
+        }
+        """)
+    let renderSource = ShaderInput.wgsl(declarations + """
+        @vertex fn vertexMain(@builtin(vertex_index) id: u32) -> @builtin(position) vec4f {
+            let reach = f32(settings.cells[0].entries[1].dims.x);
+            if id == 0u { return vec4f(-1.0f, -1.0f, 0.0f, 1.0f); }
+            if id == 1u { return vec4f(reach, -1.0f, 0.0f, 1.0f); }
+            return vec4f(-1.0f, reach, 0.0f, 1.0f);
+        }
+        @fragment fn fragmentMain() -> @location(0) vec4f {
+            let cell = settings.cells[1];
+            let correct = cell.entries[0].dims.y == 8u && settings.tail == 9u;
+            return select(vec4f(1.0f, 0.0f, 0.0f, 1.0f), vec4f(0.0f, 1.0f, 0.0f, 1.0f), correct);
+        }
+        """)
+    let compiler = IndependentShaderCompiler()
+    let compute = try await device.createComputePipeline(compiler.compileCompute(computeSource, to: .wgsl))
+    let vertex = try compiler.compileRenderStage(renderSource, entryPoint: "vertexMain", to: .wgsl)
+    let fragment = try compiler.compileRenderStage(renderSource, entryPoint: "fragmentMain", to: .wgsl)
+    let render = try await device.createRenderPipeline(vertex: vertex, fragment: fragment, colorFormat: .rgba8Unorm)
+    let uniform = try await device.createBuffer(.init(size: 384, usage: [.uniform, .copyDestination]))
+    let output = try await device.createBuffer(.init(size: 64, usage: [.storage, .copySource]))
+    let target = try await device.createTexture(.init(width: 2, height: 2, format: .rgba8Unorm,
+                                                       usage: [.renderAttachment, .copySource]))
+    let read = try await device.createBuffer(.init(size: 512, usage: [.copyDestination, .mapRead]))
+    let range = ComputeBufferBinding(buffer: uniform, offset: 256, size: 128)
+    let words: [UInt32] =
+        [3, 901, 902, 903, 1, 2, 3, 904, 4, 5, 6, 905] + [Float(1), 2, 3, 4].map(\.bitPattern) +
+        [7, 8, 9, 906, 10, 11, 12, 907] + [Float(5), 6, 7, 8].map(\.bitPattern) + [9, 908, 909, 910]
+    let ticket = try await device.submitCommands([
+        .write(buffer: uniform, offset: 256, words: words),
+        .dispatchComputeRanges(pipeline: compute, bindings: [.init(binding: 0): range, .init(binding: 1): .init(buffer: output)],
+                               workgroups: .init(x: 1)),
+        .copy(source: output, destination: read, byteCount: 64), .read(buffer: read, byteCount: 64),
+        .render(pipeline: render, target: target, clear: .init(red: 0, green: 0, blue: 1, alpha: 1),
+                vertexCount: 3, uniforms: [.init(binding: 0): range]),
+        .copyTextureToBuffer(source: target, destination: read, bytesPerRow: 256),
+        .read(buffer: read, byteCount: 512),
+    ])
+    let snapshots = try await ticket.wait()
+    guard snapshots.map(\.count) == [16, 128] else {
+        throw GPUError.backendFailure("Unexpected nested uniform readback: \(snapshots)")
+    }
+    let pixels = snapshots[1]
+    return snapshots[0] + [pixels[0], pixels[1], pixels[64], pixels[65]]
+}
+
+private func nestedHalfUniformDiagnostic(_ device: Device) async throws -> [UInt32] {
+    guard device.capabilities.features.contains(.shaderF16) else { return [] }
+    let source = ShaderInput.wgsl("""
+        enable f16;
+        struct Packed { low: f16, high: f16, @size(12) tail: f16, }
+        struct Settings { pairs: array<Packed, 2>, }
+        @group(0) @binding(0) var<uniform> settings: Settings;
+        @group(0) @binding(1) var<storage, read_write> output: array<vec4f, 2>;
+        @compute @workgroup_size(2) fn run(@builtin(local_invocation_index) lane: u32) {
+            let packed = settings.pairs[lane];
+            output[lane] = vec4f(f32(packed.low), f32(packed.high), f32(packed.tail), 0.0f);
+        }
+        """)
+    let shader = try IndependentShaderCompiler().compileCompute(source, to: .wgsl)
+    let pipeline = try await device.createComputePipeline(shader)
+    let uniform = try await device.createBuffer(.init(size: 32, usage: [.uniform, .copyDestination]))
+    let output = try await device.createBuffer(.init(size: 32, usage: [.storage, .copySource]))
+    let read = try await device.createBuffer(.init(size: 32, usage: [.copyDestination, .mapRead]))
+    let ticket = try await device.submitCommands([
+        .write(buffer: uniform, offset: 0, words: [0xc0003c00, 0xdead4300, 701, 702, 0x4500c400, 0xbeef4600, 703, 704]),
+        .dispatchCompute(pipeline: pipeline, bindings: [.init(binding: 0): uniform, .init(binding: 1): output],
+                         workgroups: .init(x: 1)),
+        .copy(source: output, destination: read, byteCount: 32), .read(buffer: read, byteCount: 32),
+    ])
+    let snapshots = try await ticket.wait()
+    guard let result = snapshots.first, result.count == 8 else {
+        throw GPUError.backendFailure("Unexpected nested f16 uniform readback: \(snapshots)")
+    }
+    return result
+}
+
+private func standardUniformDiagnostic(_ device: Device) async throws -> [UInt32] {
+    guard device.capabilities.features.contains(.uniformBufferStandardLayout) else { return [] }
+    let declarations = """
+        requires uniform_buffer_standard_layout;
+        requires unrestricted_pointer_parameters;
+        struct Payload { bias: u32, }
+        struct Settings { compact: array<vec2u, 3>, scale: Payload, tail: u32, }
+        @group(0) @binding(0) var<uniform> settings: Settings;
+        @group(0) @binding(2) var<uniform> dense: array<u32, 4>;
+        override increment = 1u;
+
+        """
+    let computeSource = ShaderInput.wgsl(declarations + """
+        @group(0) @binding(1) var<storage, read_write> output: array<vec4u, 4>;
+        fn readDense(values: ptr<uniform, array<u32, 4>>, lane: u32) -> u32 { return (*values)[lane]; }
+        @compute @workgroup_size(4) fn run(@builtin(local_invocation_index) lane: u32) {
+            let config = settings;
+            let item = config.compact[i32(lane) - 1i];
+            output[lane] = vec4u(item, config.scale.bias + readDense(&dense, lane), config.tail + increment);
+        }
+        """)
+    let renderSource = ShaderInput.wgsl(declarations + """
+        @vertex fn vertexMain(@builtin(vertex_index) id: u32) -> @builtin(position) vec4f {
+            let reach = f32(settings.compact[1].x);
+            if id == 0u { return vec4f(-1.0f, -1.0f, 0.0f, 1.0f); }
+            if id == 1u { return vec4f(reach, -1.0f, 0.0f, 1.0f); }
+            return vec4f(-1.0f, reach, 0.0f, 1.0f);
+        }
+        @fragment fn fragmentMain() -> @location(0) vec4f {
+            let valid = settings.scale.bias == 7u && settings.tail + increment == 12u;
+            return select(vec4f(1.0f, 0.0f, 0.0f, 1.0f), vec4f(0.0f, 1.0f, 0.0f, 1.0f), valid);
+        }
+        """)
+    let compiler = IndependentShaderCompiler()
+    let values = ["increment": 3.0]
+    let compute = try await device.createComputePipeline(compiler.compileCompute(computeSource, to: .wgsl, constants: values))
+    let vertex = try compiler.compileRenderStage(renderSource, entryPoint: "vertexMain", to: .wgsl, constants: values)
+    let fragment = try compiler.compileRenderStage(renderSource, entryPoint: "fragmentMain", to: .wgsl, constants: values)
+    let render = try await device.createRenderPipeline(vertex: vertex, fragment: fragment, colorFormat: .rgba8Unorm)
+    let config = try await device.createBuffer(.init(size: 32, usage: [.uniform, .copyDestination]))
+    let dense = try await device.createBuffer(.init(size: 16, usage: [.uniform, .copyDestination]))
+    let output = try await device.createBuffer(.init(size: 64, usage: [.storage, .copySource]))
+    let target = try await device.createTexture(.init(width: 2, height: 2, format: .rgba8Unorm,
+                                                       usage: [.renderAttachment, .copySource]))
+    let read = try await device.createBuffer(.init(size: 512, usage: [.copyDestination, .mapRead]))
+    let ticket = try await device.submitCommands([
+        .write(buffer: config, offset: 0, words: [10, 20, 30, 40, 50, 60, 7, 9]),
+        .write(buffer: dense, offset: 0, words: [100, 200, 300, 400]),
+        .dispatchCompute(pipeline: compute, bindings: [.init(binding: 0): config, .init(binding: 1): output, .init(binding: 2): dense],
+                         workgroups: .init(x: 1)),
+        .copy(source: output, destination: read, byteCount: 64), .read(buffer: read, byteCount: 64),
+        .render(pipeline: render, target: target, clear: .init(red: 0, green: 0, blue: 1, alpha: 1),
+                vertexCount: 3, uniforms: [.init(binding: 0): .init(buffer: config)]),
+        .copyTextureToBuffer(source: target, destination: read, bytesPerRow: 256),
+        .read(buffer: read, byteCount: 512),
+    ])
+    let snapshots = try await ticket.wait()
+    guard snapshots.map(\.count) == [16, 128] else {
+        throw GPUError.backendFailure("Unexpected standard uniform layout readback: \(snapshots)")
+    }
+    let pixels = snapshots[1]
+    return snapshots[0] + [pixels[0], pixels[1], pixels[64], pixels[65]]
+}
+
+private func renderStorageBufferDiagnostic(_ device: Device) async throws -> [UInt32] {
+    let source = ShaderInput.wgsl("""
+        struct Cell { @size(8) count: atomic<u32>, marker: u32, }
+        struct Feedback { header: u32, cells: array<Cell>, }
+        @group(0) @binding(0) var<storage, read> positions: array<vec2f>;
+        @group(0) @binding(1) var<storage, read_write> feedback: Feedback;
+
+        fn position(index: u32) -> vec2f {
+            if arrayLength(&positions) != 3u { return vec2f(4.0f); }
+            return positions[index];
+        }
+
+        @vertex fn vertexMain(@builtin(vertex_index) index: u32) -> @builtin(position) vec4f {
+            return vec4f(position(index), 0.0f, 1.0f);
+        }
+
+        fn storeFeedback(index: u32) {
+            atomicStore(&feedback.cells[index].count, arrayLength(&feedback.cells) * 100u + index);
+        }
+
+        @fragment fn fragmentMain(@builtin(position) point: vec4f) -> @location(0) vec4f {
+            let pixel = vec2u(point.xy);
+            storeFeedback(pixel.y * 2u + pixel.x);
+            return vec4f(0.0f, 1.0f, 0.0f, 1.0f);
+        }
+        """)
+    let compiler = IndependentShaderCompiler()
+    let vertex = try compiler.compileRenderStage(source, entryPoint: "vertexMain", to: .wgsl)
+    let fragment = try compiler.compileRenderStage(source, entryPoint: "fragmentMain", to: .wgsl)
+    let pipeline = try await device.createRenderPipeline(vertex: vertex, fragment: fragment, colorFormat: .rgba8Unorm)
+    let positions = try await device.createBuffer(.init(size: 280, usage: [.storage, .copyDestination]))
+    let feedback = try await device.createBuffer(.init(size: 308, usage: [.storage, .copyDestination, .copySource]))
+    let indices = try await device.createBuffer(.init(size: 8, usage: [.index, .copyDestination]))
+    let target = try await device.createTexture(.init(width: 2, height: 2, format: .rgba8Unorm,
+                                                       usage: [.renderAttachment, .copySource]))
+    let read = try await device.createBuffer(.init(size: 512, usage: [.copyDestination, .mapRead]))
+    let clear = RenderClearColor(red: 0, green: 0, blue: 1, alpha: 1)
+    let bindings: [ComputeBindingSlot: ComputeBufferBinding] = [
+        .init(binding: 0): .init(buffer: positions, offset: 256, size: 24),
+        .init(binding: 1): .init(buffer: feedback, offset: 256, size: 52),
+    ]
+    let ticket = try await device.submitCommands([
+        .write(buffer: positions, offset: 256, words: [Float(-1), -1, 3, -1, -1, 3].map(\.bitPattern)),
+        .write(buffer: feedback, offset: 256, words: [7, 0, 801, 10, 0, 802, 20, 0, 803, 30, 0, 804, 40]),
+        .write(buffer: indices, offset: 0, words: [0x00010000, 2]),
+        .render(pipeline: pipeline, target: target, clear: clear, vertexCount: 3, storageBuffers: bindings),
+        .renderIndexed(pipeline: pipeline, target: target, clear: clear,
+                       indexBuffer: .init(buffer: indices, format: .uint16), draw: .init(indexCount: 3),
+                       storageBuffers: bindings),
+        .copyTextureToBuffer(source: target, destination: read, bytesPerRow: 256),
+        .read(buffer: read, byteCount: 512),
+        .copy(source: feedback, destination: read, byteCount: 308),
+        .read(buffer: read, byteCount: 308),
+    ])
+    let snapshots = try await ticket.wait()
+    guard snapshots.map(\.count) == [128, 77] else {
+        throw GPUError.backendFailure("Unexpected render storage buffer readback: \(snapshots)")
+    }
+    let pixels = snapshots[0]
+    return [pixels[0], pixels[1], pixels[64], pixels[65]] + Array(snapshots[1][64..<77])
 }
 
 private func renderDiagnostic(
@@ -4117,5 +7611,3580 @@ private func renderDiagnostic(
     }
     return (checked, (0..<3).map { (pixels[0] >> (8 * $0)) & 255 }, pipeline.vertexBuffers.count,
             2 * Int(draw.indexCount), Int(instances.count))
+}
+
+private func indirectDispatchDiagnostic(_ device: Device) async throws -> [UInt32] {
+    let compiler = IndependentShaderCompiler()
+    let producer = try await device.createComputePipeline(compiler.compileCompute(.wgsl("""
+        @group(0) @binding(0) var<storage, read_write> args: array<u32, 10>;
+        @compute @workgroup_size(1)
+        fn write_args() {
+            args[1] = 2u; args[2] = 3u; args[3] = 2u;
+            args[4] = 1u; args[5] = 65536u; args[6] = 1u;
+            args[7] = 1u; args[8] = 1u; args[9] = 0u;
+        }
+        """), to: .wgsl))
+    let consumer = try await device.createComputePipeline(compiler.compileCompute(.wgsl("""
+        @group(0) @binding(0) var<storage, read_write> counter: atomic<u32>;
+        @compute @workgroup_size(2)
+        fn count(@builtin(num_workgroups) groups: vec3<u32>) {
+            atomicAdd(&counter, 1u + groups.x + groups.y * 10u + groups.z * 100u);
+        }
+        """), to: .wgsl))
+    let arguments = try await device.createBuffer(.init(size: 40, usage: [.indirect, .storage, .copySource]))
+    let counter = try await device.createBuffer(.init(size: 4, usage: [.storage, .copySource]))
+    let readback = try await device.createBuffer(.init(size: 40, usage: [.copyDestination, .mapRead]))
+    let slot = ComputeBindingSlot(binding: 0)
+    let bindings = [slot: StorageBufferBinding(buffer: counter)]
+    let ticket = try await device.submitCommands([
+        .dispatchCompute(pipeline: producer, bindings: [slot: arguments], workgroups: .init(x: 1)),
+        .dispatchComputeIndirect(pipeline: consumer, bindings: bindings, indirectBuffer: arguments, indirectOffset: 16),
+        .copy(source: counter, destination: readback, byteCount: 4),
+        .read(buffer: readback, byteCount: 4),
+        .dispatchComputeIndirect(pipeline: consumer, bindings: bindings, indirectBuffer: arguments, indirectOffset: 4),
+        .dispatchComputeIndirect(pipeline: consumer, bindings: bindings, indirectBuffer: arguments, indirectOffset: 28),
+        .copy(source: counter, destination: readback, byteCount: 4),
+        .read(buffer: readback, byteCount: 4),
+        .copy(source: arguments, destination: readback, byteCount: 40),
+        .read(buffer: readback, byteCount: 40),
+    ])
+    return try await ticket.wait().flatMap { $0 }
+}
+
+private func indirectDrawDiagnostic(_ device: Device) async throws -> [UInt32] {
+    let firstInstance = device.capabilities.features.contains(.indirectFirstInstance) ? 1 : 0
+    let compiler = IndependentShaderCompiler()
+    let producer = try await device.createComputePipeline(compiler.compileCompute(.wgsl("""
+        @group(0) @binding(0) var<storage, read_write> args: array<u32, 29>;
+        @compute @workgroup_size(1)
+        fn prepare() {
+            args[1] = 3u; args[2] = 1u; args[3] = 1u; args[4] = \(firstInstance)u;
+            args[5] = 3u; args[6] = 1u; args[7] = 1u; args[8] = 0xffffffffu; args[9] = \(firstInstance)u;
+            args[10] = 3u; args[11] = 1u; args[12] = 2u; args[13] = 0xffffffffu; args[14] = 1u;
+            args[15] = 3u; args[16] = 0u; args[17] = 1u; args[18] = 1u;
+            args[19] = 3u; args[20] = 1u; args[21] = 2u; args[22] = 1u;
+            args[23] = 3u; args[24] = 1u; args[25] = 1u; args[26] = 2u;
+            args[27] = 0xabcdefu; args[28] = 0x123456u;
+        }
+        """), to: .wgsl))
+    let source = ShaderInput.wgsl("""
+        struct Raster { @builtin(position) position: vec4f, @location(0) tint: f32, }
+        @vertex fn vs(@location(0) position: vec2f, @location(1) tint: f32) -> Raster {
+            return Raster(vec4f(position, 0.0, 1.0), tint);
+        }
+        @fragment fn fs(in: Raster) -> @location(0) vec4f {
+            return vec4f(1.0 - in.tint, in.tint, 0.0, 1.0);
+        }
+        """)
+    let vertex = try compiler.compileRenderStage(source, entryPoint: "vs", to: .wgsl)
+    let fragment = try compiler.compileRenderStage(source, entryPoint: "fs", to: .wgsl)
+    let pipeline = try await device.createRenderPipeline(vertex: vertex, fragment: fragment, colorFormat: .rgba8Unorm,
+        vertexBuffers: [
+            .init(stride: 8, attributes: [.init(location: 0, offset: 0, format: .float32x2)]),
+            .init(stride: 4, stepMode: .instance, attributes: [.init(location: 1, offset: 0, format: .float32)]),
+        ])
+    let arguments = try await device.createBuffer(.init(size: 116, usage: [.indirect, .storage, .copySource]))
+    let plainArguments = try await device.createBuffer(.init(size: 16, usage: [.indirect, .copyDestination]))
+    let positions = try await device.createBuffer(.init(size: 32, usage: [.vertex, .copyDestination]))
+    let instances = try await device.createBuffer(.init(size: 8, usage: [.vertex, .copyDestination]))
+    let indices = try await device.createBuffer(.init(size: 12, usage: [.index, .copyDestination]))
+    let wideIndices = try await device.createBuffer(.init(size: 24, usage: [.index, .copyDestination]))
+    let target = try await device.createTexture(.init(width: 1, height: 1, format: .rgba8Unorm,
+                                                       usage: [.renderAttachment, .copySource]))
+    let readback = try await device.createBuffer(.init(size: 256, usage: [.copyDestination, .mapRead]))
+    let index = IndexBufferBinding(buffer: indices, format: .uint16, offset: 2, size: 8)
+    let wideIndex = IndexBufferBinding(buffer: wideIndices, format: .uint32, offset: 4, size: 16)
+    let streams = [VertexBufferBinding(buffer: positions), VertexBufferBinding(buffer: instances)]
+    let clear = RenderColorLoadAction.clear(.init(red: 0, green: 0, blue: 1, alpha: 1))
+    func draw(_ offset: UInt64, index: IndexBufferBinding? = nil, buffer: ResourceID? = nil) -> BufferCommand {
+        .renderIndirect(pipeline: pipeline, target: target, colorLoad: clear, indirectBuffer: buffer ?? arguments,
+                        indirectOffset: offset, indexBuffer: index, vertexBuffers: streams)
+    }
+    let indexWords: [UInt32] = [0x00630063, 0x00030002, 0x00630004]
+    let capture: [BufferCommand] = [
+        .copyTextureToBuffer(source: target, destination: readback, bytesPerRow: 256),
+        .read(buffer: readback, byteCount: 4),
+    ]
+    let prepare: [BufferCommand] = [
+        .write(buffer: positions, offset: 0, words: [Float(4), 4, -1, -1, 3, -1, -1, 3].map(\.bitPattern)),
+        .write(buffer: instances, offset: 0, words: [0, Float(1).bitPattern]),
+        .write(buffer: plainArguments, offset: 0, words: [3, 1, 1, 1]),
+        .write(buffer: indices, offset: 0, words: indexWords),
+        .write(buffer: wideIndices, offset: 0, words: [99, 99, 2, 3, 4, 99]),
+        .dispatchCompute(pipeline: producer, bindings: [.init(binding: 0): arguments], workgroups: .init(x: 1)),
+    ]
+    let ticket = try await device.submitCommands(prepare + [
+        draw(4), draw(20, index: index), draw(40, index: index), draw(60), draw(76), draw(92),
+        draw(0, buffer: plainArguments), draw(20, index: wideIndex),
+    ].flatMap { [$0] + capture } + [
+        .copy(source: arguments, destination: readback, byteCount: 116),
+        .read(buffer: readback, byteCount: 116),
+    ])
+    return try await ticket.wait().flatMap { $0 }
+}
+
+private func clipShader(count: Int) -> String {
+    """
+    enable clip_distances;
+    struct Output {
+        @builtin(clip_distances) planes: array<f32, \(count)>,
+        @location(0) tint: f32,
+        @builtin(position) position: vec4f,
+    }
+
+    fn projected(p: vec2f) -> Output {
+        var result: Output;
+        result.position = vec4f(p, 0.0, 1.0);
+        result.tint = 1.0;
+        result.planes[0] = p.x;
+        \(count > 1 ? "result.planes[\(count - 1)] = p.y;" : "")
+        return result;
+    }
+
+    @vertex fn vs(@location(0) point: vec2f) -> Output {
+        return projected(point);
+    }
+
+    @fragment fn fs(@location(0) tint: f32) -> @location(0) vec4f {
+        return vec4f(0.0, tint, 0.0, 1.0);
+    }
+    """
+}
+
+
+private func clipDistanceDiagnostic(_ device: Device) async throws -> [UInt32] {
+    let compiler = IndependentShaderCompiler()
+    let eightPlaneSource = ShaderInput.wgsl(clipShader(count: 8))
+    let vertex = try compiler.compileRenderStage(eightPlaneSource, entryPoint: "vs", to: .wgsl)
+    let fragment = try compiler.compileRenderStage(eightPlaneSource, entryPoint: "fs", to: .wgsl)
+    let layout = VertexBufferLayout(stride: 8, attributes: [.init(location: 0, offset: 0, format: .float32x2)])
+    if !device.capabilities.features.contains(.clipDistances) {
+        do {
+            _ = try await device.createRenderPipeline(vertex: vertex, fragment: fragment,
+                                                       colorFormat: .rgba8Unorm, vertexBuffers: [layout])
+        } catch GPUError.validation("Feature not advertised") {
+            return []
+        }
+        throw GPUError.backendFailure("Pipeline accepted clip distances without the device feature")
+    }
+    let onePlane = try compiler.compileRenderStage(.wgsl(clipShader(count: 1)), entryPoint: "vs", to: .wgsl)
+    let onePlanePipeline = try await device.createRenderPipeline(vertex: onePlane, fragment: fragment,
+                                                                 colorFormat: .rgba8Unorm, vertexBuffers: [layout])
+    let eightPlanePipeline = try await device.createRenderPipeline(vertex: vertex, fragment: fragment,
+                                                                   colorFormat: .rgba8Unorm, vertexBuffers: [layout])
+    let spirv = try compiler.compileWebGPURenderStage(.spirv(clipDistanceSPIRV()), entryPoint: "main")
+    let spirvPipeline = try await device.createRenderPipeline(vertex: spirv, fragment: fragment,
+                                                              colorFormat: .rgba8Unorm, vertexBuffers: [layout])
+    let vertices = try await device.createBuffer(.init(size: 24, usage: [.vertex, .copyDestination]))
+    let target = try await device.createTexture(.init(width: 2, height: 2, format: .rgba8Unorm,
+                                                       usage: [.renderAttachment, .copySource]))
+    let readback = try await device.createBuffer(.init(size: 512, usage: [.copyDestination, .mapRead]))
+    let clear = RenderClearColor(red: 0, green: 0, blue: 1, alpha: 1)
+    let capture: [BufferCommand] = [
+        .copyTextureToBuffer(source: target, destination: readback, bytesPerRow: 256),
+        .read(buffer: readback, byteCount: 512),
+    ]
+    let commands: [BufferCommand] = [
+        .write(buffer: vertices, offset: 0, words: [Float(-1), -1, 3, -1, -1, 3].map(\.bitPattern)),
+    ] + [onePlanePipeline, eightPlanePipeline].flatMap { pipeline in
+        [.render(pipeline: pipeline, target: target, clear: clear, vertexCount: 3, vertexBuffers: [.init(buffer: vertices)])] + capture
+    } + [
+        .write(buffer: vertices, offset: 0, words: [Float(-1), 1, 3, 1, -1, -3].map(\.bitPattern)),
+        .render(pipeline: spirvPipeline, target: target, clear: clear, vertexCount: 3, vertexBuffers: [.init(buffer: vertices)]),
+    ] + capture
+    let pixels = try await device.submitCommands(commands).wait()
+    guard pixels.map(\.count) == [128, 128, 128] else { throw GPUError.backendFailure("Unexpected clipping readback") }
+    return pixels.flatMap { [$0[0], $0[1], $0[64], $0[65]] }
+}
+
+private func clipDistanceSPIRV() -> [UInt32] {
+    func op(_ code: UInt32, _ operands: UInt32...) -> [UInt32] {
+        [UInt32(operands.count + 1) << 16 | code] + operands
+    }
+    var words: [UInt32] = [0x07230203, 0x00010300, 0, 100, 0]
+    for instruction in [
+        op(17, 1), op(17, 32), op(14, 0, 1), op(15, 0, 14, 0x6e69616d, 0, 15, 16, 18),
+        op(71, 9, 2), op(72, 9, 0, 11, 0), op(72, 9, 1, 11, 3), op(71, 15, 30, 0), op(71, 18, 30, 0),
+        op(19, 1), op(21, 2, 32, 0), op(22, 3, 32), op(23, 4, 3, 2), op(23, 5, 3, 4),
+        op(43, 2, 20, 0), op(43, 2, 21, 1), op(43, 2, 22, 5), op(43, 2, 23, 4),
+        op(43, 3, 24, 0), op(43, 3, 25, Float(1).bitPattern),
+        op(28, 8, 3, 22), op(32, 6, 1, 4), op(32, 7, 3, 5), op(32, 12, 3, 3), op(33, 13, 1),
+        op(30, 9, 5, 8), op(32, 11, 3, 9), op(59, 6, 15, 1), op(59, 11, 16, 3), op(59, 12, 18, 3),
+        op(54, 1, 14, 0, 13), op(248, 30), op(61, 4, 31, 15), op(81, 3, 32, 31, 0), op(81, 3, 33, 31, 1),
+        op(80, 5, 34, 32, 33, 24, 25), op(65, 7, 35, 16, 20), op(62, 35, 34), op(62, 18, 25),
+        op(65, 12, 37, 16, 21, 20), op(62, 37, 32),
+        op(127, 3, 38, 33), op(65, 12, 39, 16, 21, 23), op(62, 39, 38), op(253), op(56),
+    ] { words += instruction }
+    return words
+}
+
+private let primitiveIndexShader = """
+    enable primitive_index;
+    struct VertexOutput {
+        @builtin(position) position: vec4f,
+        @location(0) tint: f32,
+    }
+
+    @vertex fn vs(@location(0) point: vec2f, @builtin(instance_index) instance: u32) -> VertexOutput {
+        return VertexOutput(vec4f(point.x, point.y - f32(instance), 0.0, 1.0), 1.0);
+    }
+
+    struct FragmentInput {
+        @location(0) tint: f32,
+        @builtin(primitive_index) index: u32,
+        @builtin(position) pixel: vec4f,
+        @builtin(front_facing) front: bool,
+    }
+
+    fn encode(index: u32, tint: f32) -> vec4u {
+        return vec4u(index + u32(tint), 0u, 0u, 255u);
+    }
+
+    @fragment fn fs(input: FragmentInput) -> @location(0) vec4u {
+        return encode(input.index, input.tint);
+    }
+
+    @fragment fn fs_direct(@builtin(primitive_index) index: u32) -> @location(0) vec4u {
+        return encode(index, 1.0);
+    }
+    """
+
+private func verifyNativeBarycentricsAreUnavailable(_ device: Device) async throws {
+    let compiler = IndependentShaderCompiler()
+    let source = ShaderInput.wgsl("""
+        @vertex fn vs() -> @builtin(position) vec4f { return vec4f(0, 0, 0, 1); }
+        @fragment fn fs(@builtin(barycentric) weights: vec3f) -> @location(0) vec4f {
+            return vec4f(weights, 1);
+        }
+        """)
+    let vertex = try compiler.compileWebGPURenderStage(source, entryPoint: "vs")
+    let glsl = ShaderInput.glsl("""
+        #version 450
+        #extension GL_EXT_fragment_shader_barycentric : require
+        layout(location = 0) out vec4 color;
+        void main() { color = vec4(gl_BaryCoordNoPerspEXT, 1.0); }
+        """, stage: .fragment, defines: [:])
+    // glslang output for the same fragment using gl_BaryCoordEXT.
+    let spirv = ShaderInput.spirv([
+        0x07230203, 0x00010300, 0x0008000b, 0x00000013, 0x00000000, 0x00020011, 0x00000001, 0x00020011,
+        0x000014a4, 0x000a000a, 0x5f565053, 0x5f52484b, 0x67617266, 0x746e656d, 0x6168735f, 0x5f726564,
+        0x79726162, 0x746e6563, 0x00636972, 0x0003000e, 0x00000000, 0x00000001, 0x0007000f, 0x00000004,
+        0x00000004, 0x6e69616d, 0x00000000, 0x00000009, 0x0000000c, 0x00030010, 0x00000004, 0x00000007,
+        0x00040047, 0x00000009, 0x0000001e, 0x00000000, 0x00040047, 0x0000000c, 0x0000000b, 0x000014a6,
+        0x00020013, 0x00000002, 0x00030021, 0x00000003, 0x00000002, 0x00030016, 0x00000006, 0x00000020,
+        0x00040017, 0x00000007, 0x00000006, 0x00000004, 0x00040020, 0x00000008, 0x00000003, 0x00000007,
+        0x0004003b, 0x00000008, 0x00000009, 0x00000003, 0x00040017, 0x0000000a, 0x00000006, 0x00000003,
+        0x00040020, 0x0000000b, 0x00000001, 0x0000000a, 0x0004003b, 0x0000000b, 0x0000000c, 0x00000001,
+        0x0004002b, 0x00000006, 0x0000000e, 0x3f800000, 0x00050036, 0x00000002, 0x00000004, 0x00000000,
+        0x00000003, 0x000200f8, 0x00000005, 0x0004003d, 0x0000000a, 0x0000000d, 0x0000000c, 0x00050051,
+        0x00000006, 0x0000000f, 0x0000000d, 0x00000000, 0x00050051, 0x00000006, 0x00000010, 0x0000000d,
+        0x00000001, 0x00050051, 0x00000006, 0x00000011, 0x0000000d, 0x00000002, 0x00070050, 0x00000007,
+        0x00000012, 0x0000000f, 0x00000010, 0x00000011, 0x0000000e, 0x0003003e, 0x00000009, 0x00000012,
+        0x000100fd, 0x00010038,
+    ])
+    for input in [glsl, spirv] {
+        let native = try compiler.compileRenderStage(input, entryPoint: "main", to: .wgsl)
+        guard native.requiresBarycentrics else { throw GPUError.backendFailure("Imported barycentrics lost their device feature") }
+        do {
+            _ = try compiler.compileWebGPURenderStage(input, entryPoint: "main")
+        } catch ShaderFailure.unsupported {
+            continue
+        }
+        throw GPUError.backendFailure("Browser profile accepted imported native barycentrics")
+    }
+    let fragment = try compiler.compileRenderStage(source, entryPoint: "fs", to: .wgsl)
+    do {
+        _ = try await device.createRenderPipeline(vertex: vertex, fragment: fragment, colorFormat: .rgba8Unorm)
+    } catch GPUError.validation("Feature not advertised") {
+        return
+    }
+    throw GPUError.backendFailure("Browser pipeline accepted native barycentrics")
+}
+
+private func primitiveIndexDiagnostic(_ device: Device) async throws -> [UInt32] {
+    let compiler = IndependentShaderCompiler()
+    let source = ShaderInput.wgsl(primitiveIndexShader)
+    let vertex = try compiler.compileRenderStage(source, entryPoint: "vs", to: .wgsl)
+    let fragment = try compiler.compileRenderStage(source, entryPoint: "fs", to: .wgsl)
+    let layout = VertexBufferLayout(stride: 8, attributes: [.init(location: 0, offset: 0, format: .float32x2)])
+    if !device.capabilities.features.contains(.primitiveIndex) {
+        do {
+            _ = try await device.createRenderPipeline(vertex: vertex, fragment: fragment, colorFormat: .rgba8Uint,
+                                                       vertexBuffers: [layout])
+        } catch GPUError.validation("Feature not advertised") {
+            return []
+        }
+        throw GPUError.backendFailure("Pipeline accepted primitive_index without the device feature")
+    }
+    let list = try await device.createRenderPipeline(vertex: vertex, fragment: fragment, colorFormat: .rgba8Uint,
+                                                     vertexBuffers: [layout])
+    let directFragment = try compiler.compileRenderStage(source, entryPoint: "fs_direct", to: .wgsl)
+    let strip = try await device.createRenderPipeline(vertex: vertex, fragment: directFragment, colorFormat: .rgba8Uint,
+        vertexBuffers: [layout], primitive: .init(topology: .triangleStrip, stripIndexFormat: .uint16))
+    let positions = try await device.createBuffer(.init(size: 48, usage: [.vertex, .copyDestination]))
+    let indices = try await device.createBuffer(.init(size: 16, usage: [.index, .copyDestination]))
+    let target = try await device.createTexture(.init(width: 4, height: 4, format: .rgba8Uint,
+                                                       usage: [.renderAttachment, .copySource]))
+    let readback = try await device.createBuffer(.init(size: 1024, usage: [.copyDestination, .mapRead]))
+    let streams = [VertexBufferBinding(buffer: positions)]
+    let capture: [BufferCommand] = [
+        .copyTextureToBuffer(source: target, destination: readback, bytesPerRow: 256),
+        .read(buffer: readback, byteCount: 1024),
+    ]
+    let ticket = try await device.submitCommands([
+        .write(buffer: positions, offset: 0,
+               words: [Float(-1), 0, 0, 0, -1, 1, 0, 0, 1, 0, 1, 1].map(\.bitPattern)),
+        .write(buffer: indices, offset: 0, words: [0x00010000, 0xffff0002, 0x00040003, 0x00000005]),
+        .render(pipeline: list, target: target, clear: .transparentBlack, vertexCount: 6,
+                vertexBuffers: streams, instances: .init(count: 2)),
+    ] + capture + [
+        .renderIndexed(pipeline: strip, target: target, clear: .transparentBlack,
+                       indexBuffer: .init(buffer: indices, format: .uint16),
+                       draw: .init(indexCount: 7, instances: .init(count: 2)), vertexBuffers: streams),
+    ] + capture)
+    let words = try await ticket.wait()
+    guard words.map(\.count) == [256, 256] else { throw GPUError.backendFailure("Unexpected primitive index readback") }
+    return words.flatMap { [$0[64], $0[67], $0[192], $0[195]] }
+}
+
+private let invariantPositionShader = """
+    struct Raster {
+        @location(0) tint: f32,
+        @builtin(position) @invariant point: vec4f,
+    }
+
+    fn project(value: vec2f) -> vec4f {
+        let xy = value * vec2f(0.79, 0.81) + vec2f(0.12, 0.11);
+        let z = value.x * 0.123 + value.y * 0.077 + 0.45;
+        return vec4f(xy, z, 1.0);
+    }
+
+    @vertex fn direct(@location(0) vertex: vec2f) -> @invariant @builtin(position) vec4f {
+        return project(vertex);
+    }
+
+    @vertex fn structured(@location(0) vertex: vec2f) -> Raster {
+        return Raster(1.0, project(vertex));
+    }
+
+    @fragment fn fill(@builtin(position) @invariant point: vec4f) -> @location(0) vec4f {
+        return vec4f(0.0, select(0.0, 1.0, point.w > 0.0), 0.0, 1.0);
+    }
+
+    @fragment fn shade(input: Raster) -> @location(0) vec4f {
+        return vec4f(0.0, input.tint, 0.0, 1.0);
+    }
+    """
+
+private func invariantPositionDiagnostic(_ device: Device) async throws -> [UInt32] {
+    let compiler = IndependentShaderCompiler()
+    let source = ShaderInput.wgsl(invariantPositionShader)
+    let layout = VertexBufferLayout(stride: 8, attributes: [.init(location: 0, offset: 0, format: .float32x2)])
+    let direct = try await device.createRenderPipeline(
+        vertex: compiler.compileRenderStage(source, entryPoint: "direct", to: .wgsl),
+        fragment: compiler.compileRenderStage(source, entryPoint: "fill", to: .wgsl),
+        colorFormat: .rgba8Unorm, vertexBuffers: [layout], depthState: .init(compare: .always))
+    let structured = try await device.createRenderPipeline(
+        vertex: compiler.compileRenderStage(source, entryPoint: "structured", to: .wgsl),
+        fragment: compiler.compileRenderStage(source, entryPoint: "shade", to: .wgsl),
+        colorFormat: .rgba8Unorm, vertexBuffers: [layout], depthState: .init(compare: .equal, writeEnabled: false))
+    let vertices = try await device.createBuffer(.init(size: 24, usage: [.vertex, .copyDestination]))
+    let color = try await device.createTexture(.init(width: 4, height: 4, format: .rgba8Unorm,
+                                                      usage: [.renderAttachment, .copySource]))
+    let depth = try await device.createTexture(.init(width: 4, height: 4, format: .depth32Float, usage: .renderAttachment))
+    let readback = try await device.createBuffer(.init(size: 1024, usage: [.copyDestination, .mapRead]))
+    let clear = RenderClearColor(red: 0, green: 0, blue: 1, alpha: 1)
+    let capture: [BufferCommand] = [
+        .copyTextureToBuffer(source: color, destination: readback, bytesPerRow: 256),
+        .read(buffer: readback, byteCount: 1024),
+    ]
+    let ticket = try await device.submitCommands([
+        .write(buffer: vertices, offset: 0, words: [Float(-1), -1, 3, -1, -1, 3].map(\.bitPattern)),
+        .render(pipeline: direct, target: color, clear: clear, vertexCount: 3, vertexBuffers: [.init(buffer: vertices)],
+                depth: .init(texture: depth, loadAction: .clear(1))),
+    ] + capture + [
+        .render(pipeline: structured, target: color, clear: clear, vertexCount: 3, vertexBuffers: [.init(buffer: vertices)],
+                depth: .init(texture: depth, loadAction: .load)),
+    ] + capture)
+    let snapshots = try await ticket.wait()
+    guard snapshots.map(\.count) == [256, 256] else { throw GPUError.backendFailure("Unexpected invariant raster readback") }
+    return snapshots.flatMap { snapshot in
+        (0..<4).flatMap { row in Array(snapshot[(row * 64)..<(row * 64 + 4)]) }
+    }
+}
+
+private let voidFragmentShader = """
+    @vertex fn vs(@location(0) point: vec2f) -> @builtin(position) vec4f {
+        return vec4f(point, 0.5, 1.0);
+    }
+
+    @fragment fn depth_only(@invariant @builtin(position) point: vec4f) {
+        if point.x < 1.0 { discard; }
+        if point.y < 1.0 { return; }
+    }
+
+    @fragment fn shade() -> @location(0) vec4f { return vec4f(0.0, 1.0, 0.0, 1.0); }
+    """
+
+private func voidFragmentDiagnostic(_ device: Device) async throws -> [UInt32] {
+    let compiler = IndependentShaderCompiler()
+    let source = ShaderInput.wgsl(voidFragmentShader)
+    let layout = VertexBufferLayout(stride: 8, attributes: [.init(location: 0, offset: 0, format: .float32x2)])
+    let vertex = try compiler.compileRenderStage(source, entryPoint: "vs", to: .wgsl)
+    let depthFragment = try compiler.compileRenderStage(source, entryPoint: "depth_only", to: .wgsl)
+    let shade = try compiler.compileRenderStage(source, entryPoint: "shade", to: .wgsl)
+    let write = try await device.createRenderPipeline(vertex: vertex, fragment: depthFragment, colorFormat: .rgba8Unorm,
+        vertexBuffers: [layout], depthState: .init(compare: .always))
+    let masked = try await device.createRenderPipeline(vertex: vertex, fragment: depthFragment, colorFormat: .rgba8Unorm,
+        vertexBuffers: [layout], depthState: .init(compare: .always), sampleMask: 0)
+    let testDepth = try await device.createRenderPipeline(vertex: vertex, fragment: shade, colorFormat: .rgba8Unorm,
+        vertexBuffers: [layout], depthState: .init(compare: .equal, writeEnabled: false))
+    let vertices = try await device.createBuffer(.init(size: 24, usage: [.vertex, .copyDestination]))
+    let target = try await device.createTexture(.init(width: 2, height: 2, format: .rgba8Unorm,
+                                                       usage: [.renderAttachment, .copySource]))
+    let depth = try await device.createTexture(.init(width: 2, height: 2, format: .depth32Float, usage: .renderAttachment))
+    let readback = try await device.createBuffer(.init(size: 512, usage: [.copyDestination, .mapRead]))
+    let clear = RenderClearColor(red: 0, green: 0, blue: 1, alpha: 1)
+    let capture: [BufferCommand] = [
+        .copyTextureToBuffer(source: target, destination: readback, bytesPerRow: 256),
+        .read(buffer: readback, byteCount: 512),
+    ]
+    var commands: [BufferCommand] = [
+        .write(buffer: vertices, offset: 0, words: [Float(-1), -1, 3, -1, -1, 3].map(\.bitPattern)),
+    ]
+    for pipeline in [write, masked] {
+        commands.append(.render(pipeline: pipeline, target: target, clear: clear, vertexCount: 3,
+                                vertexBuffers: [.init(buffer: vertices)], depth: .init(texture: depth, loadAction: .clear(1))))
+        commands += capture
+        commands.append(.render(pipeline: testDepth, target: target, colorLoad: .load, vertexCount: 3,
+                                vertexBuffers: [.init(buffer: vertices)], depth: .init(texture: depth, loadAction: .load)))
+        commands += capture
+    }
+    let snapshots = try await device.submitCommands(commands).wait()
+    guard snapshots.map(\.count) == [128, 128, 128, 128] else { throw GPUError.backendFailure("Unexpected depth-only readback") }
+    return snapshots.flatMap { [$0[0], $0[1], $0[64], $0[65]] }
+}
+
+private let discardContinuationShader = """
+    @group(0) @binding(0) var<storage, read_write> counts: array<atomic<u32>, 4>;
+
+    fn record_and_discard(lane: u32, x: f32) -> f32 {
+        atomicAdd(&counts[lane], 1u);
+        discard;
+        atomicAdd(&counts[lane], 4u);
+        return x * 4.0;
+    }
+
+    @vertex fn vs(@location(0) point: vec2f) -> @builtin(position) vec4f {
+        return vec4f(point, 0.5, 1.0);
+    }
+
+    @fragment fn fs(@builtin(position) point: vec4f) -> @location(0) vec4f {
+        let lane = u32(point.y) * 2u + u32(point.x);
+        atomicAdd(&counts[lane], 2u);
+        var derivativeInput = point.x * 2.0;
+        if point.x < 1.0 { derivativeInput = record_and_discard(lane, point.x); }
+        let delta = dpdxFine(derivativeInput);
+        atomicAdd(&counts[lane], 7u + u32(delta));
+        return vec4f(0.0, delta, 0.0, 1.0);
+    }
+    """
+
+private func discardContinuationDiagnostic(_ device: Device) async throws -> [UInt32] {
+    let compiler = IndependentShaderCompiler()
+    let source = ShaderInput.wgsl(discardContinuationShader)
+    let vertex = try compiler.compileRenderStage(source, entryPoint: "vs", to: .wgsl)
+    let fragment = try compiler.compileRenderStage(source, entryPoint: "fs", to: .wgsl)
+    let pipeline = try await device.createRenderPipeline(vertex: vertex, fragment: fragment, colorFormat: .rgba8Unorm,
+        vertexBuffers: [.init(stride: 8, attributes: [.init(location: 0, offset: 0, format: .float32x2)])])
+    let vertices = try await device.createBuffer(.init(size: 24, usage: [.vertex, .copyDestination]))
+    let counts = try await device.createBuffer(.init(size: 16, usage: [.storage, .copySource]))
+    let color = try await device.createTexture(.init(width: 2, height: 2, format: .rgba8Unorm,
+                                                      usage: [.renderAttachment, .copySource]))
+    let readback = try await device.createBuffer(.init(size: 512, usage: [.copyDestination, .mapRead]))
+    let clear = RenderClearColor(red: 0, green: 0, blue: 1, alpha: 1)
+    let commands: [BufferCommand] = [
+        .write(buffer: vertices, offset: 0, words: [Float(-1), -1, 3, -1, -1, 3].map(\.bitPattern)),
+        .render(pipeline: pipeline, target: color, clear: clear, vertexCount: 3, vertexBuffers: [.init(buffer: vertices)],
+                storageBuffers: [.init(binding: 0): .init(buffer: counts)]),
+        .copyTextureToBuffer(source: color, destination: readback, bytesPerRow: 256),
+        .read(buffer: readback, byteCount: 512),
+        .copy(source: counts, destination: readback, byteCount: 16),
+        .read(buffer: readback, byteCount: 16),
+    ]
+    let result = try await device.submitCommands(commands).wait()
+    guard result.map(\.count) == [128, 4] else { throw GPUError.backendFailure("Unexpected discard readback") }
+    let pixels = result[0]
+    return [pixels[0], pixels[1], pixels[64], pixels[65]] + result[1]
+}
+
+private let depthClipControlShader = """
+    @vertex fn vs(@location(0) point: vec4f) -> @builtin(position) vec4f { return point; }
+    @fragment fn fs() -> @location(0) vec4f { return vec4f(0.0, 1.0, 0.0, 1.0); }
+    """
+
+private func depthClipControlDiagnostic(_ device: Device) async throws -> [UInt32] {
+    let compiler = IndependentShaderCompiler()
+    let source = ShaderInput.wgsl(depthClipControlShader)
+    let vertex = try compiler.compileRenderStage(source, entryPoint: "vs", to: .wgsl)
+    let fragment = try compiler.compileRenderStage(source, entryPoint: "fs", to: .wgsl)
+    let layout = VertexBufferLayout(stride: 16, attributes: [.init(location: 0, offset: 0, format: .float32x4)])
+    let depthState = RenderDepthState(compare: .always)
+    if !device.capabilities.features.contains(.depthClipControl) {
+        do {
+            _ = try await device.createRenderPipeline(vertex: vertex, fragment: fragment, colorFormat: .rgba8Unorm,
+                vertexBuffers: [layout], depthState: depthState, primitive: .init(unclippedDepth: true))
+        } catch GPUError.validation("Feature not advertised") {
+            return []
+        }
+        throw GPUError.backendFailure("Pipeline accepted unclippedDepth without the device feature")
+    }
+    let clip = try await device.createRenderPipeline(vertex: vertex, fragment: fragment, colorFormat: .rgba8Unorm,
+                                                      vertexBuffers: [layout], depthState: depthState)
+    let clamp = try await device.createRenderPipeline(vertex: vertex, fragment: fragment, colorFormat: .rgba8Unorm,
+        vertexBuffers: [layout], depthState: depthState, primitive: .init(unclippedDepth: true))
+    let points: [Float] = [
+        -1, -1, -1, 1,   3, -1, -1, 1,   -1, 3, -1, 1,
+        -1, -1,  2, 1,   3, -1,  2, 1,   -1, 3,  2, 1,
+         2, -1, -1, 1,   4, -1, -1, 1,    2, 3, -1, 1,
+        -1, -1, -1, 1,   1, -1, 1.5, 1,   0, 1, 0.5, 1,
+    ]
+    let vertices = try await device.createBuffer(.init(size: UInt64(points.count * 4), usage: [.vertex, .copyDestination]))
+    let color = try await device.createTexture(.init(width: 1, height: 1, format: .rgba8Unorm,
+                                                      usage: [.renderAttachment, .copySource]))
+    let depth = try await device.createTexture(.init(width: 1, height: 1, format: .depth32Float,
+                                                      usage: [.renderAttachment, .copySource]))
+    let readback = try await device.createBuffer(.init(size: 256, usage: [.copyDestination, .mapRead]))
+    let clear = RenderClearColor(red: 0, green: 0, blue: 1, alpha: 1)
+    let raster = RenderRasterState(viewport: .init(x: 0, y: 0, width: 1, height: 1, minDepth: 0.25, maxDepth: 0.75))
+    let draws: [(RenderPipeline, UInt32)] = [(clip, 0), (clamp, 0), (clamp, 3), (clip, 3), (clamp, 6), (clamp, 9)]
+    let capture: [BufferCommand] = [
+        .copyTextureToBuffer(source: color, destination: readback, bytesPerRow: 256),
+        .read(buffer: readback, byteCount: 4),
+        .copyTextureToBuffer(source: depth, destination: readback, bytesPerRow: 256),
+        .read(buffer: readback, byteCount: 4),
+    ]
+    var commands: [BufferCommand] = [.write(buffer: vertices, offset: 0, words: points.map(\.bitPattern))]
+    for (pipeline, firstVertex) in draws {
+        commands.append(.render(pipeline: pipeline, target: color, clear: clear, vertexCount: 3,
+                                vertexBuffers: [.init(buffer: vertices)], firstVertex: firstVertex,
+                                depth: .init(texture: depth, loadAction: .clear(0.5)), raster: raster))
+        commands += capture
+    }
+    return try await device.submitCommands(commands).wait().flatMap { $0 }
+}
+
+private let timestampCompute = """
+    @group(0) @binding(0) var<storage, read_write> result: array<u32, 64>;
+    @compute @workgroup_size(64) fn run(@builtin(local_invocation_index) lane: u32) {
+        result[lane] = lane * 7u;
+    }
+    """
+
+private let timestampRender = """
+    @vertex fn vs(@location(0) point: vec2f) -> @builtin(position) vec4f { return vec4f(point, 0.5, 1.0); }
+    @fragment fn fs() -> @location(0) vec4f { return vec4f(0.0, 1.0, 0.0, 1.0); }
+    """
+
+private func timestampQueryDiagnostic(_ device: Device) async throws -> [UInt32] {
+    if !device.capabilities.features.contains(.timestampQuery) {
+        do {
+            _ = try await device.createQuerySet(.init(type: .timestamp, count: 1))
+        } catch GPUError.validation("Feature not advertised") {
+            return []
+        }
+        throw GPUError.backendFailure("Query set accepted without the timestamp feature")
+    }
+    let compiler = IndependentShaderCompiler()
+    let compute = try await device.createComputePipeline(compiler.compileCompute(.wgsl(timestampCompute), to: .wgsl))
+    let source = ShaderInput.wgsl(timestampRender)
+    let vertex = try compiler.compileRenderStage(source, entryPoint: "vs", to: .wgsl)
+    let fragment = try compiler.compileRenderStage(source, entryPoint: "fs", to: .wgsl)
+    let render = try await device.createRenderPipeline(vertex: vertex, fragment: fragment, colorFormat: .rgba8Unorm,
+        vertexBuffers: [.init(stride: 8, attributes: [.init(location: 0, offset: 0, format: .float32x2)])])
+    let query = try await device.createQuerySet(.init(type: .timestamp, count: 6))
+    let result = try await device.createBuffer(.init(size: 304, usage: [.queryResolve, .copyDestination, .copySource]))
+    let readback = try await device.createBuffer(.init(size: 304, usage: [.copyDestination, .mapRead]))
+    let output = try await device.createBuffer(.init(size: 256, usage: .storage))
+    let positions = try await device.createBuffer(.init(size: 24, usage: [.vertex, .copyDestination]))
+    let target = try await device.createTexture(.init(width: 2, height: 2, format: .rgba8Unorm, usage: .renderAttachment))
+    let capture: [BufferCommand] = [
+        .resolveQuerySet(querySet: query, firstQuery: 0, queryCount: 6, destination: result, destinationOffset: 256),
+        .copy(source: result, destination: readback, byteCount: 304),
+        .read(buffer: readback, byteCount: 304),
+    ]
+    let initialize: [BufferCommand] = [
+        .write(buffer: result, offset: 0, words: [0x12345678]),
+        .write(buffer: result, offset: 256, words: Array(repeating: 0xffffffff, count: 12)),
+        .write(buffer: positions, offset: 0, words: [Float(-1), -1, 3, -1, -1, 3].map(\.bitPattern)),
+    ]
+    let computePass = BufferCommand.dispatchCompute(pipeline: compute, bindings: [.init(binding: 0): output], workgroups: .init(x: 1))
+    let renderPass = BufferCommand.render(pipeline: render, target: target, clear: .transparentBlack,
+                                          vertexCount: 3, vertexBuffers: [.init(buffer: positions)])
+    let timestamps: [BufferCommand] = [
+        .timestamped(pass: computePass, writes: .init(querySet: query, beginningOfPassWriteIndex: 1, endOfPassWriteIndex: 2)),
+        .timestamped(pass: renderPass, writes: .init(querySet: query, beginningOfPassWriteIndex: 4, endOfPassWriteIndex: 5)),
+    ]
+    let snapshots = try await device.submitCommands(initialize + capture + timestamps + capture).wait()
+    let repeated = try await device.submitCommands(capture).wait()
+    let emptyCompute = BufferCommand.dispatchCompute(pipeline: compute, bindings: [.init(binding: 0): output],
+                                                      workgroups: .init(x: 0))
+    let emptyRender = BufferCommand.render(pipeline: render, target: target, clear: .transparentBlack,
+                                           vertexCount: 0, vertexBuffers: [.init(buffer: positions)])
+    let emptyPasses: [BufferCommand] = [
+        .timestamped(pass: emptyCompute, writes: .init(querySet: query, beginningOfPassWriteIndex: 0)),
+        .timestamped(pass: emptyRender, writes: .init(querySet: query, endOfPassWriteIndex: 3)),
+    ]
+    let emptySnapshots = try await device.submitCommands(emptyPasses + capture).wait()
+    let arguments = try await device.createBuffer(.init(size: 32, usage: [.indirect, .copyDestination]))
+    let indirectCompute = BufferCommand.dispatchComputeIndirect(pipeline: compute,
+        bindings: [.init(binding: 0): .init(buffer: output)], indirectBuffer: arguments)
+    let indirectRender = BufferCommand.renderIndirect(pipeline: render, target: target, colorLoad: .clear(.transparentBlack),
+        indirectBuffer: arguments, indirectOffset: 16, vertexBuffers: [.init(buffer: positions)])
+    let indirectPasses: [BufferCommand] = [
+        .write(buffer: arguments, offset: 0, words: [0, 1, 1, 0, 0, 1, 0, 0]),
+        .timestamped(pass: indirectCompute, writes: .init(querySet: query, beginningOfPassWriteIndex: 0)),
+        .timestamped(pass: indirectRender, writes: .init(querySet: query, endOfPassWriteIndex: 3)),
+    ]
+    let indirectSnapshots = try await device.submitCommands(indirectPasses + capture).wait()
+    let all = snapshots + repeated + emptySnapshots + indirectSnapshots
+    guard all.map(\.count) == [76, 76, 76, 76, 76] else { throw GPUError.backendFailure("Unexpected timestamp readback") }
+    return all.flatMap { [$0[0]] + Array($0[64..<76]) }
+}
+
+private let occlusionQueryShader = """
+    @vertex fn vs(@location(0) point: vec2f) -> @builtin(position) vec4f {
+        return vec4f(point, 0.5, 1.0);
+    }
+    @fragment fn fs() -> @location(0) vec4f { return vec4f(0.0, 1.0, 0.0, 1.0); }
+    """
+
+private func occlusionQueryDiagnostic(_ device: Device) async throws -> [UInt32] {
+    let compiler = IndependentShaderCompiler()
+    let source = ShaderInput.wgsl(occlusionQueryShader)
+    let vertex = try compiler.compileRenderStage(source, entryPoint: "vs", to: .wgsl)
+    let fragment = try compiler.compileRenderStage(source, entryPoint: "fs", to: .wgsl)
+    let render = try await device.createRenderPipeline(vertex: vertex, fragment: fragment, colorFormat: .rgba8Unorm,
+        vertexBuffers: [.init(stride: 8, attributes: [.init(location: 0, offset: 0, format: .float32x2)])],
+        depthState: .init(compare: .less))
+    let query = try await device.createQuerySet(.init(type: .occlusion, count: 4))
+    let result = try await device.createBuffer(.init(size: 288, usage: [.queryResolve, .copyDestination, .copySource]))
+    let readback = try await device.createBuffer(.init(size: 288, usage: [.copyDestination, .mapRead]))
+    let vertices = try await device.createBuffer(.init(size: 24, usage: [.vertex, .copyDestination]))
+    let indices = try await device.createBuffer(.init(size: 8, usage: [.index, .copyDestination]))
+    let indirect = try await device.createBuffer(.init(size: 16, usage: [.indirect, .copyDestination]))
+    let color = try await device.createTexture(.init(width: 2, height: 2, format: .rgba8Unorm, usage: .renderAttachment))
+    let depth = try await device.createTexture(.init(width: 2, height: 2, format: .depth32Float, usage: .renderAttachment))
+    let clear = RenderColorLoadAction.clear(.transparentBlack)
+    let streams = [VertexBufferBinding(buffer: vertices)]
+    let depthClear = RenderDepthAttachment(texture: depth, loadAction: .clear(1))
+    let depthLoad = RenderDepthAttachment(texture: depth, loadAction: .load)
+    let visible = BufferCommand.render(pipeline: render, target: color, colorLoad: clear, vertexCount: 3,
+                                       vertexBuffers: streams, depth: depthClear)
+    let occluded = BufferCommand.renderIndexed(pipeline: render, target: color, colorLoad: clear,
+        indexBuffer: .init(buffer: indices, format: .uint16), draw: .init(indexCount: 3), vertexBuffers: streams, depth: depthLoad)
+    let indirectDraw = BufferCommand.renderIndirect(pipeline: render, target: color, colorLoad: clear,
+        indirectBuffer: indirect, vertexBuffers: streams, depth: depthClear)
+    let empty = BufferCommand.render(pipeline: render, target: color, colorLoad: clear, vertexCount: 0,
+                                     vertexBuffers: streams, depth: depthClear)
+    let capture: [BufferCommand] = [
+        .resolveQuerySet(querySet: query, firstQuery: 0, queryCount: 4, destination: result, destinationOffset: 256),
+        .copy(source: result, destination: readback, byteCount: 288),
+        .read(buffer: readback, byteCount: 288),
+    ]
+    let initial: [BufferCommand] = [
+        .write(buffer: result, offset: 0, words: [0x11223344]),
+        .write(buffer: result, offset: 256, words: Array(repeating: 0xffffffff, count: 8)),
+        .write(buffer: vertices, offset: 0, words: [Float(-1), -1, 3, -1, -1, 3].map(\.bitPattern)),
+        .write(buffer: indices, offset: 0, words: [0x00010000, 2]),
+        .write(buffer: indirect, offset: 0, words: [3, 1, 0, 0]),
+    ]
+    var queries: [BufferCommand] = [
+        .occlusionQueried(pass: visible, query: .init(querySet: query, queryIndex: 1)),
+        .occlusionQueried(pass: occluded, query: .init(querySet: query, queryIndex: 2)),
+        .occlusionQueried(pass: indirectDraw, query: .init(querySet: query, queryIndex: 3)),
+    ]
+    var captureTimestamp: [BufferCommand] = []
+    if device.capabilities.features.contains(.timestampQuery) {
+        let timestamps = try await device.createQuerySet(.init(type: .timestamp, count: 1))
+        queries[0] = .occlusionQueried(
+            pass: .timestamped(pass: visible, writes: .init(querySet: timestamps, endOfPassWriteIndex: 0)),
+            query: .init(querySet: query, queryIndex: 1))
+        captureTimestamp = [
+            .resolveQuerySet(querySet: timestamps, firstQuery: 0, queryCount: 1, destination: result, destinationOffset: 256),
+            .copy(source: result, destination: readback, byteCount: 264),
+            .read(buffer: readback, byteCount: 264),
+        ]
+    }
+    let overwrite = BufferCommand.occlusionQueried(pass: empty, query: .init(querySet: query, queryIndex: 1))
+    let commands = initial + capture + queries + capture + [overwrite] + capture + captureTimestamp
+    let snapshots = try await device.submitCommands(commands).wait()
+    let repeated = try await device.submitCommands(capture).wait()
+    let occlusionSnapshots = Array(snapshots.prefix(3)) + repeated
+    guard occlusionSnapshots.map(\.count) == [72, 72, 72, 72] else {
+        throw GPUError.backendFailure("Unexpected occlusion readback")
+    }
+    var words = occlusionSnapshots.flatMap { [$0[0]] + Array($0[64..<72]) }
+    if !captureTimestamp.isEmpty {
+        guard snapshots.count == 4, let timestamp = snapshots.last, timestamp.count == 66 else {
+            throw GPUError.backendFailure("Unexpected timestamp readback from an occlusion pass")
+        }
+        words += timestamp[64..<66]
+    }
+    return words
+}
+
+
+private func mappedBufferDiagnostic(_ device: Device) async throws -> [UInt32] {
+    let upload = try await device.createBuffer(.init(size: 16, usage: [.mapWrite, .copySource], mappedAtCreation: true))
+    let readback = try await device.createBuffer(.init(size: 16, usage: [.mapRead, .copyDestination]))
+    let initial = try await device.mappedBuffer(upload)
+    guard try await device.readMappedBytes(initial) == Array(repeating: 0, count: 16) else {
+        throw GPUError.backendFailure("Unexpected initial mapped bytes")
+    }
+    try await device.writeMappedBytes(initial, offset: 1, bytes: [1, 2, 3, 4, 5, 6, 7, 8])
+    do {
+        _ = try await device.submitCommands([.copy(source: upload, destination: readback, byteCount: 16)])
+        throw GPUError.backendFailure("Mapped buffer was accepted by the GPU queue")
+    } catch GPUError.validation("Buffer is mapped or has a pending mapping") {}
+    try await device.unmapBuffer(upload)
+    let second = try await device.mapBuffer(upload, mode: .write, offset: 8, size: 8)
+    guard try await device.readMappedBytes(second) == [8, 0, 0, 0, 0, 0, 0, 0] else {
+        throw GPUError.backendFailure("Mapped writes did not persist")
+    }
+    try await device.writeMappedBytes(second, offset: 9, bytes: [9, 10, 11])
+    try await device.unmapBuffer(upload)
+
+    _ = try await device.submitCommands([.copy(source: upload, destination: readback, byteCount: 16)])
+    let result = try await device.mapBuffer(readback, mode: .read, offset: 8)
+    let tail = try await device.readMappedBytes(result)
+    let subrange = try await device.readMappedBytes(result, offset: 9, size: 3)
+    try await device.unmapBuffer(readback)
+
+    let initialized = try await device.createBuffer(.init(size: 4, usage: .copySource, mappedAtCreation: true))
+    let creation = try await device.mappedBuffer(initialized)
+    try await device.writeMappedBytes(creation, offset: 0, bytes: [21, 22, 23, 24])
+    try await device.unmapBuffer(initialized)
+    _ = try await device.submitCommands([.copy(source: initialized, destination: readback, byteCount: 4)])
+    let prefix = try await device.mapBuffer(readback, mode: .read, size: 4)
+    let prefixBytes = try await device.readMappedBytes(prefix)
+    try await device.unmapBuffer(readback)
+
+    let empty = try await device.mapBuffer(readback, mode: .read, offset: 16, size: 0)
+    guard try await device.readMappedBytes(empty).isEmpty else {
+        throw GPUError.backendFailure("Unexpected empty mapped range")
+    }
+    try await device.unmapBuffer(readback)
+
+    let largeSize = BrowserRPC.packetLimit + 8
+    let large = try await device.createBuffer(.init(size: UInt64(largeSize), usage: .mapWrite, mappedAtCreation: true))
+    let largeMapping = try await device.mappedBuffer(large)
+    var payload = [UInt8](repeating: 0x5a, count: largeSize)
+    payload[0] = 1
+    payload[largeSize - 1] = 2
+    try await device.writeMappedBytes(largeMapping, offset: 0, bytes: payload)
+    let echoed = try await device.readMappedBytes(largeMapping)
+    guard echoed == payload else { throw GPUError.backendFailure("Chunked browser mapped transfer differs") }
+    try await device.unmapBuffer(large)
+    try await device.destroyBuffer(large)
+    return (tail + subrange + prefixBytes).map(UInt32.init)
+}
+
+private func bufferRangeDiagnostic(_ device: Device) async throws -> [UInt32] {
+    let source = try await device.createBuffer(.init(size: 20, usage: [.copySource, .copyDestination]))
+    let destination = try await device.createBuffer(.init(size: 24, usage: [.copySource, .copyDestination]))
+    let readback = try await device.createBuffer(.init(size: 24, usage: [.mapRead, .copyDestination]))
+    let payload = [UInt8.max] + Array(UInt8(1)...UInt8(16)) + [UInt8.max]
+    _ = try await device.writeBuffer(source, offset: 4, bytes: payload, dataOffset: 1, byteCount: 16)
+    _ = try await device.submitCommands([
+        .writeBytes(buffer: destination, offset: 0, bytes: Array(repeating: 0xee, count: 24)),
+        .copy(source: source, sourceOffset: 8, destination: destination, destinationOffset: 4, byteCount: 8),
+        .clearBuffer(buffer: destination, offset: 8, byteCount: 4),
+        .copy(source: source, sourceOffset: 16, destination: destination, destinationOffset: 16),
+        .clearBuffer(buffer: destination, offset: 20),
+        .copy(source: source, sourceOffset: 20, destination: destination, destinationOffset: 24, byteCount: 0),
+        .clearBuffer(buffer: destination, offset: 24),
+        .writeBytes(buffer: destination, offset: 24, bytes: []),
+        .copy(source: destination, destination: readback),
+    ])
+    let mapping = try await device.mapBuffer(readback, mode: .read)
+    let bytes = try await device.readMappedBytes(mapping)
+    try await device.unmapBuffer(readback)
+
+    let largeSize = BrowserRPC.packetLimit + 8
+    let large = try await device.createBuffer(.init(size: UInt64(largeSize), usage: [.copySource, .copyDestination]))
+    let probe = try await device.createBuffer(.init(size: 136, usage: [.mapRead, .copyDestination]))
+    let middle = Array(UInt8(0)...UInt8(127))
+    let tail: [UInt8] = [200, 201, 202, 203, 204, 205, 206, 207]
+    var bulk = [UInt8](repeating: 0x5a, count: largeSize)
+    bulk.replaceSubrange((BrowserRPC.packetLimit - middle.count)..<BrowserRPC.packetLimit, with: middle)
+    bulk.replaceSubrange(BrowserRPC.packetLimit..<largeSize, with: tail)
+    _ = try await device.writeBuffer(large, bytes: bulk)
+    _ = try await device.submitCommands([
+        .copy(source: large, sourceOffset: UInt64(BrowserRPC.packetLimit - middle.count), destination: probe),
+    ])
+    let probeMapping = try await device.mapBuffer(probe, mode: .read)
+    guard try await device.readMappedBytes(probeMapping) == middle + tail else {
+        throw GPUError.backendFailure("Staged browser upload lost bytes near the packet boundary")
+    }
+    try await device.unmapBuffer(probe)
+    try await device.destroyBuffer(large)
+    try await device.destroyBuffer(probe)
+    return bytes.map(UInt32.init)
+}
+
+private let uploadTexels: [UInt32] = [0xff112233, 0xff445566, 0xff778899, 0xffaabbcc]
+
+private func paddedTextureBytes() -> [UInt8] {
+    var bytes = Array(repeating: UInt8(0xee), count: 25)
+    for (index, offset) in [1, 6, 16, 21].enumerated() {
+        let word = uploadTexels[index]
+        for lane in 0..<4 { bytes[offset + lane] = UInt8(truncatingIfNeeded: word >> (lane * 8)) }
+    }
+    return bytes
+}
+
+private func queueTextureDiagnostic(_ device: Device) async throws -> [UInt32] {
+    let array = try await device.createTexture(.init(width: 4, height: 4, format: .rgba8Unorm,
+        usage: [.copySource, .copyDestination], mipLevelCount: 2, arrayLayerCount: 3))
+    let volume = try await device.createTexture(.init(width: 2, height: 2, format: .rgba8Unorm,
+        usage: [.copySource, .copyDestination], dimension: .d3, depth: 3))
+    let stencil = try await device.createTexture(.init(width: 3, height: 2, format: .depth24PlusStencil8,
+        usage: [.copySource, .copyDestination]))
+    let readback = try await device.createBuffer(.init(size: 784, usage: [.mapRead, .copyDestination]))
+    let bytes = paddedTextureBytes()
+    let layout = TextureDataLayout(offset: 1, bytesPerRow: 5, rowsPerImage: 3)
+    _ = try await device.writeTexture(volume, data: bytes, layout: layout,
+        region: .init(x: 1, width: 1, height: 2, z: 1, depth: 2))
+    func capture(_ texture: ResourceID, mipLevel: UInt32 = 0, layer: UInt32 = 0, z: UInt32 = 0) -> [BufferCommand] {
+        [
+            .copyTextureToBuffer(source: texture, destination: readback, bytesPerRow: 256,
+                                 mipLevel: mipLevel, arrayLayer: layer, z: z),
+            .read(buffer: readback, byteCount: mipLevel == 0 && texture == array ? 784 : 264),
+        ]
+    }
+    let upload = BufferCommand.writeTexture(destination: array, data: bytes, layout: layout,
+        region: .init(x: 1, width: 1, height: 2, mipLevel: 1, arrayLayer: 1, depth: 2))
+    var commands = capture(array, mipLevel: 1, layer: 1) + [upload]
+    for layer: UInt32 in [0, 1, 2] { commands += capture(array, mipLevel: 1, layer: layer) }
+    for plane: UInt32 in [0, 1, 2] { commands += capture(volume, z: plane) }
+    commands += capture(array, layer: 1)
+    commands += [
+        .writeTexture(destination: stencil, data: [0xee, 1, 128, 240, 0xee, 0xee, 17, 7, 165],
+                      layout: .init(offset: 1, bytesPerRow: 5), region: .init(width: 3, height: 2), aspect: .stencilOnly),
+        .copyTextureToBuffer(source: stencil, destination: readback, bytesPerRow: 256, aspect: .stencilOnly),
+        .read(buffer: readback, byteCount: 260),
+    ]
+    let ticket = try await device.submitCommands(commands)
+    let snapshots = try await ticket.wait()
+    guard snapshots.map(\.count) == [66, 66, 66, 66, 66, 66, 66, 196, 65],
+          snapshots[7].allSatisfy({ $0 == 0 }) else {
+        throw GPUError.backendFailure("Unexpected queue texture upload readback")
+    }
+    return snapshots.prefix(7).flatMap { [$0[0], $0[1], $0[64], $0[65]] } +
+        [snapshots[8][0] & 0x00ffffff, snapshots[8][64] & 0x00ffffff]
+}
+
+private let subgroupGatherShader = """
+    enable subgroups;
+    struct Inputs {
+        @builtin(subgroup_invocation_id) lane: u32,
+        @builtin(subgroup_size) size: u32,
+    }
+    @group(0) @binding(0) var<storage, read_write> out: array<vec4u, 256>;
+    fn paired(lane: u32) -> u32 { return subgroupShuffle(lane, lane ^ 1u); }
+    @compute @workgroup_size(128) fn run(input: Inputs, @builtin(local_invocation_index) index: u32) {
+        let lane = input.lane;
+        let size = input.size;
+        let down = select(lane, subgroupShuffleDown(lane, 1u), lane + 1u < size);
+        let up = select(lane, subgroupShuffleUp(lane, 1u), lane != 0u);
+        out[index * 2u] = vec4u(lane, size, subgroupBroadcast(lane, 0u), subgroupBroadcastFirst(lane));
+        out[index * 2u + 1u] = vec4u(paired(lane), subgroupShuffleXor(lane, size - 1u), down, up);
+    }
+    """
+
+private let fragmentSubgroupShader = """
+    enable subgroups;
+    @vertex fn vs(@location(0) point: vec2f) -> @builtin(position) vec4f { return vec4f(point, 0.5, 1.0); }
+    @fragment fn fs(@builtin(subgroup_size) size: u32, @builtin(subgroup_invocation_id) lane: u32) -> @location(0) vec4u {
+        return vec4u(size, lane, subgroupBroadcastFirst(lane), 255u);
+    }
+    """
+
+
+// Subgroup shuffle, ballot and reduction with four active compute lanes.
+private let spirvSubgroupWords: [UInt32] = [
+    0x07230203, 0x00010300, 0x00000000, 0x00000064, 0x00000000, 0x00020011, 0x00000001, 0x00020011,
+    0x0000003d, 0x00020011, 0x0000003e, 0x00020011, 0x0000003f, 0x00020011, 0x00000040, 0x00020011,
+    0x00000042, 0x00020011, 0x00000044, 0x00020011, 0x00000041, 0x0003000e, 0x00000000, 0x00000001,
+    0x0006000f, 0x00000005, 0x00000014, 0x6e69616d, 0x00000000, 0x00000012, 0x00060010, 0x00000014,
+    0x00000011, 0x00000004, 0x00000001, 0x00000001, 0x00030047, 0x00000012, 0x00000000, 0x00030047,
+    0x00000028, 0x00000000, 0x00040047, 0x00000012, 0x0000000b, 0x00000029, 0x00040047, 0x00000005,
+    0x00000006, 0x00000010, 0x00030047, 0x00000006, 0x00000002, 0x00050048, 0x00000006, 0x00000000,
+    0x00000023, 0x00000000, 0x00040047, 0x00000011, 0x00000022, 0x00000000, 0x00040047, 0x00000011,
+    0x00000021, 0x00000000, 0x00020013, 0x00000001, 0x00040015, 0x00000002, 0x00000020, 0x00000000,
+    0x00020014, 0x00000003, 0x00040017, 0x00000004, 0x00000002, 0x00000004, 0x0004002b, 0x00000002,
+    0x0000001e, 0x00000000, 0x0004002b, 0x00000002, 0x0000001f, 0x00000001, 0x0004002b, 0x00000002,
+    0x00000020, 0x00000002, 0x0004002b, 0x00000002, 0x00000021, 0x00000003, 0x0004002b, 0x00000002,
+    0x00000022, 0x00000004, 0x0004002b, 0x00000002, 0x00000023, 0x00000064, 0x0004001c, 0x00000005,
+    0x00000004, 0x00000022, 0x0003001e, 0x00000006, 0x00000005, 0x00040020, 0x00000007, 0x0000000c,
+    0x00000006, 0x00040020, 0x00000008, 0x0000000c, 0x00000004, 0x00040020, 0x00000009, 0x00000001,
+    0x00000002, 0x00030021, 0x0000000a, 0x00000001, 0x0004003b, 0x00000007, 0x00000011, 0x0000000c,
+    0x0004003b, 0x00000009, 0x00000012, 0x00000001, 0x00050036, 0x00000001, 0x00000014, 0x00000000,
+    0x0000000a, 0x000200f8, 0x00000015, 0x0004003d, 0x00000002, 0x00000028, 0x00000012, 0x00050080,
+    0x00000002, 0x00000029, 0x00000028, 0x00000023, 0x0006015a, 0x00000002, 0x0000002a, 0x00000021,
+    0x00000029, 0x0000001f, 0x000500b0, 0x00000003, 0x0000002b, 0x00000028, 0x00000020, 0x00050153,
+    0x00000004, 0x0000002c, 0x00000021, 0x0000002b, 0x00050051, 0x00000002, 0x0000002d, 0x0000002c,
+    0x00000000, 0x0006015d, 0x00000002, 0x0000002e, 0x00000021, 0x00000000, 0x00000029, 0x00070050,
+    0x00000004, 0x0000002f, 0x0000002a, 0x0000002d, 0x0000002e, 0x00000028, 0x00060041, 0x00000008,
+    0x00000030, 0x00000011, 0x0000001e, 0x00000028, 0x0003003e, 0x00000030, 0x0000002f, 0x000100fd,
+    0x00010038,
+]
+
+// SPIR-V 1.5 broadcast and quad broadcast with selectors derived from the workgroup ID.
+private let spirvDynamicBroadcastWords: [UInt32] = [
+    0x07230203, 0x00010500, 0x00000000, 0x00000064, 0x00000000, 0x00020011, 0x00000001, 0x00020011,
+    0x0000003d, 0x00020011, 0x00000040, 0x00020011, 0x00000044, 0x0003000e, 0x00000000, 0x00000001,
+    0x0008000f, 0x00000005, 0x00000014, 0x6e69616d, 0x00000000, 0x00000012, 0x00000013, 0x00000011,
+    0x00060010, 0x00000014, 0x00000011, 0x00000004, 0x00000001, 0x00000001, 0x00040047, 0x00000012,
+    0x0000000b, 0x00000029, 0x00040047, 0x00000013, 0x0000000b, 0x0000001a, 0x00040047, 0x00000005,
+    0x00000006, 0x00000010, 0x00030047, 0x00000006, 0x00000002, 0x00050048, 0x00000006, 0x00000000,
+    0x00000023, 0x00000000, 0x00040047, 0x00000011, 0x00000022, 0x00000000, 0x00040047, 0x00000011,
+    0x00000021, 0x00000000, 0x00020013, 0x00000001, 0x00040015, 0x00000002, 0x00000020, 0x00000000,
+    0x00040017, 0x00000003, 0x00000002, 0x00000003, 0x00040017, 0x00000004, 0x00000002, 0x00000004,
+    0x00040017, 0x0000000c, 0x00000002, 0x00000002, 0x0004002b, 0x00000002, 0x0000001e, 0x00000000,
+    0x0004002b, 0x00000002, 0x0000001f, 0x00000001, 0x0004002b, 0x00000002, 0x00000021, 0x00000003,
+    0x0004002b, 0x00000002, 0x00000022, 0x00000004, 0x0004002b, 0x00000002, 0x00000023, 0x00000064,
+    0x0004002b, 0x00000002, 0x00000024, 0x000003e8, 0x0004002b, 0x00000002, 0x00000025, 0x00000008,
+    0x0004001c, 0x00000005, 0x00000004, 0x00000025, 0x0003001e, 0x00000006, 0x00000005, 0x00040020,
+    0x00000007, 0x0000000c, 0x00000006, 0x00040020, 0x00000008, 0x0000000c, 0x00000004, 0x00040020,
+    0x00000009, 0x00000001, 0x00000002, 0x00040020, 0x0000000b, 0x00000001, 0x00000003, 0x00030021,
+    0x0000000a, 0x00000001, 0x0004003b, 0x00000007, 0x00000011, 0x0000000c, 0x0004003b, 0x00000009,
+    0x00000012, 0x00000001, 0x0004003b, 0x0000000b, 0x00000013, 0x00000001, 0x00050036, 0x00000001,
+    0x00000014, 0x00000000, 0x0000000a, 0x000200f8, 0x00000015, 0x0004003d, 0x00000002, 0x00000028,
+    0x00000012, 0x00050080, 0x00000002, 0x00000029, 0x00000028, 0x00000023, 0x00050080, 0x00000002,
+    0x0000002a, 0x00000028, 0x00000024, 0x00050050, 0x0000000c, 0x0000002b, 0x00000029, 0x0000002a,
+    0x0004003d, 0x00000003, 0x0000002c, 0x00000013, 0x00050051, 0x00000002, 0x0000002d, 0x0000002c,
+    0x00000000, 0x00050080, 0x00000002, 0x0000002e, 0x0000002d, 0x0000001f, 0x00060151, 0x00000002,
+    0x0000002f, 0x00000021, 0x00000029, 0x0000002e, 0x0006016d, 0x0000000c, 0x00000030, 0x00000021,
+    0x0000002b, 0x0000002e, 0x00050051, 0x00000002, 0x00000031, 0x00000030, 0x00000000, 0x00050051,
+    0x00000002, 0x00000032, 0x00000030, 0x00000001, 0x00050084, 0x00000002, 0x00000033, 0x0000002d,
+    0x00000022, 0x00050080, 0x00000002, 0x00000034, 0x00000033, 0x00000028, 0x00070050, 0x00000004,
+    0x00000035, 0x0000002f, 0x00000031, 0x00000032, 0x00000028, 0x00060041, 0x00000008, 0x00000036,
+    0x00000011, 0x0000001e, 0x00000034, 0x0003003e, 0x00000036, 0x00000035, 0x000100fd, 0x00010038,
+]
+
+// Two nested helpers read SPIR-V subgroup inputs in the fragment stage.
+private let spirvFragmentSubgroupWords: [UInt32] = [
+    0x07230203, 0x00010300, 0x00000000, 0x00000064, 0x00000000, 0x00020011, 0x00000001, 0x00020011,
+    0x0000003d, 0x00020011, 0x00000040, 0x0003000e, 0x00000000, 0x00000001, 0x0008000f, 0x00000004,
+    0x00000014, 0x6e69616d, 0x00000000, 0x00000010, 0x00000011, 0x00000012, 0x00030010, 0x00000014,
+    0x00000007, 0x00040047, 0x00000010, 0x0000000b, 0x00000024, 0x00030047, 0x00000010, 0x0000000e,
+    0x00040047, 0x00000011, 0x0000000b, 0x00000029, 0x00030047, 0x00000011, 0x0000000e, 0x00040047,
+    0x00000012, 0x0000001e, 0x00000000, 0x00020013, 0x00000001, 0x00040015, 0x00000002, 0x00000020,
+    0x00000000, 0x00040015, 0x00000003, 0x00000020, 0x00000001, 0x00040017, 0x00000004, 0x00000002,
+    0x00000004, 0x00040020, 0x00000005, 0x00000001, 0x00000002, 0x00040020, 0x00000006, 0x00000001,
+    0x00000003, 0x00040020, 0x00000007, 0x00000003, 0x00000004, 0x00030021, 0x00000008, 0x00000001,
+    0x00030021, 0x00000009, 0x00000004, 0x0004002b, 0x00000002, 0x0000000a, 0x00000003, 0x0004002b,
+    0x00000002, 0x0000000b, 0x000000ad, 0x0004002b, 0x00000003, 0x0000000c, 0x00000000, 0x0004003b,
+    0x00000005, 0x00000010, 0x00000001, 0x0004003b, 0x00000006, 0x00000011, 0x00000001, 0x0004003b,
+    0x00000007, 0x00000012, 0x00000003, 0x00050036, 0x00000001, 0x00000014, 0x00000000, 0x00000008,
+    0x000200f8, 0x00000015, 0x00040039, 0x00000004, 0x00000016, 0x0000001e, 0x0003003e, 0x00000012,
+    0x00000016, 0x000100fd, 0x00010038, 0x00050036, 0x00000004, 0x0000001e, 0x00000000, 0x00000009,
+    0x000200f8, 0x0000001f, 0x00040039, 0x00000004, 0x00000020, 0x00000028, 0x000200fe, 0x00000020,
+    0x00010038, 0x00050036, 0x00000004, 0x00000028, 0x00000000, 0x00000009, 0x000200f8, 0x00000029,
+    0x0004003d, 0x00000002, 0x0000002a, 0x00000010, 0x0004003d, 0x00000003, 0x0000002b, 0x00000011,
+    0x0004007c, 0x00000002, 0x0000002c, 0x0000002b, 0x00050152, 0x00000002, 0x0000002d, 0x0000000a,
+    0x0000002c, 0x00070050, 0x00000004, 0x0000002e, 0x0000002a, 0x0000002c, 0x0000002d, 0x0000000b,
+    0x000200fe, 0x0000002e, 0x00010038,
+]
+
+private func subgroupGatherDiagnostic(_ device: Device) async throws -> [UInt32] {
+    let compiler = IndependentShaderCompiler()
+    let compute = try compiler.compileCompute(.wgsl(subgroupGatherShader), to: .wgsl)
+    if !device.capabilities.features.contains(.subgroups) {
+        do {
+            _ = try await device.createComputePipeline(compute)
+        } catch GPUError.validation("Feature not advertised") {
+            return []
+        }
+        throw GPUError.backendFailure("Subgroup shader accepted without the device feature")
+    }
+    let pipeline = try await device.createComputePipeline(compute)
+    let spirv = try await device.createComputePipeline(compiler.compileCompute(.spirv(spirvSubgroupWords), to: .wgsl))
+    let dynamicBroadcast = try await device.createComputePipeline(
+        compiler.compileCompute(.spirv(spirvDynamicBroadcastWords), to: .wgsl))
+    let source = ShaderInput.wgsl(fragmentSubgroupShader)
+    let vertex = try compiler.compileRenderStage(source, entryPoint: "vs", to: .wgsl)
+    let fragment = try compiler.compileRenderStage(source, entryPoint: "fs", to: .wgsl)
+    let render = try await device.createRenderPipeline(vertex: vertex, fragment: fragment, colorFormat: .rgba8Uint,
+        vertexBuffers: [.init(stride: 8, attributes: [.init(location: 0, offset: 0, format: .float32x2)])])
+    let spirvFragment = try compiler.compileRenderStage(.spirv(spirvFragmentSubgroupWords), entryPoint: "main", to: .wgsl)
+    let spirvRender = try await device.createRenderPipeline(vertex: vertex, fragment: spirvFragment, colorFormat: .rgba8Uint,
+        vertexBuffers: [.init(stride: 8, attributes: [.init(location: 0, offset: 0, format: .float32x2)])])
+    let output = try await device.createBuffer(.init(size: 4096, usage: [.storage, .copySource]))
+    let readback = try await device.createBuffer(.init(size: 4096, usage: [.copyDestination, .mapRead]))
+    let vertices = try await device.createBuffer(.init(size: 24, usage: [.vertex, .copyDestination]))
+    let target = try await device.createTexture(.init(width: 2, height: 2, format: .rgba8Uint,
+        usage: [.renderAttachment, .copySource]))
+    let snapshots = try await device.submitCommands([
+        .dispatchCompute(pipeline: pipeline, bindings: [.init(binding: 0): output], workgroups: .init(x: 1)),
+        .copy(source: output, destination: readback, byteCount: 4096),
+        .read(buffer: readback, byteCount: 4096),
+        .write(buffer: vertices, offset: 0, words: [Float(-1), -1, 3, -1, -1, 3].map(\.bitPattern)),
+        .render(pipeline: render, target: target, clear: .transparentBlack, vertexCount: 3,
+                vertexBuffers: [.init(buffer: vertices)]),
+        .copyTextureToBuffer(source: target, destination: readback, bytesPerRow: 256),
+        .read(buffer: readback, byteCount: 512),
+        .dispatchCompute(pipeline: spirv, bindings: [.init(binding: 0): output], workgroups: .init(x: 1)),
+        .copy(source: output, destination: readback, byteCount: 64),
+        .read(buffer: readback, byteCount: 64),
+        .dispatchCompute(pipeline: dynamicBroadcast, bindings: [.init(binding: 0): output], workgroups: .init(x: 2)),
+        .copy(source: output, destination: readback, byteCount: 128),
+        .read(buffer: readback, byteCount: 128),
+        .render(pipeline: spirvRender, target: target, clear: .transparentBlack, vertexCount: 3,
+                vertexBuffers: [.init(buffer: vertices)]),
+        .copyTextureToBuffer(source: target, destination: readback, bytesPerRow: 256),
+        .read(buffer: readback, byteCount: 512),
+    ]).wait()
+    guard snapshots.map(\.count) == [1024, 128, 16, 32, 128] else {
+        throw GPUError.backendFailure("Unexpected subgroup readback")
+    }
+    let pixelOffsets = [0, 1, 64, 65]
+    let wgslPixels = pixelOffsets.map { snapshots[1][$0] }
+    let spirvPixels = pixelOffsets.map { snapshots[4][$0] }
+    return snapshots[0] + wgslPixels + snapshots[2] + snapshots[3] + spirvPixels
+}
+
+private let subgroupCollectiveShader = """
+    enable subgroups;
+    @group(0) @binding(0) var<storage, read_write> out: array<vec4u, 896>;
+
+    fn sum(lane: u32) -> u32 { return subgroupAdd(lane); }
+
+    @compute @workgroup_size(128)
+    fn run(@builtin(subgroup_size) size: u32, @builtin(subgroup_invocation_id) lane: u32,
+           @builtin(local_invocation_index) index: u32) {
+        let base = index * 7u;
+        let factor = select(1u, 2u, lane < 3u);
+        let leader = subgroupElect();
+        out[base] = vec4u(size, lane, u32(subgroupAll(lane < size)), u32(subgroupAny(lane == size - 1u)));
+        out[base + 1u] = subgroupBallot((lane & 1u) == 0u);
+        out[base + 2u] = vec4u(sum(lane), subgroupMul(factor), subgroupMin(lane + 7u), subgroupMax(lane));
+        out[base + 3u] = vec4u(subgroupAnd(lane | 0x80000000u), subgroupOr(lane),
+                              subgroupXor(lane), subgroupInclusiveAdd(lane));
+        out[base + 4u] = vec4u(subgroupExclusiveAdd(lane), subgroupExclusiveMul(factor),
+                              subgroupInclusiveMul(factor), u32(subgroupAll(lane != 0u)) + u32(leader));
+        out[base + 5u] = subgroupBallot();
+        let q = quadBroadcast(lane, 0u);
+        let x = quadSwapX(lane);
+        let y = quadSwapY(lane);
+        let d = quadSwapDiagonal(lane);
+        out[base + 6u] = vec4u(u32(quadSwapX(x) == lane), u32(quadSwapY(y) == lane),
+                              u32(quadSwapY(x) == d), u32(quadSwapDiagonal(q) == q));
+    }
+    """
+
+private let subgroupCollectiveFragment = """
+    enable subgroups;
+    @vertex fn vs(@location(0) point: vec2f) -> @builtin(position) vec4f { return vec4f(point, 0.5, 1.0); }
+    @fragment fn fs(@builtin(position) point: vec4f) -> @location(0) vec4u {
+        let pixel = u32(point.x) + 2u * u32(point.y);
+        let visible = u32(subgroupAny(pixel < 4u));
+        return vec4u(quadBroadcast(visible, 0u), quadSwapX(pixel), quadSwapY(pixel), quadSwapDiagonal(pixel));
+    }
+    """
+
+// Workgroup of four lanes, with a bvec2 predicate (lane < 3, lane == 1).
+private func spirvLogicalSubgroupWords(opcode: UInt32, operation: UInt32) -> [UInt32] {
+    var words: [UInt32] = [
+        0x07230203, 0x00010300, 0x00000000, 0x00000064, 0x00000000, 0x00020011, 0x00000001, 0x00020011,
+        0x0000003d, 0x00020011, 0x0000003f, 0x0003000e, 0x00000000, 0x00000001, 0x0006000f, 0x00000005,
+        0x00000014, 0x6e69616d, 0x00000000, 0x00000012, 0x00060010, 0x00000014, 0x00000011, 0x00000004,
+        0x00000001, 0x00000001, 0x00040047, 0x00000012, 0x0000000b, 0x00000029, 0x00040047, 0x00000005,
+        0x00000006, 0x00000004, 0x00030047, 0x00000006, 0x00000002, 0x00050048, 0x00000006, 0x00000000,
+        0x00000023, 0x00000000, 0x00040047, 0x00000011, 0x00000022, 0x00000000, 0x00040047, 0x00000011,
+        0x00000021, 0x00000000, 0x00020013, 0x00000001, 0x00040015, 0x00000002, 0x00000020, 0x00000000,
+        0x00020014, 0x00000003, 0x00040017, 0x00000004, 0x00000003, 0x00000002, 0x0004002b, 0x00000002,
+        0x0000001e, 0x00000000, 0x0004002b, 0x00000002, 0x0000001f, 0x00000001, 0x0004002b, 0x00000002,
+        0x00000020, 0x00000002, 0x0004002b, 0x00000002, 0x00000021, 0x00000003, 0x0004002b, 0x00000002,
+        0x00000022, 0x00000008, 0x0004001c, 0x00000005, 0x00000002, 0x00000022, 0x0003001e, 0x00000006,
+        0x00000005, 0x00040020, 0x00000007, 0x0000000c, 0x00000006, 0x00040020, 0x00000008, 0x0000000c,
+        0x00000002, 0x00040020, 0x00000009, 0x00000001, 0x00000002, 0x00030021, 0x0000000a, 0x00000001,
+        0x0004003b, 0x00000007, 0x00000011, 0x0000000c, 0x0004003b, 0x00000009, 0x00000012, 0x00000001,
+        0x00050036, 0x00000001, 0x00000014, 0x00000000, 0x0000000a, 0x000200f8, 0x00000015, 0x0004003d,
+        0x00000002, 0x00000028, 0x00000012, 0x000500b0, 0x00000003, 0x00000029, 0x00000028, 0x00000021,
+        0x000500aa, 0x00000003, 0x0000002a, 0x00000028, 0x0000001f, 0x00050050, 0x00000004, 0x0000002b,
+        0x00000029, 0x0000002a,
+    ]
+    words += [0x00060000 | opcode, 4, 44, 33, operation, 43]
+    words += [
+        0x00050051, 0x00000003, 0x0000002d, 0x0000002c, 0x00000000, 0x00050051, 0x00000003, 0x0000002e,
+        0x0000002c, 0x00000001, 0x000600a9, 0x00000002, 0x0000002f, 0x0000002d, 0x0000001f, 0x0000001e,
+        0x000600a9, 0x00000002, 0x00000030, 0x0000002e, 0x0000001f, 0x0000001e, 0x00050084, 0x00000002,
+        0x00000031, 0x00000028, 0x00000020, 0x00050080, 0x00000002, 0x00000032, 0x00000031, 0x0000001f,
+        0x00060041, 0x00000008, 0x00000033, 0x00000011, 0x0000001e, 0x00000031, 0x00060041, 0x00000008,
+        0x00000034, 0x00000011, 0x0000001e, 0x00000032, 0x0003003e, 0x00000033, 0x0000002f, 0x0003003e,
+        0x00000034, 0x00000030, 0x000100fd, 0x00010038,
+    ]
+    return words
+}
+
+private func subgroupCollectiveDiagnostic(_ device: Device) async throws -> [UInt32] {
+    guard device.capabilities.features.contains(.subgroups) else { return [] }
+    let compiler = IndependentShaderCompiler()
+    let pipeline = try await device.createComputePipeline(compiler.compileCompute(.wgsl(subgroupCollectiveShader), to: .wgsl))
+    let source = ShaderInput.wgsl(subgroupCollectiveFragment)
+    let vertex = try compiler.compileRenderStage(source, entryPoint: "vs", to: .wgsl)
+    let fragment = try compiler.compileRenderStage(source, entryPoint: "fs", to: .wgsl)
+    let render = try await device.createRenderPipeline(vertex: vertex, fragment: fragment, colorFormat: .rgba8Uint,
+        vertexBuffers: [.init(stride: 8, attributes: [.init(location: 0, offset: 0, format: .float32x2)])])
+    let output = try await device.createBuffer(.init(size: 14336, usage: [.storage, .copySource]))
+    let readback = try await device.createBuffer(.init(size: 14336, usage: [.copyDestination, .mapRead]))
+    let vertices = try await device.createBuffer(.init(size: 24, usage: [.vertex, .copyDestination]))
+    let target = try await device.createTexture(.init(width: 2, height: 2, format: .rgba8Uint,
+        usage: [.renderAttachment, .copySource]))
+    var commands: [BufferCommand] = [
+        .dispatchCompute(pipeline: pipeline, bindings: [.init(binding: 0): output], workgroups: .init(x: 1)),
+        .copy(source: output, destination: readback, byteCount: 14336),
+        .read(buffer: readback, byteCount: 14336),
+        .write(buffer: vertices, offset: 0, words: [Float(-1), -1, 3, -1, -1, 3].map(\.bitPattern)),
+        .render(pipeline: render, target: target, clear: .transparentBlack, vertexCount: 3,
+                vertexBuffers: [.init(buffer: vertices)]),
+        .copyTextureToBuffer(source: target, destination: readback, bytesPerRow: 256),
+        .read(buffer: readback, byteCount: 512),
+    ]
+    for opcode: UInt32 in 362...364 {
+        for operation: UInt32 in 0...2 {
+            let input = ShaderInput.spirv(spirvLogicalSubgroupWords(opcode: opcode, operation: operation))
+            let logical = try await device.createComputePipeline(compiler.compileCompute(input, to: .wgsl))
+            commands.append(.dispatchCompute(pipeline: logical, bindings: [.init(binding: 0): output], workgroups: .init(x: 1)))
+            commands.append(.copy(source: output, destination: readback, byteCount: 32))
+            commands.append(.read(buffer: readback, byteCount: 32))
+        }
+    }
+    let snapshots = try await device.submitCommands(commands).wait()
+    guard snapshots.map(\.count) == [3584, 128] + Array(repeating: 8, count: 9) else {
+        throw GPUError.backendFailure("Unexpected subgroup collective and quad readback")
+    }
+    let pixels = snapshots[1]
+    return snapshots[0] + [pixels[0], pixels[1], pixels[64], pixels[65]] + snapshots.dropFirst(2).flatMap { $0 }
+}
+
+private let subgroupIndexShader = """
+    requires subgroup_id;
+    enable subgroups;
+
+    struct Subgroup {
+        @builtin(subgroup_id) group: u32,
+        @builtin(num_subgroups) count: u32,
+    }
+    @group(0) @binding(0) var<storage, read_write> records: array<vec4u, 260>;
+
+    @compute @workgroup_size(130)
+    fn run(info: Subgroup, @builtin(global_invocation_id) global: vec3u,
+           @builtin(subgroup_invocation_id) lane: u32, @builtin(subgroup_size) size: u32) {
+        if info.count > 1u { workgroupBarrier(); }
+        records[global.x] = vec4u(info.group, info.count, lane, size);
+    }
+    """
+
+private func subgroupUniformityDiagnostic(_ device: Device) async throws -> [UInt32] {
+    guard device.capabilities.features.isSuperset(of: [.subgroupID, .subgroupUniformity]) else { return [] }
+    let source = ShaderInput.wgsl("""
+        requires subgroup_id, subgroup_uniformity;
+        enable subgroups;
+        @group(0) @binding(0) var<storage, read_write> output: array<vec2u>;
+        fn selected(group: u32) -> bool {
+            var flag: bool;
+            if group == 0u { flag = true; } else { flag = false; }
+            return flag;
+        }
+        fn count_lanes(group: u32) -> u32 {
+            if selected(group) { return subgroupAdd(1u); }
+            return 0u;
+        }
+        fn forward(group: u32) -> u32 { return count_lanes(group); }
+        @compute @workgroup_size(128)
+        fn run(@builtin(subgroup_id) group: u32, @builtin(local_invocation_index) index: u32) {
+            var selector = subgroupBroadcastFirst(group);
+            let previous = selector;
+            selector = index;
+            output[index] = vec2u(group, forward(previous));
+        }
+        """)
+    let shader = try IndependentShaderCompiler().compileWebGPUCompute(source)
+    let pipeline = try await device.createComputePipeline(shader)
+    let output = try await device.createBuffer(.init(size: 1024, usage: [.storage, .copySource]))
+    let readback = try await device.createBuffer(.init(size: 1024, usage: [.mapRead, .copyDestination]))
+    let result = try await device.submitCommands([
+        .dispatchCompute(pipeline: pipeline, bindings: [.init(binding: 0): output], workgroups: .init(x: 1)),
+        .copy(source: output, destination: readback, byteCount: 1024),
+        .read(buffer: readback, byteCount: 1024),
+    ]).wait()
+    guard result.count == 1, let words = result.first, words.count == 256 else {
+        throw GPUError.backendFailure("Missing subgroup uniformity readback")
+    }
+    let indices = stride(from: 0, to: words.count, by: 2)
+    let firstGroupSize = UInt32(indices.filter { words[$0] == 0 }.count)
+    guard firstGroupSize > 0,
+          indices.allSatisfy({ words[$0 + 1] == (words[$0] == 0 ? firstGroupSize : 0) }) else {
+        throw GPUError.backendFailure("Subgroup-uniform branch executed on the wrong lanes")
+    }
+    return [firstGroupSize, UInt32(Set(indices.map { words[$0] }).count)]
+}
+
+private func subgroupSizeControlDiagnostic(_ device: Device) async throws -> UInt32 {
+    guard device.capabilities.features.contains(.subgroupSizeControl),
+          let size = device.capabilities.subgroupSizeRange?.lowerBound else { return 0 }
+    let source = ShaderInput.wgsl("""
+        enable subgroup_size_control;
+        override size: u32;
+        @group(0) @binding(0) var<storage, read_write> output: array<vec2u>;
+        @compute @workgroup_size(2u * size) @subgroup_size(size)
+        fn run(@builtin(local_invocation_index) index: u32,
+               @builtin(subgroup_size) width: u32, @builtin(subgroup_invocation_id) lane: u32) {
+            output[index] = vec2u(width, lane);
+        }
+        """)
+    let shader = try IndependentShaderCompiler().compileWebGPUCompute(source, constants: ["size": Double(size)])
+    let pipeline = try await device.createComputePipeline(shader)
+    let byteCount = UInt64(shader.workgroupSize.x) * 8
+    let output = try await device.createBuffer(.init(size: byteCount, usage: [.storage, .copySource]))
+    let readback = try await device.createBuffer(.init(size: byteCount, usage: [.mapRead, .copyDestination]))
+    let snapshots = try await device.submitCommands([
+        .dispatchCompute(pipeline: pipeline, bindings: [.init(binding: 0): output], workgroups: .init(x: 1)),
+        .copy(source: output, destination: readback, byteCount: byteCount),
+        .read(buffer: readback, byteCount: byteCount),
+    ]).wait()
+    guard snapshots.count == 1, let words = snapshots.first, words.count == Int(byteCount / 4) else {
+        throw GPUError.backendFailure("Missing subgroup size readback")
+    }
+    var lanes = Array(repeating: 0, count: Int(size))
+    for offset in stride(from: 0, to: words.count, by: 2) {
+        let lane = words[offset + 1]
+        guard words[offset] == size, lane < size else {
+            throw GPUError.backendFailure("Unexpected width or lane for explicit subgroup size")
+        }
+        lanes[Int(lane)] += 1
+    }
+    guard lanes.allSatisfy({ $0 == 2 }) else { throw GPUError.backendFailure("Expected two full subgroups") }
+    return size
+}
+
+private func subgroupIndexDiagnostic(_ device: Device) async throws -> [UInt32] {
+    let compiler = IndependentShaderCompiler()
+    let compute = try compiler.compileCompute(.wgsl(subgroupIndexShader), to: .wgsl)
+    if !device.capabilities.features.contains(.subgroupID) {
+        do {
+            _ = try await device.createComputePipeline(compute)
+        } catch GPUError.validation("Feature not advertised") {
+            return []
+        }
+        throw GPUError.backendFailure("Subgroup ID accepted without the WGSL language feature")
+    }
+    let pipeline = try await device.createComputePipeline(compute)
+    let records = try await device.createBuffer(.init(size: 4160, usage: [.storage, .copySource]))
+    let readback = try await device.createBuffer(.init(size: 4160, usage: [.copyDestination, .mapRead]))
+    let snapshots = try await device.submitCommands([
+        .dispatchCompute(pipeline: pipeline, bindings: [.init(binding: 0): records], workgroups: .init(x: 2)),
+        .copy(source: records, destination: readback, byteCount: 4160),
+        .read(buffer: readback, byteCount: 4160),
+    ]).wait()
+    guard snapshots.count == 1, snapshots[0].count == 1040 else {
+        throw GPUError.backendFailure("Unexpected subgroup index readback")
+    }
+    return snapshots[0]
+}
+
+private let dualSourceShader = """
+    enable dual_source_blending;
+    struct Outputs {
+        @location(0) @blend_src(1) weight: vec4f,
+        @blend_src(0) @location(0) color: vec4f,
+    }
+    @vertex fn vs(@location(0) point: vec2f) -> @builtin(position) vec4f { return vec4f(point, 0.5, 1.0); }
+    @fragment fn fs() -> Outputs {
+        return Outputs(vec4f(0.5, 0.25, 0.75, 0.25), vec4f(1.0, 0.5, 0.25, 1.0));
+    }
+    """
+
+private func dualSourceDiagnostic(_ device: Device) async throws -> [UInt32] {
+    let compiler = IndependentShaderCompiler()
+    let source = ShaderInput.wgsl(dualSourceShader)
+    let vertex = try compiler.compileRenderStage(source, entryPoint: "vs", to: .wgsl)
+    let fragment = try compiler.compileRenderStage(source, entryPoint: "fs", to: .wgsl)
+    let layout = VertexBufferLayout(stride: 8, attributes: [.init(location: 0, offset: 0, format: .float32x2)])
+    let blend = RenderBlendState(
+        color: .init(sourceFactor: .source1Color, destinationFactor: .oneMinusSource1Color),
+        alpha: .init(sourceFactor: .source1Alpha, destinationFactor: .oneMinusSource1Alpha))
+    let inverse = RenderBlendState(
+        color: .init(sourceFactor: .oneMinusSource1Color, destinationFactor: .source1Color),
+        alpha: .init(sourceFactor: .oneMinusSource1Alpha, destinationFactor: .source1Alpha))
+    if !device.capabilities.features.contains(.dualSourceBlending) {
+        do {
+            _ = try await device.createRenderPipeline(vertex: vertex, fragment: fragment, colorFormat: .rgba8Unorm,
+                vertexBuffers: [layout], colorState: .init(blend: blend))
+        } catch GPUError.validation("Feature not advertised") {
+            return []
+        }
+        throw GPUError.backendFailure("Dual-source blending accepted without the device feature")
+    }
+    let direct = try await device.createRenderPipeline(vertex: vertex, fragment: fragment, colorFormat: .rgba8Unorm,
+        vertexBuffers: [layout], colorState: .init(blend: blend))
+    let reverse = try await device.createRenderPipeline(vertex: vertex, fragment: fragment, colorFormat: .rgba8Unorm,
+        vertexBuffers: [layout], colorState: .init(blend: inverse))
+    let noBlend = try await device.createRenderPipeline(vertex: vertex, fragment: fragment, colorFormat: .rgba8Unorm,
+        vertexBuffers: [layout])
+    let vertices = try await device.createBuffer(.init(size: 24, usage: [.vertex, .copyDestination]))
+    let target = try await device.createTexture(.init(width: 1, height: 1, format: .rgba8Unorm,
+        usage: [.renderAttachment, .copySource]))
+    let readback = try await device.createBuffer(.init(size: 256, usage: [.mapRead, .copyDestination]))
+    let clear = RenderClearColor(red: 0, green: 1, blue: 0, alpha: 0)
+    let capture: [BufferCommand] = [
+        .copyTextureToBuffer(source: target, destination: readback, bytesPerRow: 256),
+        .read(buffer: readback, byteCount: 4),
+    ]
+    var commands: [BufferCommand] = [
+        .write(buffer: vertices, offset: 0, words: [Float(-1), -1, 3, -1, -1, 3].map(\.bitPattern)),
+    ]
+    for pipeline in [direct, reverse, noBlend] {
+        commands.append(.render(pipeline: pipeline, target: target, clear: clear, vertexCount: 3,
+                                vertexBuffers: [.init(buffer: vertices)]))
+        commands += capture
+    }
+    let pixels = try await device.submitCommands(commands).wait().flatMap { $0 }
+    return pixels
+}
+
+private func validateNativeEarlyDepthFeature(_ device: Device) async throws {
+    let source = ShaderInput.wgsl("""
+        @vertex fn vs() -> @builtin(position) vec4f { return vec4f(0, 0, 0, 1); }
+        @early_depth_test(force) @fragment fn fs() -> @location(0) vec4f { return vec4f(1); }
+        """)
+    let compiler = IndependentShaderCompiler()
+    let vertex = try compiler.compileRenderStage(source, entryPoint: "vs", to: .wgsl)
+    let fragment = try compiler.compileRenderStage(source, entryPoint: "fs", to: .wgsl)
+    let scope = try await device.pushErrorScope(.validation)
+    do {
+        _ = try await device.createRenderPipeline(vertex: vertex, fragment: fragment, colorFormat: .rgba8Unorm)
+    } catch GPUError.validation("Feature not advertised") {
+        guard case .validation("Feature not advertised") = try await device.popErrorScope(scope) else {
+            throw GPUError.backendFailure("Early depth feature failure did not reach the error scope")
+        }
+        return
+    }
+    throw GPUError.backendFailure("Browser accepted the native early depth feature")
+}
+
+private let bcSampleShader = """
+    @group(0) @binding(0) var linear: texture_2d<f32>;
+    @group(0) @binding(1) var srgb: texture_2d<f32>;
+    @group(0) @binding(2) var<storage, read_write> out: vec4f;
+    @compute @workgroup_size(1) fn run() {
+        let a = textureLoad(linear, vec2u(1u), 0u);
+        let b = textureLoad(srgb, vec2u(1u), 0u);
+        out = vec4f(a.x, b.x, a.w, b.w);
+    }
+    """
+
+private func bcTextureDiagnostic(_ device: Device) async throws -> [UInt32] {
+    guard device.capabilities.features.contains(.textureCompressionBC) else {
+        do {
+            _ = try await device.createTexture(.init(width: 4, height: 4, format: .bc1RGBAUnorm, usage: .textureBinding))
+        } catch GPUError.validation("Feature not advertised") {
+            return []
+        }
+        throw GPUError.validation("Accepted BC texture without the device feature")
+    }
+    let usage: TextureUsage = [.copySource, .copyDestination, .textureBinding]
+    let linear = try await device.createTexture(.init(width: 8, height: 8, format: .bc1RGBAUnorm, usage: usage, mipLevelCount: 3))
+    let srgb = try await device.createTexture(.init(width: 4, height: 4, format: .bc1RGBAUnormSrgb, usage: usage, mipLevelCount: 2))
+    let bc3 = try await device.createTexture(.init(width: 4, height: 4, format: .bc3RGBAUnorm, usage: usage))
+    let linearView = try await device.createTextureView(texture: linear, .init(baseMipLevel: 2, mipLevelCount: 1))
+    let srgbView = try await device.createTextureView(texture: srgb, .init(baseMipLevel: 1, mipLevelCount: 1))
+    let source = try await device.createBuffer(.init(size: 16, usage: [.copySource, .copyDestination]))
+    let result = try await device.createBuffer(.init(size: 16, usage: [.storage, .copySource]))
+    let readback = try await device.createBuffer(.init(size: 272, usage: [.mapRead, .copyDestination]))
+    let compiler = IndependentShaderCompiler()
+    let pipeline = try await device.createComputePipeline(compiler.compileCompute(.wgsl(bcSampleShader), to: .wgsl))
+    // Equal endpoints decode to a neutral mid-gray. Selector bits are zero.
+    let gray: [UInt8] = [0xef, 0x7b, 0xef, 0x7b, 0, 0, 0, 0]
+    let tail = TextureCopyRegion(width: 4, height: 4, mipLevel: 2)
+    let commands: [BufferCommand] = [
+        .copyTextureToBuffer(source: linear, destination: readback, bytesPerRow: 256, mipLevel: 2),
+        .read(buffer: readback, byteCount: 8),
+        .writeTexture(destination: linear, data: gray, region: .init(x: 4, y: 4, width: 4, height: 4)),
+        .copyTextureToBuffer(source: linear, destination: readback, bytesPerRow: 256),
+        .read(buffer: readback, byteCount: 272),
+        .writeTexture(destination: linear, data: [0xee] + gray, layout: .init(offset: 1), region: tail),
+        .copyTextureToTexture(source: linear, destination: srgb, sourceRegion: tail, destinationOrigin: .init(mipLevel: 1)),
+        .copyTextureToBuffer(source: srgb, destination: readback, bytesPerRow: 256, mipLevel: 1),
+        .read(buffer: readback, byteCount: 8),
+        .write(buffer: source, offset: 0, words: [0x1234ffff, 0, 0x7bef7bef, 0]),
+        .copyBufferToTexture(source: source, layout: .init(), destination: bc3, region: .init(width: 4, height: 4)),
+        .copyTextureToBuffer(source: bc3, destination: readback, bytesPerRow: 256),
+        .read(buffer: readback, byteCount: 16),
+        .dispatchCompute(pipeline: pipeline, bindings: [.init(binding: 2): result], workgroups: .init(x: 1),
+                         textures: [.init(binding: 0): linearView, .init(binding: 1): srgbView]),
+        .copy(source: result, destination: readback, byteCount: 16),
+        .read(buffer: readback, byteCount: 16),
+    ]
+    let snapshots = try await device.submitCommands(commands).wait()
+    guard snapshots.map(\.count) == [2, 68, 2, 4, 4] else {
+        throw GPUError.validation("Unexpected BC readback size")
+    }
+    return snapshots[0] + Array(snapshots[1][0..<4]) + Array(snapshots[1][64..<68]) +
+        snapshots[2] + snapshots[3] + snapshots[4]
+}
+
+private let etc2ReadShader = """
+    @group(0) @binding(0) var linear: texture_2d<f32>;
+    @group(0) @binding(1) var srgb: texture_2d<f32>;
+    @group(0) @binding(2) var eac: texture_2d<f32>;
+    @group(0) @binding(3) var<storage, read_write> out: vec4f;
+    @compute @workgroup_size(1) fn run() {
+        let a = textureLoad(linear, vec2u(1u), 0u);
+        let b = textureLoad(srgb, vec2u(1u), 0u);
+        let c = textureLoad(eac, vec2u(1u), 0u);
+        out = vec4f(a.x, b.x, c.xy);
+    }
+    """
+
+private func etc2TextureDiagnostic(_ device: Device) async throws -> [UInt32] {
+    guard device.capabilities.features.contains(.textureCompressionETC2) else {
+        do {
+            _ = try await device.createTexture(.init(width: 4, height: 4, format: .etc2RGB8Unorm, usage: .textureBinding))
+        } catch GPUError.validation("Feature not advertised") {
+            return []
+        }
+        throw GPUError.validation("Accepted ETC2 texture without the device feature")
+    }
+    let formats: [TextureFormat] = [
+        .etc2RGB8Unorm, .etc2RGB8UnormSrgb, .etc2RGB8A1Unorm, .etc2RGB8A1UnormSrgb,
+        .etc2RGBA8Unorm, .etc2RGBA8UnormSrgb, .eacR11Unorm, .eacR11Snorm, .eacRG11Unorm, .eacRG11Snorm,
+    ]
+    for format in formats {
+        let image = try await device.createTexture(.init(width: 4, height: 4, format: format, usage: .textureBinding))
+        try await device.destroyTexture(image)
+    }
+    let usage: TextureUsage = [.copySource, .copyDestination, .textureBinding]
+    let linear = try await device.createTexture(.init(width: 8, height: 8, format: .etc2RGB8Unorm, usage: usage,
+                                                     mipLevelCount: 3, arrayLayerCount: 2))
+    let srgb = try await device.createTexture(.init(width: 4, height: 4, format: .etc2RGB8UnormSrgb, usage: usage, mipLevelCount: 2))
+    let eac = try await device.createTexture(.init(width: 4, height: 4, format: .eacRG11Unorm, usage: usage))
+    let linearView = try await device.createTextureView(texture: linear, .init(baseMipLevel: 2, mipLevelCount: 1,
+                                                                              dimension: .d2, arrayLayerCount: 1))
+    let srgbView = try await device.createTextureView(texture: srgb, .init(baseMipLevel: 1, mipLevelCount: 1))
+    let source = try await device.createBuffer(.init(size: 16, usage: [.copySource, .copyDestination]))
+    let result = try await device.createBuffer(.init(size: 16, usage: [.storage, .copySource]))
+    let readback = try await device.createBuffer(.init(size: 16, usage: [.mapRead, .copyDestination]))
+    let compiler = IndependentShaderCompiler()
+    let pipeline = try await device.createComputePipeline(compiler.compileCompute(.wgsl(etc2ReadShader), to: .wgsl))
+    // ETC2 individual mode with the same 4-bit RGB base in both subblocks and zero selectors.
+    let gray: [UInt8] = [0x66, 0x66, 0x66, 0, 0, 0, 0, 0]
+    let bright: [UInt8] = [0xaa, 0xaa, 0xaa, 0, 0, 0, 0, 0]
+    let data = [UInt8(0xee)] + gray + Array(repeating: 0xee, count: 14) + bright
+    let commands: [BufferCommand] = [
+        .writeTexture(destination: linear, data: data, layout: .init(offset: 1, bytesPerRow: 11, rowsPerImage: 2),
+                      region: .init(width: 4, height: 4, mipLevel: 2, depth: 2)),
+        .copyTextureToBuffer(source: linear, destination: readback, bytesPerRow: 256, mipLevel: 2, arrayLayer: 1),
+        .read(buffer: readback, byteCount: 8),
+        .copyTextureToTexture(source: linear, destination: srgb, sourceRegion: .init(width: 4, height: 4, mipLevel: 2),
+                              destinationOrigin: .init(mipLevel: 1)),
+        .copyTextureToBuffer(source: srgb, destination: readback, bytesPerRow: 256, mipLevel: 1),
+        .read(buffer: readback, byteCount: 8),
+        .write(buffer: source, offset: 0, words: [0x80, 0, 0x40, 0]),
+        .copyBufferToTexture(source: source, layout: .init(), destination: eac, region: .init(width: 4, height: 4)),
+        .copyTextureToBuffer(source: eac, destination: readback, bytesPerRow: 256),
+        .read(buffer: readback, byteCount: 16),
+        .dispatchCompute(pipeline: pipeline, bindings: [.init(binding: 3): result], workgroups: .init(x: 1),
+                         textures: [.init(binding: 0): linearView, .init(binding: 1): srgbView, .init(binding: 2): eac]),
+        .copy(source: result, destination: readback, byteCount: 16),
+        .read(buffer: readback, byteCount: 16),
+    ]
+    let snapshots = try await device.submitCommands(commands).wait()
+    guard snapshots.map(\.count) == [2, 2, 4, 4] else {
+        throw GPUError.validation("Unexpected ETC2 and EAC readback size")
+    }
+    return snapshots.flatMap { $0 }
+}
+
+private let astcReadShader = """
+    @group(0) @binding(0) var linear: texture_2d<f32>;
+    @group(0) @binding(1) var srgb: texture_2d<f32>;
+    @group(0) @binding(2) var wide: texture_2d<f32>;
+    @group(0) @binding(3) var<storage, read_write> out: vec4f;
+    @compute @workgroup_size(1) fn run() {
+        let a = textureLoad(linear, vec2u(6u, 5u), 0u);
+        let b = textureLoad(srgb, vec2u(6u, 5u), 0u);
+        let c = textureLoad(wide, vec2u(4u, 3u), 0u);
+        out = vec4f(a.x, b.x, c.x, c.w);
+    }
+    """
+
+private func astcTextureDiagnostic(_ device: Device) async throws -> [UInt32] {
+    guard device.capabilities.features.contains(.textureCompressionASTC) else {
+        do {
+            _ = try await device.createTexture(.init(width: 4, height: 4, format: .astc4x4Unorm, usage: .textureBinding))
+        } catch GPUError.validation("Feature not advertised") {
+            return []
+        }
+        throw GPUError.validation("Accepted ASTC texture without the device feature")
+    }
+    let shapes: [(UInt32, UInt32, TextureFormat, TextureFormat)] = [
+        (4, 4, .astc4x4Unorm, .astc4x4UnormSrgb),
+        (5, 4, .astc5x4Unorm, .astc5x4UnormSrgb),
+        (5, 5, .astc5x5Unorm, .astc5x5UnormSrgb),
+        (6, 5, .astc6x5Unorm, .astc6x5UnormSrgb),
+        (6, 6, .astc6x6Unorm, .astc6x6UnormSrgb),
+        (8, 5, .astc8x5Unorm, .astc8x5UnormSrgb),
+        (8, 6, .astc8x6Unorm, .astc8x6UnormSrgb),
+        (8, 8, .astc8x8Unorm, .astc8x8UnormSrgb),
+        (10, 5, .astc10x5Unorm, .astc10x5UnormSrgb),
+        (10, 6, .astc10x6Unorm, .astc10x6UnormSrgb),
+        (10, 8, .astc10x8Unorm, .astc10x8UnormSrgb),
+        (10, 10, .astc10x10Unorm, .astc10x10UnormSrgb),
+        (12, 10, .astc12x10Unorm, .astc12x10UnormSrgb),
+        (12, 12, .astc12x12Unorm, .astc12x12UnormSrgb),
+    ]
+    for (width, height, linear, srgb) in shapes {
+        for format in [linear, srgb] {
+            let image = try await device.createTexture(.init(width: width, height: height, format: format, usage: .textureBinding))
+            try await device.destroyTexture(image)
+        }
+    }
+    let usage: TextureUsage = [.copySource, .copyDestination, .textureBinding]
+    let linear = try await device.createTexture(.init(width: 15, height: 12, format: .astc5x4Unorm, usage: usage, mipLevelCount: 2))
+    let srgb = try await device.createTexture(.init(width: 15, height: 12, format: .astc5x4UnormSrgb, usage: usage, mipLevelCount: 2))
+    let wide = try await device.createTexture(.init(width: 20, height: 16, format: .astc10x8Unorm,
+                                                   usage: usage, mipLevelCount: 3))
+    let linearView = try await device.createTextureView(texture: linear, .init(baseMipLevel: 1, mipLevelCount: 1))
+    let srgbView = try await device.createTextureView(texture: srgb, .init(baseMipLevel: 1, mipLevelCount: 1))
+    let wideView = try await device.createTextureView(texture: wide, .init(baseMipLevel: 2, mipLevelCount: 1))
+    let source = try await device.createBuffer(.init(size: 16, usage: [.copySource, .copyDestination]))
+    let output = try await device.createBuffer(.init(size: 16, usage: [.storage, .copySource]))
+    let readback = try await device.createBuffer(.init(size: 288, usage: [.mapRead, .copyDestination]))
+    let compiler = IndependentShaderCompiler()
+    let pipeline = try await device.createComputePipeline(compiler.compileCompute(.wgsl(astcReadShader), to: .wgsl))
+    // Void-extent blocks with all coordinates set to one encode constant colors.
+    let gray: [UInt8] = [0xfc, 0xfd, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0xff, 0xff]
+    let wideWords: [UInt32] = [0xfffffdfc, 0xffffffff, 0x0000bfbf, 0xffff0000]
+    let corner = TextureCopyRegion(x: 5, y: 4, width: 5, height: 4, mipLevel: 1)
+    let commands: [BufferCommand] = [
+        .writeTexture(destination: linear, data: [0xee] + gray, layout: .init(offset: 1), region: corner),
+        .copyTextureToTexture(source: linear, destination: srgb, sourceRegion: corner,
+                              destinationOrigin: .init(x: 5, y: 4, mipLevel: 1)),
+        .copyTextureToBuffer(source: srgb, destination: readback, bytesPerRow: 256, mipLevel: 1),
+        .read(buffer: readback, byteCount: 288),
+        .write(buffer: source, offset: 0, words: wideWords),
+        .copyBufferToTexture(source: source, layout: .init(), destination: wide, region: .init(width: 10, height: 8, mipLevel: 2)),
+        .copyTextureToBuffer(source: wide, destination: readback, bytesPerRow: 256, mipLevel: 2),
+        .read(buffer: readback, byteCount: 16),
+        .dispatchCompute(pipeline: pipeline, bindings: [.init(binding: 3): output], workgroups: .init(x: 1),
+                         textures: [.init(binding: 0): linearView, .init(binding: 1): srgbView, .init(binding: 2): wideView]),
+        .copy(source: output, destination: readback, byteCount: 16),
+        .read(buffer: readback, byteCount: 16),
+    ]
+    let snapshots = try await device.submitCommands(commands).wait()
+    guard snapshots.map(\.count) == [72, 4, 4] else {
+        throw GPUError.validation("Unexpected ASTC readback size")
+    }
+    return Array(snapshots[0][0..<8]) + Array(snapshots[0][64..<72]) + snapshots[1] + snapshots[2]
+}
+
+private let compressedVolumeReadShader = """
+    @group(0) @binding(0) var input: texture_3d<f32>;
+    @group(0) @binding(1) var copied: texture_3d<f32>;
+    @group(0) @binding(2) var<storage, read_write> out: vec4f;
+    @compute @workgroup_size(1) fn run() {
+        let a = textureLoad(copied, vec3u(5u, 4u, 1u), 0u);
+        let b = textureLoad(copied, vec3u(5u, 4u, 2u), 0u);
+        let c = textureLoad(input, vec3u(5u, 4u, 2u), 0u);
+        out = vec4f(a.x, b.x, c.x, a.w);
+    }
+    """
+
+private func compressedVolumeDiagnostic(_ device: Device, format: TextureFormat, feature: GPUFeature) async throws -> [UInt32] {
+    let bc = format == .bc1RGBAUnorm
+    let blockWidth: UInt32 = bc ? 4 : 5
+    let texture = TextureDescriptor(width: blockWidth * 3, height: 12, format: format,
+                                    usage: [.copySource, .copyDestination, .textureBinding],
+                                    mipLevelCount: 3, dimension: .d3, depth: 6)
+    guard device.capabilities.features.contains(feature) else {
+        do {
+            _ = try await device.createTexture(texture)
+        } catch GPUError.validation("Feature not advertised") {
+            return []
+        }
+        throw GPUError.validation("Accepted compressed volume without the device feature")
+    }
+    let blocks: [[UInt32]] = bc ? [[0x40004000, 0], [0x80008000, 0], [0xc000c000, 0]] :
+        [0x4040, 0x8080, 0xc0c0].map { [0xfffffdfc, 0xffffffff, $0, 0xffff0000] }
+    let blockBytes = blocks[0].count * 4
+    let stride = blockBytes + 3
+    let bytes = [UInt8(0xee)] + blocks[0].withUnsafeBytes { Array($0) } +
+        [UInt8](repeating: 0xee, count: 2 * stride - blockBytes) + blocks[1].withUnsafeBytes { Array($0) }
+    let input = try await device.createTexture(texture)
+    let copied = try await device.createTexture(texture)
+    let inputView = try await device.createTextureView(texture: input, .init(baseMipLevel: 1, mipLevelCount: 1))
+    let copiedView = try await device.createTextureView(texture: copied, .init(baseMipLevel: 1, mipLevelCount: 1))
+    let staging = try await device.createBuffer(.init(size: UInt64(blockBytes), usage: [.copySource, .copyDestination]))
+    let output = try await device.createBuffer(.init(size: 16, usage: [.storage, .copySource]))
+    let readbackSize = UInt64(1280 + 2 * blockBytes)
+    let readback = try await device.createBuffer(.init(size: readbackSize, usage: [.copyDestination, .mapRead]))
+    let shader = try IndependentShaderCompiler().compileCompute(.wgsl(compressedVolumeReadShader), to: .wgsl)
+    let pipeline = try await device.createComputePipeline(shader)
+    let pair = TextureCopyRegion(x: blockWidth, y: 4, width: blockWidth, height: 4, mipLevel: 1, depth: 2)
+    let commands: [BufferCommand] = [
+        .writeTexture(destination: input, data: bytes, layout: .init(offset: 1, bytesPerRow: UInt32(stride), rowsPerImage: 2),
+                      region: pair),
+        .write(buffer: staging, offset: 0, words: blocks[2]),
+        .copyBufferToTexture(source: staging, layout: .init(), destination: input,
+                             region: .init(x: blockWidth, y: 4, width: blockWidth, height: 4, mipLevel: 1, z: 2)),
+        .copyTextureToTexture(source: input, destination: copied, sourceRegion: pair,
+                              destinationOrigin: .init(x: blockWidth, y: 4, mipLevel: 1, z: 1)),
+        .copyTextureToBuffer(source: copied, destination: readback, bytesPerRow: 256, mipLevel: 1, depth: 3),
+        .read(buffer: readback, byteCount: readbackSize),
+        .dispatchCompute(pipeline: pipeline, bindings: [.init(binding: 2): output], workgroups: .init(x: 1),
+                         textures: [.init(binding: 0): inputView, .init(binding: 1): copiedView]),
+        .copy(source: output, destination: readback, byteCount: 16),
+        .read(buffer: readback, byteCount: 16),
+    ]
+    let snapshots = try await device.submitCommands(commands).wait()
+    guard snapshots.map(\.count) == [Int(readbackSize / 4), 4] else {
+        throw GPUError.validation("Unexpected compressed volume readback size")
+    }
+    let wordsPerRow = 2 * blocks[0].count
+    return [0, 64, 128, 192, 256, 320].flatMap { offset in
+        snapshots[0][offset..<(offset + wordsPerRow)]
+    } + snapshots[1]
+}
+
+private let callStatementShader = """
+    @group(0) @binding(0) var<storage, read_write> out: array<u32, 4>;
+    var<workgroup> cell: atomic<u32>;
+
+    @compute @workgroup_size(1) fn run() {
+        let value = required(3u);
+        _ = required(4u);
+        update(9u);
+        for (mark(); out[0] < 23u; _ = required(2u)) { update(5u); }
+        for (set(0u); out[2] < 2u; tick()) {}
+        atomicStore(&cell, 1u);
+        atomicLoad(&cell);
+        atomicAdd(&cell, 4u);
+        out[3] = value + atomicLoad(&cell);
+    }
+    @must_use fn required(delta: u32) -> u32 {
+        update(delta);
+        return delta * 2u;
+    }
+    fn update(delta: u32) -> u32 {
+        out[0] += delta;
+        return out[0];
+    }
+    fn mark() { out[1] = out[0]; }
+    fn set(value: u32) { out[2] = value; }
+    fn tick() { out[2] += 1u; }
+    """
+
+private func callStatementDiagnostic(_ device: Device) async throws -> [UInt32] {
+    let shader = try IndependentShaderCompiler().compileCompute(.wgsl(callStatementShader), to: .wgsl)
+    let pipeline = try await device.createComputePipeline(shader)
+    let unreachableShader = try IndependentShaderCompiler().compileWebGPUCompute(.wgsl("""
+        @group(0) @binding(0) var<storage, read_write> output: array<vec4u, 2>;
+
+        fn selected(lane: u32) -> u32 {
+            switch lane {
+                case 0u: {
+                    return 7u;
+                    output[0].x = 999u;
+                    break;
+                }
+                default: { return 11u; }
+            }
+            output[1].x = 999u;
+        }
+
+        fn loopValue() -> u32 {
+            loop {
+                return 23u;
+                break;
+            }
+        }
+
+        fn deadBarrier() {
+            return;
+            workgroupBarrier();
+        }
+
+        fn loopCounter() -> u32 {
+            var counter = 0u;
+            loop {
+                counter = 17u;
+                break;
+                counter = 99u;
+                continuing { counter = 123u; }
+            }
+            return counter;
+        }
+
+        @compute @workgroup_size(2)
+        fn run(@builtin(local_invocation_index) lane: u32) {
+            if lane == 0u { deadBarrier(); }
+            output[lane] = vec4u(selected(lane), loopValue(), loopCounter(), 5u);
+        }
+        """))
+    let unreachablePipeline = try await device.createComputePipeline(unreachableShader)
+    let output = try await device.createBuffer(.init(size: 32, usage: [.storage, .copySource]))
+    let read = try await device.createBuffer(.init(size: 32, usage: [.mapRead, .copyDestination]))
+    let snapshots = try await device.submitCommands([
+        .dispatchCompute(pipeline: pipeline, bindings: [.init(binding: 0): output], workgroups: .init(x: 1)),
+        .copy(source: output, destination: read, byteCount: 16),
+        .read(buffer: read, byteCount: 16),
+        .dispatchCompute(pipeline: unreachablePipeline, bindings: [.init(binding: 0): output], workgroups: .init(x: 1)),
+        .copy(source: output, destination: read, byteCount: 32),
+        .read(buffer: read, byteCount: 32),
+    ]).wait()
+    guard snapshots.map(\.count) == [4, 8] else {
+        throw GPUError.validation("Unexpected call-statement readback")
+    }
+    return snapshots.flatMap { $0 }
+}
+
+private let matrixCompoundShader = """
+    @group(0) @binding(0) var<storage, read_write> out: array<u32, 14>;
+    var<private> matrices: array<mat2x3f, 2>;
+    var<private> index: u32;
+
+    fn lhsIndex() -> u32 {
+        out[0] += 1u;
+        return index;
+    }
+    fn rhsMatrix() -> mat2x3f {
+        out[1] = out[0];
+        matrices[0] = mat2x3f(vec3f(99), vec3f(99));
+        index = 1u;
+        return mat2x3f(vec3f(1), vec3f(2));
+    }
+    @compute @workgroup_size(1) fn run() {
+        matrices[0] = mat2x3f(vec3f(1, 2, 3), vec3f(4, 5, 6));
+        matrices[1] = mat2x3f(vec3f(9), vec3f(8));
+        matrices[lhsIndex()] += rhsMatrix();
+        matrices[0] -= mat2x3(vec3(1.0), vec3(1.0));
+        matrices[0] *= 2;
+        matrices[0] *= mat2x2f(vec2f(2, 1), vec2f(1, 3));
+        var row = vec3f(1, 2, 3);
+        row *= mat3x3f(vec3f(1, 0, 0), vec3f(2, 1, 0), vec3f(0, 1, 2));
+        out[2] = index;
+        out[3] = bitcast<u32>(matrices[0][0].x);
+        out[4] = bitcast<u32>(matrices[0][0].y);
+        out[5] = bitcast<u32>(matrices[0][0].z);
+        out[6] = bitcast<u32>(matrices[0][1].x);
+        out[7] = bitcast<u32>(matrices[0][1].y);
+        out[8] = bitcast<u32>(matrices[0][1].z);
+        out[9] = bitcast<u32>(row.x);
+        out[10] = bitcast<u32>(row.y);
+        out[11] = bitcast<u32>(row.z);
+        out[12] = bitcast<u32>(matrices[1][0].x);
+        out[13] = bitcast<u32>(matrices[1][1].x);
+    }
+    """
+
+private func matrixCompoundDiagnostic(_ device: Device) async throws -> [UInt32] {
+    let shader = try IndependentShaderCompiler().compileCompute(.wgsl(matrixCompoundShader), to: .wgsl)
+    let pipeline = try await device.createComputePipeline(shader)
+    let output = try await device.createBuffer(.init(size: 56, usage: [.storage, .copySource]))
+    let read = try await device.createBuffer(.init(size: 56, usage: [.mapRead, .copyDestination]))
+    let snapshots = try await device.submitCommands([
+        .dispatchCompute(pipeline: pipeline, bindings: [.init(binding: 0): output], workgroups: .init(x: 1)),
+        .copy(source: output, destination: read, byteCount: 56),
+        .read(buffer: read, byteCount: 56),
+    ]).wait()
+    guard snapshots.count == 1, let words = snapshots.first else {
+        throw GPUError.validation("Unexpected matrix compound assignment readback")
+    }
+    return words
+}
+
+private func float32TextureShader(filter: Bool, coordinates: String = "vec2f(0.5)") -> ShaderInput {
+    let sampler = filter ? "@group(0) @binding(3) var state: sampler;" : ""
+    func read(_ name: String) -> String {
+        filter ? "textureSampleLevel(\(name), state, \(coordinates), 0.0)" : "textureLoad(\(name), vec2u(0), 0u)"
+    }
+    return .wgsl("""
+        @group(0) @binding(0) var single: texture_2d<f32>;
+        @group(0) @binding(1) var pair: texture_2d<f32>;
+        @group(0) @binding(2) var color: texture_2d<f32>;
+        \(sampler)
+        @group(0) @binding(4) var<storage, read_write> out: vec4f;
+        fn readAll() -> vec4f {
+            return vec4f(\(read("single")).x, \(read("pair")).y, \(read("color")).w, f32(textureDimensions(single).x));
+        }
+        @compute @workgroup_size(1) fn run() { out = readAll(); }
+        """)
+}
+
+private func float32TextureDiagnostic(_ device: Device) async throws -> [UInt32] {
+    let formats: [TextureFormat] = [.r32Float, .rg32Float, .rgba32Float]
+    let values: [[Float]] = [[1, 3], [1, 10, 3, 14], [1, 2, 3, 0.25, 4, 5, 6, 0.75]]
+    var textures: [ComputeBindingSlot: ResourceID] = [:]
+    var uploads: [BufferCommand] = []
+    for (index, format) in formats.enumerated() {
+        let image = try await device.createTexture(.init(width: 2, height: 1, format: format,
+                                                         usage: [.copyDestination, .textureBinding]))
+        textures[.init(binding: UInt32(index))] = image
+        let bytes = values[index].withUnsafeBytes { Array($0) }
+        uploads.append(.writeTexture(destination: image, data: bytes, region: .init(width: 2, height: 1)))
+    }
+    let output = try await device.createBuffer(.init(size: 16, usage: [.storage, .copySource]))
+    let readback = try await device.createBuffer(.init(size: 16, usage: [.mapRead, .copyDestination]))
+    let sampler = try await device.createSampler(.init(minFilter: .linear, magFilter: .linear))
+    let compiler = IndependentShaderCompiler()
+    var results: [[UInt32]] = []
+    for filter in [false, true] {
+        let shader = try compiler.compileCompute(float32TextureShader(filter: filter), to: .wgsl)
+        let pipeline = try await device.createComputePipeline(shader)
+        let dispatch = BufferCommand.dispatchCompute(pipeline: pipeline, bindings: [.init(binding: 4): output],
+            workgroups: .init(x: 1), textures: textures, samplers: filter ? [.init(binding: 3): sampler] : [:])
+        if filter && !device.capabilities.features.contains(.float32Filterable) {
+            let scope = try await device.pushErrorScope(.validation)
+            do {
+                _ = try await device.submitCommands([dispatch])
+            } catch GPUError.validation("Float32 sampling requires float32-filterable") {
+                guard case .validation("Float32 sampling requires float32-filterable") = try await device.popErrorScope(scope) else {
+                    throw GPUError.backendFailure("Float32 filterability error did not reach the error scope")
+                }
+                break
+            }
+            throw GPUError.backendFailure("Accepted filtered float32 texture without the device feature")
+        }
+        let capture: [BufferCommand] = [
+            dispatch, .copy(source: output, destination: readback, byteCount: 16), .read(buffer: readback, byteCount: 16),
+        ]
+        results += try await device.submitCommands(filter ? capture : capture + uploads + capture).wait()
+    }
+    let nearestShader = try compiler.compileCompute(
+        float32TextureShader(filter: true, coordinates: "vec2f(0.75, 0.5)"), to: .wgsl)
+    let samplerSlot = ComputeBindingSlot(binding: 3)
+    let nearest = try await device.createComputePipeline(nearestShader, nonFilteringSamplers: [samplerSlot])
+    let nearestSampler = try await device.createSampler(.init())
+    func dispatch(sampler: ResourceID) -> BufferCommand {
+        .dispatchCompute(pipeline: nearest, bindings: [.init(binding: 4): output], workgroups: .init(x: 1),
+                         textures: textures, samplers: [samplerSlot: sampler])
+    }
+    let scope = try await device.pushErrorScope(.validation)
+    do {
+        _ = try await device.submitCommands([dispatch(sampler: sampler)])
+        throw GPUError.backendFailure("Accepted a filtering sampler in a non-filtering slot")
+    } catch GPUError.validation("Invalid sampler binding") {
+        guard case .validation("Invalid sampler binding") = try await device.popErrorScope(scope) else {
+            throw GPUError.backendFailure("Invalid sampler error did not reach the error scope")
+        }
+    }
+    results += try await device.submitCommands([
+        dispatch(sampler: nearestSampler), .copy(source: output, destination: readback, byteCount: 16),
+        .read(buffer: readback, byteCount: 16),
+    ]).wait()
+    guard let image = textures[.init(binding: 0)] else {
+        throw GPUError.backendFailure("Missing float32 texture for render sampling")
+    }
+    let pixels = try await renderNearestFloat32(device, image: image, sampler: nearestSampler)
+    return results.flatMap { $0 } + pixels
+}
+
+private func renderNearestFloat32(_ device: Device, image: ResourceID, sampler: ResourceID) async throws -> [UInt32] {
+    let source = ShaderInput.wgsl("""
+        @group(0) @binding(0) var image: texture_2d<f32>;
+        @group(0) @binding(1) var state: sampler;
+        @vertex fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f {
+            let z = 0.25 * textureLoad(image, vec2u(0), 0u).x;
+            if i == 0u { return vec4f(-1, -1, z, 1); }
+            if i == 1u { return vec4f(3, -1, z, 1); }
+            return vec4f(-1, 3, z, 1);
+        }
+        @fragment fn fs() -> @location(0) vec4f {
+            let green = 0.25 * textureSampleLevel(image, state, vec2f(0.75, 0.5), 0.0).x;
+            return vec4f(0, green, 0, 1);
+        }
+        """)
+    let compiler = IndependentShaderCompiler()
+    let vertex = try compiler.compileRenderStage(source, entryPoint: "vs", to: .wgsl)
+    let fragment = try compiler.compileRenderStage(source, entryPoint: "fs", to: .wgsl)
+    let samplerSlot = ComputeBindingSlot(binding: 1)
+    let pipeline = try await device.createRenderPipeline(vertex: vertex, fragment: fragment, colorFormat: .rgba8Unorm,
+                                                         nonFilteringSamplers: [samplerSlot])
+    let target = try await device.createTexture(.init(width: 1, height: 1, format: .rgba8Unorm,
+                                                      usage: [.renderAttachment, .copySource]))
+    let readback = try await device.createBuffer(.init(size: 4, usage: [.mapRead, .copyDestination]))
+    return try await device.submitCommands([
+        .render(pipeline: pipeline, target: target, clear: .transparentBlack, vertexCount: 3,
+                textures: [.init(binding: 0): image], samplers: [samplerSlot: sampler]),
+        .copyTextureToBuffer(source: target, destination: readback, bytesPerRow: 256),
+        .read(buffer: readback, byteCount: 4),
+    ]).wait().flatMap { $0 }
+}
+
+private let float32ColorShader = """
+    struct Outputs {
+        @location(0) red: f32,
+        @location(1) pair: vec2f,
+        @location(2) color: vec4f,
+    }
+    @vertex fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f {
+        if i == 0u { return vec4f(-1, -1, 0, 1); }
+        if i == 1u { return vec4f(3, -1, 0, 1); }
+        return vec4f(-1, 3, 0, 1);
+    }
+    @fragment fn fs() -> Outputs {
+        return Outputs(2.5, vec2f(-1, 3), vec4f(0.5, -0.5, 4, 0.25));
+    }
+    @fragment fn one() -> @location(0) f32 { return 2.5; }
+    @fragment fn two() -> @location(0) vec2f { return vec2f(-1, 3); }
+    @fragment fn four() -> @location(0) vec4f { return vec4f(0.5, -0.5, 4, 0.25); }
+    """
+
+private func float32ColorDiagnostic(_ device: Device) async throws -> [UInt32] {
+    let compiler = IndependentShaderCompiler()
+    let source = ShaderInput.wgsl(float32ColorShader)
+    let vertex = try compiler.compileRenderStage(source, entryPoint: "vs", to: .wgsl)
+    let fragment = try compiler.compileRenderStage(source, entryPoint: "fs", to: .wgsl)
+    let formats: [TextureFormat] = [.r32Float, .rg32Float, .rgba32Float]
+    var images: [ResourceID] = []
+    for format in formats {
+        images.append(try await device.createTexture(.init(width: 1, height: 1, format: format,
+                                                            usage: [.renderAttachment, .copySource])))
+    }
+    let readback = try await device.createBuffer(.init(size: 16, usage: [.copyDestination, .mapRead]))
+    let clear = RenderClearColor(red: 1, green: -2, blue: 3, alpha: 0.5)
+    let additional: [UInt32: RenderColorAttachment] = [
+        1: .init(texture: images[1], loadAction: .clear(clear)),
+        2: .init(texture: images[2], loadAction: .clear(clear)),
+    ]
+    let additive = RenderBlendComponent(sourceFactor: .one, destinationFactor: .one)
+    var snapshots: [[UInt32]] = []
+    for blend in [false, true] {
+        let state = RenderColorState(blend: blend ? .init(color: additive, alpha: additive) : nil)
+        func makePipeline() async throws -> RenderPipeline {
+            try await device.createRenderPipeline(
+                vertex: vertex, fragment: fragment, colorFormat: formats[0], colorState: state,
+                additionalColorTargets: [1: .init(format: formats[1], colorState: state),
+                                         2: .init(format: formats[2], colorState: state)])
+        }
+        if blend && !device.capabilities.features.contains(.float32Blendable) {
+            let scope = try await device.pushErrorScope(.validation)
+            do {
+                _ = try await makePipeline()
+                throw GPUError.backendFailure("Accepted float32 blending without the device feature")
+            } catch GPUError.validation("Float32 blending requires float32-blendable") {
+                guard case .validation("Float32 blending requires float32-blendable") = try await device.popErrorScope(scope) else {
+                    throw GPUError.backendFailure("Float32 blending error did not reach the error scope")
+                }
+                break
+            }
+        }
+        let pipeline = try await makePipeline()
+        var commands: [BufferCommand] = [
+            .render(pipeline: pipeline, target: images[0], clear: clear, vertexCount: 3, additionalColors: additional),
+        ]
+        for (image, bytes) in zip(images, [UInt64(4), 8, 16]) {
+            commands += [.copyTextureToBuffer(source: image, destination: readback, bytesPerRow: 256),
+                         .read(buffer: readback, byteCount: bytes)]
+        }
+        snapshots += try await device.submitCommands(commands).wait()
+    }
+    let formatsAndEntries: [(TextureFormat, String)] = [(.r32Float, "one"), (.rg32Float, "two"), (.rgba32Float, "four")]
+    var words = snapshots.flatMap { $0 }
+    for (format, entry) in formatsAndEntries {
+        if device.capabilities.multisampledFloat32Formats.contains(format) {
+            words += try await renderMultisampledFloat32(device, format: format, entry: entry)
+        } else {
+            let descriptor = TextureDescriptor(width: 1, height: 1, format: format, usage: .renderAttachment, sampleCount: 4)
+            do {
+                _ = try await device.createTexture(descriptor)
+                throw GPUError.backendFailure("Accepted an unsupported float32 multisample format")
+            } catch GPUError.validation("Invalid multisampled texture format, mip levels or usage") {}
+        }
+    }
+    return words
+}
+
+private let float32MultisampleShader = """
+    @group(0) @binding(0) var image: texture_multisampled_2d<f32>;
+    @group(0) @binding(1) var<storage, read_write> out: vec4f;
+    @compute @workgroup_size(1) fn run() {
+        let texel = textureLoad(image, vec2u(0), 3u);
+        out = vec4f(texel.xyz, f32(textureNumSamples(image)));
+    }
+    """
+
+private func renderMultisampledFloat32(_ device: Device, format: TextureFormat, entry: String) async throws -> [UInt32] {
+    let compiler = IndependentShaderCompiler()
+    let source = ShaderInput.wgsl(float32ColorShader)
+    let vertex = try compiler.compileRenderStage(source, entryPoint: "vs", to: .wgsl)
+    let fragment = try compiler.compileRenderStage(source, entryPoint: entry, to: .wgsl)
+    let render = try await device.createRenderPipeline(vertex: vertex, fragment: fragment, colorFormat: format, sampleCount: 4)
+    let compute = try await device.createComputePipeline(compiler.compileCompute(.wgsl(float32MultisampleShader), to: .wgsl))
+    let image = try await device.createTexture(.init(width: 1, height: 1, format: format,
+                                                     usage: [.renderAttachment, .textureBinding], sampleCount: 4))
+    let output = try await device.createBuffer(.init(size: 16, usage: [.storage, .copySource]))
+    let read = try await device.createBuffer(.init(size: 16, usage: [.mapRead, .copyDestination]))
+    return try await device.submitCommands([
+        .render(pipeline: render, target: image, clear: .transparentBlack, vertexCount: 3),
+        .dispatchCompute(pipeline: compute, bindings: [.init(binding: 1): output], workgroups: .init(x: 1),
+                         textures: [.init(binding: 0): image]),
+        .copy(source: output, destination: read, byteCount: 16), .read(buffer: read, byteCount: 16),
+    ]).wait().flatMap { $0 }
+}
+
+private let halfColorShader = """
+    struct Outputs {
+        @location(0) red: f32,
+        @location(1) pair: vec2f,
+        @location(2) color: vec4f,
+    }
+    @vertex fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f {
+        if i == 0u { return vec4f(-1, -1, 0, 1); }
+        if i == 1u { return vec4f(3, -1, 0, 1); }
+        return vec4f(-1, 3, 0, 1);
+    }
+    @fragment fn fs() -> Outputs {
+        return Outputs(2.5, vec2f(-1, 3), vec4f(0.5, -0.5, 4, 0.25));
+    }
+    """
+
+private let halfSampleShader = """
+    @group(0) @binding(0) var image: texture_2d<f32>;
+    @group(0) @binding(1) var state: sampler;
+    @group(0) @binding(2) var<storage, read_write> out: f32;
+    @compute @workgroup_size(1) fn run() { out = textureSampleLevel(image, state, vec2f(0.5), 0.0).x; }
+    """
+
+private func halfTexelTransferDiagnostic(_ device: Device) async throws -> [[UInt32]] {
+    let usage: TextureUsage = [.copySource, .copyDestination, .textureBinding]
+    let line = try await device.createTexture(.init(width: 1, height: 1, format: .r16Float, usage: usage, dimension: .d1))
+    let image = try await device.createTexture(.init(width: 2, height: 1, format: .r16Float, usage: usage))
+    let upload = try await device.createBuffer(.init(size: 4, usage: [.copySource, .copyDestination]))
+    let output = try await device.createBuffer(.init(size: 4, usage: [.storage, .copySource]))
+    let read = try await device.createBuffer(.init(size: 4, usage: [.mapRead, .copyDestination]))
+    let linear = try await device.createSampler(.init(minFilter: .linear, magFilter: .linear))
+    let shader = try IndependentShaderCompiler().compileCompute(.wgsl(halfSampleShader), to: .wgsl)
+    let pipeline = try await device.createComputePipeline(shader)
+    return try await device.submitCommands([
+        .write(buffer: read, offset: 0, words: [0xdead1234]),
+        .copyTextureToBuffer(source: line, destination: read, bytesPerRow: 256, destinationOffset: 2),
+        .read(buffer: read, byteCount: 4),
+        .write(buffer: upload, offset: 0, words: [0x4200ffff]),
+        .copyBufferToTexture(source: upload, layout: .init(offset: 2), destination: line, region: .init(width: 1, height: 1)),
+        .copyTextureToBuffer(source: line, destination: read, bytesPerRow: 256, destinationOffset: 2),
+        .read(buffer: read, byteCount: 4),
+        .writeTexture(destination: line, data: [0x99, 0x00, 0x3c], layout: .init(offset: 1),
+                      region: .init(width: 1, height: 1)),
+        .copyTextureToBuffer(source: line, destination: read, bytesPerRow: 256, destinationOffset: 2),
+        .read(buffer: read, byteCount: 4),
+        .writeTexture(destination: image, data: [0x00, 0x3c, 0x00, 0x42], region: .init(width: 2, height: 1)),
+        .dispatchCompute(pipeline: pipeline, bindings: [.init(binding: 2): output], workgroups: .init(x: 1),
+                         textures: [.init(binding: 0): image], samplers: [.init(binding: 1): linear]),
+        .copy(source: output, destination: read, byteCount: 4), .read(buffer: read, byteCount: 4),
+    ]).wait()
+}
+
+private func halfColorResolveDiagnostic(_ device: Device) async throws -> [[UInt32]] {
+    let compiler = IndependentShaderCompiler()
+    let source = ShaderInput.wgsl(halfColorShader)
+    let vertex = try compiler.compileRenderStage(source, entryPoint: "vs", to: .wgsl)
+    let fragment = try compiler.compileRenderStage(source, entryPoint: "fs", to: .wgsl)
+    let formats: [TextureFormat] = [.r16Float, .rg16Float, .rgba16Float]
+    let additive = RenderBlendComponent(sourceFactor: .one, destinationFactor: .one)
+    let state = RenderColorState(blend: .init(color: additive, alpha: additive))
+    let pipeline = try await device.createRenderPipeline(
+        vertex: vertex, fragment: fragment, colorFormat: formats[0], sampleCount: 4, colorState: state,
+        additionalColorTargets: [1: .init(format: formats[1], colorState: state),
+                                 2: .init(format: formats[2], colorState: state)])
+    var targets: [ResourceID] = []
+    var resolves: [ResourceID] = []
+    for format in formats {
+        targets.append(try await device.createTexture(.init(width: 1, height: 1, format: format,
+                                                             usage: .renderAttachment, sampleCount: 4)))
+        resolves.append(try await device.createTexture(.init(width: 1, height: 1, format: format,
+                                                              usage: [.renderAttachment, .copySource])))
+    }
+    let read = try await device.createBuffer(.init(size: 8, usage: [.mapRead, .copyDestination]))
+    let clear = RenderClearColor(red: 1, green: -2, blue: 3, alpha: 0.5)
+    var commands: [BufferCommand] = [
+        .render(pipeline: pipeline, target: targets[0], clear: clear, vertexCount: 3, resolve: .init(texture: resolves[0]),
+                additionalColors: [
+                    1: .init(texture: targets[1], loadAction: .clear(clear), resolve: .init(texture: resolves[1])),
+                    2: .init(texture: targets[2], loadAction: .clear(clear), resolve: .init(texture: resolves[2])),
+                ]),
+        .copyTextureToBuffer(source: resolves[0], destination: read, bytesPerRow: 256, destinationOffset: 2),
+        .read(buffer: read, byteCount: 4),
+        .copyTextureToBuffer(source: resolves[1], destination: read, bytesPerRow: 256),
+        .read(buffer: read, byteCount: 4),
+    ]
+    commands += [.copyTextureToBuffer(source: resolves[2], destination: read, bytesPerRow: 256),
+                 .read(buffer: read, byteCount: 8)]
+    if device.capabilities.features.contains(.shaderF16) {
+        let native = ShaderInput.wgsl("""
+            enable f16;
+            struct VertexOutput {
+                @builtin(position) position: vec4f,
+                @location(0) tint: vec2h,
+            }
+            struct Colors {
+                @location(0) red: f16,
+                @location(1) rgba: vec4h,
+            }
+            struct VertexInput {
+                @location(0) data: vec4h,
+                @builtin(vertex_index) index: u32,
+            }
+            struct FragmentInput {
+                @builtin(front_facing) front: bool,
+                @location(0) tint: vec2h,
+            }
+            struct ColorValue { @location(0) rgba: vec4h, }
+
+            @vertex fn vs(input: VertexInput) -> VertexOutput {
+                let snapshot = input;
+                let vertex = snapshot.data;
+                return VertexOutput(vec4f(vec2f(vertex.xy), 0.0, 1.0), vertex.zw);
+            }
+            fn forward(input: FragmentInput) -> FragmentInput { return input; }
+            @fragment fn fs(input: FragmentInput) -> Colors {
+                var snapshot = forward(input);
+                snapshot.tint.x += 0.5h;
+                let alpha = select(0.0h, 1.0h, snapshot.front == input.front);
+                return Colors(input.tint.x, vec4h(input.tint, snapshot.tint.x, alpha));
+            }
+            @fragment fn fsSingle(input: FragmentInput) -> @location(0) vec2h {
+                var snapshot = input;
+                snapshot.tint.y = 0.125h;
+                return snapshot.tint;
+            }
+            @fragment fn fsSameType(input: ColorValue) -> ColorValue { return input; }
+            """)
+        let nativeVertex = try compiler.compileWebGPURenderStage(native, entryPoint: "vs")
+        let nativeFragment = try compiler.compileWebGPURenderStage(native, entryPoint: "fs")
+        let layout = VertexBufferLayout(stride: 8, attributes: [.init(location: 0, offset: 0, format: .float16x4)])
+        let nativePipeline = try await device.createRenderPipeline(
+            vertex: nativeVertex, fragment: nativeFragment, colorFormat: .r16Float, vertexBuffers: [layout],
+            additionalColorTargets: [1: .init(format: .rgba16Float)])
+        let vertices = try await device.createBuffer(.init(size: 24, usage: [.vertex, .copyDestination]))
+        let zero = RenderClearColor(red: 0, green: 0, blue: 0, alpha: 0)
+        commands += [
+            .write(buffer: vertices, offset: 0, words: [
+                0xbc00bc00, 0x3a003400, 0xbc004200, 0x3a003400, 0x4200bc00, 0x3a003400,
+            ]),
+            .render(pipeline: nativePipeline, target: resolves[0], clear: zero, vertexCount: 3,
+                    vertexBuffers: [.init(buffer: vertices)],
+                    additionalColors: [1: .init(texture: resolves[2], loadAction: .clear(zero))]),
+            .write(buffer: read, offset: 0, words: [0]),
+            .copyTextureToBuffer(source: resolves[0], destination: read, bytesPerRow: 256),
+            .read(buffer: read, byteCount: 4),
+            .copyTextureToBuffer(source: resolves[2], destination: read, bytesPerRow: 256),
+            .read(buffer: read, byteCount: 8),
+        ]
+    }
+    return try await device.submitCommands(commands).wait()
+}
+
+private let halfStorageWriteShader = """
+    requires texture_formats_tier1;
+    @group(0) @binding(0) var single: texture_storage_2d<r16float, write>;
+    @group(0) @binding(1) var pair: texture_storage_2d<rg16float, write>;
+    @compute @workgroup_size(2) fn run(@builtin(local_invocation_index) x: u32) {
+        let p = vec2u(x, 0u);
+        textureStore(single, p, vec4f(0.5 + f32(x), 99, 99, 99));
+        textureStore(pair, p, vec4f(-2 + f32(x), 0.25 + f32(x), 99, 99));
+    }
+    """
+
+private let halfStorageReadShader = """
+    requires texture_formats_tier1, readonly_and_readwrite_storage_textures;
+    @group(0) @binding(0) var single: texture_storage_2d<r16float, read>;
+    @group(0) @binding(1) var pair: texture_storage_2d<rg16float, read>;
+    @group(0) @binding(2) var<storage, read_write> out: array<vec4f, 2>;
+    @compute @workgroup_size(2) fn run(@builtin(local_invocation_index) x: u32) {
+        let p = vec2u(x, 0u);
+        let rg = textureLoad(pair, p);
+        out[x] = vec4f(textureLoad(single, p).x, rg.xy, rg.w);
+    }
+    """
+
+private let halfStorageReadWriteShader = """
+    requires texture_formats_tier1, readonly_and_readwrite_storage_textures;
+    @group(0) @binding(0) var single: texture_storage_2d<r16float, read_write>;
+    @compute @workgroup_size(2) fn run(@builtin(local_invocation_index) x: u32) {
+        let p = vec2u(x, 0u);
+        textureStore(single, p, textureLoad(single, p) + vec4f(2, 0, 0, 0));
+    }
+    """
+
+private func checkMissingStorageFeature(_ device: Device, shader: ComputeShaderArtifact) async throws {
+    let scope = try await device.pushErrorScope(.validation)
+    do {
+        _ = try await device.createComputePipeline(shader)
+        throw GPUError.backendFailure("Accepted a storage texture pipeline without its required device feature")
+    } catch GPUError.validation("Feature not advertised") {
+        guard case .validation("Feature not advertised") = try await device.popErrorScope(scope) else {
+            throw GPUError.backendFailure("Storage texture feature error did not reach the error scope")
+        }
+    }
+}
+
+private func halfStorageDiagnostic(_ device: Device) async throws -> [UInt32] {
+    let compiler = IndependentShaderCompiler()
+    let writeShader = try compiler.compileCompute(.wgsl(halfStorageWriteShader), to: .wgsl)
+    let readShader = try compiler.compileCompute(.wgsl(halfStorageReadShader), to: .wgsl)
+    guard device.capabilities.features.contains(.halfFloatStorageTextures) else {
+        try await checkMissingStorageFeature(device, shader: writeShader)
+        return []
+    }
+    guard device.capabilities.features.contains(.storageTextureRead) else {
+        try await checkMissingStorageFeature(device, shader: readShader)
+        return []
+    }
+    let write = try await device.createComputePipeline(writeShader)
+    let read = try await device.createComputePipeline(readShader)
+    let single = try await device.createTexture(.init(width: 2, height: 1, format: .r16Float, usage: .storageBinding))
+    let pair = try await device.createTexture(.init(width: 2, height: 1, format: .rg16Float, usage: .storageBinding))
+    let output = try await device.createBuffer(.init(size: 32, usage: [.storage, .copySource]))
+    let readback = try await device.createBuffer(.init(size: 32, usage: [.mapRead, .copyDestination]))
+    let images: [ComputeBindingSlot: ResourceID] = [.init(binding: 0): single, .init(binding: 1): pair]
+    let groups = DispatchWorkgroups(x: 1)
+    let capture: [BufferCommand] = [
+        .dispatchCompute(pipeline: read, bindings: [.init(binding: 2): output], workgroups: groups, textures: images),
+        .copy(source: output, destination: readback, byteCount: 32), .read(buffer: readback, byteCount: 32),
+    ]
+    var commands: [BufferCommand] = [
+        .dispatchCompute(pipeline: write, bindings: [:], workgroups: groups, textures: images),
+    ] + capture
+    let updateShader = try compiler.compileCompute(.wgsl(halfStorageReadWriteShader), to: .wgsl)
+    if device.capabilities.features.contains(.r16FloatStorageReadWrite) {
+        let update = try await device.createComputePipeline(updateShader)
+        commands += [.dispatchCompute(pipeline: update, bindings: [:], workgroups: groups, textures: [.init(binding: 0): single])]
+        commands += capture
+    } else {
+        try await checkMissingStorageFeature(device, shader: updateShader)
+    }
+    return try await device.submitCommands(commands).wait().flatMap { $0 }
+}
+
+private let integer16Formats: [TextureFormat] = [.r16Uint, .rg16Uint, .rgba16Uint, .r16Sint, .rg16Sint, .rgba16Sint]
+
+private let integer16ColorShader = """
+    struct UnsignedOut { @location(0) r: u32, @location(1) rg: vec2u, @location(2) rgba: vec4u }
+    struct SignedOut { @location(0) r: i32, @location(1) rg: vec2i, @location(2) rgba: vec4i }
+    @vertex fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f {
+        if i == 0u { return vec4f(-1, -1, 0, 1); }
+        if i == 1u { return vec4f(3, -1, 0, 1); }
+        return vec4f(-1, 3, 0, 1);
+    }
+    @fragment fn unsignedColor() -> UnsignedOut {
+        return UnsignedOut(60000u, vec2u(65535, 300), vec4u(1, 257, 65534, 1234));
+    }
+    @fragment fn signedColor() -> SignedOut {
+        return SignedOut(-20000i, vec2i(-32768, 300), vec4i(-1, 0, 32767, -1234));
+    }
+    """
+
+private func integer16LoadShader(multisampled: Bool) -> String {
+    let texture = multisampled ? "texture_multisampled_2d" : "texture_2d"
+    let index = multisampled ? "3u" : "0u"
+    return """
+        @group(0) @binding(0) var ur: \(texture)<u32>;
+        @group(0) @binding(1) var urg: \(texture)<u32>;
+        @group(0) @binding(2) var urgba: \(texture)<u32>;
+        @group(0) @binding(3) var sr: \(texture)<i32>;
+        @group(0) @binding(4) var srg: \(texture)<i32>;
+        @group(0) @binding(5) var srgba: \(texture)<i32>;
+        @group(0) @binding(6) var<storage, read_write> out: array<vec4u, 6>;
+        @compute @workgroup_size(1) fn run() {
+            let p = vec2u(0);
+            out[0] = textureLoad(ur, p, \(index));
+            out[1] = textureLoad(urg, p, \(index));
+            out[2] = textureLoad(urgba, p, \(index));
+            out[3] = bitcast<vec4u>(textureLoad(sr, p, \(index)));
+            out[4] = bitcast<vec4u>(textureLoad(srg, p, \(index)));
+            out[5] = bitcast<vec4u>(textureLoad(srgba, p, \(index)));
+        }
+        """
+}
+
+private let integer16WriteShader = """
+    requires texture_formats_tier1;
+    @group(0) @binding(0) var ur: texture_storage_2d<r16uint, write>;
+    @group(0) @binding(1) var urg: texture_storage_2d<rg16uint, write>;
+    @group(0) @binding(2) var sr: texture_storage_2d<r16sint, write>;
+    @group(0) @binding(3) var srg: texture_storage_2d<rg16sint, write>;
+    @compute @workgroup_size(1) fn run() {
+        let p = vec2u(0);
+        textureStore(ur, p, vec4u(60000, 7, 8, 9));
+        textureStore(urg, p, vec4u(65535, 300, 8, 9));
+        textureStore(sr, p, vec4i(-20000, 7, 8, 9));
+        textureStore(srg, p, vec4i(-32768, 300, 8, 9));
+    }
+    """
+
+private let integer16ReadShader = """
+    requires texture_formats_tier1, readonly_and_readwrite_storage_textures;
+    @group(0) @binding(0) var ur: texture_storage_2d<r16uint, read>;
+    @group(0) @binding(1) var urg: texture_storage_2d<rg16uint, read>;
+    @group(0) @binding(2) var sr: texture_storage_2d<r16sint, read>;
+    @group(0) @binding(3) var srg: texture_storage_2d<rg16sint, read>;
+    @group(0) @binding(4) var<storage, read_write> out: array<vec4u, 4>;
+    @compute @workgroup_size(1) fn run() {
+        let p = vec2u(0);
+        out[0] = textureLoad(ur, p);
+        out[1] = textureLoad(urg, p);
+        out[2] = bitcast<vec4u>(textureLoad(sr, p));
+        out[3] = bitcast<vec4u>(textureLoad(srg, p));
+    }
+    """
+
+private let integer16UpdateShader = """
+    requires texture_formats_tier1, readonly_and_readwrite_storage_textures;
+    @group(0) @binding(0) var ur: texture_storage_2d<r16uint, read_write>;
+    @group(0) @binding(1) var sr: texture_storage_2d<r16sint, read_write>;
+    @group(0) @binding(2) var urgba: texture_storage_2d<rgba16uint, read_write>;
+    @group(0) @binding(3) var srgba: texture_storage_2d<rgba16sint, read_write>;
+    @compute @workgroup_size(1) fn run() {
+        let p = vec2u(0);
+        textureStore(ur, p, textureLoad(ur, p) + vec4u(1000));
+        textureStore(sr, p, textureLoad(sr, p) - vec4i(1000));
+        textureStore(urgba, p, textureLoad(urgba, p) + vec4u(1, 2, 3, 4));
+        textureStore(srgba, p, textureLoad(srgba, p) - vec4i(1, 2, 3, 4));
+    }
+    """
+
+private func integer16ColorDiagnostic(_ device: Device, sampleCount: UInt32 = 1) async throws -> [UInt32] {
+    let compiler = IndependentShaderCompiler()
+    let source = ShaderInput.wgsl(integer16ColorShader)
+    let vertex = try compiler.compileRenderStage(source, entryPoint: "vs", to: .wgsl)
+    let compute = try await device.createComputePipeline(compiler.compileCompute(.wgsl(integer16LoadShader(multisampled: sampleCount > 1)), to: .wgsl))
+    let output = try await device.createBuffer(.init(size: 96, usage: [.storage, .copySource]))
+    let readback = try await device.createBuffer(.init(size: 96, usage: [.mapRead, .copyDestination]))
+    var usage: TextureUsage = [.renderAttachment, .textureBinding]
+    if sampleCount == 1 { usage.insert(.copySource) }
+    var textures: [ResourceID] = []
+    for format in integer16Formats {
+        textures.append(try await device.createTexture(.init(width: 1, height: 1, format: format,
+                                                               usage: usage, sampleCount: sampleCount)))
+    }
+    var commands: [BufferCommand] = []
+    for (base, entry) in [(0, "unsignedColor"), (3, "signedColor")] {
+        let fragment = try compiler.compileRenderStage(source, entryPoint: entry, to: .wgsl)
+        let pipeline = try await device.createRenderPipeline(
+            vertex: vertex, fragment: fragment, colorFormat: integer16Formats[base], sampleCount: sampleCount,
+            additionalColorTargets: [1: .init(format: integer16Formats[base + 1]),
+                                     2: .init(format: integer16Formats[base + 2])])
+        commands.append(.render(pipeline: pipeline, target: textures[base], clear: .transparentBlack, vertexCount: 3,
+                                additionalColors: [1: .init(texture: textures[base + 1]), 2: .init(texture: textures[base + 2])]))
+        if sampleCount == 1 {
+            commands += [
+                .copyTextureToBuffer(source: textures[base], destination: readback, bytesPerRow: 256, destinationOffset: 2),
+                .read(buffer: readback, byteCount: 4),
+            ]
+        }
+    }
+    let bindings = Dictionary(uniqueKeysWithValues: textures.enumerated().map { (ComputeBindingSlot(binding: UInt32($0.offset)), $0.element) })
+    commands += [
+        .dispatchCompute(pipeline: compute, bindings: [.init(binding: 6): output], workgroups: .init(x: 1), textures: bindings),
+        .copy(source: output, destination: readback, byteCount: 96), .read(buffer: readback, byteCount: 96),
+    ]
+    return try await device.submitCommands(commands).wait().flatMap { $0 }
+}
+
+private func integer16StorageDiagnostic(_ device: Device) async throws -> [UInt32] {
+    let compiler = IndependentShaderCompiler()
+    let writeShader = try compiler.compileCompute(.wgsl(integer16WriteShader), to: .wgsl)
+    let readShader = try compiler.compileCompute(.wgsl(integer16ReadShader), to: .wgsl)
+    guard device.capabilities.features.contains(.narrowInteger16StorageTextures) else {
+        try await checkMissingStorageFeature(device, shader: writeShader)
+        return []
+    }
+    guard device.capabilities.features.contains(.storageTextureRead) else {
+        try await checkMissingStorageFeature(device, shader: readShader)
+        return []
+    }
+    let write = try await device.createComputePipeline(writeShader)
+    let read = try await device.createComputePipeline(readShader)
+    var images: [ResourceID] = []
+    for format: TextureFormat in [.r16Uint, .rg16Uint, .r16Sint, .rg16Sint, .rgba16Uint, .rgba16Sint] {
+        images.append(try await device.createTexture(.init(width: 1, height: 1, format: format, usage: [.storageBinding, .copySource])))
+    }
+    let output = try await device.createBuffer(.init(size: 64, usage: [.storage, .copySource]))
+    let readback = try await device.createBuffer(.init(size: 64, usage: [.mapRead, .copyDestination]))
+    let bindings = Dictionary(uniqueKeysWithValues: images.prefix(4).enumerated().map {
+        (ComputeBindingSlot(binding: UInt32($0.offset)), $0.element)
+    })
+    var commands: [BufferCommand] = [
+        .dispatchCompute(pipeline: write, bindings: [:], workgroups: .init(x: 1), textures: bindings),
+        .dispatchCompute(pipeline: read, bindings: [.init(binding: 4): output], workgroups: .init(x: 1), textures: bindings),
+        .copy(source: output, destination: readback, byteCount: 64), .read(buffer: readback, byteCount: 64),
+    ]
+    let updateShader = try compiler.compileCompute(.wgsl(integer16UpdateShader), to: .wgsl)
+    if device.capabilities.features.contains(.integer16StorageReadWrite) {
+        let update = try await device.createComputePipeline(updateShader)
+        commands += [
+            .dispatchCompute(pipeline: update, bindings: [:], workgroups: .init(x: 1),
+                             textures: [.init(binding: 0): images[0], .init(binding: 1): images[2],
+                                        .init(binding: 2): images[4], .init(binding: 3): images[5]]),
+            .write(buffer: readback, offset: 0, words: [0]),
+        ]
+        for index in [0, 2, 4, 5] {
+            commands += [
+                .copyTextureToBuffer(source: images[index], destination: readback, bytesPerRow: 256,
+                                     destinationOffset: index < 4 ? 2 : 0),
+                .read(buffer: readback, byteCount: index < 4 ? 4 : 8),
+            ]
+        }
+    } else {
+        try await checkMissingStorageFeature(device, shader: updateShader)
+    }
+    return try await device.submitCommands(commands).wait().flatMap { $0 }
+}
+
+private let normalized16Formats: [(TextureFormat, String)] = [
+    (.r16Unorm, "r16unorm"), (.rg16Unorm, "rg16unorm"), (.rgba16Unorm, "rgba16unorm"),
+    (.r16Snorm, "r16snorm"), (.rg16Snorm, "rg16snorm"), (.rgba16Snorm, "rgba16snorm"),
+]
+
+private func normalized16StorageShader(read: Bool, signed: Bool) -> String {
+    let base = signed ? 3 : 0
+    let declarations = normalized16Formats[base..<(base + 3)].enumerated().map { index, format in
+        "@group(0) @binding(\(index)) var t\(index): texture_storage_2d<\(format.1), \(read ? "read" : "write")>;"
+    }.joined(separator: "\n")
+    let output = read ? "@group(0) @binding(3) var<storage, read_write> out: array<vec4f, 6>;" : ""
+    let values = [
+        "f32(x), 0, 0, 0", "0.25, 0.75, 0, 0", "-0.25, 0.25, 0.75, 2",
+        "-0.5, 0, 0, 0", "-1, 1, 0, 0", "-2, -0.25, 0.25, 2",
+    ]
+    let statements = values[base..<(base + 3)].enumerated().map { index, value in
+        read ? "out[\(base + index)] = textureLoad(t\(index), vec2u(1, 0));" : "textureStore(t\(index), vec2u(x, 0), vec4f(\(value)));"
+    }.joined(separator: "\n")
+    return """
+        requires texture_formats_tier1;
+        \(declarations)
+        \(output)
+        @compute @workgroup_size(\(read ? 1 : 2)) fn run(@builtin(local_invocation_index) x: u32) {
+            \(statements)
+        }
+        """
+}
+
+private func normalized16SampleShader(linear: Bool) -> String {
+    let declarations = normalized16Formats.indices.map { index in
+        "@group(0) @binding(\(index)) var t\(index): texture_2d<f32>;"
+    }.joined(separator: "\n")
+    let x = linear ? "0.5" : "0.75"
+    let statements = normalized16Formats.indices.map { index in
+        "out[\(index)] = textureSampleLevel(t\(index), state, vec2f(\(x), 0.5), 0.0);"
+    }.joined(separator: "\n")
+    return """
+        \(declarations)
+        @group(0) @binding(6) var state: sampler;
+        @group(0) @binding(7) var<storage, read_write> out: array<vec4f, 6>;
+        @compute @workgroup_size(1) fn run() { \(statements) }
+        """
+}
+
+private let normalized16ColorShader = """
+    struct Output { @location(0) red: f32, @location(1) rg: vec2f, @location(2) color: vec4f }
+    @vertex fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f {
+        if i == 0u { return vec4f(-1, -1, 0, 1); }
+        if i == 1u { return vec4f(3, -1, 0, 1); }
+        return vec4f(-1, 3, 0, 1);
+    }
+    @fragment fn fs() -> Output {
+        return Output(0.5, vec2f(-0.5, 0.75), vec4f(0.25, 0.5, 0.5, 0.5));
+    }
+    """
+
+private func normalized16StorageDiagnostic(_ device: Device) async throws -> [UInt32] {
+    let compiler = IndependentShaderCompiler()
+    guard device.capabilities.features.contains(.normalized16Textures) else {
+        let shader = try compiler.compileCompute(.wgsl(normalized16StorageShader(read: false, signed: false)), to: .wgsl)
+        try await checkMissingStorageFeature(device, shader: shader)
+        return []
+    }
+    guard device.capabilities.features.contains(.storageTextureRead) else {
+        let shader = try compiler.compileCompute(.wgsl(normalized16StorageShader(read: true, signed: false)), to: .wgsl)
+        try await checkMissingStorageFeature(device, shader: shader)
+        return []
+    }
+    var textures: [ResourceID] = []
+    for (format, _) in normalized16Formats {
+        textures.append(try await device.createTexture(.init(width: 2, height: 1, format: format,
+                                                               usage: [.storageBinding, .textureBinding, .copySource])))
+    }
+    let images = Dictionary(uniqueKeysWithValues: textures.enumerated().map { (ComputeBindingSlot(binding: UInt32($0.offset)), $0.element) })
+    let output = try await device.createBuffer(.init(size: 96, usage: [.storage, .copySource]))
+    let readback = try await device.createBuffer(.init(size: 96, usage: [.mapRead, .copyDestination]))
+    let capture: [BufferCommand] = [.copy(source: output, destination: readback, byteCount: 96), .read(buffer: readback, byteCount: 96)]
+    var commands: [BufferCommand] = []
+    for signed in [false, true] {
+        let writeShader = try compiler.compileCompute(.wgsl(normalized16StorageShader(read: false, signed: signed)), to: .wgsl)
+        let readShader = try compiler.compileCompute(.wgsl(normalized16StorageShader(read: true, signed: signed)), to: .wgsl)
+        let write = try await device.createComputePipeline(writeShader)
+        let read = try await device.createComputePipeline(readShader)
+        let base = signed ? 3 : 0
+        let storage = Dictionary(uniqueKeysWithValues: textures[base..<(base + 3)].enumerated().map {
+            (ComputeBindingSlot(binding: UInt32($0.offset)), $0.element)
+        })
+        commands += [
+            .dispatchCompute(pipeline: write, bindings: [:], workgroups: .init(x: 1), textures: storage),
+            .dispatchCompute(pipeline: read, bindings: [.init(binding: 3): output], workgroups: .init(x: 1), textures: storage),
+        ]
+    }
+    commands += [
+        .copyTextureToBuffer(source: textures[0], destination: readback, bytesPerRow: 256),
+        .read(buffer: readback, byteCount: 4),
+    ] + capture
+    for linear in [false, true] {
+        let shader = try compiler.compileCompute(.wgsl(normalized16SampleShader(linear: linear)), to: .wgsl)
+        let samplerSlot = ComputeBindingSlot(binding: 6)
+        let pipeline = try await device.createComputePipeline(shader, nonFilteringSamplers: linear ? [] : [samplerSlot])
+        let sampler = try await device.createSampler(.init(minFilter: linear ? .linear : .nearest, magFilter: linear ? .linear : .nearest))
+        let dispatch = BufferCommand.dispatchCompute(pipeline: pipeline, bindings: [.init(binding: 7): output],
+                                                      workgroups: .init(x: 1), textures: images, samplers: [samplerSlot: sampler])
+        if linear && !device.capabilities.features.contains(.normalized16Filterable) {
+            let scope = try await device.pushErrorScope(.validation)
+            do {
+                _ = try await device.submitCommands([dispatch])
+                throw GPUError.backendFailure("Accepted filtered normalized16 texture without device support")
+            } catch GPUError.validation("Normalized 16-bit sampling requires normalized16Filterable") {
+                guard case .validation = try await device.popErrorScope(scope) else {
+                    throw GPUError.backendFailure("Normalized16 filtering error did not reach the error scope")
+                }
+                continue
+            }
+        }
+        commands += [dispatch] + capture
+    }
+    return try await device.submitCommands(commands).wait().flatMap { $0 }
+}
+
+private func normalized16ColorDiagnostic(_ device: Device) async throws -> [UInt32] {
+    let compiler = IndependentShaderCompiler()
+    let source = ShaderInput.wgsl(normalized16ColorShader)
+    let vertex = try compiler.compileRenderStage(source, entryPoint: "vs", to: .wgsl)
+    let fragment = try compiler.compileRenderStage(source, entryPoint: "fs", to: .wgsl)
+    let resolve = device.capabilities.features.contains(.normalized16Resolve)
+    let sampleCount: UInt32 = resolve ? 4 : 1
+    let formats: [TextureFormat] = [.r16Unorm, .rg16Snorm, .rgba16Unorm]
+    let additive = RenderBlendComponent(sourceFactor: .one, destinationFactor: .one)
+    let blend = RenderColorState(blend: .init(color: additive, alpha: additive))
+    func makePipeline() async throws -> RenderPipeline {
+        try await device.createRenderPipeline(vertex: vertex, fragment: fragment, colorFormat: formats[0],
+            sampleCount: sampleCount, colorState: blend, additionalColorTargets: [
+                1: .init(format: formats[1], colorState: blend), 2: .init(format: formats[2], colorState: blend),
+            ])
+    }
+    if !device.capabilities.features.contains(.normalized16Textures) {
+        let scope = try await device.pushErrorScope(.validation)
+        do {
+            _ = try await makePipeline()
+            throw GPUError.backendFailure("Accepted a normalized16 color pipeline without its device feature")
+        } catch GPUError.validation("Feature not advertised") {
+            guard case .validation = try await device.popErrorScope(scope) else {
+                throw GPUError.backendFailure("Normalized16 color error did not reach the error scope")
+            }
+            return []
+        }
+    }
+    let pipeline = try await makePipeline()
+    var targets: [ResourceID] = []
+    var outputs: [ResourceID] = []
+    for format in formats {
+        let target = try await device.createTexture(.init(width: 1, height: 1, format: format,
+            usage: resolve ? .renderAttachment : [.renderAttachment, .copySource], sampleCount: sampleCount))
+        targets.append(target)
+        outputs.append(resolve ? try await device.createTexture(.init(width: 1, height: 1, format: format,
+                                      usage: [.renderAttachment, .copySource])) : target)
+    }
+    let readback = try await device.createBuffer(.init(size: 8, usage: [.mapRead, .copyDestination]))
+    let clear = RenderClearColor(red: 0.25, green: 0, blue: 0.5, alpha: 0.25)
+    return try await device.submitCommands([
+        .render(pipeline: pipeline, target: targets[0], clear: clear, vertexCount: 3,
+                resolve: resolve ? .init(texture: outputs[0]) : nil, additionalColors: [
+                    1: .init(texture: targets[1], loadAction: .clear(clear), resolve: resolve ? .init(texture: outputs[1]) : nil),
+                    2: .init(texture: targets[2], loadAction: .clear(clear), resolve: resolve ? .init(texture: outputs[2]) : nil),
+                ]),
+        .copyTextureToBuffer(source: outputs[0], destination: readback, bytesPerRow: 256, destinationOffset: 2),
+        .read(buffer: readback, byteCount: 4),
+        .copyTextureToBuffer(source: outputs[1], destination: readback, bytesPerRow: 256), .read(buffer: readback, byteCount: 4),
+        .copyTextureToBuffer(source: outputs[2], destination: readback, bytesPerRow: 256), .read(buffer: readback, byteCount: 8),
+    ]).wait().flatMap { $0 }
+}
+
+private let packedFormats: [TextureFormat] = [.rgb10a2Unorm, .rgb10a2Uint, .rg11b10Ufloat]
+
+private let packedColorShader = """
+    @vertex fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f {
+        if i == 0u { return vec4f(-1, -1, 0, 1); }
+        if i == 1u { return vec4f(3, -1, 0, 1); }
+        return vec4f(-1, 3, 0, 1);
+    }
+    @fragment fn normalized() -> @location(0) vec4f { return vec4f(0, 0, 1, 2.0 / 3.0); }
+    @fragment fn integer() -> @location(0) vec4u { return vec4u(1023, 512, 3, 2); }
+    @fragment fn hdr() -> @location(0) vec3f { return vec3f(1, 2, 4); }
+    """
+
+private let packedSampleShader = """
+    @group(0) @binding(0) var image: texture_2d<f32>;
+    @group(0) @binding(1) var state: sampler;
+    @group(0) @binding(2) var<storage, read_write> out: vec4f;
+    @compute @workgroup_size(1) fn run() { out = textureSampleLevel(image, state, vec2f(0.5), 0.0); }
+    """
+
+private let packedWriteShader = """
+    requires texture_formats_tier1;
+    @group(0) @binding(0) var normalized: texture_storage_2d<rgb10a2unorm, write>;
+    @group(0) @binding(1) var integer: texture_storage_2d<rgb10a2uint, write>;
+    @group(0) @binding(2) var hdr: texture_storage_2d<rg11b10ufloat, write>;
+    @compute @workgroup_size(1) fn run() {
+        let p = vec2u(0);
+        textureStore(normalized, p, vec4f(1, 0, 1, 2.0 / 3.0));
+        textureStore(integer, p, vec4u(1023, 512, 3, 2));
+        textureStore(hdr, p, vec4f(1, 2, 4, 99));
+    }
+    """
+
+private let packedReadShader = """
+    requires texture_formats_tier1;
+    @group(0) @binding(0) var normalized: texture_storage_2d<rgb10a2unorm, read>;
+    @group(0) @binding(1) var integer: texture_storage_2d<rgb10a2uint, read>;
+    @group(0) @binding(2) var hdr: texture_storage_2d<rg11b10ufloat, read>;
+    @group(0) @binding(3) var<storage, read_write> out: array<vec4u, 3>;
+    @compute @workgroup_size(1) fn run() {
+        let p = vec2u(0);
+        out[0] = bitcast<vec4u>(textureLoad(normalized, p));
+        out[1] = textureLoad(integer, p);
+        out[2] = bitcast<vec4u>(textureLoad(hdr, p));
+    }
+    """
+
+private func packedColorDiagnostic(_ device: Device) async throws -> [UInt32] {
+    let compiler = IndependentShaderCompiler()
+    let source = ShaderInput.wgsl(packedColorShader)
+    let vertex = try compiler.compileRenderStage(source, entryPoint: "vs", to: .wgsl)
+    let readback = try await device.createBuffer(.init(size: 16, usage: [.mapRead, .copyDestination]))
+    let additive = RenderBlendComponent(sourceFactor: .one, destinationFactor: .one)
+    let blend = RenderColorState(blend: .init(color: additive, alpha: additive))
+    var commands: [BufferCommand] = []
+    for (format, entry) in zip(packedFormats, ["normalized", "integer", "hdr"]) {
+        if format == .rg11b10Ufloat && !device.capabilities.features.contains(.rg11b10UfloatRenderable) {
+            let scope = try await device.pushErrorScope(.validation)
+            do {
+                _ = try await device.createTexture(.init(width: 1, height: 1, format: format, usage: .renderAttachment))
+                throw GPUError.backendFailure("Accepted RG11B10 render attachment without the device feature")
+            } catch GPUError.validation("Feature not advertised") {
+                guard case .validation = try await device.popErrorScope(scope) else {
+                    throw GPUError.backendFailure("RG11B10 renderability error did not reach the error scope")
+                }
+                continue
+            }
+        }
+        let isInteger = format == .rgb10a2Uint
+        let sampleCount: UInt32 = isInteger ? 1 : 4
+        let fragment = try compiler.compileRenderStage(source, entryPoint: entry, to: .wgsl)
+        let pipeline = try await device.createRenderPipeline(vertex: vertex, fragment: fragment, colorFormat: format,
+                                                             sampleCount: sampleCount, colorState: isInteger ? .init() : blend)
+        let output = try await device.createTexture(.init(width: 1, height: 1, format: format, usage: [.renderAttachment, .copySource]))
+        let target = isInteger ? output : try await device.createTexture(.init(
+            width: 1, height: 1, format: format, usage: .renderAttachment, sampleCount: sampleCount))
+        let clear = isInteger ? .transparentBlack :
+            RenderClearColor(red: format == .rgb10a2Unorm ? 1 : 0.25, green: 0, blue: 0, alpha: 0)
+        commands += [
+            .render(pipeline: pipeline, target: target, clear: clear, vertexCount: 3,
+                    resolve: isInteger ? nil : .init(texture: output)),
+            .copyTextureToBuffer(source: output, destination: readback, bytesPerRow: 256), .read(buffer: readback, byteCount: 4),
+        ]
+    }
+    let hdr = try await device.createTexture(.init(width: 1, height: 1, format: .rg11b10Ufloat,
+                                                     usage: [.copyDestination, .textureBinding]))
+    let color = try await device.createBuffer(.init(size: 16, usage: [.storage, .copySource]))
+    let sampler = try await device.createSampler(.init(minFilter: .linear, magFilter: .linear))
+    let compute = try await device.createComputePipeline(compiler.compileCompute(.wgsl(packedSampleShader), to: .wgsl))
+    let capture: [BufferCommand] = [
+        .dispatchCompute(pipeline: compute, bindings: [.init(binding: 2): color], workgroups: .init(x: 1),
+                         textures: [.init(binding: 0): hdr], samplers: [.init(binding: 1): sampler]),
+        .copy(source: color, destination: readback, byteCount: 16), .read(buffer: readback, byteCount: 16),
+    ]
+    commands += capture + [
+        .writeTexture(destination: hdr, data: [0xc0, 0x03, 0x20, 0x88], region: .init(width: 1, height: 1)),
+    ] + capture
+    return try await device.submitCommands(commands).wait().flatMap { $0 }
+}
+
+private func packedStorageDiagnostic(_ device: Device) async throws -> [UInt32] {
+    let compiler = IndependentShaderCompiler()
+    let writeShader = try compiler.compileCompute(.wgsl(packedWriteShader), to: .wgsl)
+    let readShader = try compiler.compileCompute(.wgsl(packedReadShader), to: .wgsl)
+    guard device.capabilities.features.contains(.packedColorStorageTextures) else {
+        try await checkMissingStorageFeature(device, shader: writeShader)
+        return []
+    }
+    guard device.capabilities.features.contains(.storageTextureRead) else {
+        try await checkMissingStorageFeature(device, shader: readShader)
+        return []
+    }
+    let write = try await device.createComputePipeline(writeShader)
+    let read = try await device.createComputePipeline(readShader)
+    var images: [ComputeBindingSlot: ResourceID] = [:]
+    for (index, format) in packedFormats.enumerated() {
+        images[.init(binding: UInt32(index))] = try await device.createTexture(.init(width: 1, height: 1, format: format,
+                                                                        usage: [.storageBinding, .copySource]))
+    }
+    let output = try await device.createBuffer(.init(size: 48, usage: [.storage, .copySource]))
+    let readback = try await device.createBuffer(.init(size: 48, usage: [.mapRead, .copyDestination]))
+    var commands: [BufferCommand] = [.dispatchCompute(pipeline: write, bindings: [:], workgroups: .init(x: 1), textures: images)]
+    for index in packedFormats.indices {
+        let image = images[.init(binding: UInt32(index))]!
+        commands += [.copyTextureToBuffer(source: image, destination: readback, bytesPerRow: 256),
+                     .read(buffer: readback, byteCount: 4)]
+    }
+    commands += [
+        .dispatchCompute(pipeline: read, bindings: [.init(binding: 3): output], workgroups: .init(x: 1), textures: images),
+        .copy(source: output, destination: readback, byteCount: 48), .read(buffer: readback, byteCount: 48),
+    ]
+    return try await device.submitCommands(commands).wait().flatMap { $0 }
+}
+
+private let srgbReadShader = """
+    @group(0) @binding(0) var rgba: texture_2d<f32>;
+    @group(0) @binding(1) var bgra: texture_2d<f32>;
+    @group(0) @binding(2) var linear: texture_2d<f32>;
+    @group(0) @binding(3) var<storage, read_write> out: vec4f;
+    @compute @workgroup_size(1) fn run() {
+        let p = vec2u(0);
+        let a = textureLoad(rgba, p, 0u);
+        let b = textureLoad(bgra, p, 0u);
+        let c = textureLoad(linear, p, 0u);
+        out = vec4f(a.x, b.y, a.w, c.x);
+    }
+    """
+
+private let srgbRenderShader = """
+    struct Colors { @location(0) rgba: vec4f, @location(1) bgra: vec4f }
+    @vertex fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f {
+        if i == 0u { return vec4f(-1, -1, 0, 1); }
+        if i == 1u { return vec4f(3, -1, 0, 1); }
+        return vec4f(-1, 3, 0, 1);
+    }
+    @fragment fn srgb() -> Colors {
+        let color = vec4f(0.25, 0.5, 0.75, 0.5);
+        return Colors(color, color);
+    }
+    @fragment fn hdr() -> @location(0) vec3f { return vec3f(1.015625, 2.015625, 4.015625); }
+    """
+
+private let sharedExponentSampleShader = """
+    @group(0) @binding(0) var image: texture_2d<f32>;
+    @group(0) @binding(1) var state: sampler;
+    @group(0) @binding(2) var<storage, read_write> out: vec4f;
+    @compute @workgroup_size(1) fn run() { out = textureSampleLevel(image, state, vec2f(0.5), 0.0); }
+    """
+
+private func srgbDiagnostic(_ device: Device) async throws -> [UInt32] {
+    let compiler = IndependentShaderCompiler()
+    let readback = try await device.createBuffer(.init(size: 16, usage: [.mapRead, .copyDestination]))
+    let output = try await device.createBuffer(.init(size: 16, usage: [.storage, .copySource]))
+    let usage: TextureUsage = [.copySource, .copyDestination, .textureBinding]
+    var images: [ResourceID] = []
+    var commands: [BufferCommand] = []
+    for (linear, srgb, bytes) in [(TextureFormat.rgba8Unorm, TextureFormat.rgba8UnormSrgb, [UInt8(128), 64, 32, 128]),
+                                  (.bgra8Unorm, .bgra8UnormSrgb, [32, 64, 128, 128])] {
+        let source = try await device.createTexture(.init(width: 1, height: 1, format: linear, usage: usage))
+        let encoded = try await device.createTexture(.init(width: 1, height: 1, format: srgb, usage: usage))
+        let copy = try await device.createTexture(.init(width: 1, height: 1, format: linear, usage: usage))
+        images += [encoded, copy]
+        let region = TextureCopyRegion(width: 1, height: 1)
+        commands += [
+            .writeTexture(destination: source, data: bytes, region: region),
+            .copyTextureToTexture(source: source, destination: encoded, sourceRegion: region),
+            .copyTextureToTexture(source: encoded, destination: copy, sourceRegion: region),
+            .copyTextureToBuffer(source: encoded, destination: readback, bytesPerRow: 256), .read(buffer: readback, byteCount: 4),
+            .copyTextureToBuffer(source: copy, destination: readback, bytesPerRow: 256), .read(buffer: readback, byteCount: 4),
+        ]
+    }
+    let compute = try await device.createComputePipeline(compiler.compileCompute(.wgsl(srgbReadShader), to: .wgsl))
+    commands += [
+        .dispatchCompute(pipeline: compute, bindings: [.init(binding: 3): output], workgroups: .init(x: 1),
+                         textures: [.init(binding: 0): images[0], .init(binding: 1): images[2], .init(binding: 2): images[1]]),
+        .copy(source: output, destination: readback, byteCount: 16), .read(buffer: readback, byteCount: 16),
+    ]
+    let source = ShaderInput.wgsl(srgbRenderShader)
+    let vertex = try compiler.compileRenderStage(source, entryPoint: "vs", to: .wgsl)
+    let fragment = try compiler.compileRenderStage(source, entryPoint: "srgb", to: .wgsl)
+    let blend = RenderColorState(blend: .init())
+    let render = try await device.createRenderPipeline(vertex: vertex, fragment: fragment, colorFormat: .rgba8UnormSrgb,
+        sampleCount: 4, colorState: blend, additionalColorTargets: [1: .init(format: .bgra8UnormSrgb, colorState: blend)])
+    let rgba = try await device.createTexture(.init(width: 1, height: 1, format: .rgba8UnormSrgb, usage: .renderAttachment, sampleCount: 4))
+    let bgra = try await device.createTexture(.init(width: 1, height: 1, format: .bgra8UnormSrgb, usage: .renderAttachment, sampleCount: 4))
+    let resolvedRGBA = try await device.createTexture(.init(width: 1, height: 1, format: .rgba8UnormSrgb, usage: [.renderAttachment, .copySource]))
+    let resolvedBGRA = try await device.createTexture(.init(width: 1, height: 1, format: .bgra8UnormSrgb, usage: [.renderAttachment, .copySource]))
+    commands += [
+        .render(pipeline: render, target: rgba, clear: .transparentBlack, vertexCount: 3, resolve: .init(texture: resolvedRGBA),
+                additionalColors: [1: .init(texture: bgra, loadAction: .clear(.transparentBlack), resolve: .init(texture: resolvedBGRA))]),
+        .copyTextureToBuffer(source: resolvedRGBA, destination: readback, bytesPerRow: 256), .read(buffer: readback, byteCount: 4),
+        .copyTextureToBuffer(source: resolvedBGRA, destination: readback, bytesPerRow: 256), .read(buffer: readback, byteCount: 4),
+    ]
+    return try await device.submitCommands(commands).wait().flatMap { $0 }
+}
+
+private func sharedExponentDiagnostic(_ device: Device) async throws -> [UInt32] {
+    let compiler = IndependentShaderCompiler()
+    let usage: TextureUsage = [.textureBinding, .copySource, .copyDestination]
+    let image = try await device.createTexture(.init(width: 2, height: 1, format: .rgb9e5Ufloat, usage: usage))
+    let clone = try await device.createTexture(.init(width: 2, height: 1, format: .rgb9e5Ufloat, usage: usage))
+    let data = [UInt32(0x94050241), 0xa5054221].withUnsafeBytes { Array($0) }
+    let readback = try await device.createBuffer(.init(size: 16, usage: [.mapRead, .copyDestination]))
+    let output = try await device.createBuffer(.init(size: 16, usage: [.storage, .copySource]))
+    let sampler = try await device.createSampler(.init(minFilter: .linear, magFilter: .linear))
+    let compute = try await device.createComputePipeline(compiler.compileCompute(.wgsl(sharedExponentSampleShader), to: .wgsl))
+    let sample: [BufferCommand] = [
+        .dispatchCompute(pipeline: compute, bindings: [.init(binding: 2): output], workgroups: .init(x: 1),
+                         textures: [.init(binding: 0): clone], samplers: [.init(binding: 1): sampler]),
+        .copy(source: output, destination: readback, byteCount: 16), .read(buffer: readback, byteCount: 16),
+    ]
+    let region = TextureCopyRegion(width: 2, height: 1)
+    let commands = sample + [
+        .writeTexture(destination: image, data: data, region: region),
+        .copyTextureToTexture(source: image, destination: clone, sourceRegion: region),
+        .copyTextureToBuffer(source: clone, destination: readback, bytesPerRow: 256), .read(buffer: readback, byteCount: 8),
+    ] + sample
+    let scope = try await device.pushErrorScope(.validation)
+    do {
+        _ = try await device.createTexture(.init(width: 1, height: 1, format: .rgb9e5Ufloat, usage: .renderAttachment))
+        throw GPUError.backendFailure("Browser accepted RGB9E5 as a render attachment")
+    } catch GPUError.validation("Feature not advertised") {
+        guard case .validation = try await device.popErrorScope(scope) else {
+            throw GPUError.backendFailure("RGB9E5 renderability error did not reach the error scope")
+        }
+    }
+    return try await device.submitCommands(commands).wait().flatMap { $0 }
+}
+
+private struct ByteTextureCase: Sendable {
+    let format: TextureFormat
+    let name: String
+    let scalar: String
+    let vector: String
+    let bytes: [UInt8]
+    let value: String
+}
+
+private let byteTextureCases: [ByteTextureCase] = [
+    .init(format: .r8Unorm, name: "r8unorm", scalar: "f32", vector: "vec4f", bytes: [128], value: "128.0/255.0, 0, 0, 0"),
+    .init(format: .rg8Unorm, name: "rg8unorm", scalar: "f32", vector: "vec4f", bytes: [64, 192], value: "64.0/255.0, 192.0/255.0, 0, 0"),
+    .init(format: .r8Snorm, name: "r8snorm", scalar: "f32", vector: "vec4f", bytes: [192], value: "-64.0/127.0, 0, 0, 0"),
+    .init(format: .rg8Snorm, name: "rg8snorm", scalar: "f32", vector: "vec4f", bytes: [193, 127], value: "-63.0/127.0, 1, 0, 0"),
+    .init(format: .r8Uint, name: "r8uint", scalar: "u32", vector: "vec4u", bytes: [250], value: "250, 0, 0, 0"),
+    .init(format: .rg8Uint, name: "rg8uint", scalar: "u32", vector: "vec4u", bytes: [4, 200], value: "4, 200, 0, 0"),
+    .init(format: .r8Sint, name: "r8sint", scalar: "i32", vector: "vec4i", bytes: [129], value: "-127, 0, 0, 0"),
+    .init(format: .rg8Sint, name: "rg8sint", scalar: "i32", vector: "vec4i", bytes: [128, 100], value: "-128, 100, 0, 0"),
+]
+
+private func byteReadShader(storage: Bool, base: Int, count: Int) -> String {
+    let declarations = byteTextureCases[base..<(base + count)].enumerated().map { index, entry in
+        let type = storage ? "texture_storage_2d<\(entry.name), read>" : "texture_2d<\(entry.scalar)>"
+        return "@group(0) @binding(\(index)) var t\(index): \(type);"
+    }.joined(separator: "\n")
+    let expressions = (0..<count).map { index in
+        "out[\(base + index)] = vec4f(textureLoad(t\(index), vec2u(0)\(storage ? "" : ", 0u")));"
+    }.joined(separator: "\n")
+    return """
+        \(storage ? "requires texture_formats_tier1;" : "")
+        \(declarations)
+        @group(0) @binding(\(count)) var<storage, read_write> out: array<vec4f, 8>;
+        @compute @workgroup_size(1) fn run() { \(expressions) }
+        """
+}
+
+private func byteWriteShader(base: Int) -> String {
+    let cases = byteTextureCases[base..<(base + 4)]
+    let declarations = cases.enumerated().map { index, entry in
+        "@group(0) @binding(\(index)) var t\(index): texture_storage_2d<\(entry.name), write>;"
+    }.joined(separator: "\n")
+    let statements = cases.enumerated().map { index, entry in
+        "textureStore(t\(index), vec2u(0), \(entry.vector)(\(entry.value)));"
+    }.joined(separator: "\n")
+    return """
+        requires texture_formats_tier1;
+        \(declarations)
+        @compute @workgroup_size(1) fn run() { \(statements) }
+        """
+}
+
+private let byteUpdateShader = """
+    requires texture_formats_tier1;
+    @group(0) @binding(0) var narrow: texture_storage_2d<r8uint, read_write>;
+    @group(0) @binding(1) var rgba: texture_storage_2d<rgba8unorm, read_write>;
+    @compute @workgroup_size(1) fn run() {
+        let p = vec2u(0);
+        textureStore(narrow, p, textureLoad(narrow, p) + vec4u(3, 0, 0, 0));
+        textureStore(rgba, p, textureLoad(rgba, p) + vec4f(1, 0, 0, 1));
+    }
+    """
+
+private let byteColorShader = """
+    struct Targets { @location(0) r: f32, @location(1) rg: vec2f, @location(2) rgba: vec4f }
+    @vertex fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f {
+        if i == 0u { return vec4f(-1, -1, 0, 1); }
+        if i == 1u { return vec4f(3, -1, 0, 1); }
+        return vec4f(-1, 3, 0, 1);
+    }
+    @fragment fn unorm() -> Targets {
+        return Targets(128.0/255.0, vec2f(64.0/255.0, 192.0/255.0), vec4f(1, 0, 0, 1));
+    }
+    @fragment fn snorm() -> Targets {
+        return Targets(-64.0/127.0, vec2f(-63.0/127.0, 1), vec4f(-64.0/127.0, 1, 0, 1));
+    }
+    """
+
+private func byteTransferDiagnostic(_ device: Device) async throws -> [UInt32] {
+    let usage: TextureUsage = [.copySource, .copyDestination, .textureBinding]
+    let upload = try await device.createBuffer(.init(size: 4, usage: [.copySource, .copyDestination]))
+    let output = try await device.createBuffer(.init(size: 128, usage: [.storage, .copySource]))
+    let readback = try await device.createBuffer(.init(size: 128, usage: [.mapRead, .copyDestination]))
+    let shader = try IndependentShaderCompiler().compileCompute(
+        .wgsl(byteReadShader(storage: false, base: 0, count: 8)), to: .wgsl)
+    let compute = try await device.createComputePipeline(shader)
+    var images: [ComputeBindingSlot: ResourceID] = [:]
+    var commands: [BufferCommand] = [.write(buffer: upload, offset: 0, words: [0x00008000])]
+    for (index, entry) in byteTextureCases.enumerated() {
+        let image = try await device.createTexture(.init(width: 1, height: 1, format: entry.format, usage: usage))
+        images[.init(binding: UInt32(index))] = image
+        let region = TextureCopyRegion(width: 1, height: 1)
+        if index == 0 {
+            commands += [
+                .copyBufferToTexture(source: upload, layout: .init(offset: 1), destination: image, region: region),
+                .write(buffer: readback, offset: 0, words: [0xaabbccdd]),
+                .copyTextureToBuffer(source: image, destination: readback, bytesPerRow: 256, destinationOffset: 1),
+                .read(buffer: readback, byteCount: 4),
+            ]
+        } else {
+            commands.append(.writeTexture(destination: image, data: [0xee] + entry.bytes, layout: .init(offset: 1), region: region))
+        }
+    }
+    commands += [
+        .dispatchCompute(pipeline: compute, bindings: [.init(binding: 8): output], workgroups: .init(x: 1), textures: images),
+        .copy(source: output, destination: readback, byteCount: 128), .read(buffer: readback, byteCount: 128),
+    ]
+    return try await device.submitCommands(commands).wait().flatMap { $0 }
+}
+
+private func byteColorDiagnostic(_ device: Device) async throws -> [UInt32] {
+    let compiler = IndependentShaderCompiler()
+    let source = ShaderInput.wgsl(byteColorShader)
+    let vertex = try compiler.compileRenderStage(source, entryPoint: "vs", to: .wgsl)
+    let readback = try await device.createBuffer(.init(size: 4, usage: [.mapRead, .copyDestination]))
+    var commands: [BufferCommand] = []
+    for snorm in [false, true] {
+        if snorm && !device.capabilities.features.contains(.snorm8Renderable) {
+            let scope = try await device.pushErrorScope(.validation)
+            do {
+                _ = try await device.createTexture(.init(width: 1, height: 1, format: .r8Snorm, usage: .renderAttachment))
+                throw GPUError.backendFailure("Accepted an SNORM8 render attachment without its device feature")
+            } catch GPUError.validation("Feature not advertised") {
+                guard case .validation = try await device.popErrorScope(scope) else {
+                    throw GPUError.backendFailure("SNORM8 renderability error did not reach the error scope")
+                }
+                continue
+            }
+        }
+        let formats: [TextureFormat] = snorm ? [.r8Snorm, .rg8Snorm, .rgba8Snorm] : [.r8Unorm, .rg8Unorm, .rgba8Unorm]
+        let fragment = try compiler.compileRenderStage(source, entryPoint: snorm ? "snorm" : "unorm", to: .wgsl)
+        let blend = RenderColorState(blend: .init())
+        let pipeline = try await device.createRenderPipeline(vertex: vertex, fragment: fragment, colorFormat: formats[0],
+            sampleCount: 4, colorState: blend, additionalColorTargets: [
+                1: .init(format: formats[1], colorState: blend), 2: .init(format: formats[2], colorState: blend),
+            ])
+        var targets: [ResourceID] = []
+        var resolves: [ResourceID] = []
+        for format in formats {
+            targets.append(try await device.createTexture(.init(width: 1, height: 1, format: format,
+                                                                usage: .renderAttachment, sampleCount: 4)))
+            resolves.append(try await device.createTexture(.init(width: 1, height: 1, format: format,
+                                                                 usage: [.renderAttachment, .copySource])))
+        }
+        commands.append(.render(pipeline: pipeline, target: targets[0], clear: .transparentBlack, vertexCount: 3,
+            resolve: .init(texture: resolves[0]), additionalColors: [
+                1: .init(texture: targets[1], loadAction: .clear(.transparentBlack), resolve: .init(texture: resolves[1])),
+                2: .init(texture: targets[2], loadAction: .clear(.transparentBlack), resolve: .init(texture: resolves[2])),
+            ]))
+        for (image, offset) in zip(resolves, [UInt64(3), 2, 0]) {
+            commands += [
+                .write(buffer: readback, offset: 0, words: [0]),
+                .copyTextureToBuffer(source: image, destination: readback, bytesPerRow: 256, destinationOffset: offset),
+                .read(buffer: readback, byteCount: 4),
+            ]
+        }
+    }
+    return try await device.submitCommands(commands).wait().flatMap { $0 }
+}
+
+private func byteStorageDiagnostic(_ device: Device) async throws -> [UInt32] {
+    let compiler = IndependentShaderCompiler()
+    guard device.capabilities.features.contains(.narrow8BitStorageTextures) else {
+        let shader = try compiler.compileCompute(.wgsl(byteWriteShader(base: 0)), to: .wgsl)
+        try await checkMissingStorageFeature(device, shader: shader)
+        return []
+    }
+    guard device.capabilities.features.contains(.storageTextureRead) else {
+        let shader = try compiler.compileCompute(.wgsl(byteReadShader(storage: true, base: 0, count: 4)), to: .wgsl)
+        try await checkMissingStorageFeature(device, shader: shader)
+        return []
+    }
+    var images: [ResourceID] = []
+    for entry in byteTextureCases {
+        images.append(try await device.createTexture(.init(width: 1, height: 1, format: entry.format,
+                                                             usage: [.storageBinding, .copySource])))
+    }
+    let output = try await device.createBuffer(.init(size: 128, usage: [.storage, .copySource]))
+    let readback = try await device.createBuffer(.init(size: 128, usage: [.mapRead, .copyDestination]))
+    var commands: [BufferCommand] = []
+    for base in [0, 4] {
+        let write = try await device.createComputePipeline(compiler.compileCompute(.wgsl(byteWriteShader(base: base)), to: .wgsl))
+        let read = try await device.createComputePipeline(compiler.compileCompute(
+            .wgsl(byteReadShader(storage: true, base: base, count: 4)), to: .wgsl))
+        let bindings = Dictionary(uniqueKeysWithValues: images[base..<(base + 4)].enumerated().map {
+            (ComputeBindingSlot(binding: UInt32($0.offset)), $0.element)
+        })
+        commands += [
+            .dispatchCompute(pipeline: write, bindings: [:], workgroups: .init(x: 1), textures: bindings),
+            .dispatchCompute(pipeline: read, bindings: [.init(binding: 4): output], workgroups: .init(x: 1), textures: bindings),
+        ]
+    }
+    commands += [.copy(source: output, destination: readback, byteCount: 128), .read(buffer: readback, byteCount: 128)]
+    let updateShader = try compiler.compileCompute(.wgsl(byteUpdateShader), to: .wgsl)
+    if device.capabilities.features.contains(.storage8BitReadWrite) {
+        let rgba = try await device.createTexture(.init(width: 1, height: 1, format: .rgba8Unorm, usage: [.storageBinding, .copySource]))
+        let update = try await device.createComputePipeline(updateShader)
+        commands += [
+            .dispatchCompute(pipeline: update, bindings: [:], workgroups: .init(x: 1),
+                             textures: [.init(binding: 0): images[4], .init(binding: 1): rgba]),
+            .write(buffer: readback, offset: 0, words: [0]),
+            .copyTextureToBuffer(source: images[4], destination: readback, bytesPerRow: 256, destinationOffset: 3),
+            .read(buffer: readback, byteCount: 4),
+            .copyTextureToBuffer(source: rgba, destination: readback, bytesPerRow: 256), .read(buffer: readback, byteCount: 4),
+        ]
+    } else {
+        try await checkMissingStorageFeature(device, shader: updateShader)
+    }
+    return try await device.submitCommands(commands).wait().flatMap { $0 }
+}
+
+private let depthOnlyRenderShader = """
+    @vertex fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f {
+        if i == 0u { return vec4f(-1, -1, 0.25, 1); }
+        if i == 1u { return vec4f(3, -1, 0.25, 1); }
+        return vec4f(-1, 3, 0.25, 1);
+    }
+    @fragment fn fs() -> @location(0) vec4f { return vec4f(0, 1, 0, 1); }
+    """
+
+private let depthOnlyReadShader = """
+    @group(0) @binding(0) var quantized: texture_depth_2d;
+    @group(0) @binding(1) var opaqueDepth: texture_depth_2d;
+    @group(0) @binding(2) var compare: sampler_comparison;
+    @group(0) @binding(3) var<storage, read_write> out: vec4f;
+    @compute @workgroup_size(1) fn run() {
+        let a = textureLoad(quantized, vec2u(0, 0), 0u);
+        let b = textureLoad(quantized, vec2u(1, 0), 0u);
+        let c = textureLoad(opaqueDepth, vec2u(0, 0), 0u);
+        let d = textureSampleCompareLevel(opaqueDepth, compare, vec2f(0.25, 0.5), 0.2);
+        out = vec4f(a, b, c, d);
+    }
+    """
+
+private func depthOnlyFormatDiagnostic(_ device: Device) async throws -> [UInt32] {
+    let compiler = IndependentShaderCompiler()
+    let usage: TextureUsage = [.renderAttachment, .copySource, .copyDestination, .textureBinding]
+    let depth16 = try await device.createTexture(.init(width: 2, height: 1, format: .depth16Unorm, usage: usage))
+    let depth24 = try await device.createTexture(.init(width: 2, height: 1, format: .depth24Plus, usage: usage))
+    let opaqueCopy = try await device.createTexture(.init(width: 2, height: 1, format: .depth24Plus,
+                                                           usage: [.copyDestination, .textureBinding]))
+    let depthView = try await device.createTextureView(texture: opaqueCopy, .init(aspect: .depthOnly))
+    let color = try await device.createTexture(.init(width: 2, height: 1, format: .rgba8Unorm, usage: .renderAttachment))
+    let readback = try await device.createBuffer(.init(size: 16, usage: [.mapRead, .copyDestination]))
+    let upload = try await device.createBuffer(.init(size: 8, usage: [.copySource, .copyDestination]))
+    let out = try await device.createBuffer(.init(size: 16, usage: [.storage, .copySource]))
+    let sampler = try await device.createSampler(.init(compare: .less))
+    let source = ShaderInput.wgsl(depthOnlyRenderShader)
+    let vertex = try compiler.compileRenderStage(source, entryPoint: "vs", to: .wgsl)
+    let fragment = try compiler.compileRenderStage(source, entryPoint: "fs", to: .wgsl)
+    let render16 = try await device.createRenderPipeline(vertex: vertex, fragment: fragment, colorFormat: .rgba8Unorm,
+        depthState: .init(format: .depth16Unorm, compare: .less))
+    let render24 = try await device.createRenderPipeline(vertex: vertex, fragment: fragment, colorFormat: .rgba8Unorm,
+        depthState: .init(format: .depth24Plus, compare: .less))
+    let compute = try await device.createComputePipeline(compiler.compileCompute(.wgsl(depthOnlyReadShader), to: .wgsl))
+    let full = TextureCopyRegion(width: 2, height: 1)
+    let raw16: [BufferCommand] = [
+        .copyTextureToBuffer(source: depth16, destination: readback, bytesPerRow: 256), .read(buffer: readback, byteCount: 4),
+    ]
+    let commands: [BufferCommand] = [
+        .writeTexture(destination: depth16, data: [0x99, 0, 64, 255, 191], layout: .init(offset: 1), region: full),
+    ] + raw16 + [
+        .write(buffer: upload, offset: 0, words: [0xdeadbeef, 0xffff8000]),
+        .copyBufferToTexture(source: upload, layout: .init(offset: 4), destination: depth16, region: full, aspect: .depthOnly),
+    ] + raw16 + [
+        .render(pipeline: render16, target: color, clear: .transparentBlack, vertexCount: 3,
+                depth: .init(texture: depth16, loadAction: .load)),
+    ] + raw16 + [
+        .render(pipeline: render24, target: color, clear: .transparentBlack, vertexCount: 3,
+                depth: .init(texture: depth24, loadAction: .clear(0.8))),
+        .copyTextureToTexture(source: depth24, destination: opaqueCopy, sourceRegion: full),
+        .dispatchCompute(pipeline: compute, bindings: [.init(binding: 3): out], workgroups: .init(x: 1),
+                         textures: [.init(binding: 0): depth16, .init(binding: 1): depthView], samplers: [.init(binding: 2): sampler]),
+        .copy(source: out, destination: readback, byteCount: 16), .read(buffer: readback, byteCount: 16),
+    ]
+    return try await device.submitCommands(commands).wait().flatMap { $0 }
+}
+
+private let depth32StencilRenderShader = """
+    @vertex fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f {
+        if i == 0u { return vec4f(-1, -1, 0.25, 1); }
+        if i == 1u { return vec4f(3, -1, 0.25, 1); }
+        return vec4f(-1, 3, 0.25, 1);
+    }
+    @fragment fn fs() -> @location(0) vec4f { return vec4f(0, 1, 0, 1); }
+    """
+
+private let depth32StencilReadShader = """
+    @group(0) @binding(0) var depth: texture_depth_2d;
+    @group(0) @binding(1) var stencil: texture_2d<u32>;
+    @group(0) @binding(2) var<storage, read_write> out: vec4f;
+    @compute @workgroup_size(1) fn run() {
+        let a = vec2u(0, 0);
+        let b = vec2u(1, 0);
+        out = vec4f(textureLoad(depth, a, 0u), textureLoad(depth, b, 0u),
+                    f32(textureLoad(stencil, a, 0u).x), f32(textureLoad(stencil, b, 0u).x));
+    }
+    """
+
+private func depth32StencilDiagnostic(_ device: Device) async throws -> [UInt32] {
+    guard device.capabilities.features.contains(.depth32FloatStencil8) else {
+        let scope = try await device.pushErrorScope(.validation)
+        do {
+            _ = try await device.createTexture(.init(width: 2, height: 1, format: .depth32FloatStencil8, usage: .renderAttachment))
+            throw GPUError.backendFailure("Accepted depth32float-stencil8 without its device feature")
+        } catch GPUError.validation("Feature not advertised") {
+            guard case .validation = try await device.popErrorScope(scope) else {
+                throw GPUError.backendFailure("Depth32 stencil feature error did not reach the error scope")
+            }
+            return []
+        }
+    }
+    let compiler = IndependentShaderCompiler()
+    let original = try await device.createTexture(.init(width: 2, height: 1, format: .depth32FloatStencil8,
+        usage: [.renderAttachment, .copySource, .copyDestination]))
+    let clone = try await device.createTexture(.init(width: 2, height: 1, format: .depth32FloatStencil8,
+        usage: [.copySource, .copyDestination, .textureBinding]))
+    let depth = try await device.createTextureView(texture: clone, .init(aspect: .depthOnly))
+    let stencil = try await device.createTextureView(texture: clone, .init(aspect: .stencilOnly))
+    let color = try await device.createTexture(.init(width: 2, height: 1, format: .rgba8Unorm, usage: [.renderAttachment, .copySource]))
+    let readback = try await device.createBuffer(.init(size: 16, usage: [.mapRead, .copyDestination]))
+    let out = try await device.createBuffer(.init(size: 16, usage: [.storage, .copySource]))
+    let source = ShaderInput.wgsl(depth32StencilRenderShader)
+    let vertex = try compiler.compileRenderStage(source, entryPoint: "vs", to: .wgsl)
+    let fragment = try compiler.compileRenderStage(source, entryPoint: "fs", to: .wgsl)
+    let face = RenderStencilFaceState(compare: .equal, pass: .incrementClamp)
+    let render = try await device.createRenderPipeline(vertex: vertex, fragment: fragment, colorFormat: .rgba8Unorm,
+        depthState: .init(format: .depth32FloatStencil8, compare: .less, stencil: .init(front: face, back: face)))
+    let compute = try await device.createComputePipeline(compiler.compileCompute(.wgsl(depth32StencilReadShader), to: .wgsl))
+    let region = TextureCopyRegion(width: 2, height: 1)
+    return try await device.submitCommands([
+        .writeTexture(destination: original, data: [0xee, 3, 7], layout: .init(offset: 1), region: region, aspect: .stencilOnly),
+        .copyTextureToBuffer(source: original, destination: readback, bytesPerRow: 256, aspect: .stencilOnly),
+        .read(buffer: readback, byteCount: 4),
+        .render(pipeline: render, target: color, clear: .transparentBlack, vertexCount: 3,
+                depth: .init(texture: original, loadAction: .clear(0.75), stencil: .init(loadAction: .load, reference: 3))),
+        .copyTextureToBuffer(source: color, destination: readback, bytesPerRow: 256), .read(buffer: readback, byteCount: 8),
+        .copyTextureToTexture(source: original, destination: clone, sourceRegion: region),
+        .copyTextureToBuffer(source: clone, destination: readback, bytesPerRow: 256, aspect: .depthOnly),
+        .read(buffer: readback, byteCount: 8),
+        .write(buffer: readback, offset: 0, words: [0]),
+        .copyTextureToBuffer(source: clone, destination: readback, bytesPerRow: 256, aspect: .stencilOnly),
+        .read(buffer: readback, byteCount: 4),
+        .dispatchCompute(pipeline: compute, bindings: [.init(binding: 2): out], workgroups: .init(x: 1),
+                         textures: [.init(binding: 0): depth, .init(binding: 1): stencil]),
+        .copy(source: out, destination: readback, byteCount: 16), .read(buffer: readback, byteCount: 16),
+    ]).wait().flatMap { $0 }
+}
+
+private let stencilOnlyRenderShader = """
+    @vertex fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f {
+        if i == 0u { return vec4f(-1, -1, 0, 1); }
+        if i == 1u { return vec4f(3, -1, 0, 1); }
+        return vec4f(-1, 3, 0, 1);
+    }
+    @fragment fn fs() -> @location(0) vec4f { return vec4f(0, 1, 0, 1); }
+    @fragment fn writesDepth() -> @builtin(frag_depth) f32 { return 0.5; }
+    """
+
+private let stencilOnlyReadShader = """
+    @group(0) @binding(0) var allAspects: texture_2d<u32>;
+    @group(0) @binding(1) var stencilView: texture_2d<u32>;
+    @group(0) @binding(2) var<storage, read_write> out: vec4u;
+    @compute @workgroup_size(1) fn run() {
+        let a = vec2u(0, 0);
+        let b = vec2u(1, 0);
+        out = vec4u(textureLoad(allAspects, a, 0u).x, textureLoad(allAspects, b, 0u).x,
+                    textureLoad(stencilView, a, 0u).x, textureLoad(stencilView, b, 0u).x);
+    }
+    """
+
+private func stencilOnlyDiagnostic(_ device: Device) async throws -> [UInt32] {
+    let compiler = IndependentShaderCompiler()
+    let original = try await device.createTexture(.init(width: 2, height: 1, format: .stencil8,
+        usage: [.renderAttachment, .copySource, .copyDestination]))
+    let clone = try await device.createTexture(.init(width: 2, height: 1, format: .stencil8,
+        usage: [.copySource, .copyDestination, .textureBinding]))
+    let view = try await device.createTextureView(texture: clone, .init(aspect: .stencilOnly))
+    let color = try await device.createTexture(.init(width: 2, height: 1, format: .rgba8Unorm, usage: [.renderAttachment, .copySource]))
+    let readback = try await device.createBuffer(.init(size: 16, usage: [.mapRead, .copyDestination]))
+    let output = try await device.createBuffer(.init(size: 16, usage: [.storage, .copySource]))
+    let source = ShaderInput.wgsl(stencilOnlyRenderShader)
+    let vertex = try compiler.compileRenderStage(source, entryPoint: "vs", to: .wgsl)
+    let fragment = try compiler.compileRenderStage(source, entryPoint: "fs", to: .wgsl)
+    let face = RenderStencilFaceState(compare: .equal, pass: .incrementClamp)
+    let render = try await device.createRenderPipeline(vertex: vertex, fragment: fragment, colorFormat: .rgba8Unorm,
+        depthState: .init(format: .stencil8, compare: .always, writeEnabled: false, stencil: .init(front: face, back: face)))
+    let compute = try await device.createComputePipeline(compiler.compileCompute(.wgsl(stencilOnlyReadShader), to: .wgsl))
+    let region = TextureCopyRegion(width: 2, height: 1)
+    return try await device.submitCommands([
+        .copyTextureToBuffer(source: original, destination: readback, bytesPerRow: 256), .read(buffer: readback, byteCount: 4),
+        .writeTexture(destination: original, data: [0xee, 3, 7], layout: .init(offset: 1), region: region),
+        .copyTextureToBuffer(source: original, destination: readback, bytesPerRow: 256, aspect: .stencilOnly),
+        .read(buffer: readback, byteCount: 4),
+        .render(pipeline: render, target: color, clear: .transparentBlack, vertexCount: 3,
+                depth: .init(texture: original, loadAction: .unused, stencil: .init(loadAction: .load, reference: 3))),
+        .copyTextureToBuffer(source: color, destination: readback, bytesPerRow: 256), .read(buffer: readback, byteCount: 8),
+        .copyTextureToTexture(source: original, destination: clone, sourceRegion: region),
+        .write(buffer: readback, offset: 0, words: [0]),
+        .copyTextureToBuffer(source: clone, destination: readback, bytesPerRow: 256), .read(buffer: readback, byteCount: 4),
+        .dispatchCompute(pipeline: compute, bindings: [.init(binding: 2): output], workgroups: .init(x: 1),
+                         textures: [.init(binding: 0): clone, .init(binding: 1): view]),
+        .copy(source: output, destination: readback, byteCount: 16), .read(buffer: readback, byteCount: 16),
+    ]).wait().flatMap { $0 }
+}
+
+private let bgraStorageShader = """
+    @group(0) @binding(0) var image: texture_storage_2d<bgra8unorm, write>;
+    @compute @workgroup_size(1) fn run() {
+        textureStore(image, vec2u(0), vec4f(0.25, 0.5, 0.75, 1.0));
+    }
+    """
+
+private let bgraSampleShader = """
+    @group(0) @binding(0) var image: texture_2d<f32>;
+    @group(0) @binding(1) var<storage, read_write> out: vec4f;
+    @compute @workgroup_size(1) fn run() { out = textureLoad(image, vec2u(0), 0u); }
+    """
+
+private let wideStorageShader = """
+    @group(0) @binding(0) var halfImage: texture_storage_2d<rgba16float, read_write>;
+    @group(0) @binding(1) var fullImage: texture_storage_2d<rgba32float, read_write>;
+    @group(0) @binding(2) var uintImage: texture_storage_2d<rgba32uint, read_write>;
+    @group(0) @binding(3) var sintImage: texture_storage_2d<rgba32sint, read_write>;
+    @compute @workgroup_size(1) fn run() {
+        let p = vec2u(0);
+        textureStore(halfImage, p, textureLoad(halfImage, p) + vec4f(0.5, -1, 2, -2));
+        textureStore(fullImage, p, textureLoad(fullImage, p) - vec4f(0.5, -0.25, 0.75, -1.25));
+        textureStore(uintImage, p, textureLoad(uintImage, p) + vec4u(1, 2, 3, 4));
+        textureStore(sintImage, p, textureLoad(sintImage, p) + vec4i(-1, 2, -3, 4));
+    }
+    """
+
+private func bgraStorageDiagnostic(_ device: Device) async throws -> [UInt32] {
+    let compiler = IndependentShaderCompiler()
+    let shader = try compiler.compileCompute(.wgsl(bgraStorageShader), to: .wgsl)
+    guard device.capabilities.features.contains(.bgra8UnormStorage) else {
+        try await checkMissingStorageFeature(device, shader: shader)
+        return []
+    }
+    let write = try await device.createComputePipeline(shader)
+    let sample = try await device.createComputePipeline(compiler.compileCompute(.wgsl(bgraSampleShader), to: .wgsl))
+    let image = try await device.createTexture(.init(width: 1, height: 1, format: .bgra8Unorm,
+                                                     usage: [.storageBinding, .textureBinding, .copySource]))
+    let output = try await device.createBuffer(.init(size: 16, usage: [.storage, .copySource]))
+    let readback = try await device.createBuffer(.init(size: 16, usage: [.mapRead, .copyDestination]))
+    let bindings: [ComputeBindingSlot: ResourceID] = [.init(binding: 0): image]
+    return try await device.submitCommands([
+        .dispatchCompute(pipeline: write, bindings: [:], workgroups: .init(x: 1), textures: bindings),
+        .copyTextureToBuffer(source: image, destination: readback, bytesPerRow: 256), .read(buffer: readback, byteCount: 4),
+        .dispatchCompute(pipeline: sample, bindings: [.init(binding: 1): output], workgroups: .init(x: 1), textures: bindings),
+        .copy(source: output, destination: readback, byteCount: 16), .read(buffer: readback, byteCount: 16),
+    ]).wait().flatMap { $0 }
+}
+
+private func wideStorageDiagnostic(_ device: Device) async throws -> [UInt32] {
+    let shader = try IndependentShaderCompiler().compileCompute(.wgsl(wideStorageShader), to: .wgsl)
+    guard device.capabilities.features.isSuperset(of: [.wideRGBAStorageReadWrite, .storageTextureReadWrite]) else {
+        try await checkMissingStorageFeature(device, shader: shader)
+        return []
+    }
+    let compute = try await device.createComputePipeline(shader)
+    let formats: [TextureFormat] = [.rgba16Float, .rgba32Float, .rgba32Uint, .rgba32Sint]
+    let data = [
+        [UInt32(0x40003c00), 0x44004200],
+        [Float(-1), 2, -3, 4].map(\.bitPattern),
+        [100, 200, 300, 400],
+        [Int32(-10), 20, -30, 40].map(UInt32.init(bitPattern:)),
+    ]
+    let readback = try await device.createBuffer(.init(size: 16, usage: [.mapRead, .copyDestination]))
+    var textures: [ResourceID] = []
+    var commands: [BufferCommand] = []
+    for (format, words) in zip(formats, data) {
+        let image = try await device.createTexture(.init(width: 1, height: 1, format: format,
+            usage: [.storageBinding, .copySource, .copyDestination]))
+        textures.append(image)
+        commands.append(.writeTexture(destination: image, data: words.withUnsafeBytes { Array($0) },
+                                      region: .init(width: 1, height: 1)))
+    }
+    let bindings = Dictionary(uniqueKeysWithValues: textures.enumerated().map {
+        (ComputeBindingSlot(binding: UInt32($0.offset)), $0.element)
+    })
+    commands.append(.dispatchCompute(pipeline: compute, bindings: [:], workgroups: .init(x: 1), textures: bindings))
+    for (index, image) in textures.enumerated() {
+        commands += [.copyTextureToBuffer(source: image, destination: readback, bytesPerRow: 256),
+                     .read(buffer: readback, byteCount: index == 0 ? 8 : 16)]
+    }
+    return try await device.submitCommands(commands).wait().flatMap { $0 }
+}
+
+private let forwardedResourceBindings = """
+    enable wgpu_binding_array;
+    @group(0) @binding(0) var images: binding_array<texture_2d<f32>>;
+    @group(1) @binding(1) var states: binding_array<sampler, 2>;
+    @group(0) @binding(2) var<storage, read_write> out: array<f32, 4>;
+    @group(2) @binding(0) var targets: binding_array<texture_storage_2d<rgba8unorm, write>, 2>;
+    """
+
+private let forwardedResourceShader = forwardedResourceBindings + "\n" + """
+    fn read(image: texture_2d<f32>, state: sampler, x: f32) -> f32 {
+        let width = textureDimensions(image).x;
+        return textureSampleLevel(image, state, vec2f(x, 0.5), 0.0).x * f32(width) * 0.5;
+    }
+    fn forward(x: f32, state: sampler, image: texture_2d<f32>) -> f32 {
+        return read(image, state, x);
+    }
+    fn save(target: texture_storage_2d<rgba8unorm, write>, red: f32) {
+        textureStore(target, vec2u(0), vec4f(red, 0, 0, 1));
+    }
+    @compute @workgroup_size(4) fn run(@builtin(local_invocation_index) lane: u32) {
+        let image = lane / 2u;
+        let state = lane % 2u;
+        let red = forward(1.25, states[state], images[image]);
+        out[lane] = red;
+        if state == 0u { save(targets[image], red); }
+    }
+    """
+
+private let forwardedResourceRenderShader = forwardedResourceBindings + "\n" + """
+    @vertex fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f {
+        let xy = array<vec2f, 3>(vec2f(-1, -1), vec2f(3, -1), vec2f(-1, 3));
+        return vec4f(xy[i], 0.25 * f32(textureDimensions(images[0]).x), 1);
+    }
+    @fragment fn fs(@builtin(position) pixel: vec4f) -> @location(0) vec4f {
+        let index = u32(pixel.x);
+        let red = textureSample(images[index], states[index], vec2f(1.25, 0.5)).x;
+        return vec4f(red, 1, 0, 1);
+    }
+    """
+
+private func forwardedResourcesDiagnostic(_ device: Device) async throws -> [UInt32] {
+    let compiler = IndependentShaderCompiler()
+    let source = ShaderInput.wgsl(forwardedResourceShader)
+    let graphics = ShaderInput.wgsl(forwardedResourceRenderShader)
+    let lengths: [IRResourceBinding: UInt32] = [.init(group: 0, binding: 0): 2]
+    let shader = try compiler.compileWebGPUCompute(source, bindingArrayLengths: lengths)
+    let pipeline = try await device.createComputePipeline(shader)
+    let render = try await device.createRenderPipeline(
+        vertex: compiler.compileWebGPURenderStage(graphics, entryPoint: "vs", bindingArrayLengths: lengths),
+        fragment: compiler.compileWebGPURenderStage(graphics, entryPoint: "fs", bindingArrayLengths: lengths),
+        colorFormat: .rgba8Unorm)
+    let sampleUsage: TextureUsage = [.textureBinding, .copyDestination]
+    let storeUsage: TextureUsage = [.storageBinding, .copySource]
+    let a = try await device.createTexture(.init(width: 2, height: 1, format: .rgba8Unorm, usage: sampleUsage))
+    let b = try await device.createTexture(.init(width: 2, height: 1, format: .rgba8Unorm, usage: sampleUsage))
+    let first = try await device.createTexture(.init(width: 1, height: 1, format: .rgba8Unorm, usage: storeUsage))
+    let second = try await device.createTexture(.init(width: 1, height: 1, format: .rgba8Unorm, usage: storeUsage))
+    let color = try await device.createTexture(.init(width: 2, height: 1, format: .rgba8Unorm,
+                                                     usage: [.renderAttachment, .copySource]))
+    let clamp = try await device.createSampler(.init())
+    let repeating = try await device.createSampler(.init(addressModeU: .repeat))
+    let output = try await device.createBuffer(.init(size: 16, usage: [.storage, .copySource]))
+    let readback = try await device.createBuffer(.init(size: 16, usage: [.mapRead, .copyDestination]))
+    let region = TextureCopyRegion(width: 2, height: 1)
+    let textures: [ComputeBindingSlot: ResourceID] = [.init(binding: 0, arrayElement: 0): a, .init(binding: 0, arrayElement: 1): b]
+    let samplers: [ComputeBindingSlot: ResourceID] = [
+        .init(group: 1, binding: 1, arrayElement: 0): clamp, .init(group: 1, binding: 1, arrayElement: 1): repeating,
+    ]
+    let targets: [ComputeBindingSlot: ResourceID] = [
+        .init(group: 2, binding: 0, arrayElement: 0): first, .init(group: 2, binding: 0, arrayElement: 1): second,
+    ]
+    return try await device.submitCommands([
+        .writeTexture(destination: a, data: [10, 0, 0, 255, 70, 0, 0, 255], region: region),
+        .writeTexture(destination: b, data: [150, 0, 0, 255, 220, 0, 0, 255], region: region),
+        .dispatchCompute(pipeline: pipeline, bindings: [.init(binding: 2): output], workgroups: .init(x: 1),
+                         textures: textures.merging(targets) { sample, _ in sample }, samplers: samplers),
+        .copy(source: output, destination: readback, byteCount: 16), .read(buffer: readback, byteCount: 16),
+        .copyTextureToBuffer(source: first, destination: readback, bytesPerRow: 256), .read(buffer: readback, byteCount: 4),
+        .copyTextureToBuffer(source: second, destination: readback, bytesPerRow: 256), .read(buffer: readback, byteCount: 4),
+        .render(pipeline: render, target: color, clear: .transparentBlack, vertexCount: 3, textures: textures, samplers: samplers),
+        .copyTextureToBuffer(source: color, destination: readback, bytesPerRow: 256), .read(buffer: readback, byteCount: 8),
+    ]).wait().flatMap { $0 }
+}
+
+private let webBufferArrayComputeShader = """
+    enable wgpu_binding_array;
+    requires unrestricted_pointer_parameters;
+    struct Record { counter: atomic<u32>, tail: array<u32> }
+    struct Settings { values: vec4u }
+    @group(0) @binding(0) var<storage, read_write> records: binding_array<Record>;
+    @group(1) @binding(0) var<uniform> settings: binding_array<Settings, 2>;
+    @group(0) @binding(2) var<storage, read_write> output: array<vec4u, 4>;
+
+    fn increment(counter: ptr<storage, atomic<u32>, read_write>) -> u32 {
+        return atomicAdd(counter, 1u);
+    }
+    @compute @workgroup_size(4) fn run(@builtin(local_invocation_index) lane: u32) {
+        let index = i32(lane) - 1;
+        let old = increment(&records[index].counter);
+        let new = atomicLoad(&records[index].counter);
+        let length = arrayLength(&records[index].tail);
+        output[lane] = vec4u(old, new, length, settings[index].values.x);
+        records[index].tail[0] = settings[index].values.y;
+        records[7].tail[0] = 99u;
+    }
+    """
+
+private let webBufferArrayRenderShader = """
+    enable wgpu_binding_array;
+    struct Record { counter: u32, tail: array<u32> }
+    struct Settings { values: vec4u }
+    struct Varyings {
+        @builtin(position) position: vec4f,
+        @location(0) @interpolate(flat) red: f32,
+    }
+    @group(0) @binding(0) var<storage, read> records: binding_array<Record>;
+    @group(1) @binding(0) var<uniform> settings: binding_array<Settings, 2>;
+    @vertex fn vs(@builtin(vertex_index) i: u32) -> Varyings {
+        let xy = array<vec2f, 3>(vec2f(-1, -1), vec2f(3, -1), vec2f(-1, 3));
+        return Varyings(vec4f(xy[i], 0, 1), f32(settings[0].values.x));
+    }
+    @fragment fn fs(input: Varyings) -> @location(0) vec4f {
+        let index = u32(input.position.x);
+        let length = arrayLength(&records[index].tail);
+        return vec4f(vec3f(input.red, f32(length), f32(records[index].tail[0])) / 255.0, 1);
+    }
+    """
+
+private func webBufferArraysDiagnostic(_ device: Device) async throws -> [UInt32] {
+    let compiler = IndependentShaderCompiler()
+    let lengths: [IRResourceBinding: UInt32] = [.init(group: 0, binding: 0): 2]
+    let compute = try await device.createComputePipeline(
+        compiler.compileWebGPUCompute(.wgsl(webBufferArrayComputeShader), bindingArrayLengths: lengths))
+    let graphics = ShaderInput.wgsl(webBufferArrayRenderShader)
+    let render = try await device.createRenderPipeline(
+        vertex: compiler.compileWebGPURenderStage(graphics, entryPoint: "vs", bindingArrayLengths: lengths),
+        fragment: compiler.compileWebGPURenderStage(graphics, entryPoint: "fs", bindingArrayLengths: lengths),
+        colorFormat: .rgba8Unorm)
+    let records = try await device.createBuffer(.init(size: 512, usage: [.storage, .copyDestination, .copySource]))
+    let settings = try await device.createBuffer(.init(size: 512, usage: [.uniform, .copyDestination]))
+    let output = try await device.createBuffer(.init(size: 64, usage: [.storage, .copySource]))
+    let readback = try await device.createBuffer(.init(size: 64, usage: [.mapRead, .copyDestination]))
+    let color = try await device.createTexture(.init(width: 2, height: 1, format: .rgba8Unorm,
+                                                     usage: [.renderAttachment, .copySource]))
+    let storage: [ComputeBindingSlot: ComputeBufferBinding] = [
+        .init(binding: 0, arrayElement: 0): .init(buffer: records, size: 8),
+        .init(binding: 0, arrayElement: 1): .init(buffer: records, offset: 256, size: 16),
+    ]
+    let uniforms: [ComputeBindingSlot: ComputeBufferBinding] = [
+        .init(group: 1, binding: 0, arrayElement: 0): .init(buffer: settings, size: 16),
+        .init(group: 1, binding: 0, arrayElement: 1): .init(buffer: settings, offset: 256, size: 16),
+    ]
+    var bindings = storage.merging(uniforms) { storage, _ in storage }
+    bindings[.init(binding: 2)] = .init(buffer: output)
+    let commands: [BufferCommand] = [
+        .write(buffer: records, offset: 0, words: [100, 5, 41, 42]),
+        .write(buffer: records, offset: 256, words: [200, 7, 8, 9]),
+        .write(buffer: settings, offset: 0, words: [11, 55, 0, 0]),
+        .write(buffer: settings, offset: 256, words: [22, 77, 0, 0]),
+        .dispatchComputeRanges(pipeline: compute, bindings: bindings, workgroups: .init(x: 1)),
+        .copy(source: output, destination: readback, byteCount: 64), .read(buffer: readback, byteCount: 64),
+        .copy(source: records, destination: readback, byteCount: 16), .read(buffer: readback, byteCount: 16),
+        .copy(source: records, sourceOffset: 256, destination: readback, byteCount: 16), .read(buffer: readback, byteCount: 16),
+        .render(pipeline: render, target: color, clear: .transparentBlack, vertexCount: 3,
+                uniforms: uniforms, storageBuffers: storage),
+        .copyTextureToBuffer(source: color, destination: readback, bytesPerRow: 256), .read(buffer: readback, byteCount: 8),
+    ]
+    return try await device.submitCommands(commands).wait().flatMap { $0 }
+}
+
+private let webExternalTextureCompute = """
+    @group(0) @binding(0) var first: texture_external;
+    @group(1) @binding(0) var second: texture_external;
+    @group(0) @binding(1) var state: sampler;
+    @group(0) @binding(2) var<storage, read_write> output: array<vec4f, 4>;
+    fn sample(image: texture_external, s: sampler, x: f32) -> vec4f {
+        return textureSampleBaseClampToEdge(image, s, vec2f(x, 0.5));
+    }
+    @compute @workgroup_size(1) fn run() {
+        output[0] = sample(first, state, -0.25);
+        output[1] = sample(second, state, 1.25);
+        output[2] = textureLoad(first, vec2u(1, 0));
+        output[3] = vec4f(vec2f(textureDimensions(first)), vec2f(textureDimensions(second)));
+    }
+    """
+
+private let webExternalTextureRender = """
+    @group(0) @binding(0) var frame: texture_external;
+    @vertex fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f {
+        let xy = array<vec2f, 3>(vec2f(-1, -1), vec2f(3, -1), vec2f(-1, 3));
+        return vec4f(xy[i], 0, 1);
+    }
+    @fragment fn fs(@builtin(position) pixel: vec4f) -> @location(0) vec4f {
+        return textureLoad(frame, vec2i(i32(pixel.x), 0));
+    }
+    """
+
+private func webExternalTextureDiagnostic(
+    _ device: Device, frames: (first: UInt64, second: UInt64, closed: UInt64)
+) async throws -> [UInt32] {
+    let compiler = IndependentShaderCompiler()
+    let compute = try await device.createComputePipeline(compiler.compileWebGPUCompute(.wgsl(webExternalTextureCompute)))
+    let graphics = ShaderInput.wgsl(webExternalTextureRender)
+    let render = try await device.createRenderPipeline(
+        vertex: compiler.compileWebGPURenderStage(graphics, entryPoint: "vs"),
+        fragment: compiler.compileWebGPURenderStage(graphics, entryPoint: "fs"), colorFormat: .rgba8Unorm)
+    do {
+        _ = try await device.importExternalTexture(.init(videoFrame: frames.closed))
+        throw GPUError.backendFailure("A closed VideoFrame was accepted")
+    } catch GPUError.validation("Unknown or closed VideoFrame") {}
+    let first = try await device.importExternalTexture(.init(videoFrame: frames.first))
+    let second = try await device.importExternalTexture(.init(videoFrame: frames.second))
+    let sampler = try await device.createSampler(.init(addressModeU: .repeat, addressModeV: .repeat))
+    let output = try await device.createBuffer(.init(size: 64, usage: [.storage, .copySource]))
+    let readback = try await device.createBuffer(.init(size: 64, usage: [.mapRead, .copyDestination]))
+    let color = try await device.createTexture(.init(width: 2, height: 1, format: .rgba8Unorm,
+                                                     usage: [.renderAttachment, .copySource]))
+    let commands: [BufferCommand] = [
+        .dispatchCompute(pipeline: compute, bindings: [.init(binding: 2): output], workgroups: .init(x: 1),
+                         textures: [.init(binding: 0): first, .init(group: 1, binding: 0): second],
+                         samplers: [.init(binding: 1): sampler]),
+        .copy(source: output, destination: readback, byteCount: 64), .read(buffer: readback, byteCount: 64),
+        .render(pipeline: render, target: color, clear: .transparentBlack, vertexCount: 3, textures: [.init(binding: 0): first]),
+        .copyTextureToBuffer(source: color, destination: readback, bytesPerRow: 256), .read(buffer: readback, byteCount: 8),
+    ]
+    let words = try await device.submitCommands(commands).wait().flatMap { $0 }
+    try await device.destroyExternalTexture(first)
+    return words
 }
 #endif

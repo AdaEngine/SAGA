@@ -1,4 +1,4 @@
-public enum TextureFormat: UInt32, Sendable, Equatable {
+public enum TextureFormat: UInt32, Sendable, Hashable {
     case rgba8Unorm = 1
     case bgra8Unorm = 2
     case r32Uint = 3
@@ -18,9 +18,110 @@ public enum TextureFormat: UInt32, Sendable, Equatable {
     case rgba32Uint = 17
     case rgba32Sint = 18
     case rgba32Float = 19
+    case bc1RGBAUnorm = 20
+    case bc1RGBAUnormSrgb = 21
+    case bc2RGBAUnorm = 22
+    case bc2RGBAUnormSrgb = 23
+    case bc3RGBAUnorm = 24
+    case bc3RGBAUnormSrgb = 25
+    case bc4RUnorm = 26
+    case bc4RSnorm = 27
+    case bc5RGUnorm = 28
+    case bc5RGSnorm = 29
+    case bc6HRGBUfloat = 30
+    case bc6HRGBFloat = 31
+    case bc7RGBAUnorm = 32
+    case bc7RGBAUnormSrgb = 33
+    case etc2RGB8Unorm = 34
+    case etc2RGB8UnormSrgb = 35
+    case etc2RGB8A1Unorm = 36
+    case etc2RGB8A1UnormSrgb = 37
+    case etc2RGBA8Unorm = 38
+    case etc2RGBA8UnormSrgb = 39
+    case eacR11Unorm = 40
+    case eacR11Snorm = 41
+    case eacRG11Unorm = 42
+    case eacRG11Snorm = 43
+    case astc4x4Unorm = 44
+    case astc4x4UnormSrgb = 45
+    case astc5x4Unorm = 46
+    case astc5x4UnormSrgb = 47
+    case astc5x5Unorm = 48
+    case astc5x5UnormSrgb = 49
+    case astc6x5Unorm = 50
+    case astc6x5UnormSrgb = 51
+    case astc6x6Unorm = 52
+    case astc6x6UnormSrgb = 53
+    case astc8x5Unorm = 54
+    case astc8x5UnormSrgb = 55
+    case astc8x6Unorm = 56
+    case astc8x6UnormSrgb = 57
+    case astc8x8Unorm = 58
+    case astc8x8UnormSrgb = 59
+    case astc10x5Unorm = 60
+    case astc10x5UnormSrgb = 61
+    case astc10x6Unorm = 62
+    case astc10x6UnormSrgb = 63
+    case astc10x8Unorm = 64
+    case astc10x8UnormSrgb = 65
+    case astc10x10Unorm = 66
+    case astc10x10UnormSrgb = 67
+    case astc12x10Unorm = 68
+    case astc12x10UnormSrgb = 69
+    case astc12x12Unorm = 70
+    case astc12x12UnormSrgb = 71
+    case astc4x4HDR = 72
+    case astc5x4HDR = 73
+    case astc5x5HDR = 74
+    case astc6x5HDR = 75
+    case astc6x6HDR = 76
+    case astc8x5HDR = 77
+    case astc8x6HDR = 78
+    case astc8x8HDR = 79
+    case astc10x5HDR = 80
+    case astc10x6HDR = 81
+    case astc10x8HDR = 82
+    case astc10x10HDR = 83
+    case astc12x10HDR = 84
+    case astc12x12HDR = 85
+    case r16Float = 86
+    case rg16Float = 87
+    case r16Uint = 88
+    case r16Sint = 89
+    case rg16Uint = 90
+    case rg16Sint = 91
+    case r16Unorm = 92
+    case rg16Unorm = 93
+    case rgba16Unorm = 94
+    case r16Snorm = 95
+    case rg16Snorm = 96
+    case rgba16Snorm = 97
+    case rgb10a2Unorm = 98
+    case rgb10a2Uint = 99
+    case rg11b10Ufloat = 100
+    case rgba8UnormSrgb = 101
+    case bgra8UnormSrgb = 102
+    case rgb9e5Ufloat = 103
+    case r8Unorm = 104
+    case r8Snorm = 105
+    case r8Uint = 106
+    case r8Sint = 107
+    case rg8Unorm = 108
+    case rg8Snorm = 109
+    case rg8Uint = 110
+    case rg8Sint = 111
+    case depth16Unorm = 112
+    case depth24Plus = 113
+    case depth32FloatStencil8 = 114
+    case stencil8 = 115
+    case r64Uint = 116
 
-    package var hasStencil: Bool { self == .depth24PlusStencil8 }
-    package var hasDepth: Bool { self == .depth32Float || hasStencil }
+    package var hasStencil: Bool { self == .depth24PlusStencil8 || self == .depth32FloatStencil8 || self == .stencil8 }
+    package var hasDepth: Bool {
+        self == .depth16Unorm || self == .depth24Plus || self == .depth32Float ||
+            self == .depth24PlusStencil8 || self == .depth32FloatStencil8
+    }
+    package var isDepthStencil: Bool { hasDepth || hasStencil }
 
     package func supports(aspect: TextureViewAspect) -> Bool {
         switch aspect {
@@ -30,33 +131,210 @@ public enum TextureFormat: UInt32, Sendable, Equatable {
         }
     }
 
-    package func copyTexelBytes(aspect: TextureViewAspect) -> UInt32? {
-        guard supports(aspect: aspect) else { return nil }
-        if hasStencil { return aspect == .stencilOnly ? 1 : nil }
+    package var compression: (feature: GPUFeature, block: TextureCopyBlock)? {
         switch self {
-        case .rgba16Uint, .rgba16Sint, .rgba16Float, .rg32Uint, .rg32Sint, .rg32Float: return 8
-        case .rgba32Uint, .rgba32Sint, .rgba32Float: return 16
-        default: return 4
+        case .bc1RGBAUnorm, .bc1RGBAUnormSrgb, .bc4RUnorm, .bc4RSnorm:
+            (.textureCompressionBC, .init(width: 4, height: 4, bytes: 8))
+        case .bc2RGBAUnorm, .bc2RGBAUnormSrgb, .bc3RGBAUnorm, .bc3RGBAUnormSrgb,
+             .bc5RGUnorm, .bc5RGSnorm, .bc6HRGBUfloat, .bc6HRGBFloat, .bc7RGBAUnorm, .bc7RGBAUnormSrgb:
+            (.textureCompressionBC, .init(width: 4, height: 4, bytes: 16))
+        case .etc2RGB8Unorm, .etc2RGB8UnormSrgb, .etc2RGB8A1Unorm, .etc2RGB8A1UnormSrgb, .eacR11Unorm, .eacR11Snorm:
+            (.textureCompressionETC2, .init(width: 4, height: 4, bytes: 8))
+        case .etc2RGBA8Unorm, .etc2RGBA8UnormSrgb, .eacRG11Unorm, .eacRG11Snorm:
+            (.textureCompressionETC2, .init(width: 4, height: 4, bytes: 16))
+        default:
+            astcBlock.map { (astcUsesHDR ? .textureCompressionASTCHDR : .textureCompressionASTC, $0) }
         }
     }
 
+    private var astcBlock: TextureCopyBlock? {
+        switch self {
+        case .astc4x4Unorm, .astc4x4UnormSrgb, .astc4x4HDR: .init(width: 4, height: 4, bytes: 16)
+        case .astc5x4Unorm, .astc5x4UnormSrgb, .astc5x4HDR: .init(width: 5, height: 4, bytes: 16)
+        case .astc5x5Unorm, .astc5x5UnormSrgb, .astc5x5HDR: .init(width: 5, height: 5, bytes: 16)
+        case .astc6x5Unorm, .astc6x5UnormSrgb, .astc6x5HDR: .init(width: 6, height: 5, bytes: 16)
+        case .astc6x6Unorm, .astc6x6UnormSrgb, .astc6x6HDR: .init(width: 6, height: 6, bytes: 16)
+        case .astc8x5Unorm, .astc8x5UnormSrgb, .astc8x5HDR: .init(width: 8, height: 5, bytes: 16)
+        case .astc8x6Unorm, .astc8x6UnormSrgb, .astc8x6HDR: .init(width: 8, height: 6, bytes: 16)
+        case .astc8x8Unorm, .astc8x8UnormSrgb, .astc8x8HDR: .init(width: 8, height: 8, bytes: 16)
+        case .astc10x5Unorm, .astc10x5UnormSrgb, .astc10x5HDR: .init(width: 10, height: 5, bytes: 16)
+        case .astc10x6Unorm, .astc10x6UnormSrgb, .astc10x6HDR: .init(width: 10, height: 6, bytes: 16)
+        case .astc10x8Unorm, .astc10x8UnormSrgb, .astc10x8HDR: .init(width: 10, height: 8, bytes: 16)
+        case .astc10x10Unorm, .astc10x10UnormSrgb, .astc10x10HDR: .init(width: 10, height: 10, bytes: 16)
+        case .astc12x10Unorm, .astc12x10UnormSrgb, .astc12x10HDR: .init(width: 12, height: 10, bytes: 16)
+        case .astc12x12Unorm, .astc12x12UnormSrgb, .astc12x12HDR: .init(width: 12, height: 12, bytes: 16)
+        default: nil
+        }
+    }
+
+    private var astcUsesHDR: Bool {
+        switch self {
+        case .astc4x4HDR, .astc5x4HDR, .astc5x5HDR, .astc6x5HDR,
+             .astc6x6HDR, .astc8x5HDR, .astc8x6HDR, .astc8x8HDR,
+             .astc10x5HDR, .astc10x6HDR, .astc10x8HDR, .astc10x10HDR,
+             .astc12x10HDR, .astc12x12HDR: true
+        default: false
+        }
+    }
+
+    package var copyCompatibleFormat: Self {
+        switch self {
+        case .rgba8UnormSrgb: .rgba8Unorm
+        case .bgra8UnormSrgb: .bgra8Unorm
+        case .bc1RGBAUnormSrgb: .bc1RGBAUnorm
+        case .bc2RGBAUnormSrgb: .bc2RGBAUnorm
+        case .bc3RGBAUnormSrgb: .bc3RGBAUnorm
+        case .bc7RGBAUnormSrgb: .bc7RGBAUnorm
+        case .etc2RGB8UnormSrgb: .etc2RGB8Unorm
+        case .etc2RGB8A1UnormSrgb: .etc2RGB8A1Unorm
+        case .etc2RGBA8UnormSrgb: .etc2RGBA8Unorm
+        case .astc4x4UnormSrgb: .astc4x4Unorm
+        case .astc5x4UnormSrgb: .astc5x4Unorm
+        case .astc5x5UnormSrgb: .astc5x5Unorm
+        case .astc6x5UnormSrgb: .astc6x5Unorm
+        case .astc6x6UnormSrgb: .astc6x6Unorm
+        case .astc8x5UnormSrgb: .astc8x5Unorm
+        case .astc8x6UnormSrgb: .astc8x6Unorm
+        case .astc8x8UnormSrgb: .astc8x8Unorm
+        case .astc10x5UnormSrgb: .astc10x5Unorm
+        case .astc10x6UnormSrgb: .astc10x6Unorm
+        case .astc10x8UnormSrgb: .astc10x8Unorm
+        case .astc10x10UnormSrgb: .astc10x10Unorm
+        case .astc12x10UnormSrgb: .astc12x10Unorm
+        case .astc12x12UnormSrgb: .astc12x12Unorm
+        default: self
+        }
+    }
+
+    package func copyBlock(aspect: TextureViewAspect) -> TextureCopyBlock? {
+        guard supports(aspect: aspect) else { return nil }
+        if let compression { return compression.block }
+        if hasStencil {
+            switch aspect {
+            case .stencilOnly: return .init(bytes: 1)
+            case .all where !hasDepth: return .init(bytes: 1)
+            case .depthOnly where self == .depth32FloatStencil8: return .init(bytes: 4)
+            default: return nil
+            }
+        }
+        switch self {
+        case .depth24Plus: return nil
+        case .depth16Unorm: return .init(bytes: 2)
+        case .r8Unorm, .r8Snorm, .r8Uint, .r8Sint: return .init(bytes: 1)
+        case .rg8Unorm, .rg8Snorm, .rg8Uint, .rg8Sint,
+             .r16Float, .r16Uint, .r16Sint, .r16Unorm, .r16Snorm: return .init(bytes: 2)
+        case .rgba16Uint, .rgba16Sint, .rgba16Float, .rgba16Unorm, .rgba16Snorm,
+             .rg32Uint, .rg32Sint, .rg32Float, .r64Uint: return .init(bytes: 8)
+        case .rgba32Uint, .rgba32Sint, .rgba32Float: return .init(bytes: 16)
+        default: return .init(bytes: 4)
+        }
+    }
+
+    package var requiresNarrowInteger16Storage: Bool {
+        self == .r16Uint || self == .r16Sint || self == .rg16Uint || self == .rg16Sint
+    }
+    package var isInteger16Color: Bool { requiresNarrowInteger16Storage || self == .rgba16Uint || self == .rgba16Sint }
+    package var isFloat16Color: Bool { self == .r16Float || self == .rg16Float || self == .rgba16Float }
+    package var isFloat32Color: Bool { self == .r32Float || self == .rg32Float || self == .rgba32Float }
+    package var isNormalized16Color: Bool {
+        switch self {
+        case .r16Unorm, .r16Snorm, .rg16Unorm, .rg16Snorm, .rgba16Unorm, .rgba16Snorm: true
+        default: false
+        }
+    }
+    package var isPackedColor: Bool { isPackedFloatColor || self == .rgb10a2Uint }
+    package var isPackedFloatColor: Bool { self == .rgb10a2Unorm || self == .rg11b10Ufloat }
+    package var isNarrow8BitColor: Bool {
+        switch self {
+        case .r8Unorm, .r8Snorm, .r8Uint, .r8Sint, .rg8Unorm, .rg8Snorm, .rg8Uint, .rg8Sint: true
+        default: false
+        }
+    }
+    package var isSnorm8Color: Bool { self == .r8Snorm || self == .rg8Snorm || self == .rgba8Snorm }
+    package var isNarrow8UnormColor: Bool { self == .r8Unorm || self == .rg8Unorm }
     package var isNormalizedColor: Bool { self == .rgba8Unorm || self == .bgra8Unorm }
-    package var isColorAttachment: Bool { isNormalizedColor || self == .rgba8Uint || self == .rgba8Sint }
+    package var isSRGB8Color: Bool { self == .rgba8UnormSrgb || self == .bgra8UnormSrgb }
+
+    package var hdrRenderFeature: GPUFeature? {
+        switch self {
+        case .rg11b10Ufloat: .rg11b10UfloatRenderable
+        case .rgb9e5Ufloat: .rgb9e5Renderable
+        default: nil
+        }
+    }
+
+    package var isColorAttachment: Bool {
+        isNormalizedColor || isSRGB8Color || isNormalized16Color || isFloat16Color || isFloat32Color ||
+            isInteger16Color || isPackedColor || isNarrow8BitColor || isSnorm8Color ||
+            self == .rgb9e5Ufloat || self == .rgba8Uint || self == .rgba8Sint
+    }
+    package func supportsColorResolve(features: Set<GPUFeature>) -> Bool {
+        if let feature = hdrRenderFeature { return features.contains(feature) }
+        return isNormalizedColor || isSRGB8Color || isFloat16Color || isNarrow8UnormColor || self == .rgb10a2Unorm ||
+            (isSnorm8Color && features.contains(.snorm8Renderable)) ||
+            (isNormalized16Color && features.contains(.normalized16Resolve))
+    }
+    package func supportsMultisampledAttachment(in capabilities: DeviceCapabilities?) -> Bool {
+        isDepthStencil || (isColorAttachment && (!isFloat32Color || capabilities?.multisampledFloat32Formats.contains(self) == true))
+    }
+
+    package var colorAttachmentComponentCount: UInt8 {
+        switch self {
+        case .r8Unorm, .r8Snorm, .r8Uint, .r8Sint, .r16Float, .r32Float, .r16Uint, .r16Sint, .r16Unorm, .r16Snorm: 1
+        case .rg8Unorm, .rg8Snorm, .rg8Uint, .rg8Sint, .rg16Float, .rg32Float, .rg16Uint, .rg16Sint, .rg16Unorm, .rg16Snorm: 2
+        case .rg11b10Ufloat, .rgb9e5Ufloat: 3
+        default: 4
+        }
+    }
+
+    package var colorAttachmentByteCost: Int {
+        switch self {
+        case .r8Unorm, .r8Snorm, .r8Uint, .r8Sint: 1
+        case .rg8Unorm, .rg8Snorm, .rg8Uint, .rg8Sint, .r16Float, .r16Uint, .r16Sint, .r16Unorm, .r16Snorm: 2
+        case .rgba32Float: 16
+        case .rgba8Unorm, .bgra8Unorm, .rg32Float, .rgba16Float, .rgba16Uint, .rgba16Sint, .rgba16Unorm, .rgba16Snorm,
+             .rgb10a2Unorm, .rgb10a2Uint, .rgba8UnormSrgb, .bgra8UnormSrgb, .rgba8Snorm: 8
+        default: 4
+        }
+    }
+
+    package var colorAttachmentAlignment: Int {
+        if isFloat32Color || isPackedColor || self == .rgb9e5Ufloat { return 4 }
+        return isFloat16Color || isInteger16Color || isNormalized16Color ? 2 : 1
+    }
 
     package var supportsStorage: Bool {
         switch self {
-        case .bgra8Unorm, .depth32Float, .depth24PlusStencil8: false
-        default: true
+        case .depth16Unorm, .depth24Plus, .depth32Float, .depth24PlusStencil8, .depth32FloatStencil8, .stencil8,
+             .rgba8UnormSrgb, .bgra8UnormSrgb, .rgb9e5Ufloat: false
+        default: compression == nil
         }
     }
 
     package var sampleType: TextureSampleType {
         switch self {
-        case .rgba8Unorm, .bgra8Unorm, .rgba8Snorm, .rgba16Float, .r32Float, .rg32Float, .rgba32Float: .float
-        case .depth32Float, .depth24PlusStencil8: .depth
-        case .r32Uint, .rgba8Uint, .rgba16Uint, .rg32Uint, .rgba32Uint: .uint
-        case .r32Sint, .rgba8Sint, .rgba16Sint, .rg32Sint, .rgba32Sint: .sint
+        case .depth16Unorm, .depth24Plus, .depth32Float, .depth24PlusStencil8, .depth32FloatStencil8: .depth
+        case .stencil8, .r8Uint, .rg8Uint, .r16Uint, .rg16Uint, .r32Uint, .r64Uint, .rgba8Uint, .rgba16Uint,
+             .rg32Uint, .rgba32Uint, .rgb10a2Uint: .uint
+        case .r8Sint, .rg8Sint, .r16Sint, .rg16Sint, .r32Sint, .rgba8Sint, .rgba16Sint, .rg32Sint, .rgba32Sint: .sint
+        default: .float
         }
+    }
+}
+
+package struct TextureCopyBlock: Sendable {
+    package let width: UInt32
+    package let height: UInt32
+    package let bytes: UInt32
+
+    init(width: UInt32 = 1, height: UInt32 = 1, bytes: UInt32) {
+        self.width = width
+        self.height = height
+        self.bytes = bytes
+    }
+
+    package func rowBytes(width: UInt32) -> UInt64 {
+        UInt64(width / self.width) * UInt64(bytes)
     }
 }
 
@@ -75,11 +353,13 @@ public struct TextureUsage: OptionSet, Sendable {
     public static let textureBinding = Self(rawValue: 1 << 2)
     public static let storageBinding = Self(rawValue: 1 << 3)
     public static let renderAttachment = Self(rawValue: 1 << 4)
+    public static let storageAtomic = Self(rawValue: 1 << 5)
 }
 
 public enum TextureDimension: UInt32, Sendable, Equatable {
     case d2
     case d3
+    case d1
 }
 
 public struct TextureDescriptor: Sendable, Equatable {
@@ -115,13 +395,54 @@ public struct TextureDescriptor: Sendable, Equatable {
         return (max(1, width >> level), max(1, height >> level))
     }
 
+    package func mipPhysicalExtent(_ level: UInt32) -> (width: UInt32, height: UInt32)? {
+        guard let extent = mipExtent(level) else { return nil }
+        guard let block = format.compression?.block else { return extent }
+        func roundUp(_ extent: UInt32, multiple: UInt32) -> UInt32? {
+            let axis = UInt64(multiple)
+            return UInt32(exactly: (UInt64(extent) + axis - 1) / axis * axis)
+        }
+        guard let width = roundUp(extent.width, multiple: block.width),
+              let height = roundUp(extent.height, multiple: block.height) else { return nil }
+        return (width, height)
+    }
+
     package func mipDepth(_ level: UInt32) -> UInt32 { max(1, depth >> level) }
 
     public func validate(against capabilities: DeviceCapabilities) throws {
-        if dimension == .d3 {
+        if format == .depth32FloatStencil8 { try capabilities.require([.depth32FloatStencil8]) }
+        if format.isNormalized16Color { try capabilities.require([.normalized16Textures]) }
+        if usage.contains(.renderAttachment) {
+            if let feature = format.hdrRenderFeature { try capabilities.require([feature]) }
+            if format.isSnorm8Color { try capabilities.require([.snorm8Renderable]) }
+        }
+        if let compression = format.compression {
+            try capabilities.require([compression.feature])
+            guard dimension != .d1, width % compression.block.width == 0, height % compression.block.height == 0,
+                  sampleCount == 1,
+                  usage.intersection([.storageBinding, .renderAttachment]).isEmpty else {
+                throw GPUError.validation("Invalid compressed texture extent, sample count or usage")
+            }
+            if dimension == .d3 {
+                switch compression.feature {
+                case .textureCompressionBC:
+                    try capabilities.require([.textureCompressionBCSliced3D])
+                case .textureCompressionASTC, .textureCompressionASTCHDR:
+                    try capabilities.require([.textureCompressionASTCSliced3D])
+                default:
+                    throw GPUError.validation("Format does not support 3D compressed textures")
+                }
+            }
+        }
+        if dimension == .d1 {
+            guard height == 1, depth == 1, arrayLayerCount == 1, sampleCount == 1, mipLevelCount == 1,
+                  !format.isDepthStencil, !usage.contains(.renderAttachment) else {
+                throw GPUError.validation("Invalid 1D texture extent, mip levels, format or usage")
+            }
+        } else if dimension == .d3 {
             guard (1...2048).contains(width), (1...2048).contains(height), (1...2048).contains(depth),
-                  arrayLayerCount == 1, sampleCount == 1, !format.hasDepth,
-                  usage.intersection([.renderAttachment, .storageBinding]).isEmpty else {
+                  arrayLayerCount == 1, sampleCount == 1, !format.isDepthStencil,
+                  !usage.contains(.renderAttachment) || format.isColorAttachment else {
                 throw GPUError.validation("Invalid 3D texture extent, format or usage")
             }
         } else if depth != 1 {
@@ -137,20 +458,37 @@ public struct TextureDescriptor: Sendable, Equatable {
         guard mipLevelCount > 0, mipLevelCount <= maximumMipLevelCount else {
             throw GPUError.validation("Invalid texture mip level count")
         }
-        guard !usage.isEmpty, usage.subtracting([.copySource, .copyDestination, .textureBinding, .storageBinding, .renderAttachment]).isEmpty else {
+        guard !usage.isEmpty, usage.subtracting([.copySource, .copyDestination, .textureBinding, .storageBinding,
+                                                  .renderAttachment, .storageAtomic]).isEmpty else {
             throw GPUError.validation("Invalid texture usage")
+        }
+        if format == .r64Uint { try capabilities.require([.textureInt64Atomic]) }
+        if usage.contains(.storageAtomic) {
+            try capabilities.require([format == .r64Uint ? .textureInt64Atomic : .textureAtomic])
+            guard sampleCount == 1, format == .r32Uint || format == .r32Sint || format == .r64Uint else {
+                throw GPUError.validation("Atomic storage requires a single-sampled R32Uint, R32Sint or R64Uint texture")
+            }
         }
         guard sampleCount == 1 || sampleCount == 4 else {
             throw GPUError.validation("Texture sample count must be 1 or 4")
         }
         if sampleCount > 1 {
             guard mipLevelCount == 1, arrayLayerCount == 1, usage.contains(.renderAttachment), !usage.contains(.storageBinding),
-                  format.isColorAttachment || format.hasDepth else {
+                  format.supportsMultisampledAttachment(in: capabilities) else {
                 throw GPUError.validation("Invalid multisampled texture format, mip levels or usage")
             }
         }
-        guard !usage.contains(.storageBinding) || format.supportsStorage else {
-            throw GPUError.validation("Invalid format for a storage texture")
+        if usage.contains(.storageBinding) {
+            guard format.supportsStorage else { throw GPUError.validation("Invalid format for a storage texture") }
+            if format == .r16Float || format == .rg16Float {
+                try capabilities.require([.halfFloatStorageTextures])
+            }
+            if format.requiresNarrowInteger16Storage {
+                try capabilities.require([.narrowInteger16StorageTextures])
+            }
+            if format.isPackedColor { try capabilities.require([.packedColorStorageTextures]) }
+            if format == .bgra8Unorm { try capabilities.require([.bgra8UnormStorage]) }
+            if format.isNarrow8BitColor { try capabilities.require([.narrow8BitStorageTextures]) }
         }
         if format.supportsStorage, !format.isColorAttachment,
            !usage.intersection([.textureBinding, .renderAttachment]).isEmpty {
@@ -171,6 +509,7 @@ public enum TextureViewDimension: UInt32, Sendable, Equatable {
     case cube
     case cubeArray
     case d3
+    case d1
 }
 
 /// A texture view whose level zero is the selected base mip.
@@ -194,7 +533,12 @@ public struct TextureViewDescriptor: Sendable, Equatable {
     }
 
     package func resolvedDimension(in texture: TextureDescriptor) -> TextureViewDimension {
-        dimension ?? (texture.dimension == .d3 ? .d3 : texture.arrayLayerCount > 1 ? .d2Array : .d2)
+        if let dimension { return dimension }
+        switch texture.dimension {
+        case .d1: return .d1
+        case .d3: return .d3
+        case .d2: return texture.arrayLayerCount > 1 ? .d2Array : .d2
+        }
     }
 
     package func arrayLayers(in texture: TextureDescriptor) throws -> Range<UInt32> {
@@ -202,8 +546,9 @@ public struct TextureViewDescriptor: Sendable, Equatable {
             throw GPUError.validation("Invalid texture view base array layer")
         }
         let dimension = resolvedDimension(in: texture)
-        guard (dimension == .d3) == (texture.dimension == .d3) else {
-            throw GPUError.validation("Texture view dimension does not match the texture")
+        switch (texture.dimension, dimension) {
+        case (.d1, .d1), (.d3, .d3), (.d2, .d2), (.d2, .d2Array), (.d2, .cube), (.d2, .cubeArray): break
+        default: throw GPUError.validation("Texture view dimension does not match the texture")
         }
         let remaining = texture.arrayLayerCount - baseArrayLayer
         let count = arrayLayerCount ?? (dimension == .d2 ? 1 : dimension == .cube ? 6 : remaining)
@@ -291,23 +636,27 @@ public struct TextureCopyRegion: Sendable, Equatable {
     package var isEmpty: Bool { width == 0 || height == 0 || depth == 0 }
 
     package func planes(in texture: TextureDescriptor) -> Range<UInt32> {
-        texture.dimension == .d3 ? z..<(z + depth) : arrayLayer..<(arrayLayer + 1)
+        texture.dimension == .d3 ? z..<(z + depth) : arrayLayer..<(arrayLayer + depth)
     }
 
-    package func fits(in texture: TextureDescriptor) -> Bool {
-        guard let extent = texture.mipExtent(mipLevel), x <= extent.width, y <= extent.height,
-              arrayLayer < texture.arrayLayerCount else { return false }
+    package func fits(in texture: TextureDescriptor, allowsArrayLayerSpan: Bool = false) -> Bool {
+        guard let extent = texture.mipPhysicalExtent(mipLevel), x <= extent.width, y <= extent.height else { return false }
+        if let block = texture.format.compression?.block {
+            guard x % block.width == 0, y % block.height == 0,
+                  width % block.width == 0, height % block.height == 0 else { return false }
+        }
         if texture.dimension == .d3 {
             let mipDepth = texture.mipDepth(mipLevel)
-            guard z <= mipDepth, depth <= mipDepth - z else { return false }
-        } else if z != 0 || depth != 1 {
-            return false
+            guard arrayLayer == 0, texture.arrayLayerCount == 1, z <= mipDepth, depth <= mipDepth - z else { return false }
+        } else {
+            guard z == 0, arrayLayer <= texture.arrayLayerCount,
+                  depth <= texture.arrayLayerCount - arrayLayer, allowsArrayLayerSpan || depth == 1 else { return false }
         }
         return width <= extent.width - x && height <= extent.height - y
     }
 
     package func covers(_ texture: TextureDescriptor) -> Bool {
-        guard let extent = texture.mipExtent(mipLevel) else { return false }
+        guard let extent = texture.mipPhysicalExtent(mipLevel) else { return false }
         return x == 0 && y == 0 && width == extent.width && height == extent.height
     }
 }
@@ -342,24 +691,74 @@ public struct TextureBufferLayout: Sendable, Equatable {
         self.bytesPerRow = bytesPerRow
     }
 
-    package func rowStride(width: UInt32, texelBytes: UInt32 = 4) -> UInt64 {
-        bytesPerRow.map(UInt64.init) ?? UInt64(width) * UInt64(texelBytes)
+    package func rowStride(width: UInt32, block: TextureCopyBlock) -> UInt64 {
+        bytesPerRow.map(UInt64.init) ?? block.rowBytes(width: width)
     }
 
-    package func byteCount(width: UInt32, height: UInt32, texelBytes: UInt32 = 4, depth: UInt32 = 1) throws -> UInt64 {
-        let rowBytes = UInt64(width) * UInt64(texelBytes)
+    package func byteCount(width: UInt32, height: UInt32, block: TextureCopyBlock, depth: UInt32 = 1) throws -> UInt64 {
+        let rowBytes = block.rowBytes(width: width)
+        let blockRows = height / block.height
         if let bytesPerRow {
             guard bytesPerRow % 256 == 0, UInt64(bytesPerRow) >= rowBytes else {
                 throw GPUError.validation("Invalid texture copy row stride")
             }
-        } else if height > 1 || depth > 1 {
+        } else if blockRows > 1 || depth > 1 {
             throw GPUError.validation("Texture copies with multiple rows or planes require a row stride")
         }
-        if height == 0 || depth == 0 { return 0 }
-        let rows = UInt64(height) * UInt64(depth) - 1
-        let (padding, overflow) = rows.multipliedReportingOverflow(by: rowStride(width: width, texelBytes: texelBytes))
+        if blockRows == 0 || depth == 0 { return 0 }
+        let rows = UInt64(blockRows) * UInt64(depth) - 1
+        let (padding, overflow) = rows.multipliedReportingOverflow(by: rowStride(width: width, block: block))
         guard !overflow, padding <= UInt64.max - rowBytes else { throw GPUError.validation("Texture copy byte count overflows") }
         return padding + rowBytes
+    }
+}
+
+/// Layout of CPU bytes used by a texture upload. Offsets and row strides are in bytes.
+public struct TextureDataLayout: Sendable, Equatable {
+    public let offset: UInt64
+    public let bytesPerRow: UInt32?
+    public let rowsPerImage: UInt32?
+
+    public init(offset: UInt64 = 0, bytesPerRow: UInt32? = nil, rowsPerImage: UInt32? = nil) {
+        self.offset = offset
+        self.bytesPerRow = bytesPerRow
+        self.rowsPerImage = rowsPerImage
+    }
+
+    package func footprint(
+        region: TextureCopyRegion, block: TextureCopyBlock, dataSize: UInt64
+    ) throws -> (rowBytes: UInt64, rowStride: UInt64, imageStride: UInt64) {
+        let rowBytes = block.rowBytes(width: region.width)
+        let blockRows = region.height / block.height
+        let stride = bytesPerRow.map(UInt64.init) ?? rowBytes
+        guard stride >= rowBytes,
+              bytesPerRow != nil || (blockRows <= 1 && region.depth <= 1),
+              rowsPerImage != nil || region.depth <= 1,
+              rowsPerImage.map({ $0 >= blockRows }) ?? true else {
+            throw GPUError.validation("Invalid texture data row or image stride")
+        }
+        var imageStride: UInt64 = 0
+        var required: UInt64 = 0
+        if region.depth > 1, let rowsPerImage {
+            // Both layout strides are explicitly present and 32-bit for multiple images.
+            imageStride = stride * UInt64(rowsPerImage)
+            let (size, overflow) = imageStride.multipliedReportingOverflow(by: UInt64(region.depth - 1))
+            guard !overflow else { throw GPUError.validation("Texture upload footprint overflows") }
+            required = size
+        }
+        if region.depth > 0 && blockRows > 0 {
+            let (padding, rowOverflow) = stride.multipliedReportingOverflow(by: UInt64(blockRows - 1))
+            let (size, imageOverflow) = required.addingReportingOverflow(padding)
+            let (end, lastRowOverflow) = size.addingReportingOverflow(rowBytes)
+            guard !rowOverflow, !imageOverflow, !lastRowOverflow else {
+                throw GPUError.validation("Texture upload footprint overflows")
+            }
+            required = end
+        }
+        guard offset <= dataSize, required <= dataSize - offset else {
+            throw GPUError.validation("Texture upload exceeds the source bytes")
+        }
+        return (rowBytes, stride, imageStride)
     }
 }
 
@@ -415,13 +814,16 @@ public struct RenderPrimitiveState: Sendable, Equatable {
     public let stripIndexFormat: IndexFormat?
     public let frontFace: FrontFace
     public let cullMode: CullMode
+    /// Disables clipping against the near and far planes when the device supports depth clip control.
+    public let unclippedDepth: Bool
 
     public init(topology: Topology = .triangleList, stripIndexFormat: IndexFormat? = nil,
-                frontFace: FrontFace = .counterClockwise, cullMode: CullMode = .none) {
+                frontFace: FrontFace = .counterClockwise, cullMode: CullMode = .none, unclippedDepth: Bool = false) {
         self.topology = topology
         self.stripIndexFormat = stripIndexFormat
         self.frontFace = frontFace
         self.cullMode = cullMode
+        self.unclippedDepth = unclippedDepth
     }
 }
 
@@ -475,6 +877,8 @@ public struct RenderDepthAttachment: Sendable, Equatable {
         case load
         case readOnly
         case clear(Double)
+        /// Omit the depth aspect when the attachment format is stencil-only.
+        case unused
     }
 
     public let texture: ResourceID
@@ -543,6 +947,18 @@ public struct RenderPipeline: Sendable, Equatable {
         }
     }
 
+    package struct StorageBufferBinding: Sendable, Equatable {
+        package let handle: HandleBinding
+        package let minimumByteSize: UInt64
+        package let isReadOnly: Bool
+
+        package init(handle: HandleBinding, minimumByteSize: UInt64, isReadOnly: Bool) {
+            self.handle = handle
+            self.minimumByteSize = minimumByteSize
+            self.isReadOnly = isReadOnly
+        }
+    }
+
     package struct StorageTextureBinding: Sendable, Equatable {
         package let handle: HandleBinding
         package let requirement: StorageTextureRequirement
@@ -554,6 +970,8 @@ public struct RenderPipeline: Sendable, Equatable {
     }
 
     public let id: ResourceID
+    /// The shared, word-aligned immediate data range for both shader stages.
+    public let immediateByteSize: UInt64
     public let colorFormat: TextureFormat
     public let writesColor: Bool
     public let colorState: RenderColorState
@@ -577,18 +995,28 @@ public struct RenderPipeline: Sendable, Equatable {
     public let primitive: RenderPrimitiveState
     public let vertexBuffers: [VertexBufferLayout]
     package let uniforms: [Uniform]
+    package let storageBuffers: [StorageBufferBinding]
     package let sampledTextures: [SampledTextureBinding]
+    package let externalTextureBindings: [HandleBinding]
     package let storageTextures: [StorageTextureBinding]
     package let samplerBindings: [SamplerBinding]
+    package let webBindingIndices: [ComputeBindingSlot: UInt32]
+    /// Explicit and shader-inferred nearest-only sampler slots.
+    public var nonFilteringSamplers: Set<ComputeBindingSlot> {
+        Set(samplerBindings.filter { $0.requirement.requiresNonFiltering }.map { $0.handle.slot })
+    }
 
     package init(id: ResourceID, colorFormat: TextureFormat, vertexBuffers: [VertexBufferLayout] = [],
                  depthState: RenderDepthState? = nil, sampleCount: UInt32 = 1, sampleMask: UInt32 = .max,
                  alphaToCoverageEnabled: Bool = false, writesColor: Bool = true,
                  primitive: RenderPrimitiveState = .init(), colorState: RenderColorState = .init(),
                  additionalColorTargets: [UInt32: RenderColorTarget] = [:], additionalColorOutputs: Set<UInt32> = [],
-                 uniforms: [Uniform] = [], sampledTextures: [SampledTextureBinding] = [],
-                 storageTextures: [StorageTextureBinding] = [], samplerBindings: [SamplerBinding] = []) {
+                 uniforms: [Uniform] = [], storageBuffers: [StorageBufferBinding] = [], sampledTextures: [SampledTextureBinding] = [],
+                 storageTextures: [StorageTextureBinding] = [], samplerBindings: [SamplerBinding] = [],
+                 externalTextureBindings: [HandleBinding] = [],
+                 webBindingIndices: [ComputeBindingSlot: UInt32] = [:], immediateByteSize: UInt64 = 0) {
         self.id = id
+        self.immediateByteSize = immediateByteSize
         self.colorFormat = colorFormat
         self.writesColor = writesColor
         self.colorState = colorState
@@ -601,8 +1029,11 @@ public struct RenderPipeline: Sendable, Equatable {
         self.primitive = primitive
         self.vertexBuffers = vertexBuffers
         self.uniforms = uniforms
+        self.storageBuffers = storageBuffers
         self.sampledTextures = sampledTextures
+        self.externalTextureBindings = externalTextureBindings
         self.storageTextures = storageTextures
         self.samplerBindings = samplerBindings
+        self.webBindingIndices = webBindingIndices
     }
 }

@@ -4,14 +4,25 @@ import SAGAShaderIR
 public protocol IRValidator: Sendable {
     associatedtype Module: ShaderIRModule
     func validate(_ module: Module) throws
+    func validateReportingDiagnostics(_ module: Module) throws -> [ShaderDiagnostic]
+}
+
+public extension IRValidator {
+    func validateReportingDiagnostics(_ module: Module) throws -> [ShaderDiagnostic] {
+        try validate(module)
+        return []
+    }
 }
 
 public struct ValidatedModule<Module: ShaderIRModule>: Sendable {
     public let module: Module
-    private init(_ module: Module) { self.module = module }
+    public let diagnostics: [ShaderDiagnostic]
+    private init(_ module: Module, diagnostics: [ShaderDiagnostic]) {
+        self.module = module
+        self.diagnostics = diagnostics
+    }
 
     public static func checking<V: IRValidator>(_ module: Module, with validator: V) throws -> Self where V.Module == Module {
-        try validator.validate(module)
-        return Self(module)
+        Self(module, diagnostics: try validator.validateReportingDiagnostics(module))
     }
 }

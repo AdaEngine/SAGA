@@ -83,7 +83,7 @@ import Testing
       try ShaderSemanticValidator(capabilities: .init(rawValue: 1 << 63)).validate(IRModule())
     }
   }
-  @Test func duplicateBindingsAndBadLayoutsAreRejected() throws {
+  @Test func unusedBindingAliasesAreAllowedAndBadLayoutsAreRejected() throws {
     let ts = IRTable([IRType(kind: .scalar(.u32))])
     let m = IRModule(
       types: ts,
@@ -91,7 +91,7 @@ import Testing
         .init(space: .uniform, binding: .init(group: 0, binding: 1), type: try h(0)),
         .init(space: .uniform, binding: .init(group: 0, binding: 1), type: try h(0)),
       ]))
-    #expect(throws: ShaderFailure.self) { try ShaderSemanticValidator().validate(m) }
+    try ShaderSemanticValidator().validate(m)
     let bad = IRModule(
       types: IRTable([
         IRType(kind: .scalar(.u32)),
@@ -157,10 +157,12 @@ extension ShaderSemanticValidationTests {
       IRBlock(statements: [try h(2)]), IRBlock(),
     ])
     let f = IRFunction(
-      arguments: [.init(type: try h(0))], expressions: es, statements: ss, blocks: bs,
+      arguments: [.init(type: try h(0), binding: .builtIn(.frontFacing))], expressions: es, statements: ss, blocks: bs,
       body: try h(0))
     do {
-      try ShaderSemanticValidator().validate(IRModule(types: ts, functions: IRTable([f])))
+      try ShaderSemanticValidator().validate(
+        IRModule(types: ts, functions: IRTable([f]),
+                 entryPoints: [.init(name: "f", stage: .fragment, function: try h(0))]))
       Issue.record("Divergent derivative accepted")
     } catch ShaderFailure.diagnostics(let ds) { #expect(ds.first?.code == .nonUniformControlFlow) }
     let good = IRFunction(
@@ -213,7 +215,8 @@ extension ShaderSemanticValidationTests {
     }
   }
   @Test func unsupportedFamiliesRejectInsteadOfIssuingWitness() throws {
-    let t = IRType(kind: .image(dimension: .d1, arrayed: false, class: .sampled(kind: .float, multisampled: false)))
+    let t = IRType(kind: .image(dimension: .cube, arrayed: false,
+                                class: .storage(format: .rgba8Unorm, access: .store)))
     do {
       try ShaderSemanticValidator(capabilities: .allKnown).validate(IRModule(types: IRTable([t])))
       Issue.record("unimplemented type accepted")

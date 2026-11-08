@@ -11,19 +11,30 @@ private struct Packet {
         withUnsafeBytes(of: value.littleEndian) { bytes.append(contentsOf: $0) }
     }
     mutating func add(_ id: ResourceID) { add(id.device); add(id.serial) }
+    mutating func add(_ index: IndexBufferBinding) {
+        add(index.buffer); add(index.format.rawValue); add(index.offset)
+        add(UInt32(index.size == nil ? 0 : 1))
+        if let size = index.size { add(size) }
+    }
     mutating func add(_ text: String) {
         add(UInt32(text.utf8.count))
         bytes.append(contentsOf: text.utf8)
     }
     mutating func addRender(
-        _ pipeline: RenderPipeline, target: ResourceID, targetMipLevel: UInt32, colorLoad: RenderColorLoadAction,
-        count: UInt32, vertexBuffers: [VertexBufferBinding], firstVertex: UInt32, instances: DrawInstances,
-        uniforms: [ComputeBindingSlot: ComputeBufferBinding], textures: [ComputeBindingSlot: ResourceID],
+        _ pipeline: RenderPipeline, target: ResourceID, targetMipLevel: UInt32, targetDepthSlice: UInt32?, colorLoad: RenderColorLoadAction,
+        count: UInt32? = nil, vertexBuffers: [VertexBufferBinding], firstVertex: UInt32 = 0, instances: DrawInstances = .init(),
+        uniforms: [ComputeBindingSlot: ComputeBufferBinding], storageBuffers: [ComputeBindingSlot: ComputeBufferBinding],
+        textures: [ComputeBindingSlot: ResourceID],
         samplers: [ComputeBindingSlot: ResourceID], depth: RenderDepthAttachment?, resolve: RenderResolveAttachment?,
-        blendConstant: RenderClearColor, additionalColors: [UInt32: RenderColorAttachment], raster: RenderRasterState
+        blendConstant: RenderClearColor, additionalColors: [UInt32: RenderColorAttachment], raster: RenderRasterState,
+        immediates: [UInt32]
     ) {
-        add(pipeline.id); add(count)
-        add(firstVertex); add(instances.count); add(instances.first)
+        add(pipeline.id)
+        add(UInt32(immediates.count))
+        for word in immediates { add(word) }
+        if let count {
+            add(count); add(firstVertex); add(instances.count); add(instances.first)
+        }
         for component in blendConstant.channels { add(component.bitPattern) }
         add(UInt32(raster.viewport == nil ? 0 : 1))
         if let v = raster.viewport {
@@ -33,15 +44,16 @@ private struct Packet {
         if let s = raster.scissor { add(s.x); add(s.y); add(s.width); add(s.height) }
         add(UInt32(vertexBuffers.count))
         for binding in vertexBuffers { add(binding.buffer); add(binding.offset) }
-        addBindings(uniforms)
-        addResourceIDs(textures)
-        addResourceIDs(samplers)
+        addBindings(uniforms.merging(storageBuffers) { uniform, _ in uniform }, remapped: pipeline.webBindingIndices)
+        addResourceIDs(textures, remapped: pipeline.webBindingIndices)
+        addResourceIDs(samplers, remapped: pipeline.webBindingIndices)
         add(UInt32(depth == nil ? 0 : 1))
         if let depth {
             add(depth.texture); add(depth.mipLevel)
             switch depth.loadAction {
             case .load: add(UInt32(0))
             case .readOnly: add(UInt32(2))
+            case .unused: add(UInt32(3))
             case .clear(let value): add(UInt32(1)); add(value.bitPattern)
             }
             add(UInt32(depth.stencil == nil ? 0 : 1))
@@ -55,10 +67,13 @@ private struct Packet {
             }
         }
         var colors = additionalColors
-        colors[0] = .init(texture: target, mipLevel: targetMipLevel, loadAction: colorLoad, resolve: resolve)
+        colors[0] = .init(texture: target, mipLevel: targetMipLevel, loadAction: colorLoad, resolve: resolve,
+                          depthSlice: targetDepthSlice)
         add(UInt32(colors.count))
         for (location, color) in colors.sorted(by: { $0.key < $1.key }) {
             add(location); add(color.texture); add(color.mipLevel)
+            add(UInt32(color.depthSlice == nil ? 0 : 1))
+            if let depthSlice = color.depthSlice { add(depthSlice) }
             let clear = color.loadAction.clearColor
             add(UInt32(clear == nil ? 0 : 1))
             if let clear {
@@ -68,14 +83,17 @@ private struct Packet {
             if let resolve = color.resolve { add(resolve.texture); add(resolve.mipLevel) }
         }
     }
-    mutating func addResourceIDs(_ bindings: [ComputeBindingSlot: ResourceID]) {
-        add(UInt32(bindings.count))
-        for (slot, id) in bindings { add(slot.group); add(slot.binding); add(id) }
+    mutating func add(_ slot: ComputeBindingSlot, remapped: [ComputeBindingSlot: UInt32]) {
+        add(slot.group); add(remapped[slot] ?? slot.binding)
     }
-    mutating func addBindings(_ bindings: [ComputeBindingSlot: ComputeBufferBinding]) {
+    mutating func addResourceIDs(_ bindings: [ComputeBindingSlot: ResourceID], remapped: [ComputeBindingSlot: UInt32]) {
+        add(UInt32(bindings.count))
+        for (slot, id) in bindings { add(slot, remapped: remapped); add(id) }
+    }
+    mutating func addBindings(_ bindings: [ComputeBindingSlot: ComputeBufferBinding], remapped: [ComputeBindingSlot: UInt32]) {
         add(UInt32(bindings.count))
         for (slot, binding) in bindings {
-            add(slot.group); add(slot.binding); add(binding.buffer); add(binding.offset)
+            add(slot, remapped: remapped); add(binding.buffer); add(binding.offset)
             add(UInt32(binding.size == nil ? 0 : 1))
             if let size = binding.size { add(size) }
         }
@@ -83,13 +101,15 @@ private struct Packet {
     func send() async throws -> [UInt8] { try await BrowserRPC.shared.send(bytes) }
 }
 
-struct WebGPUHost: BrowserGPUPresentationHost, SamplerBackendDevice, TextureViewBackendDevice {
+struct WebGPUHost: BrowserGPUPresentationHost, SamplerBackendDevice, TextureViewBackendDevice, QuerySetBackendDevice,
+                   BufferMappingBackendDevice, ExternalTextureBackendDevice {
     let capabilities: DeviceCapabilities
     let supportsPresentation: Bool
 
     func allocateBuffer(id: ResourceID, descriptor: BufferDescriptor) async throws {
         var packet = Packet(1)
         packet.add(id); packet.add(descriptor.size); packet.add(descriptor.usage.rawValue)
+        packet.add(UInt32(descriptor.mappedAtCreation ? 1 : 0))
         _ = try await packet.send()
     }
     func destroyBuffer(id: ResourceID) async {
@@ -97,37 +117,95 @@ struct WebGPUHost: BrowserGPUPresentationHost, SamplerBackendDevice, TextureView
         packet.add(id)
         _ = try? await packet.send()
     }
+    func allocateExternalTexture(id: ResourceID, descriptor: ExternalTextureDescriptor) async throws {
+        var packet = Packet(26)
+        packet.add(id); packet.add(descriptor.videoFrame); packet.add(descriptor.colorSpace.rawValue)
+        _ = try await packet.send()
+    }
+    func destroyExternalTexture(id: ResourceID) async {
+        var packet = Packet(27)
+        packet.add(id)
+        _ = try? await packet.send()
+    }
+    func beginBufferMapping(id: ResourceID, mode: BufferMapMode, offset: UInt64, size: UInt64) async throws {
+        var packet = Packet(19)
+        packet.add(id); packet.add(mode.rawValue); packet.add(offset); packet.add(size)
+        _ = try await packet.send()
+    }
+    func readMappedBytes(id: ResourceID, offset: UInt64, size: UInt64) async throws -> [UInt8] {
+        guard let count = Int(exactly: size) else { throw GPUError.validation("Mapped readback is too large") }
+        var result: [UInt8] = []
+        result.reserveCapacity(count)
+        while result.count < count {
+            let length = min(count - result.count, BrowserRPC.packetLimit - 32)
+            var packet = Packet(20)
+            packet.add(id); packet.add(offset + UInt64(result.count)); packet.add(UInt32(length))
+            let reply = try await packet.send()
+            guard reply.count == length else { throw GPUError.backendFailure("Truncated browser mapped readback") }
+            result.append(contentsOf: reply)
+        }
+        return result
+    }
+    func writeMappedBytes(id: ResourceID, offset: UInt64, bytes: [UInt8]) async throws {
+        var start = 0
+        while start < bytes.count {
+            let length = min(bytes.count - start, BrowserRPC.packetLimit - 32)
+            var packet = Packet(21)
+            packet.add(id); packet.add(offset + UInt64(start)); packet.add(UInt32(length))
+            packet.bytes.append(contentsOf: bytes[start..<(start + length)])
+            _ = try await packet.send()
+            start += length
+        }
+    }
+    func endBufferMapping(id: ResourceID) async throws {
+        var packet = Packet(22)
+        packet.add(id)
+        _ = try await packet.send()
+    }
+    func allocateQuerySet(id: ResourceID, descriptor: QuerySetDescriptor) async throws {
+        try descriptor.validate(against: capabilities)
+        var packet = Packet(17)
+        packet.add(id); packet.add(descriptor.type.rawValue); packet.add(descriptor.count); packet.add(descriptor.label)
+        _ = try await packet.send()
+    }
+    func destroyQuerySet(id: ResourceID) async {
+        var packet = Packet(18)
+        packet.add(id)
+        _ = try? await packet.send()
+    }
     func allocateComputePipeline(_ pipeline: ComputePipeline, shader: ComputeShaderArtifact) async throws {
         guard case .text(.wgsl, let source) = shader.artifact else { throw GPUError.validation("Expected WGSL") }
         var packet = Packet(3)
         packet.add(pipeline.id); packet.add(shader.entryPoint); packet.add(source)
-        packet.add(UInt32(shader.storageBindings.count + shader.uniformBindings.count +
-                          shader.sampledTextures.count + shader.storageTextures.count + shader.samplerBindings.count))
-        for binding in shader.storageBindings {
-            packet.add(binding.binding.group); packet.add(binding.binding.binding)
-            packet.add(binding.minimumByteSize); packet.add(UInt32(binding.isReadOnly ? 1 : 0))
+        packet.add(UInt32(pipeline.immediateByteSize))
+        packet.add(UInt32(pipeline.bufferBindings.count +
+                          pipeline.textureBindings.count + pipeline.storageTextureBindings.count + pipeline.samplerBindings.count +
+                          pipeline.externalTextureBindings.count))
+        for binding in pipeline.bufferBindings {
+            packet.add(binding.slot, remapped: pipeline.webBindingIndices)
+            packet.add(binding.minimumByteSize)
+            packet.add(UInt32(binding.usage == .uniform ? 2 : binding.isReadOnly ? 1 : 0))
         }
-        for binding in shader.uniformBindings {
-            packet.add(binding.binding.group); packet.add(binding.binding.binding)
-            packet.add(binding.minimumByteSize); packet.add(UInt32(2))
-        }
-        for binding in shader.sampledTextures {
-            packet.add(binding.binding.group); packet.add(binding.binding.binding)
+        for binding in pipeline.textureBindings {
+            packet.add(binding.slot, remapped: pipeline.webBindingIndices)
             packet.add(UInt64(0)); packet.add(UInt32(3))
-            packet.add(binding.requirement.sampleType.rawValue); packet.add(UInt32(binding.isMultisampled ? 1 : 0))
-            packet.add(binding.requirement.dimension.rawValue)
+            packet.add(binding.webSampleType); packet.add(UInt32(binding.isMultisampled ? 1 : 0))
+            packet.add(binding.dimension.rawValue)
         }
-        for binding in shader.storageTextures {
-            let format = try binding.textureFormat()
-            packet.add(binding.binding.group); packet.add(binding.binding.binding)
+        for requirement in pipeline.storageTextureBindings {
+            packet.add(requirement.slot, remapped: pipeline.webBindingIndices)
             packet.add(UInt64(0)); packet.add(UInt32(5))
-            packet.add(format.rawValue); packet.add(UInt32(binding.access.rawValue))
-            packet.add(UInt32(binding.isArrayed ? 1 : 0))
+            packet.add(requirement.format.rawValue); packet.add(requirement.access.rawValue)
+            packet.add(requirement.dimension.rawValue)
         }
-        for binding in shader.samplerBindings {
-            packet.add(binding.binding.group); packet.add(binding.binding.binding)
+        for binding in pipeline.samplerBindings {
+            packet.add(binding.slot, remapped: pipeline.webBindingIndices)
             packet.add(UInt64(0)); packet.add(UInt32(4))
-            packet.add(binding.requirement.webBindingType)
+            packet.add(binding.webBindingType)
+        }
+        for slot in pipeline.externalTextureBindings {
+            packet.add(slot, remapped: pipeline.webBindingIndices)
+            packet.add(UInt64(0)); packet.add(UInt32(6))
         }
         _ = try await packet.send()
     }
@@ -197,7 +275,7 @@ struct WebGPUHost: BrowserGPUPresentationHost, SamplerBackendDevice, TextureView
             throw GPUError.validation("Expected WGSL render stages")
         }
         var packet = Packet(10)
-        packet.add(pipeline.id); packet.add(pipeline.sampleCount)
+        packet.add(pipeline.id); packet.add(UInt32(pipeline.immediateByteSize)); packet.add(pipeline.sampleCount)
         packet.add(pipeline.sampleMask); packet.add(UInt32(pipeline.alphaToCoverageEnabled ? 1 : 0))
         let targets = pipeline.colorTargets
         packet.add(UInt32(targets.count))
@@ -215,6 +293,7 @@ struct WebGPUHost: BrowserGPUPresentationHost, SamplerBackendDevice, TextureView
         }
         packet.add(pipeline.primitive.frontFace.rawValue); packet.add(pipeline.primitive.cullMode.rawValue)
         packet.add(pipeline.primitive.topology.rawValue); packet.add(pipeline.primitive.stripIndexFormat?.rawValue ?? 0)
+        packet.add(UInt32(pipeline.primitive.unclippedDepth ? 1 : 0))
         packet.add(vertex.entryPoint); packet.add(vertexSource)
         packet.add(fragment.entryPoint); packet.add(fragmentSource)
         packet.add(UInt32(pipeline.vertexBuffers.count))
@@ -228,26 +307,36 @@ struct WebGPUHost: BrowserGPUPresentationHost, SamplerBackendDevice, TextureView
         }
         packet.add(UInt32(pipeline.uniforms.count))
         for uniform in pipeline.uniforms {
-            packet.add(uniform.slot.group); packet.add(uniform.slot.binding)
+            packet.add(uniform.slot, remapped: pipeline.webBindingIndices)
             packet.add(uniform.minimumByteSize); packet.add(uniform.visibility)
+        }
+        packet.add(UInt32(pipeline.storageBuffers.count))
+        for buffer in pipeline.storageBuffers {
+            packet.add(buffer.handle.slot, remapped: pipeline.webBindingIndices)
+            packet.add(buffer.minimumByteSize); packet.add(buffer.handle.visibility)
+            packet.add(UInt32(buffer.isReadOnly ? 1 : 0))
         }
         packet.add(UInt32(pipeline.sampledTextures.count))
         for texture in pipeline.sampledTextures {
-            packet.add(texture.handle.slot.group); packet.add(texture.handle.slot.binding); packet.add(texture.handle.visibility)
-            packet.add(texture.requirement.sampleType.rawValue)
+            packet.add(texture.handle.slot, remapped: pipeline.webBindingIndices); packet.add(texture.handle.visibility)
+            packet.add(texture.requirement.webSampleType)
             packet.add(UInt32(texture.requirement.isMultisampled ? 1 : 0))
             packet.add(texture.requirement.dimension.rawValue)
         }
         packet.add(UInt32(pipeline.storageTextures.count))
         for texture in pipeline.storageTextures {
-            packet.add(texture.handle.slot.group); packet.add(texture.handle.slot.binding); packet.add(texture.handle.visibility)
+            packet.add(texture.handle.slot, remapped: pipeline.webBindingIndices); packet.add(texture.handle.visibility)
             packet.add(texture.requirement.format.rawValue); packet.add(texture.requirement.access.rawValue)
-            packet.add(UInt32(texture.requirement.isArrayed ? 1 : 0))
+            packet.add(texture.requirement.dimension.rawValue)
         }
         packet.add(UInt32(pipeline.samplerBindings.count))
         for sampler in pipeline.samplerBindings {
-            packet.add(sampler.handle.slot.group); packet.add(sampler.handle.slot.binding); packet.add(sampler.handle.visibility)
+            packet.add(sampler.handle.slot, remapped: pipeline.webBindingIndices); packet.add(sampler.handle.visibility)
             packet.add(sampler.requirement.webBindingType)
+        }
+        packet.add(UInt32(pipeline.externalTextureBindings.count))
+        for external in pipeline.externalTextureBindings {
+            packet.add(external.slot, remapped: pipeline.webBindingIndices); packet.add(external.visibility)
         }
         packet.add(UInt32(pipeline.depthState == nil ? 0 : 1))
         if let state = pipeline.depthState {
@@ -291,45 +380,83 @@ struct WebGPUHost: BrowserGPUPresentationHost, SamplerBackendDevice, TextureView
     func submitCommands(_ submission: Submission, commands: [BufferCommand]) async throws -> [[UInt32]] {
         var packet = Packet(6)
         packet.add(UInt32(commands.count))
-        for command in commands {
+        for recorded in commands {
+            let (command, timestamps, occlusion) = recorded.recordedPass
+            if let timestamps {
+                packet.add(UInt32(12)); packet.add(timestamps.querySet)
+                packet.add(timestamps.beginningOfPassWriteIndex ?? .max)
+                packet.add(timestamps.endOfPassWriteIndex ?? .max)
+            }
+            if let occlusion {
+                packet.add(UInt32(14)); packet.add(occlusion.querySet); packet.add(occlusion.queryIndex)
+            }
             switch command {
+            case .timestamped, .occlusionQueried:
+                throw GPUError.validation("Invalid query pass nesting")
+            case .resolveQuerySet(let set, let first, let count, let destination, let offset):
+                packet.add(UInt32(13)); packet.add(set); packet.add(first); packet.add(count)
+                packet.add(destination); packet.add(offset)
             case .write(let id, let offset, let words):
-                let headerSize = 32 // opcode, resource identity, offset and word count
-                guard words.count <= (BrowserRPC.packetLimit - packet.bytes.count - headerSize) / 4 else {
-                    throw GPUError.validation("Browser upload exceeds its packet limit")
-                }
                 packet.add(UInt32(1)); packet.add(id); packet.add(offset)
                 packet.add(UInt32(words.count))
                 for word in words { packet.add(word) }
-            case .dispatchCompute, .dispatchComputeRanges:
-                let (pipeline, bindings, groups, textures, samplers) = command.computeDispatch!
-                packet.add(UInt32(2)); packet.add(pipeline.id)
-                packet.add(groups.x); packet.add(groups.y); packet.add(groups.z)
-                packet.addBindings(bindings)
-                packet.addResourceIDs(textures)
-                packet.addResourceIDs(samplers)
-            case .copy(let source, let destination, let size):
-                packet.add(UInt32(3)); packet.add(source); packet.add(destination); packet.add(size)
+            case .writeBytes(let id, let offset, let bytes, let dataOffset, let byteCount):
+                let source = try BufferCommand.uploadBytes(bytes, dataOffset: dataOffset, byteCount: byteCount)
+                packet.add(UInt32(15)); packet.add(id); packet.add(offset)
+                packet.add(UInt32(source.count))
+                packet.bytes.append(contentsOf: source)
+            case .clearBuffer(let id, let offset, let size):
+                packet.add(UInt32(16)); packet.add(id); packet.add(offset)
+                packet.add(UInt32(size == nil ? 0 : 1))
+                if let size { packet.add(size) }
+            case .dispatchCompute, .dispatchComputeRanges, .dispatchComputeIndirect:
+                let (pipeline, bindings, source, textures, samplers, immediates) = command.computeDispatch!
+                switch source {
+                case .direct(let groups):
+                    packet.add(UInt32(2)); packet.add(pipeline.id)
+                    packet.add(groups.x); packet.add(groups.y); packet.add(groups.z)
+                case .indirect(let buffer, let offset):
+                    packet.add(UInt32(10)); packet.add(pipeline.id)
+                    packet.add(buffer); packet.add(offset)
+                }
+                packet.addBindings(bindings, remapped: pipeline.webBindingIndices)
+                packet.addResourceIDs(textures, remapped: pipeline.webBindingIndices)
+                packet.addResourceIDs(samplers, remapped: pipeline.webBindingIndices)
+                packet.add(UInt32(immediates.count))
+                for word in immediates { packet.add(word) }
+            case .copy(let source, let sourceOffset, let destination, let destinationOffset, let size):
+                packet.add(UInt32(3)); packet.add(source); packet.add(sourceOffset)
+                packet.add(destination); packet.add(destinationOffset)
+                packet.add(UInt32(size == nil ? 0 : 1))
+                if let size { packet.add(size) }
             case .read(let id, let size):
                 packet.add(UInt32(4)); packet.add(id); packet.add(size)
             case .dispatch:
                 throw GPUError.unsupported("Metal diagnostic dispatch is unavailable on WebGPU")
-            case .render(let pipeline, let target, let colorLoad, let vertexCount, let vertexBuffers, let firstVertex, let instances, let uniforms, let textures, let samplers, let targetMipLevel, let depth, let resolve, let blendConstant, let additionalColors, let raster):
+            case .render(let pipeline, let target, let colorLoad, let vertexCount, let vertexBuffers, let firstVertex, let instances, let uniforms, let textures, let samplers, let targetMipLevel, let targetDepthSlice, let depth, let resolve, let blendConstant, let additionalColors, let raster, let storageBuffers, let immediates):
                 packet.add(UInt32(5))
-                packet.addRender(pipeline, target: target, targetMipLevel: targetMipLevel, colorLoad: colorLoad, count: vertexCount, vertexBuffers: vertexBuffers,
-                                 firstVertex: firstVertex, instances: instances, uniforms: uniforms,
+                packet.addRender(pipeline, target: target, targetMipLevel: targetMipLevel, targetDepthSlice: targetDepthSlice,
+                                 colorLoad: colorLoad, count: vertexCount, vertexBuffers: vertexBuffers,
+                                 firstVertex: firstVertex, instances: instances, uniforms: uniforms, storageBuffers: storageBuffers,
                                  textures: textures, samplers: samplers, depth: depth, resolve: resolve,
-                                 blendConstant: blendConstant, additionalColors: additionalColors, raster: raster)
-            case .renderIndexed(let pipeline, let target, let colorLoad, let index, let draw, let vertexBuffers, let uniforms, let textures, let samplers, let targetMipLevel, let depth, let resolve, let blendConstant, let additionalColors, let raster):
+                                 blendConstant: blendConstant, additionalColors: additionalColors, raster: raster, immediates: immediates)
+            case .renderIndexed(let pipeline, let target, let colorLoad, let index, let draw, let vertexBuffers, let uniforms, let textures, let samplers, let targetMipLevel, let targetDepthSlice, let depth, let resolve, let blendConstant, let additionalColors, let raster, let storageBuffers, let immediates):
                 packet.add(UInt32(7))
-                packet.addRender(pipeline, target: target, targetMipLevel: targetMipLevel, colorLoad: colorLoad, count: draw.indexCount, vertexBuffers: vertexBuffers,
-                                 firstVertex: 0, instances: draw.instances, uniforms: uniforms,
+                packet.addRender(pipeline, target: target, targetMipLevel: targetMipLevel, targetDepthSlice: targetDepthSlice,
+                                 colorLoad: colorLoad, count: draw.indexCount, vertexBuffers: vertexBuffers,
+                                 firstVertex: 0, instances: draw.instances, uniforms: uniforms, storageBuffers: storageBuffers,
                                  textures: textures, samplers: samplers, depth: depth, resolve: resolve,
-                                 blendConstant: blendConstant, additionalColors: additionalColors, raster: raster)
-                packet.add(index.buffer); packet.add(index.format.rawValue); packet.add(index.offset)
-                packet.add(UInt32(index.size == nil ? 0 : 1))
-                if let size = index.size { packet.add(size) }
+                                 blendConstant: blendConstant, additionalColors: additionalColors, raster: raster, immediates: immediates)
+                packet.add(index)
                 packet.add(draw.firstIndex); packet.add(draw.baseVertex)
+            case .renderIndirect(let pipeline, let target, let colorLoad, let arguments, let offset, let index, let vertexBuffers, let uniforms, let textures, let samplers, let targetMipLevel, let targetDepthSlice, let depth, let resolve, let blendConstant, let additionalColors, let raster, let storageBuffers, let immediates):
+                packet.add(UInt32(11)); packet.add(arguments); packet.add(offset)
+                packet.add(UInt32(index == nil ? 0 : 1))
+                packet.addRender(pipeline, target: target, targetMipLevel: targetMipLevel, targetDepthSlice: targetDepthSlice,
+                                 colorLoad: colorLoad, vertexBuffers: vertexBuffers, uniforms: uniforms, storageBuffers: storageBuffers,
+                                 textures: textures, samplers: samplers, depth: depth, resolve: resolve,
+                                 blendConstant: blendConstant, additionalColors: additionalColors, raster: raster, immediates: immediates)
+                if let index { packet.add(index) }
             case .copyTextureToBuffer(let source, let destination, let bytesPerRow, let mipLevel, let aspect, let offset,
                                       let layer, let z, let depth):
                 packet.add(UInt32(6)); packet.add(source); packet.add(destination); packet.add(bytesPerRow); packet.add(mipLevel)
@@ -346,12 +473,20 @@ struct WebGPUHost: BrowserGPUPresentationHost, SamplerBackendDevice, TextureView
                 packet.add(region.x); packet.add(region.y); packet.add(region.arrayLayer + region.z)
                 packet.add(region.width); packet.add(region.height); packet.add(region.depth)
                 packet.add(region.mipLevel); packet.add(aspect.rawValue)
-            }
-            guard packet.bytes.count <= BrowserRPC.packetLimit else {
-                throw GPUError.validation("Browser submission packet exceeds its limit")
+            case .writeTexture(let destination, let data, let layout, let region, let aspect):
+                let source = data.dropFirst(region.isEmpty ? data.count : Int(layout.offset))
+                packet.add(UInt32(17)); packet.add(destination); packet.add(region.mipLevel); packet.add(aspect.rawValue)
+                packet.add(region.x); packet.add(region.y); packet.add(region.arrayLayer + region.z)
+                packet.add(region.width); packet.add(region.height); packet.add(region.depth)
+                packet.add(UInt32(layout.bytesPerRow == nil ? 0 : 1))
+                if let stride = layout.bytesPerRow { packet.add(stride) }
+                packet.add(UInt32(layout.rowsPerImage == nil ? 0 : 1))
+                if let rows = layout.rowsPerImage { packet.add(rows) }
+                packet.add(UInt32(source.count))
+                packet.bytes.append(contentsOf: source)
             }
         }
-        let result = try await packet.send()
+        let result = try await sendSubmission(packet, submission: submission)
         var offset = 0
         func word() throws -> UInt32 {
             guard offset + 4 <= result.count else { throw GPUError.backendFailure("Truncated browser readback") }
@@ -371,6 +506,34 @@ struct WebGPUHost: BrowserGPUPresentationHost, SamplerBackendDevice, TextureView
         }
         guard offset == result.count else { throw GPUError.backendFailure("Trailing browser readback bytes") }
         return reads
+    }
+
+    private func sendSubmission(_ packet: Packet, submission: Submission) async throws -> [UInt8] {
+        if packet.bytes.count <= BrowserRPC.packetLimit { return try await packet.send() }
+        guard let owner = submission.resources.first?.device else {
+            throw GPUError.validation("A staged browser submission requires a resource owner")
+        }
+        let key = ResourceID(device: owner, serial: submission.sequence)
+        let chunkCapacity = BrowserRPC.packetLimit - 40
+        do {
+            var start = 0
+            while start < packet.bytes.count {
+                let length = min(chunkCapacity, packet.bytes.count - start)
+                var chunk = Packet(23)
+                chunk.add(key); chunk.add(UInt64(packet.bytes.count)); chunk.add(UInt64(start)); chunk.add(UInt32(length))
+                chunk.bytes.append(contentsOf: packet.bytes[start..<(start + length)])
+                _ = try await chunk.send()
+                start += length
+            }
+            var execute = Packet(24)
+            execute.add(key)
+            return try await execute.send()
+        } catch {
+            var discard = Packet(25)
+            discard.add(key)
+            _ = try? await discard.send()
+            throw error
+        }
     }
 }
 

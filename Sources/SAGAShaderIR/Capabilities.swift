@@ -51,6 +51,14 @@ public struct ShaderCapabilities: OptionSet, Sendable, Equatable {
     public static let debugPrintf = Self(rawValue: 1 << 45)
     public static let allKnown = Self(rawValue: (1 << 46) - 1)
     public static let referenceDefault: Self = [.multisampledShading, .cubeArrayTextures]
+
+    package static let bindingArrays: Self = [
+        .textureAndSamplerBindingArray, .bufferBindingArray,
+        .storageTextureBindingArray, .storageBufferBindingArray,
+        .textureAndSamplerBindingArrayNonUniformIndexing, .bufferBindingArrayNonUniformIndexing,
+        .storageTextureBindingArrayNonUniformIndexing, .storageBufferBindingArrayNonUniformIndexing,
+        .accelerationStructureBindingArray,
+    ]
 }
 
 extension IRStage {

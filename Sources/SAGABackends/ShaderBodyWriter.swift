@@ -5,9 +5,11 @@ struct ShaderStorage {
         case structured
         case byteAddressed
         case uniformRegisters
+        case packedHalfWords(writable: Bool)
     }
 
     struct WordLayout {
+        // Offsets and strides count scalar lanes, which can occupy two, four or eight bytes.
         let offset: UInt32
         let stride: UInt32
         let width: UInt8
@@ -21,14 +23,26 @@ struct ShaderStorage {
     let writable: Bool
     let words: WordLayout?
     let members: [ShaderStorage]
+    let nested: NestedBufferLayout?
+    let bindingArrayCount: UInt32?
+    let splitBindingArray: Bool
+    let externalTexture: ExternalTextureReference?
+    let metalAtomicWriteGuard: String?
 
     init(reference: String, bound: String? = nil, writable: Bool,
-         words: WordLayout? = nil, members: [ShaderStorage] = []) {
+         words: WordLayout? = nil, members: [ShaderStorage] = [], nested: NestedBufferLayout? = nil,
+         bindingArrayCount: UInt32? = nil, splitBindingArray: Bool = false,
+         externalTexture: ExternalTextureReference? = nil, metalAtomicWriteGuard: String? = nil) {
         self.reference = reference
         self.bound = bound
         self.writable = writable
         self.words = words
         self.members = members
+        self.nested = nested
+        self.bindingArrayCount = bindingArrayCount
+        self.splitBindingArray = splitBindingArray
+        self.externalTexture = externalTexture
+        self.metalAtomicWriteGuard = metalAtomicWriteGuard
     }
 
     fileprivate func memory(at index: String? = nil) -> ShaderMemory {
@@ -46,11 +60,14 @@ struct ShaderStorage {
 
 private enum ShaderMemory {
     case native(String)
+    case aggregate(NestedBufferAccess)
+    case glslAtomicWord(String)
     case words(buffer: String, first: String, width: UInt8, scalar: IRScalar,
                addressing: ShaderStorage.WordAddressing, columns: UInt8?)
 
-    func component(_ index: String) -> Self {
+    func component(_ index: String) throws -> Self {
         switch self {
+        case .aggregate, .glslAtomicWord: throw ShaderFailure.invalidHandle
         case .native(let reference):
             return .native("\(reference)[\(index)]")
         case .words(let buffer, let first, let width, let scalar, let addressing, let columns):
@@ -64,19 +81,50 @@ private enum ShaderMemory {
     func load(in format: ShaderOutputFormat) throws -> String {
         switch self {
         case .native(let reference): return reference
+        case .aggregate, .glslAtomicWord: throw ShaderFailure.invalidHandle
         case .words(let buffer, let first, let width, let scalar, let addressing, let columns):
             if let columns {
                 let vectors = try (0..<columns).map { try component("\($0)u").load(in: format) }
-                let type = shaderMatrixType(columns, width, in: format)
+                let type = shaderMatrixType(columns, width, scalar: scalar, in: format)
                 return "\(type)(\(vectors.joined(separator: ", ")))"
             }
-            let lanes = (0..<width).map {
+            let lanes = try (0..<width).map {
                 let index = wordIndex(first: first, lane: $0)
+                if scalar == .i64 || scalar == .u64 {
+                    let bits: String
+                    switch addressing {
+                    case .structured: bits = "\(buffer)[\(index)]"
+                    case .byteAddressed:
+                        let offset = byteOffset(index, laneBytes: 8)
+                        bits = joinedWideBits(low: "\(buffer).Load(\(offset))", high: "\(buffer).Load(\(offset) + 4u)")
+                    case .uniformRegisters:
+                        let register = "\(buffer)[(\(index)) / 2u]"
+                        let low = "((\(index)) % 2u) * 2u"
+                        bits = joinedWideBits(low: "\(register)[\(low)]", high: "\(register)[\(low) + 1u]")
+                    case .packedHalfWords: throw ShaderFailure.invalidHandle
+                    }
+                    return scalar == .i64 ? try wideIntegerBits(bits, signed: true, in: format) : bits
+                }
                 let word: String
                 switch addressing {
                 case .structured: word = "\(buffer)[\(index)]"
-                case .byteAddressed: word = "\(buffer).Load(\(byteOffset(index)))"
-                case .uniformRegisters: word = "\(buffer)[(\(index)) / 4u][(\(index)) % 4u]"
+                case .byteAddressed:
+                    if scalar == .f16 { return "\(buffer).Load<half>(\(byteOffset(index, laneBytes: 2)))" }
+                    word = "\(buffer).Load(\(byteOffset(index)))"
+                case .packedHalfWords(let writable):
+                    let packed = "\(buffer)[(\(index)) / 2u]"
+                    let word = writable ? "atomicOr(\(packed), 0u)" : packed
+                    return "float16_t(unpackHalf2x16(\(word))[(\(index)) % 2u])"
+                case .uniformRegisters:
+                    if scalar == .f16 {
+                        let register = "\(buffer)[(\(index)) / 8u][((\(index)) / 2u) % 4u]"
+                        let lane = "((\(index)) % 2u)"
+                        if format == .glsl {
+                            return "unpackFloat2x16(\(register))[\(lane)]"
+                        }
+                        return "asfloat16(uint16_t(\(register) >> (\(lane) * 16u)))"
+                    }
+                    word = "\(buffer)[(\(index)) / 4u][(\(index)) % 4u]"
                 }
                 switch scalar {
                 case .i32: return integerBits(word, signed: true, in: format)
@@ -98,13 +146,14 @@ private enum ShaderMemory {
     func stores(_ value: String, temporary: String, in format: ShaderOutputFormat) throws -> [String] {
         switch self {
         case .native(let reference): return ["\(reference) = \(value);"]
+        case .aggregate, .glslAtomicWord: throw ShaderFailure.invalidHandle
         case .words(let buffer, let first, let width, let scalar, let addressing, let columns):
             guard addressing != .uniformRegisters else { throw ShaderFailure.unsupported("Store to a uniform buffer") }
             if let columns {
-                let type = shaderMatrixType(columns, width, in: format)
+                let type = shaderMatrixType(columns, width, scalar: scalar, in: format)
                 var statements = ["const \(type) \(temporary) = \(value);"]
                 for column in 0..<columns {
-                    let target = component("\(column)u")
+                    let target = try component("\(column)u")
                     statements += try target.stores("\(temporary)[\(column)u]",
                                                     temporary: "\(temporary)_column_\(column)", in: format)
                 }
@@ -117,14 +166,32 @@ private enum ShaderMemory {
             }
             for lane in 0..<width {
                 let component = width == 1 ? value : "\(temporary)[\(lane)]"
+                let index = wordIndex(first: first, lane: lane)
+                if case .packedHalfWords(let writable) = addressing {
+                    guard writable else { throw ShaderFailure.invalidHandle }
+                    statements += packedHalfStore(buffer: buffer, index: index, value: component,
+                                                  temporary: temporary + "_half_\(lane)")
+                    continue
+                }
                 let bits: String
                 switch scalar {
+                case .i64: bits = try wideIntegerBits(component, signed: false, in: format)
                 case .i32: bits = integerBits(component, signed: false, in: format)
-                case .f32: bits = format == .msl ? "as_type<uint>(\(component))" : "asuint(\(component))"
+                case .f32:
+                    switch format {
+                    case .msl: bits = "as_type<uint>(\(component))"
+                    case .glsl: bits = "floatBitsToUint(\(component))"
+                    default: bits = "asuint(\(component))"
+                    }
                 default: bits = component
                 }
-                let index = wordIndex(first: first, lane: lane)
-                if addressing == .byteAddressed {
+                if addressing == .byteAddressed && scalar == .f16 {
+                    statements.append("\(buffer).Store<half>(\(byteOffset(index, laneBytes: 2)), \(component));")
+                } else if addressing == .byteAddressed && scalar.width == 8 {
+                    let packed = "\(temporary)_bits_\(lane)"
+                    statements.append("const uint64_t \(packed) = \(bits);")
+                    statements.append("\(buffer).Store2(\(byteOffset(index, laneBytes: 8)), uint2(uint(\(packed)), uint(\(packed) >> 32u)));")
+                } else if addressing == .byteAddressed {
                     statements.append("\(buffer).Store(\(byteOffset(index)), \(bits));")
                 } else {
                     statements.append("\(buffer)[\(index)] = \(bits);")
@@ -134,17 +201,43 @@ private enum ShaderMemory {
         }
     }
 
+    private func packedHalfStore(buffer: String, index: String, value: String, temporary: String) -> [String] {
+        let slot = temporary + "_slot"
+        let shift = temporary + "_shift"
+        let bits = temporary + "_bits"
+        let observed = temporary + "_observed"
+        let expected = temporary + "_expected"
+        let word = "\(buffer)[\(slot)]"
+        // Each half is an independent WGSL memory location. Preserve an adjacent
+        // invocation's update to the other half of this GLSL word.
+        return [
+            "uint \(slot) = (\(index)) / 2u;",
+            "uint \(shift) = ((\(index)) % 2u) * 16u;",
+            "uint \(bits) = (packHalf2x16(vec2(float(\(value)), 0.0)) & 65535u) << \(shift);",
+            "uint \(observed) = atomicOr(\(word), 0u);",
+            "uint \(expected);",
+            "do {",
+            "    \(expected) = \(observed);",
+            "    \(observed) = atomicCompSwap(\(word), \(expected), (\(expected) & ~(65535u << \(shift))) | \(bits));",
+            "} while (\(observed) != \(expected));",
+        ]
+    }
+
     var hlslAtomicByteAddress: (buffer: String, offset: String)? {
-        guard case .words(let buffer, let first, 1, _, .byteAddressed, nil) = self else { return nil }
-        return (buffer, byteOffset(first))
+        guard case .words(let buffer, let first, 1, let scalar, .byteAddressed, nil) = self else { return nil }
+        return (buffer, byteOffset(first, laneBytes: scalar.width))
     }
 
     private func wordIndex(first: String, lane: UInt8) -> String {
         lane == 0 ? first : "\(first) + \(lane)u"
     }
 
-    private func byteOffset(_ word: String) -> String {
-        "(\(word)) * 4u"
+    private func byteOffset(_ index: String, laneBytes: UInt8 = 4) -> String {
+        "(\(index)) * \(laneBytes)u"
+    }
+
+    private func joinedWideBits(low: String, high: String) -> String {
+        "(uint64_t(\(low)) | (uint64_t(\(high)) << 32u))"
     }
 }
 
@@ -158,15 +251,35 @@ private enum ShaderAtomicOperation {
     case load
     case store(String)
     case readModifyWrite(IRAtomicFunction, String)
+
+    var bitwiseOperator: String? {
+        switch self {
+        case .readModifyWrite(.and, _): "&"
+        case .readModifyWrite(.inclusiveOr, _): "|"
+        case .readModifyWrite(.exclusiveOr, _): "^"
+        default: nil
+        }
+    }
 }
 
 enum ShaderResultTarget {
     case direct
     case metalStructure(String)
+    case metalVoidFragment(String)
     case glslPosition
     case glslVertexStructure(String, destinations: [String])
+    case vertexClipStructure(String, destinations: [String], clipDistances: VertexClipDistances)
     case fragmentValue(FragmentOutputField, metalType: String?)
     case fragmentStructure(String, fields: [FragmentOutputField])
+    case fragmentWithoutDepth(valueType: String, fields: [(offset: Int, element: FragmentOutputField)])
+    case discardedFragmentDepth
+}
+
+private struct LoopTemporary {
+    let expression: IRHandle<IRExpression>
+    let afterLine: Int
+
+    var name: String { "saga_loop_value_\(expression.index)" }
 }
 
 struct ShaderBodyWriter {
@@ -174,31 +287,42 @@ struct ShaderBodyWriter {
     let function: IRFunction
     let arguments: [String]
     let storage: [ShaderStorage]
+    let hasNestedBuffers: Bool
+    let hasSplitBindingArrays: Bool
     let outputFormat: ShaderOutputFormat
     let resultTarget: ShaderResultTarget?
     let structures: [IRHandle<IRType>: ShaderStructure]
     let argumentFields: [Int: [String]]
     let callCaptures: [Int: [String]]
+    let pointerWrites: [Int: Set<Int>]
     private(set) var budget: ShaderBudget
     private(set) var integerHelpers: Set<IntegerShaderHelper> = []
     private(set) var integerVectorHelpers: Set<IntegerVectorHelper> = []
     private var temporaries: Set<IRHandle<IRExpression>> = []
     private var temporaryOrder: [IRHandle<IRExpression>] = []
+    private var continuingCaptures: [IRHandle<IRExpression>: Bool] = [:]
+    private var selectedImages: [IRHandle<IRExpression>: ImageElement] = [:]
+    private var webBufferElement: (access: IRHandle<IRExpression>, index: UInt32)?
+    private var safeBufferRead = false
     private var indentation = "    "
 
     init(module: IRModule, function: IRFunction, arguments: [String], storage: [ShaderStorage],
          outputFormat: ShaderOutputFormat, resultTarget: ShaderResultTarget? = nil,
          structures: [IRHandle<IRType>: ShaderStructure] = [:], argumentFields: [Int: [String]] = [:],
-         callCaptures: [Int: [String]] = [:], budget: ShaderBudget = ShaderBudget()) {
+         callCaptures: [Int: [String]] = [:], pointerWrites: [Int: Set<Int>] = [:],
+         budget: ShaderBudget = ShaderBudget()) {
         self.module = module
         self.function = function
         self.arguments = arguments
         self.storage = storage
+        self.hasNestedBuffers = storage.contains { $0.nested != nil }
+        self.hasSplitBindingArrays = storage.contains(where: \.splitBindingArray)
         self.outputFormat = outputFormat
         self.resultTarget = resultTarget
         self.structures = structures
         self.argumentFields = argumentFields
         self.callCaptures = callCaptures
+        self.pointerWrites = pointerWrites
         self.budget = budget
     }
 
@@ -213,31 +337,83 @@ struct ShaderBodyWriter {
         return lines
     }
 
+    mutating func privateBindings(_ reachable: Set<Int>) throws -> PrivateShaderBindings {
+        var bindings = PrivateShaderBindings()
+        for index in reachable.sorted() {
+            try budget.consume(.work)
+            let global = module.globalVariables.values[index]
+            guard global.space == .private else { continue }
+            let name = "saga_private_\(index)"
+            let type = try typeName(global.type)
+            bindings.storage[index] = ShaderStorage(reference: name, writable: true)
+            let explicit = try global.initializer.map { try constantValue($0) }
+            if outputFormat == .wgsl {
+                let initializer = explicit.map { " = \($0)" } ?? ""
+                let declaration = "var<private> \(name): \(type)\(initializer);"
+                try budget.consume(.sourceBytes, amount: declaration.utf8.count + 1)
+                bindings.declarations.append(declaration)
+                continue
+            }
+            let initial = try explicit ?? zeroValue(global.type)
+            if outputFormat == .msl {
+                bindings.captures[index] = [.init(type: "thread \(type)&", name: name)]
+                try append("\(type) \(name) = \(initial);", to: &bindings.initialization)
+            } else {
+                // Native private globals are initialized from the entry point so aggregate
+                // constructors run once per invocation in the same order as helper calls.
+                let qualifier = outputFormat == .hlsl ? "static " : ""
+                let declaration = "\(qualifier)\(type) \(name);"
+                try budget.consume(.sourceBytes, amount: declaration.utf8.count + 1)
+                bindings.declarations.append(declaration)
+                try append("\(name) = \(initial);", to: &bindings.initialization)
+            }
+        }
+        return bindings
+    }
+
+    @discardableResult
     private mutating func writeBlock(
         _ block: IRHandle<IRBlock>, nested: Bool = true, breakIf: IRHandle<IRExpression>? = nil,
+        retainLoopBodyScope: Bool = false,
         to lines: inout [String]
-    ) throws {
+    ) throws -> [LoopTemporary] {
         try budget.enterDepth()
         let mark = temporaryOrder.count
+        var loopTemporaries: [LoopTemporary] = []
         if nested { indentation += "    " }
         defer {
-            for temporary in temporaryOrder[mark...] { temporaries.remove(temporary) }
-            temporaryOrder.removeSubrange(mark...)
+            if !retainLoopBodyScope { discardTemporaries(from: mark) }
             if nested { indentation.removeLast(4) }
             try? budget.leaveDepth()
         }
         for handle in try function.blocks.value(for: block).statements {
             try budget.consume(.work)
-            switch try function.statements.value(for: handle).kind {
+            let beforeStatement = temporaryOrder.count
+            let statement = try function.statements.value(for: handle).kind
+            switch statement {
             case .emit(let handles):
                 for expression in handles { try emit(expression, to: &lines) }
             case .call(let callee, let args, let result):
-                try writeCall(callee, arguments: args, result: result, to: &lines)
+                try writeCall(callee, arguments: args, result: result, statementIndex: handle.index, to: &lines)
             case .returnValue(nil):
-                try append("return;", to: &lines)
+                try writeVoidReturn(to: &lines)
             case .returnValue(let result?):
                 let value = try value(result)
                 try writeResult(value, to: &lines)
+            case .kill:
+                try append(outputFormat == .msl ? "discard_fragment();" : "discard;", to: &lines)
+            case .demoteToHelperInvocation:
+                switch outputFormat {
+                case .msl: try append("discard_fragment();", to: &lines)
+                case .glsl: try append("demote;", to: &lines)
+                default: try append("discard;", to: &lines)
+                }
+            case .subgroupGather(let mode, let argument, let result):
+                try writeSubgroupGather(mode, argument: argument, result: result, to: &lines)
+            case .subgroupBallot(let result, let predicate):
+                try writeSubgroupBallot(predicate, result: result, to: &lines)
+            case .subgroupCollectiveOperation(let operation, let collective, let argument, let result):
+                try writeSubgroupCollective(operation, collective: collective, argument: argument, result: result, to: &lines)
             case .break:
                 try append("break;", to: &lines)
             case .continue:
@@ -256,7 +432,7 @@ struct ShaderBodyWriter {
                 }
                 try append("}", to: &lines)
             case .switchValue(let selector, let cases):
-                try writeSwitch(selector, cases: cases, to: &lines)
+                try writeSwitch(selector, cases: cases, index: handle.index, to: &lines)
             case .loop(let body, let continuing, let condition):
                 try writeLoop(body, continuing: continuing, breakIf: condition,
                               index: handle.index, to: &lines)
@@ -265,107 +441,269 @@ struct ShaderBodyWriter {
             case .workgroupUniformLoad(let pointer, let result):
                 try writeUniformLoad(pointer: pointer, result: result, to: &lines)
             case .imageStore(let image, let coordinate, let arrayIndex, let value):
-                try writeImageStore(image: image, coordinate: coordinate, arrayIndex: arrayIndex, value: value,
-                                    named: "saga_texel_store_\(handle.index)", to: &lines)
+                try writeImageVariants([image], named: "saga_texel_store_\(handle.index)", to: &lines) { writer, name, lines in
+                    try writer.writeImageStore(image: image, coordinate: coordinate, arrayIndex: arrayIndex, value: value,
+                                               named: name, to: &lines)
+                }
+            case .imageAtomic(let image, let coordinate, let arrayIndex, let function, let value):
+                try writeImageVariants([image], named: "saga_texel_atomic_\(handle.index)", to: &lines) { writer, name, lines in
+                    try writer.writeImageAtomic(image: image, coordinate: coordinate, arrayIndex: arrayIndex,
+                                                function: function, value: value, named: name, to: &lines)
+                }
             case .store(let pointer, let expression):
-                let target = try address(pointer)
-                guard target.writable else { throw unsupported("store to read-only storage") }
-                let rhs = try value(expression)
-                let temporary = "saga_store_\(handle.index)"
-                if let scalar = try atomicScalar(at: pointer) {
-                    try writeAtomic(.store(rhs), target: target, scalar: scalar, result: nil, temporary: temporary, to: &lines)
-                } else {
-                    let statements = try target.memory.stores(rhs, temporary: temporary, in: outputFormat)
-                    try writeStatements(statements, when: target.boundsCheck, to: &lines)
+                try writeBufferVariants(splitBufferAccess(pointer), named: "saga_store_\(handle.index)", to: &lines) { writer, name, lines in
+                    let target = try writer.address(pointer)
+                    guard target.writable else { throw unsupported("store to read-only storage") }
+                    let rhs = try writer.value(expression)
+                    if let scalar = try writer.atomicScalar(at: pointer) {
+                        try writer.writeAtomic(.store(rhs), target: target, scalar: scalar, result: nil, temporary: name, to: &lines)
+                    } else {
+                        let statements: [String]
+                        if case .aggregate(let access) = target.memory {
+                            let type = try writer.typeName(access.type)
+                            statements = ["\(writer.declaration(type, named: name)) = \(rhs);"] +
+                                (try writer.storeNested(access, value: name, temporary: name + "_field"))
+                        } else {
+                            statements = try target.memory.stores(rhs, temporary: name, in: writer.outputFormat)
+                        }
+                        try writer.writeStatements(statements, when: target.boundsCheck, to: &lines)
+                    }
                 }
             case .atomic(let pointer, let operation, let operand, let result):
-                let target = try address(pointer)
-                guard target.writable, let scalar = try atomicScalar(at: pointer) else {
-                    throw unsupported("atomic read-modify-write address")
-                }
-                let operand = try value(operand)
-                let temporary = "saga_atomic_tmp_\(handle.index)"
-                if case .exchange(let compare?) = operation {
-                    let expected = try value(compare)
-                    try writeCompareExchange(target: target, scalar: scalar, expected: expected, replacement: operand,
-                                             result: result, temporary: temporary, to: &lines)
-                } else {
-                    try writeAtomic(.readModifyWrite(operation, operand), target: target, scalar: scalar,
-                                    result: result.map { "saga_atomic_\($0.index)" }, temporary: temporary, to: &lines)
+                let resultType = try result.map { try function.expressions.value(for: $0).type }
+                let resultName = result.map { "saga_atomic_\($0.index)" } ?? "saga_atomic_statement_\(handle.index)"
+                try writeBufferVariants(splitBufferAccess(pointer), named: resultName, resultType: resultType, to: &lines) { writer, name, lines in
+                    let target = try writer.address(pointer)
+                    guard target.writable, let scalar = try writer.atomicScalar(at: pointer) else {
+                        throw unsupported("atomic read-modify-write address")
+                    }
+                    let operand = try writer.value(operand)
+                    let temporary = name == resultName ? "saga_atomic_tmp_\(handle.index)" : name + "_tmp"
+                    if case .exchange(let compare?, let strong) = operation {
+                        let expected = try writer.value(compare)
+                        try writer.writeCompareExchange(target: target, scalar: scalar, expected: expected, replacement: operand,
+                            strong: strong, result: resultType.map { (name, $0) }, temporary: temporary, to: &lines)
+                    } else {
+                        try writer.writeAtomic(.readModifyWrite(operation, operand), target: target, scalar: scalar,
+                                               result: result == nil ? nil : name, temporary: temporary, to: &lines)
+                    }
                 }
                 if let result { remember(result) }
             default: throw unsupported("statement")
+            }
+            if retainLoopBodyScope {
+                for expression in temporaryOrder[beforeStatement...] {
+                    try budget.consume(.work)
+                    loopTemporaries.append(.init(expression: expression, afterLine: lines.count))
+                }
+            } else if statementEndsBlock(statement) {
+                break
             }
         }
         if let breakIf {
             let test = try value(breakIf, parenthesized: false)
             try append("if (\(test)) { break; }", to: &lines)
         }
+        return loopTemporaries
+    }
+
+    private func statementEndsBlock(_ statement: IRStatementKind) -> Bool {
+        switch statement {
+        case .returnValue, .break, .continue, .kill: return true
+        default: return false
+        }
     }
 
     private mutating func writeSwitch(
-        _ selector: IRHandle<IRExpression>, cases: [IRSwitchCase], to lines: inout [String]
+        _ selector: IRHandle<IRExpression>, cases: [IRSwitchCase], index: Int, to lines: inout [String]
     ) throws {
+        var groups: [(labels: [String], body: IRHandle<IRBlock>, fallsThrough: Bool)] = []
+        for entry in cases {
+            try budget.consume(.work)
+            let label: String
+            switch entry.value {
+            case .default: label = "default"
+            case .u32(let number): label = "\(number)u"
+            case .i32(let number):
+                let suffix = outputFormat == .wgsl ? "i" : ""
+                label = number == .min ? "(-2147483647\(suffix) - 1\(suffix))" : "\(number)\(suffix)"
+            }
+            if let last = groups.indices.last, groups[last].body == entry.body {
+                groups[last].labels.append(label)
+            } else {
+                groups.append(([label], entry.body, entry.fallThrough))
+            }
+        }
+        if outputFormat == .wgsl, groups.contains(where: \.fallsThrough) {
+            try writeWGSLFallthroughSwitch(selector, groups: groups, index: index, to: &lines)
+            return
+        }
         try append("switch (\(try value(selector))) {", to: &lines)
         do {
             indentation += "    "
             defer { indentation.removeLast(4) }
-            var index = 0
-            while index < cases.count {
-                let block = cases[index].body
-                var labels: [String] = []
-                repeat {
-                    try budget.consume(.work)
-                    let label: String
-                    switch cases[index].value {
-                    case .default: label = "default"
-                    case .u32(let number): label = "\(number)u"
-                    case .i32(let number):
-                        let suffix = outputFormat == .wgsl ? "i" : ""
-                        label = number == .min ? "(-2147483647\(suffix) - 1\(suffix))" : "\(number)\(suffix)"
-                    }
-                    labels.append(label)
-                    index += 1
-                } while index < cases.count && cases[index].body == block
+            for group in groups {
                 if outputFormat == .wgsl {
-                    let clause = labels == ["default"] ? "default" : "case \(labels.joined(separator: ", "))"
-                    try append("\(clause): {", to: &lines)
-                    try writeBlock(block, to: &lines)
+                    try append("\(wgslSwitchClause(group.labels)): {", to: &lines)
+                    try writeBlock(group.body, to: &lines)
                     try append("}", to: &lines)
                 } else {
-                    for label in labels {
+                    for label in group.labels {
                         try append(label == "default" ? "default:" : "case \(label):", to: &lines)
                     }
                     try append("{", to: &lines)
-                    try writeBlock(block, to: &lines)
+                    try writeBlock(group.body, to: &lines)
                     try append("}", to: &lines)
-                    if try !endsSwitchCase(block) { try append("break;", to: &lines) }
+                    if try !group.fallsThrough && !switchCaseFlow(group.body).terminates {
+                        try append("break;", to: &lines)
+                    }
                 }
             }
         }
         try append("}", to: &lines)
     }
 
-    private mutating func endsSwitchCase(_ block: IRHandle<IRBlock>) throws -> Bool {
-        try budget.consume(.work)
+    private func wgslSwitchClause(_ labels: [String]) -> String {
+        labels == ["default"] ? "default" : "case \(labels.joined(separator: ", "))"
+    }
+
+    private mutating func writeWGSLFallthroughSwitch(
+        _ selector: IRHandle<IRExpression>,
+        groups: [(labels: [String], body: IRHandle<IRBlock>, fallsThrough: Bool)],
+        index: Int, to lines: inout [String]
+    ) throws {
+        let entry = "saga_switch_entry_\(index)"
+        try append("var \(entry): u32;", to: &lines)
+        try append("switch (\(try value(selector))) {", to: &lines)
+        for (offset, group) in groups.enumerated() {
+            try append("    \(wgslSwitchClause(group.labels)): { \(entry) = \(offset)u; }", to: &lines)
+        }
+        try append("}", to: &lines)
+
+        // A synthetic switch catches case breaks while leaving continue aimed at the enclosing loop.
+        try append("switch (0u) { default: {", to: &lines)
+        indentation += "    "
+        do {
+            defer { indentation.removeLast(4) }
+            for (offset, group) in groups.enumerated() {
+                let last = offset == groups.count - 1
+                // All remaining paths have entered by the final case.
+                try append(last ? "{" : "if (\(entry) <= \(offset)u) {", to: &lines)
+                try writeBlock(group.body, to: &lines)
+                if try !last && !group.fallsThrough && !switchCaseFlow(group.body).terminates {
+                    try append("    break;", to: &lines)
+                }
+                try append("}", to: &lines)
+            }
+        }
+        try append("} }", to: &lines)
+    }
+
+    private mutating func switchCaseFlow(
+        _ block: IRHandle<IRBlock>
+    ) throws -> (terminates: Bool, breaks: Bool) {
         try budget.enterDepth()
         defer { try? budget.leaveDepth() }
-        guard let last = try function.blocks.value(for: block).statements.last else { return false }
-        switch try function.statements.value(for: last).kind {
-        case .returnValue, .break, .continue, .kill: return true
-        case .block(let child): return try endsSwitchCase(child)
-        case .ifCondition(_, let yes, let no): return try endsSwitchCase(yes) && endsSwitchCase(no)
-        default: return false
+        var terminates = false
+        var breaks = false
+        for statement in try function.blocks.value(for: block).statements {
+            try budget.consume(.work)
+            switch try function.statements.value(for: statement).kind {
+            case .break:
+                terminates = true
+                breaks = true
+            case .returnValue, .continue, .kill:
+                terminates = true
+            case .block(let child):
+                let flow = try switchCaseFlow(child)
+                terminates = flow.terminates
+                breaks = breaks || flow.breaks
+            case .ifCondition(_, let yes, let no):
+                let accept = try switchCaseFlow(yes)
+                let reject = try switchCaseFlow(no)
+                terminates = accept.terminates && reject.terminates
+                breaks = breaks || accept.breaks || reject.breaks
+            case .switchValue(_, let cases):
+                terminates = try switchTerminates(cases)
+            default:
+                terminates = false
+            }
+            if terminates { break }
         }
+        return (terminates, breaks)
+    }
+
+    private mutating func switchTerminates(_ cases: [IRSwitchCase]) throws -> Bool {
+        var previous: IRHandle<IRBlock>?
+        for entry in cases {
+            try budget.consume(.work)
+            if previous != entry.body {
+                let flow = try switchCaseFlow(entry.body)
+                if flow.breaks || (!flow.terminates && !entry.fallThrough) { return false }
+                previous = entry.body
+            }
+        }
+        return true
     }
 
     private mutating func writeCall(
         _ callee: IRHandle<IRFunction>, arguments: [IRHandle<IRExpression>],
-        result: IRHandle<IRExpression>?, to lines: inout [String]
+        result: IRHandle<IRExpression>?, statementIndex: Int, to lines: inout [String]
     ) throws {
         guard let captures = callCaptures[callee.index] else { throw unsupported("unplanned helper call") }
-        let arguments = try arguments.map { try value($0) } + captures
-        let call = "saga_fn_\(callee.index)(\(arguments.joined(separator: ", ")))"
+        let signature = try module.functions.value(for: callee).arguments
+        var lowered: [String] = []
+        var copyBack: [(assignment: String, valid: String?)] = []
+        for (slot, pair) in zip(arguments, signature).enumerated() {
+            try budget.consume(.work)
+            let (handle, parameter) = pair
+            guard case .pointer(let pointee, let space) = try module.types.value(for: parameter.type).kind else {
+                lowered.append(try value(handle))
+                continue
+            }
+            let target = try address(handle)
+            guard case .native(let reference) = target.memory else {
+                throw unsupported("pointer argument must address a native variable")
+            }
+            if !module.allowsPointerSubviews {
+                guard target.boundsCheck == nil else {
+                    throw unsupported("pointer argument must address an entire native variable")
+                }
+                lowered.append(outputFormat == .wgsl ? "&(\(reference))" : reference)
+                continue
+            }
+            let temporary = "saga_pointer_\(statementIndex)_\(slot)"
+            let valid: String?
+            if let bounds = target.boundsCheck {
+                let name = temporary + "_valid"
+                let binding = outputFormat == .wgsl ? "let" : "const bool"
+                try append("\(binding) \(name) = \(bounds);", to: &lines)
+                valid = name
+            } else {
+                valid = nil
+            }
+            // These are per-invocation pointers, and alias analysis forbids competing writes.
+            // WGSL passes the temporary as a whole function variable, even for private subviews.
+            if valid != nil || (outputFormat == .wgsl && space == .private) {
+                let type = try typeName(pointee)
+                let binding = declaration(type, named: temporary)
+                if let valid {
+                    try append("\(binding) = \(try zeroValue(pointee));", to: &lines)
+                    try writeStatements(["\(temporary) = \(reference);"], when: valid, to: &lines)
+                } else {
+                    try append("\(binding) = \(reference);", to: &lines)
+                }
+                lowered.append(outputFormat == .wgsl ? "&\(temporary)" : temporary)
+                if pointerWrites[callee.index]?.contains(slot) == true {
+                    copyBack.append(("\(reference) = \(temporary);", valid))
+                }
+            } else {
+                lowered.append(outputFormat == .wgsl ? "&(\(reference))" : reference)
+            }
+            lowered.append(valid ?? "true")
+        }
+        lowered += captures
+        let call = "saga_fn_\(callee.index)(\(lowered.joined(separator: ", ")))"
         if let result {
             let expression = try function.expressions.value(for: result)
             let type = try typeName(expression.type)
@@ -376,11 +714,207 @@ struct ShaderBodyWriter {
         } else {
             try append("\(call);", to: &lines)
         }
+        for (assignment, valid) in copyBack {
+            try writeStatements([assignment], when: valid, to: &lines)
+        }
+    }
+
+    private mutating func writeSubgroupGather(
+        _ mode: IRGatherMode, argument: IRHandle<IRExpression>, result: IRHandle<IRExpression>, to lines: inout [String]
+    ) throws {
+        let operand = try value(argument)
+        let index = try mode.index.map { try value($0) }
+        if case .quadBroadcastDynamic = mode, let index {
+            let expression = try dynamicQuadBroadcast(operand: operand, index: index, result: result, to: &lines)
+            try writeSubgroupResult(result, expression: expression, to: &lines)
+            return
+        }
+        if case .quadBroadcast = mode, let index {
+            let call: String
+            switch outputFormat {
+            case .msl: call = "quad_broadcast(\(operand), ushort(\(index)))"
+            case .hlsl: call = "QuadReadLaneAt(\(operand), uint(\(index)))"
+            case .glsl: call = "subgroupQuadBroadcast(\(operand), uint(\(index)))"
+            default: call = "quadBroadcast(\(operand), \(index))"
+            }
+            try writeSubgroupResult(result, expression: call, to: &lines)
+            return
+        }
+        if case .quadSwap(let direction) = mode {
+            let names: (wgsl: String, hlsl: String, glsl: String, mask: UInt32)
+            switch direction {
+            case .x: names = ("quadSwapX", "QuadReadAcrossX", "subgroupQuadSwapHorizontal", 1)
+            case .y: names = ("quadSwapY", "QuadReadAcrossY", "subgroupQuadSwapVertical", 2)
+            case .diagonal: names = ("quadSwapDiagonal", "QuadReadAcrossDiagonal", "subgroupQuadSwapDiagonal", 3)
+            }
+            let call: String
+            switch outputFormat {
+            case .msl: call = "quad_shuffle_xor(\(operand), ushort(\(names.mask)))"
+            case .hlsl: call = "\(names.hlsl)(\(operand))"
+            case .glsl: call = "\(names.glsl)(\(operand))"
+            default: call = "\(names.wgsl)(\(operand))"
+            }
+            try writeSubgroupResult(result, expression: call, to: &lines)
+            return
+        }
+        let names: (wgsl: String, msl: String)
+        switch mode {
+        case .broadcastFirst: names = ("subgroupBroadcastFirst", "simd_broadcast_first")
+        case .broadcast: names = ("subgroupBroadcast", "simd_broadcast")
+        case .shuffle: names = ("subgroupShuffle", "simd_shuffle")
+        case .shuffleDown: names = ("subgroupShuffleDown", "simd_shuffle_down")
+        case .shuffleUp: names = ("subgroupShuffleUp", "simd_shuffle_up")
+        case .shuffleXor: names = ("subgroupShuffleXor", "simd_shuffle_xor")
+        default: throw unsupported("Unsupported subgroup gather")
+        }
+        let call: String
+        switch outputFormat {
+        case .msl:
+            call = "\(names.msl)(\(operand)\(index.map { ", ushort(\($0))" } ?? ""))"
+        case .hlsl:
+            if let index {
+                let lane: String
+                switch mode {
+                case .shuffleDown: lane = "WaveGetLaneIndex() + uint(\(index))"
+                case .shuffleUp: lane = "WaveGetLaneIndex() - uint(\(index))"
+                case .shuffleXor: lane = "WaveGetLaneIndex() ^ uint(\(index))"
+                default: lane = "uint(\(index))"
+                }
+                call = "WaveReadLaneAt(\(operand), \(lane))"
+            } else {
+                call = "WaveReadLaneFirst(\(operand))"
+            }
+        case .glsl:
+            call = "\(names.wgsl)(\(operand)\(index.map { ", uint(\($0))" } ?? ""))"
+        default:
+            call = "\(names.wgsl)(\(operand)\(index.map { ", \($0)" } ?? ""))"
+        }
+        try writeSubgroupResult(result, expression: call, to: &lines)
+    }
+
+    private mutating func dynamicQuadBroadcast(
+        operand: String, index: String, result: IRHandle<IRExpression>, to lines: inout [String]
+    ) throws -> String {
+        switch outputFormat {
+        case .msl: return "quad_broadcast(\(operand), ushort(\(index)))"
+        case .hlsl: return "QuadReadLaneAt(\(operand), uint(\(index)))"
+        default: break
+        }
+
+        // Constant quad indices work in WGSL and GLSL compiled to SPIR-V 1.3.
+        // Read all four lanes before selecting so the quad operations execute
+        // in the same control flow, including in fragment shaders.
+        let wgsl = outputFormat == .wgsl
+        let builtin = wgsl ? "quadBroadcast" : "subgroupQuadBroadcast"
+        let type = try typeName(function.expressions.value(for: result).type)
+        let lanes = (0..<4).map { "saga_quad_\(result.index)_\($0)" }
+        for (lane, name) in lanes.enumerated() {
+            let declaration = wgsl ? "let \(name): \(type)" : "\(type) \(name)"
+            try append("\(declaration) = \(builtin)(\(operand), \(lane)u);", to: &lines)
+        }
+        var selected = lanes[0]
+        for lane in 1..<4 {
+            let test = "(\(index) == \(lane)u)"
+            selected = wgsl ? "select(\(selected), \(lanes[lane]), \(test))"
+                            : "(\(test) ? \(lanes[lane]) : \(selected))"
+        }
+        return selected
+    }
+
+    private mutating func writeSubgroupBallot(
+        _ predicate: IRHandle<IRExpression>?, result: IRHandle<IRExpression>, to lines: inout [String]
+    ) throws {
+        let operand = try predicate.map { try value($0) } ?? "true"
+        let expression: String
+        switch outputFormat {
+        case .msl:
+            let mask = "saga_vote_\(result.index)"
+            try append("ulong \(mask) = (ulong)simd_ballot(\(operand));", to: &lines)
+            expression = "uint4(uint(\(mask)), uint(\(mask) >> 32), 0u, 0u)"
+        case .hlsl:
+            expression = "WaveActiveBallot(\(operand))"
+        default:
+            expression = "subgroupBallot(\(operand))"
+        }
+        try writeSubgroupResult(result, expression: expression, to: &lines)
+    }
+
+    private mutating func writeSubgroupCollective(
+        _ operation: IRSubgroupOperation, collective: IRCollectiveOperation,
+        argument: IRHandle<IRExpression>, result: IRHandle<IRExpression>, to lines: inout [String]
+    ) throws {
+        guard let name = operation.wgslName(collective) else { throw unsupported("Invalid subgroup collective") }
+        let operand = try value(argument)
+        let expression: String
+        if outputFormat == .wgsl || outputFormat == .glsl {
+            expression = "\(name)(\(operand))"
+        } else if collective == .reduce {
+            let names: (msl: String, hlsl: String)
+            switch operation {
+            case .all: names = ("simd_all", "WaveActiveAllTrue")
+            case .any: names = ("simd_any", "WaveActiveAnyTrue")
+            case .add: names = ("simd_sum", "WaveActiveSum")
+            case .mul: names = ("simd_product", "WaveActiveProduct")
+            case .min: names = ("simd_min", "WaveActiveMin")
+            case .max: names = ("simd_max", "WaveActiveMax")
+            case .and: names = ("simd_and", "WaveActiveBitAnd")
+            case .or: names = ("simd_or", "WaveActiveBitOr")
+            case .xor: names = ("simd_xor", "WaveActiveBitXor")
+            }
+            if outputFormat == .hlsl && operation.isBitwise {
+                let type = try function.expressions.value(for: argument).type
+                switch try module.types.value(for: type).kind {
+                case .scalar(.i32), .vector(_, .i32):
+                    expression = "asint(\(names.hlsl)(asuint(\(operand))))"
+                default:
+                    expression = "\(names.hlsl)(\(operand))"
+                }
+            } else {
+                expression = "\(outputFormat == .msl ? names.msl : names.hlsl)(\(operand))"
+            }
+        } else if outputFormat == .msl {
+            let mode = collective == .inclusiveScan ? "inclusive" : "exclusive"
+            let operation = operation == .add ? "sum" : "product"
+            expression = "simd_prefix_\(mode)_\(operation)(\(operand))"
+        } else {
+            let prefix = operation == .add ? "WavePrefixSum" : "WavePrefixProduct"
+            let call = "\(prefix)(\(operand))"
+            let combine = operation == .add ? "+" : "*"
+            expression = collective == .inclusiveScan ? "(\(call) \(combine) \(operand))" : call
+        }
+        try writeSubgroupResult(result, expression: expression, to: &lines)
+    }
+
+    private mutating func writeSubgroupResult(
+        _ result: IRHandle<IRExpression>, expression: String, to lines: inout [String]
+    ) throws {
+        let name = "saga_subgroup_\(result.index)"
+        let type = try typeName(function.expressions.value(for: result).type)
+        let declaration = outputFormat == .wgsl ? "let \(name): \(type)" : "\(type) \(name)"
+        try append("\(declaration) = \(expression);", to: &lines)
+        remember(result)
     }
 
     private mutating func remember(_ handle: IRHandle<IRExpression>) {
         temporaries.insert(handle)
         temporaryOrder.append(handle)
+    }
+
+    private mutating func discardTemporaries(from mark: Int) {
+        for temporary in temporaryOrder[mark...] { temporaries.remove(temporary) }
+        temporaryOrder.removeSubrange(mark...)
+    }
+
+    private mutating func writeVoidReturn(to lines: inout [String]) throws {
+        if case .metalVoidFragment(let type) = resultTarget {
+            try append("#ifdef \(RenderStageArtifact.metalPipelineSampleMaskMacro)", to: &lines)
+            try append("return \(type){};", to: &lines)
+            try append("#else", to: &lines)
+            try append("return;", to: &lines)
+            try append("#endif", to: &lines)
+        } else {
+            try append("return;", to: &lines)
+        }
     }
 
     private mutating func writeResult(_ value: String, to lines: inout [String]) throws {
@@ -398,6 +932,8 @@ struct ShaderBodyWriter {
                 try append("\(destination) = saga_result.saga_member_\(index);", to: &lines)
             }
             try finishGLSLVertex(to: &lines)
+        case .vertexClipStructure(let type, let destinations, let clipDistances):
+            try writeClipDistanceResult(value, type: type, destinations: destinations, clip: clipDistances, to: &lines)
         case .fragmentValue(let field, let metalType):
             let expression = fragmentOutputValue(value, field: field)
             if outputFormat == .glsl {
@@ -430,8 +966,60 @@ struct ShaderBodyWriter {
             } else {
                 try append("return \(value);", to: &lines)
             }
+        case .fragmentWithoutDepth(let valueType, let fields):
+            try append("\(valueType) saga_result = \(value);", to: &lines)
+            let initializer = outputFormat == .msl ? " = {}" : ""
+            try append("SagaFragmentOutput saga_output\(initializer);", to: &lines)
+            for (index, field) in fields {
+                let member = "saga_member_\(index)"
+                let expression = fragmentOutputValue("saga_result.\(member)", field: field)
+                try append("saga_output.\(member) = \(expression);", to: &lines)
+            }
+            try append("return saga_output;", to: &lines)
+        case .metalVoidFragment:
+            try append("(void)(\(value));", to: &lines)
+            try writeVoidReturn(to: &lines)
+        case .discardedFragmentDepth:
+            guard let result = function.result else { throw ShaderFailure.invalidHandle }
+            let type = try typeName(result.type)
+            try append("\(type) saga_ignored_depth = \(value);", to: &lines)
+            try writeVoidReturn(to: &lines)
         case nil:
             throw unsupported("unexpected return value")
+        }
+    }
+
+    private mutating func writeClipDistanceResult(
+        _ value: String, type: String, destinations: [String], clip: VertexClipDistances, to lines: inout [String]
+    ) throws {
+        try append("\(type) saga_result = \(value);", to: &lines)
+        let glsl = outputFormat == .glsl
+        if !glsl {
+            let initializer = outputFormat == .msl ? " = {}" : ""
+            try append("SagaVertexOutput saga_output\(initializer);", to: &lines)
+        }
+        for (index, destination) in destinations.enumerated() where index != clip.member {
+            let field = glsl ? destination : "saga_output.\(destination)"
+            try append("\(field) = saga_result.saga_member_\(index);", to: &lines)
+        }
+        let source = "saga_result.saga_member_\(clip.member)"
+        if outputFormat == .hlsl {
+            for (group, range) in clip.hlslGroups.enumerated() {
+                let values = range.map { source + outputFormat.valueArrayIndex(String($0)) }
+                let vector = floatType(UInt8(range.count), in: .hlsl)
+                try append("saga_output.saga_clip_\(group) = \(vector)(\(values.joined(separator: ", ")));", to: &lines)
+            }
+        } else {
+            let destination = glsl ? "gl_ClipDistance" : "saga_output.\(destinations[clip.member])"
+            for index in 0..<clip.count {
+                let value = source + outputFormat.valueArrayIndex(String(index))
+                try append("\(destination)[\(index)] = \(value);", to: &lines)
+            }
+        }
+        if glsl {
+            try finishGLSLVertex(to: &lines)
+        } else {
+            try append("return saga_output;", to: &lines)
         }
     }
 
@@ -457,23 +1045,58 @@ struct ShaderBodyWriter {
         index: Int, to lines: inout [String]
     ) throws {
         let continuingBlock = try function.blocks.value(for: continuing)
-        let hasContinuing = !continuingBlock.statements.isEmpty || breakIf != nil
-        let first = "saga_first_\(index)"
-        if hasContinuing {
-            try append("\(declaration("bool", named: first)) = true;", to: &lines)
+        if continuingBlock.statements.isEmpty && breakIf == nil {
+            try append(outputFormat == .wgsl ? "loop {" : "while (true) {", to: &lines)
+            try writeBlock(body, to: &lines)
+            try append("}", to: &lines)
+            return
         }
-        try append("while (true) {", to: &lines)
+
+        let mark = temporaryOrder.count
+        defer { discardTemporaries(from: mark) }
+        var bodyLines: [String] = []
+        let definitions = try writeBlock(body, retainLoopBodyScope: true, to: &bodyLines)
+        // Only references made while writing continuing need storage across iterations.
+        for definition in definitions { continuingCaptures[definition.expression] = false }
+
+        let first = "saga_first_\(index)"
+        var continuingLines: [String] = []
         do {
             indentation += "    "
             defer { indentation.removeLast(4) }
-            if hasContinuing {
-                // A native continue starts the next iteration, so run WGSL continuing at its head.
-                try append("if (!\(first)) {", to: &lines)
-                try writeBlock(continuing, breakIf: breakIf, to: &lines)
-                try append("}", to: &lines)
-                try append("\(first) = false;", to: &lines)
+            // Run continuing at the next iteration's head so native continue takes this path.
+            try append("if (!\(first)) {", to: &continuingLines)
+            try writeBlock(continuing, breakIf: breakIf, to: &continuingLines)
+            try append("}", to: &continuingLines)
+            try append("\(first) = false;", to: &continuingLines)
+        }
+
+        var captured: [LoopTemporary] = []
+        for definition in definitions {
+            try budget.consume(.work)
+            if continuingCaptures.removeValue(forKey: definition.expression) == true {
+                let type = try function.expressions.value(for: definition.expression).type
+                // The first-iteration guard prevents reads before assignment. Initialize the
+                // storage explicitly for native compilers that cannot prove this relationship.
+                try append("\(declaration(try typeName(type), named: definition.name)) = \(try zeroValue(type));", to: &lines)
+                captured.append(definition)
             }
-            try writeBlock(body, nested: false, to: &lines)
+        }
+        try append("\(declaration("bool", named: first)) = true;", to: &lines)
+        try append("while (true) {", to: &lines)
+        try budget.consume(.work, amount: continuingLines.count + bodyLines.count)
+        lines.append(contentsOf: continuingLines)
+        indentation += "    "
+        do {
+            defer { indentation.removeLast(4) }
+            var cursor = 0
+            // Save each snapshot at its definition so a later continue cannot bypass the copy.
+            for definition in captured {
+                lines.append(contentsOf: bodyLines[cursor..<definition.afterLine])
+                try append("\(definition.name) = \(try value(definition.expression));", to: &lines)
+                cursor = definition.afterLine
+            }
+            lines.append(contentsOf: bodyLines[cursor...])
         }
         try append("}", to: &lines)
     }
@@ -481,28 +1104,66 @@ struct ShaderBodyWriter {
     private mutating func emit(_ handle: IRHandle<IRExpression>, to lines: inout [String]) throws {
         let expression = try function.expressions.value(for: handle)
         switch expression.kind {
+        case .runtimeValue(let operand):
+            let name = "saga_value_\(handle.index)"
+            let binding = outputFormat == .wgsl ? "let \(name)" : "\(try typeName(expression.type)) \(name)"
+            try append("\(binding) = \(try value(operand));", to: &lines)
+            remember(handle)
         case .load(let pointer):
             // Loads are evaluated at their IR emit, before any later writes.
-            let source = try address(pointer)
             let name = "saga_load_\(handle.index)"
-            try writeLoad(pointer: pointer, source: source, type: expression.type, name: name, to: &lines)
+            let selection = try splitBufferAccess(pointer)
+            try writeBufferVariants(selection, named: name, resultType: expression.type,
+                                    eager: selection?.writable == false, to: &lines) { writer, name, lines in
+                let source = try writer.address(pointer)
+                try writer.writeLoad(pointer: pointer, source: source, type: expression.type, name: name, to: &lines)
+            }
             remember(handle)
+        case .arrayLength(let pointer):
+            if let selection = try splitBufferAccess(pointer) {
+                try writeBufferVariants(selection, named: "saga_array_length_\(handle.index)", resultType: expression.type,
+                                        eager: true, to: &lines) { writer, name, lines in
+                    let binding = writer.outputFormat == .wgsl ? "let" : "uint"
+                    try writer.append("\(binding) \(name) = \(try writer.value(handle));", to: &lines)
+                }
+                remember(handle)
+            } else {
+                _ = try value(handle)
+            }
         case .imageSample(let sample):
             let name = "saga_image_\(handle.index)"
-            let sampled: String
-            if let component = sample.gather {
-                sampled = try gatherExpression(sample, component: component, named: name, to: &lines)
-            } else {
-                sampled = try sampleExpression(sample, named: name, to: &lines)
+            try writeImageVariants([sample.image, sample.sampler], named: name, resultType: expression.type,
+                                   eager: true, to: &lines) { writer, name, lines in
+                let sampled: String
+                if let component = sample.gather {
+                    sampled = try writer.gatherExpression(sample, component: component, named: name, to: &lines)
+                } else {
+                    sampled = try writer.sampleExpression(sample, named: name, to: &lines)
+                }
+                let binding = writer.outputFormat == .wgsl ? "let \(name)" :
+                    writer.declaration(try writer.typeName(expression.type), named: name)
+                try writer.append("\(binding) = \(sampled);", to: &lines)
             }
-            let binding = outputFormat == .wgsl ? "let \(name)" : declaration(try typeName(expression.type), named: name)
-            try append("\(binding) = \(sampled);", to: &lines)
             remember(handle)
         case .imageLoad(let load):
-            try writeImageLoad(load, result: handle, type: expression.type, to: &lines)
+            let image = try function.expressions.value(for: load.image)
+            let writable = try module.types.value(for: image.type).kind.storageTexture?.access.contains(.store) == true
+            try writeImageVariants([load.image], named: "saga_image_\(handle.index)", resultType: expression.type,
+                                   eager: !writable, to: &lines) { writer, name, lines in
+                try writer.writeImageLoad(load, named: name, type: expression.type, to: &lines)
+            }
             remember(handle)
         case .imageQuery(let image, let query):
-            try writeImageQuery(query, image: image, result: handle, type: expression.type, to: &lines)
+            try writeImageVariants([image], named: "saga_image_\(handle.index)", resultType: expression.type,
+                                   eager: true, to: &lines) { writer, name, lines in
+                try writer.writeImageQuery(query, image: image, named: name, type: expression.type, to: &lines)
+            }
+            remember(handle)
+        case .derivative(let axis, let control, let operand):
+            let name = "saga_derivative_\(handle.index)"
+            let value = try derivativeExpression(axis, control: control, operand: value(operand))
+            let binding = outputFormat == .wgsl ? "let \(name)" : declaration(try typeName(expression.type), named: name)
+            try append("\(binding) = \(value);", to: &lines)
             remember(handle)
         case .select(let condition, let accept, let reject):
             let name = "saga_select_\(handle.index)"
@@ -510,26 +1171,113 @@ struct ShaderBodyWriter {
             let declaration = outputFormat == .wgsl ? "let \(name)" : "\(try typeName(expression.type)) \(name)"
             try append("\(declaration) = \(selected);", to: &lines)
             remember(handle)
+        case .math(let function, let first, let second, let third, let fourth) where function.integerBitArity != nil:
+            let scalar: IRScalar
+            let width: UInt8?
+            switch try module.types.value(for: expression.type).kind {
+            case .scalar(let lane): scalar = lane; width = nil
+            case .vector(let size, let lane): scalar = lane; width = size.rawValue
+            default: throw unsupported("integer bit builtin result")
+            }
+            let arguments = try ([first] + [second, third, fourth].compactMap { $0 }).map { try value($0) }
+            let statements = try integerBitStatements(function, arguments: arguments, type: typeName(expression.type),
+                                                       scalar: scalar, width: width,
+                                                       named: "saga_math_\(handle.index)", format: outputFormat)
+            for statement in statements { try append(statement, to: &lines) }
+            remember(handle)
+        case .math(let function, let operand, _, _, _) where function.packingBuiltin != nil:
+            guard let builtin = function.packingBuiltin else { throw ShaderFailure.invalidHandle }
+            let statements = try packingStatements(function, builtin: builtin, operand: value(operand),
+                                                   resultType: typeName(expression.type), named: "saga_math_\(handle.index)",
+                                                   format: outputFormat)
+            for statement in statements { try append(statement, to: &lines) }
+            remember(handle)
+        case .math(.ldexp, let mantissa, let exponent?, nil, nil):
+            try writeLdexp(mantissa, exponent: exponent, result: handle, type: expression.type, to: &lines)
+            remember(handle)
+        case .math(let operation, let operand, nil, nil, nil) where operation.decomposesFloat:
+            try writeDecomposition(operation, operand: operand, type: expression.type, result: handle, to: &lines)
+            remember(handle)
+        case .math(let operation, let first, let second, let third, nil) where operation.geometricArity != nil:
+            let input = try function.expressions.value(for: first)
+            let inputType = try module.types.value(for: input.type).kind
+            let args = try ([first] + [second, third].compactMap { $0 }).map { try value($0) }
+            let statements = try geometricStatements(operation, arguments: args, operand: inputType,
+                                                      resultType: typeName(expression.type), named: "saga_math_\(handle.index)",
+                                                      format: outputFormat)
+            for statement in statements { try append(statement, to: &lines) }
+            remember(handle)
+        case .math(let operation, let first, let second, let third, nil) where operation.numericBuiltin != nil:
+            let result = try module.types.value(for: expression.type).kind
+            let operands = [first] + [second, third].compactMap { $0 }
+            let args = try operands.map { try value($0) }
+            let argumentTypes = try operands.map { try module.types.value(for: function.expressions.value(for: $0).type).kind }
+            let statements = try numericBuiltinStatements(operation, arguments: args, argumentTypes: argumentTypes,
+                                                            result: result, resultType: typeName(expression.type),
+                                                            named: "saga_math_\(handle.index)", format: outputFormat)
+            for statement in statements { try append(statement, to: &lines) }
+            remember(handle)
+        case .binary(.modulo, let left, let right) where outputFormat == .glsl:
+            guard try module.types.value(for: expression.type).kind.concreteFloatShape != nil else {
+                _ = try value(handle)
+                break
+            }
+            let type = try typeName(expression.type)
+            let name = "saga_remainder_\(handle.index)"
+            let lhs = "\(name)_lhs", rhs = "\(name)_rhs"
+            try append("\(type) \(lhs) = \(try value(left));", to: &lines)
+            try append("\(type) \(rhs) = \(try value(right));", to: &lines)
+            try append("\(type) \(name) = \(floatingRemainder(lhs, rhs));", to: &lines)
+            remember(handle)
+        case .bitcast(let operand, let target):
+            let inputType = try function.expressions.value(for: operand).type
+            let input = try bitcastShape(inputType)
+            let output = try bitcastShape(target)
+            guard let words = input.packedHalfWords(to: output), outputFormat == .hlsl || outputFormat == .glsl else {
+                _ = try value(handle)
+                break
+            }
+            let name = "saga_bitcast_\(handle.index)"
+            let source = "\(name)_operand"
+            try append("\(try typeName(inputType)) \(source) = \(try value(operand));", to: &lines)
+            let type = try typeName(target)
+            let cast = packedHalfBitcast(source, input: input, output: output, words: words,
+                                         resultType: type, format: outputFormat)
+            try append("\(type) \(name) = \(cast);", to: &lines)
+            remember(handle)
         case .access(let base, let index):
-            if case .pointer = try module.types.value(for: expression.type).kind {
-                _ = try address(handle)
+            let type = try module.types.value(for: expression.type).kind
+            if type.isTextureOrSampler { break }
+            if case .pointer = type {
+                if try splitBufferAccess(handle) == nil { _ = try address(handle) }
             } else {
                 let source = try function.expressions.value(for: base)
-                guard let width = try module.types.value(for: source.type).kind.componentCount else {
+                let sourceType = try module.types.value(for: source.type).kind
+                let (index, nonnegative) = try indexedValue(index)
+                let width: UInt32
+                let subscriptPath: String
+                if case .array(_, .constant(let count), _) = sourceType {
+                    width = count
+                    subscriptPath = outputFormat.valueArrayIndex(index)
+                } else if let count = sourceType.componentCount {
+                    width = UInt32(count)
+                    subscriptPath = "[\(index)]"
+                } else {
                     throw unsupported("dynamic value indexing")
                 }
-                let (index, nonnegative) = try indexedValue(index)
                 let bounds = [nonnegative, "\(index) < \(width)u"].compactMap { $0 }.joined(separator: " && ")
                 let name = "saga_index_\(handle.index)"
                 let initial = try zeroValue(expression.type)
                 try append("\(declaration(try typeName(expression.type), named: name)) = \(initial);", to: &lines)
                 let operand = try value(base)
-                try writeStatements(["\(name) = \(operand)[\(index)];"], when: bounds, to: &lines)
+                try writeStatements(["\(name) = \(operand)\(subscriptPath);"], when: bounds, to: &lines)
                 remember(handle)
             }
         case .accessIndex:
-            if case .pointer = try module.types.value(for: expression.type).kind {
-                if try storageLocation(expression.kind) == nil { _ = try address(handle) }
+            let type = try module.types.value(for: expression.type).kind
+            if type.isTextureOrSampler { break }
+            if case .pointer = type {
+                if try storageLocation(expression.kind) == nil, try splitBufferAccess(handle) == nil { _ = try address(handle) }
             } else {
                 _ = try value(handle)
             }
@@ -538,12 +1286,218 @@ struct ShaderBodyWriter {
         }
     }
 
-    private func imageReference(_ image: IRHandle<IRExpression>) throws -> String {
-        let expression = try function.expressions.value(for: image)
-        guard let location = try storageLocation(expression.kind) else {
-            throw unsupported("sampled texture must be a global binding")
+    private struct ImageElement {
+        let reference: String
+        let index: UInt32
+    }
+
+    private struct ImageVariant {
+        var references: [IRHandle<IRExpression>: ImageElement] = [:]
+        var conditions: [String] = []
+    }
+
+    private mutating func writeImageVariants(
+        _ images: [IRHandle<IRExpression>], named name: String, resultType: IRHandle<IRType>? = nil,
+        eager: Bool = false, to lines: inout [String],
+        emit: (inout Self, String, inout [String]) throws -> Void
+    ) throws {
+        guard hasSplitBindingArrays else {
+            try emit(&self, name, &lines)
+            return
         }
-        return location.reference
+        var seen: Set<IRHandle<IRExpression>> = []
+        var variants = [ImageVariant()]
+        for image in images where seen.insert(image).inserted {
+            guard let access = try SplitImageAccess(image, in: function) else { continue }
+            let array = try function.expressions.value(for: access.base)
+            guard let location = try storageLocation(array.kind), location.splitBindingArray,
+                  let count = location.bindingArrayCount, count > 0 else { continue }
+            if let fixed = access.fixedElement(count: count) {
+                for variant in variants.indices {
+                    variants[variant].references[image] = .init(reference: "\(location.reference)_\(fixed)", index: fixed)
+                }
+                continue
+            }
+            guard let dynamic = access.dynamic else { throw ShaderFailure.invalidHandle }
+            let selector = "\(name)_binding_\(image.index)"
+            let index = try boundedImageIndex(dynamic, count: count)
+            let declaration = outputFormat == .wgsl ? "let" : "uint"
+            try append("\(declaration) \(selector) = \(index);", to: &lines)
+            try budget.consume(.nodes, amount: variants.count * Int(count))
+            variants = variants.flatMap { variant in
+                (0..<count).map { element in
+                    var choice = variant
+                    choice.references[image] = .init(reference: "\(location.reference)_\(element)", index: element)
+                    choice.conditions.append("\(selector) == \(element)u")
+                    return choice
+                }
+            }
+        }
+        let choices = variants.map { ($0.references, $0.conditions.isEmpty ? nil : imageBounds($0.conditions)) }
+        defer { selectedImages.removeAll(keepingCapacity: true) }
+        try writeBindingVariants(choices, named: name, resultType: resultType, eager: eager, to: &lines,
+                                 select: { $0.selectedImages = $1 }, emit: emit)
+    }
+
+    private mutating func writeBindingVariants<Selection>(
+        _ choices: [(Selection, String?)], named name: String, resultType: IRHandle<IRType>?, eager: Bool,
+        to lines: inout [String], select: (inout Self, Selection) -> Void,
+        emit: (inout Self, String, inout [String]) throws -> Void
+    ) throws {
+        if choices.count == 1, let choice = choices.first, choice.1 == nil {
+            select(&self, choice.0)
+            try emit(&self, name, &lines)
+            return
+        }
+        var selected = try resultType.map { try zeroValue($0) } ?? ""
+        if choices.isEmpty {
+            if let resultType {
+                let binding = outputFormat == .wgsl ? "let \(name)" : declaration(try typeName(resultType), named: name)
+                try append("\(binding) = \(selected);", to: &lines)
+            }
+            return
+        }
+        if let resultType, !eager || outputFormat == .glsl {
+            try append("\(declaration(try typeName(resultType), named: name)) = \(selected);", to: &lines)
+        }
+        for (index, choice) in choices.enumerated() {
+            let candidate = "\(name)_candidate_\(index)"
+            guard let condition = choice.1 else { throw ShaderFailure.invalidHandle }
+            select(&self, choice.0)
+            if eager {
+                guard let resultType else { throw ShaderFailure.invalidHandle }
+                try emit(&self, candidate, &lines)
+                if outputFormat == .glsl {
+                    try writeStatements(["\(name) = \(candidate);"], when: condition, to: &lines)
+                } else {
+                    let result = index + 1 == choices.count ? name : "\(name)_selected_\(index)"
+                    let value = try selectCompositeValue(resultType, reference: candidate, valid: condition, reject: selected)
+                    try append("let \(result) = \(value);", to: &lines)
+                    selected = result
+                }
+            } else {
+                try append("if (\(condition)) {", to: &lines)
+                indentation += "    "
+                try emit(&self, candidate, &lines)
+                if resultType != nil { try append("\(name) = \(candidate);", to: &lines) }
+                indentation.removeLast(4)
+                try append("}", to: &lines)
+            }
+        }
+    }
+
+    private struct SplitBufferAccess {
+        let handle: IRHandle<IRExpression>
+        let fixed: UInt32?
+        let dynamic: IRHandle<IRExpression>?
+        let count: UInt32
+        let writable: Bool
+    }
+
+    private mutating func splitBufferAccess(_ pointer: IRHandle<IRExpression>) throws -> SplitBufferAccess? {
+        guard hasSplitBindingArrays, hasNestedBuffers else { return nil }
+        var handle = pointer
+        while true {
+            try budget.consume(.work)
+            let base: IRHandle<IRExpression>
+            let dynamic: IRHandle<IRExpression>?
+            var fixed: UInt32?
+            switch try function.expressions.value(for: handle).kind {
+            case .accessIndex(let array, let index): (base, dynamic, fixed) = (array, nil, index)
+            case .access(let array, let index): (base, dynamic, fixed) = (array, index, nil)
+            default: return nil
+            }
+            if case .globalVariable(let global) = try function.expressions.value(for: base).kind {
+                let location = storage[global.index]
+                guard location.splitBindingArray, let array = location.nested?.bindingArray else { return nil }
+                if let dynamic {
+                    switch try function.expressions.value(for: dynamic).kind {
+                    case .literal(.u32(let index)): fixed = index
+                    case .literal(.i32(let index)): fixed = UInt32(bitPattern: index)
+                    default: break
+                    }
+                }
+                return .init(handle: handle, fixed: fixed, dynamic: dynamic, count: array.count, writable: location.writable)
+            }
+            handle = base
+        }
+    }
+
+    private mutating func writeBufferVariants(
+        _ access: SplitBufferAccess?, named name: String, resultType: IRHandle<IRType>? = nil,
+        eager: Bool = false, to lines: inout [String],
+        emit: (inout Self, String, inout [String]) throws -> Void
+    ) throws {
+        guard let access else {
+            try emit(&self, name, &lines)
+            return
+        }
+        let choices: [(UInt32, String?)]
+        if let fixed = access.fixed {
+            choices = fixed < access.count ? [(fixed, nil)] : []
+        } else {
+            guard let dynamic = access.dynamic else { throw ShaderFailure.invalidHandle }
+            let selector = "\(name)_binding"
+            let (index, _) = try indexedValue(dynamic)
+            let binding = outputFormat == .wgsl ? "let" : "uint"
+            try append("\(binding) \(selector) = \(index);", to: &lines)
+            try budget.consume(.nodes, amount: Int(access.count))
+            choices = (0..<access.count).map { ($0, "\(selector) == \($0)u") }
+        }
+        safeBufferRead = eager && outputFormat == .wgsl
+        defer { webBufferElement = nil; safeBufferRead = false }
+        try writeBindingVariants(choices, named: name, resultType: resultType, eager: eager, to: &lines,
+                                 select: { $0.webBufferElement = (access.handle, $1) }, emit: emit)
+    }
+
+    private mutating func imageReference(_ image: IRHandle<IRExpression>) throws -> String {
+        if let selected = selectedImages[image] { return selected.reference }
+        let expression = try function.expressions.value(for: image)
+        switch expression.kind {
+        case .accessIndex(let base, let index):
+            let (name, count) = try bindingArrayReference(base)
+            return "\(name)[\(min(index, count - 1))u]"
+        case .access(let base, let index):
+            let (name, count) = try bindingArrayReference(base)
+            let bounded = try boundedImageIndex(index, count: count)
+            let subscriptValue = outputFormat == .hlsl ? "NonUniformResourceIndex(\(bounded))" : bounded
+            return "\(name)[\(subscriptValue)]"
+        default:
+            guard let location = try storageLocation(expression.kind) else {
+                throw unsupported("sampled texture must be a global binding")
+            }
+            return location.reference
+        }
+    }
+
+    private func glslPair(_ sample: IRImageSample, externalPlane: UInt32? = nil) throws -> ShaderTextureSamplerPair {
+        try ShaderTextureSamplerPair(sample, in: function, textureElement: selectedImages[sample.image]?.index,
+                                     samplerElement: selectedImages[sample.sampler]?.index, externalPlane: externalPlane)
+    }
+
+    private func externalTextureReference(_ image: IRHandle<IRExpression>) throws -> ExternalTextureReference {
+        let expression = try function.expressions.value(for: image)
+        guard let reference = try storageLocation(expression.kind)?.externalTexture else {
+            throw unsupported("Expected native external texture bindings")
+        }
+        return reference
+    }
+
+    private mutating func boundedImageIndex(_ index: IRHandle<IRExpression>, count: UInt32) throws -> String {
+        let (offset, nonnegative) = try indexedValue(index)
+        let upperBound = "min(\(offset), \(count - 1)u)"
+        return nonnegative.map {
+            outputFormat == .wgsl ? "select(0u, \(upperBound), \($0))" : "(\($0) ? \(upperBound) : 0u)"
+        } ?? upperBound
+    }
+
+    private func bindingArrayReference(_ base: IRHandle<IRExpression>) throws -> (String, UInt32) {
+        let expression = try function.expressions.value(for: base)
+        guard let location = try storageLocation(expression.kind), !location.splitBindingArray,
+              let count = location.bindingArrayCount, count > 0 else {
+            throw unsupported("Expected a bounded texture or sampler binding array")
+        }
+        return (location.reference, count)
     }
 
     private mutating func clampedSampleLayer(
@@ -566,9 +1520,23 @@ struct ShaderBodyWriter {
         }
         let image = try function.expressions.value(for: sample.image)
         let kind = try module.types.value(for: image.type).kind
+        if kind.isLineTexture, sample.offset != nil, outputFormat == .msl || outputFormat == .wgsl {
+            throw unsupported("1D texture sample offset requires the HLSL or GLSL target")
+        }
+        if kind.isExternalTexture && outputFormat != .wgsl {
+            let reference = try externalTextureReference(sample.image)
+            let arguments: String
+            if outputFormat == .glsl {
+                let planes = try (0..<3).map { try glslPair(sample, externalPlane: $0).name }
+                arguments = (planes + [reference.parameters]).joined(separator: ", ")
+            } else {
+                arguments = reference.arguments + ", " + (try imageReference(sample.sampler))
+            }
+            return "saga_external_sample(\(arguments), \(try value(sample.coordinate)))"
+        }
         let depth = kind.isDepthTexture
         let cube = kind.isCubeTexture
-        let texture = outputFormat == .glsl ? try ShaderTextureSamplerPair(sample, in: function).name :
+        let texture = outputFormat == .glsl ? try glslPair(sample).name :
             try imageReference(sample.image)
         var uv = try value(sample.coordinate)
         if sample.clampToEdge {
@@ -636,7 +1604,8 @@ struct ShaderBodyWriter {
         let sampler = try imageReference(sample.sampler)
         switch outputFormat {
         case .msl:
-            let args = ([sampler, uv] + [layer, metalModifier].compactMap { $0 } + offsetArguments).joined(separator: ", ")
+            let modifier = kind.isLineTexture ? nil : metalModifier
+            let args = ([sampler, uv] + [layer, modifier].compactMap { $0 } + offsetArguments).joined(separator: ", ")
             return "\(texture).sample(\(args))"
         case .hlsl:
             let coord = layer.map { "\(cube ? "float4" : "float3")(\(uv), float(\($0)))" } ?? uv
@@ -660,7 +1629,7 @@ struct ShaderBodyWriter {
         let imageType = try function.expressions.value(for: sample.image).type
         let cube = try module.types.value(for: imageType).kind.isCubeTexture
         if outputFormat == .glsl {
-            let pair = try ShaderTextureSamplerPair(sample, in: function)
+            let pair = try glslPair(sample)
             let layer = try clampedSampleLayer(sample, image: pair.name, named: name, to: &lines)
             if cube, let layer {
                 let coord = "vec4(\(uv), float(\(layer)))"
@@ -718,7 +1687,7 @@ struct ShaderBodyWriter {
         let depth = kind.isDepthTexture
         let cube = kind.isCubeTexture
         if outputFormat == .glsl {
-            let pair = try ShaderTextureSamplerPair(sample, in: function)
+            let pair = try glslPair(sample)
             let trailing = reference.map { [$0] + offsetArguments } ?? (offsetArguments + [String(index)])
             let layer = try clampedSampleLayer(sample, image: pair.name, named: name, to: &lines)
             let coord = layer.map { "\(cube ? "vec4" : "vec3")(\(uv), float(\($0)))" } ?? uv
@@ -776,16 +1745,20 @@ struct ShaderBodyWriter {
 
     // Storage and multisampled views expose one level. Ordinary sampled textures take an explicit level.
     private func imageDimensions(
-        _ image: String, level: String?, named name: String, multisampled: Bool = false, arrayed: Bool = false,
-        cube: Bool = false, volume: Bool = false
+        _ image: String, level: String?, named name: String, kind: IRTypeKind = .sampledFloat2D
     ) throws -> [String] {
+        let multisampled = kind.isMultisampled2D
+        let arrayed = kind.isArrayedTexture
+        let volume = kind.isVolumeTexture
+        let line = kind.isLineTexture
         switch outputFormat {
         case .wgsl:
             let args = level.map { "\(image), \($0)" } ?? image
             return ["let \(name) = textureDimensions(\(args));"]
         case .msl:
             let mip = level ?? ""
-            if cube { return ["uint2 \(name) = uint2(\(image).get_width(\(mip)));"] }
+            if line { return ["uint \(name) = \(image).get_width();"] }
+            if kind.isCubeTexture { return ["uint2 \(name) = uint2(\(image).get_width(\(mip)));"] }
             if volume {
                 return ["uint3 \(name) = uint3(\(image).get_width(\(mip)), \(image).get_height(\(mip)), \(image).get_depth(\(mip)));"]
             }
@@ -793,12 +1766,21 @@ struct ShaderBodyWriter {
         case .glsl:
             let size = level.map { "textureSize(\(image), int(\($0)))" } ??
                 (multisampled ? "textureSize(\(image))" : "imageSize(\(image))")
-            let type = volume ? "uvec3" : "uvec2"
+            let type = volume ? "uvec3" : line ? "uint" : "uvec2"
             return ["\(type) \(name) = \(type)(\(size)\(arrayed ? ".xy" : ""));"]
         case .hlsl:
+            if line {
+                if let level {
+                    return ["uint \(name), \(name)_unused;", "\(image).GetDimensions(\(level), \(name), \(name)_unused);"]
+                }
+                return ["uint \(name);", "\(image).GetDimensions(\(name));"]
+            }
             if volume, let level {
                 return ["uint3 \(name);", "uint \(name)_unused;",
                         "\(image).GetDimensions(\(level), \(name).x, \(name).y, \(name).z, \(name)_unused);"]
+            }
+            if volume {
+                return ["uint3 \(name);", "\(image).GetDimensions(\(name).x, \(name).y, \(name).z);"]
             }
             if arrayed, let level {
                 return ["uint2 \(name);", "uint \(name)_layers, \(name)_unused;",
@@ -821,13 +1803,18 @@ struct ShaderBodyWriter {
         }
     }
 
-    private func imageLevels(_ image: String, named name: String, arrayed: Bool = false, volume: Bool = false) throws -> [String] {
+    private func imageLevels(_ image: String, named name: String, kind: IRTypeKind) throws -> [String] {
         switch outputFormat {
         case .wgsl: return ["let \(name) = textureNumLevels(\(image));"]
-        case .msl: return ["uint \(name) = \(image).get_num_mip_levels();"]
+        case .msl:
+            let count = kind.isLineTexture ? "1u" : "\(image).get_num_mip_levels()"
+            return ["uint \(name) = \(count);"]
         case .glsl: return ["uint \(name) = uint(textureQueryLevels(\(image)));"]
         case .hlsl:
-            if arrayed || volume {
+            if kind.isLineTexture {
+                return ["uint \(name), \(name)_width;", "\(image).GetDimensions(0u, \(name)_width, \(name));"]
+            }
+            if kind.isArrayedTexture || kind.isVolumeTexture {
                 return ["uint \(name), \(name)_width, \(name)_height, \(name)_third;",
                         "\(image).GetDimensions(0u, \(name)_width, \(name)_height, \(name)_third, \(name));"]
             }
@@ -873,74 +1860,84 @@ struct ShaderBodyWriter {
     }
 
     private mutating func writeImageQuery(
-        _ query: IRImageQuery, image: IRHandle<IRExpression>, result: IRHandle<IRExpression>,
+        _ query: IRImageQuery, image: IRHandle<IRExpression>, named name: String,
         type: IRHandle<IRType>, to lines: inout [String]
     ) throws {
         let imageType = try function.expressions.value(for: image).type
         let kind = try module.types.value(for: imageType).kind
+        if kind.isExternalTexture && outputFormat != .wgsl {
+            let reference = try externalTextureReference(image)
+            let binding = declaration(try typeName(type), named: name)
+            try append("\(binding) = saga_external_dimensions(\(reference.planes[0]), \(reference.parameters));", to: &lines)
+            return
+        }
         let image = try imageReference(image)
-        let name = "saga_image_\(result.index)"
         switch query {
         case .numLevels:
-            try writeStatements(imageLevels(image, named: name, arrayed: kind.isArrayedTexture, volume: kind.isVolumeTexture),
-                                when: nil, to: &lines)
+            try writeStatements(imageLevels(image, named: name, kind: kind), when: nil, to: &lines)
         case .numSamples:
             try writeStatements(imageSamples(image, named: name), when: nil, to: &lines)
         case .numLayers:
-            try writeStatements(imageLayers(image, named: name, storage: kind.storageTexture2D != nil),
+            try writeStatements(imageLayers(image, named: name, storage: kind.storageTexture != nil),
                                 when: nil, to: &lines)
         case .size(nil):
-            let level = kind.storageTexture2D != nil || kind.isMultisampled2D ? nil : "0u"
-            try writeStatements(imageDimensions(image, level: level, named: name, multisampled: kind.isMultisampled2D,
-                                                arrayed: kind.isArrayedTexture, cube: kind.isCubeTexture, volume: kind.isVolumeTexture),
-                                when: nil, to: &lines)
+            let level = kind.storageTexture != nil || kind.isMultisampled2D || kind.isExternalTexture ? nil : "0u"
+            try writeStatements(imageDimensions(image, level: level, named: name, kind: kind), when: nil, to: &lines)
         case .size(let level?):
             let (index, nonnegative) = try indexedValue(level)
             let levels = "\(name)_levels"
-            try writeStatements(imageLevels(image, named: levels, arrayed: kind.isArrayedTexture, volume: kind.isVolumeTexture),
-                                when: nil, to: &lines)
+            try writeStatements(imageLevels(image, named: levels, kind: kind), when: nil, to: &lines)
             let initial = try zeroValue(type)
             let size = "\(name)_size"
             let bounds = imageBounds([nonnegative, "\(index) < \(levels)"].compactMap { $0 })
             if outputFormat == .wgsl {
                 let valid = "\(name)_valid_level"
                 try append("let \(valid) = \(bounds);", to: &lines)
-                try writeStatements(imageDimensions(image, level: "select(0u, \(index), \(valid))", named: size,
-                                                    arrayed: kind.isArrayedTexture, cube: kind.isCubeTexture, volume: kind.isVolumeTexture),
+                try writeStatements(imageDimensions(image, level: "select(0u, \(index), \(valid))", named: size, kind: kind),
                                     when: nil, to: &lines)
                 try append("let \(name) = select(\(initial), \(size), \(valid));", to: &lines)
             } else {
                 try append("\(declaration(try typeName(type), named: name)) = \(initial);", to: &lines)
-                try writeStatements(imageDimensions(image, level: index, named: size, arrayed: kind.isArrayedTexture,
-                                                    cube: kind.isCubeTexture, volume: kind.isVolumeTexture) + ["\(name) = \(size);"],
+                try writeStatements(imageDimensions(image, level: index, named: size, kind: kind) + ["\(name) = \(size);"],
                                     when: bounds, to: &lines)
             }
         }
     }
 
     private mutating func writeImageLoad(
-        _ load: IRImageLoad, result: IRHandle<IRExpression>, type: IRHandle<IRType>, to lines: inout [String]
+        _ load: IRImageLoad, named name: String, type: IRHandle<IRType>, to lines: inout [String]
     ) throws {
         let imageType = try function.expressions.value(for: load.image).type
         let imageKind = try module.types.value(for: imageType).kind
-        if let storage = imageKind.storageTexture2D {
-            try writeStorageImageLoad(load, result: result, type: type, scalar: storage.scalar, components: storage.components,
-                                      writable: storage.access.contains(.store), to: &lines)
+        if imageKind.isExternalTexture {
+            if outputFormat == .wgsl {
+                try writeStorageImageLoad(load, named: name, type: type, scalar: .f32, components: 4,
+                                          writable: false, kind: imageKind, to: &lines)
+            } else {
+                let reference = try externalTextureReference(load.image)
+                let binding = declaration(try typeName(type), named: name)
+                let coordinate = outputFormat == .glsl ? "uvec2" : "uint2"
+                try append("\(binding) = saga_external_load(\(reference.arguments), \(coordinate)(\(try value(load.coordinate))));", to: &lines)
+            }
+            return
+        }
+        if let storage = imageKind.storageTexture {
+            try writeStorageImageLoad(load, named: name, type: type, scalar: storage.scalar, components: storage.components,
+                                      writable: storage.access.contains(.store), kind: imageKind, to: &lines)
             return
         }
         let multisampled = imageKind.isMultisampled2D
-        let arrayed = imageKind.isArrayedTexture
         let volume = imageKind.isVolumeTexture
+        let line = imageKind.isLineTexture
         guard let operand = multisampled ? load.sample : load.level else {
             throw unsupported("sampled texture load without sample index or level")
         }
         let image = try imageReference(load.image)
-        let name = "saga_image_\(result.index)"
-        let (coordinates, unsigned, signed) = try imageCoordinates(load.coordinate, named: name, volume: volume, to: &lines)
+        let (coordinates, unsigned, signed) = try imageCoordinates(load.coordinate, named: name, kind: imageKind, to: &lines)
         let (index, nonnegative) = try indexedValue(operand)
         let count = "\(name)_count"
         let query = multisampled ? try imageSamples(image, named: count) :
-            try imageLevels(image, named: count, arrayed: arrayed, volume: volume)
+            try imageLevels(image, named: count, kind: imageKind)
         try writeStatements(query, when: nil, to: &lines)
         let initial = try zeroValue(type)
         let size = "\(name)_size"
@@ -956,7 +1953,7 @@ struct ShaderBodyWriter {
             layer = nil
         }
         let indexBounds = imageBounds(indexChecks)
-        let bounds = imageCoordinateBounds(coordinates, unsigned: unsigned, size: size, signed: signed, volume: volume)
+        let bounds = imageCoordinateBounds(coordinates, unsigned: unsigned, size: size, signed: signed, kind: imageKind)
         if outputFormat == .wgsl {
             // Use a valid address and select the zero result so uniform inputs stay uniform after re-parsing.
             let validIndex = "\(name)_valid_index"
@@ -965,10 +1962,10 @@ struct ShaderBodyWriter {
             let safeCoordinates = "\(name)_safe_coordinates"
             try append("let \(validIndex) = \(indexBounds);", to: &lines)
             try append("let \(safeIndex) = select(0u, \(index), \(validIndex));", to: &lines)
-            try writeStatements(imageDimensions(image, level: multisampled ? nil : safeIndex, named: size,
-                                                multisampled: multisampled, arrayed: arrayed, volume: volume), when: nil, to: &lines)
+            try writeStatements(imageDimensions(image, level: multisampled ? nil : safeIndex, named: size, kind: imageKind),
+                                when: nil, to: &lines)
             try append("let \(valid) = \(validIndex) & \(bounds);", to: &lines)
-            let zero = volume ? "vec3u(0u)" : "vec2u(0u)"
+            let zero = volume ? "vec3u(0u)" : line ? "0u" : "vec2u(0u)"
             try append("let \(safeCoordinates) = select(\(zero), \(unsigned), \(valid));", to: &lines)
             var args = [image, safeCoordinates]
             if let layer { args.append("select(0u, \(layer), \(validIndex))") }
@@ -980,16 +1977,18 @@ struct ShaderBodyWriter {
         try append("\(declaration(try typeName(type), named: name)) = \(initial);", to: &lines)
         try append("if (\(indexBounds)) {", to: &lines)
         indentation += "    "
-        try writeStatements(imageDimensions(image, level: multisampled ? nil : index, named: size,
-                                            multisampled: multisampled, arrayed: arrayed, volume: volume), when: nil, to: &lines)
+        try writeStatements(imageDimensions(image, level: multisampled ? nil : index, named: size, kind: imageKind),
+                            when: nil, to: &lines)
         let texel: String
         switch outputFormat {
         case .msl:
-            let args = [unsigned, layer, index].compactMap { $0 }.joined(separator: ", ")
+            let args = [unsigned, layer, line ? nil : index].compactMap { $0 }.joined(separator: ", ")
             texel = "\(image).read(\(args))"
         case .hlsl:
             let location = "\(volume ? "int3" : "int2")(\(coordinates))"
-            if let layer {
+            if line {
+                texel = "\(image).Load(int2(int(\(coordinates)), int(\(index))))"
+            } else if let layer {
                 texel = "\(image).Load(int4(\(location), int(\(layer)), int(\(index))))"
             } else {
                 texel = multisampled ? "\(image).Load(\(location), int(\(index)))" :
@@ -997,7 +1996,7 @@ struct ShaderBodyWriter {
             }
         case .glsl:
             let component = imageKind.isDepthTexture ? ".r" : ""
-            let coordinate = "\(volume ? "ivec3" : "ivec2")(\(coordinates))"
+            let coordinate = "\(volume ? "ivec3" : line ? "int" : "ivec2")(\(coordinates))"
             let location = layer.map { "ivec3(\(coordinate), int(\($0)))" } ?? coordinate
             texel = "texelFetch(\(image), \(location), int(\(index)))\(component)"
         default: throw unsupported("sampled texture load target")
@@ -1008,31 +2007,32 @@ struct ShaderBodyWriter {
     }
 
     private mutating func imageCoordinates(
-        _ coordinate: IRHandle<IRExpression>, named name: String, volume: Bool = false, to lines: inout [String]
+        _ coordinate: IRHandle<IRExpression>, named name: String, kind: IRTypeKind, to lines: inout [String]
     ) throws -> (raw: String, unsigned: String, signed: Bool) {
         let type = try function.expressions.value(for: coordinate).type
-        let signed = try module.types.value(for: type).kind == .vector(size: volume ? .three : .two, scalar: .i32)
+        let signed = try module.types.value(for: type).kind == kind.texelCoordinateType(.i32)
         let coordinates = "\(name)_coordinates"
         let binding = outputFormat == .wgsl ? "let \(coordinates)" : "\(try typeName(type)) \(coordinates)"
         try append("\(binding) = \(try value(coordinate));", to: &lines)
-        let unsigned = signed ? integerBits(coordinates, signed: false, width: volume ? 3 : 2, in: outputFormat) : coordinates
+        let width: UInt8? = kind.isLineTexture ? nil : kind.isVolumeTexture ? 3 : 2
+        let unsigned = signed ? integerBits(coordinates, signed: false, width: width, in: outputFormat) : coordinates
         return (coordinates, unsigned, signed)
     }
 
     private mutating func writeStorageImageLoad(
-        _ load: IRImageLoad, result: IRHandle<IRExpression>, type: IRHandle<IRType>,
-        scalar: IRScalar, components: Int, writable: Bool, to lines: inout [String]
+        _ load: IRImageLoad, named name: String, type: IRHandle<IRType>,
+        scalar: IRScalar, components: Int, writable: Bool, kind: IRTypeKind, to lines: inout [String]
     ) throws {
         let image = try imageReference(load.image)
-        let name = "saga_image_\(result.index)"
         let (coordinates, unsigned, layer, bounds) = try storageImageAddress(
-            image, coordinate: load.coordinate, arrayIndex: load.arrayIndex, named: name, to: &lines)
+            image, coordinate: load.coordinate, arrayIndex: load.arrayIndex, named: name, kind: kind, to: &lines)
         let initial = try zeroValue(type)
         if outputFormat == .wgsl && !writable {
             let valid = "\(name)_valid"
             let safe = "\(name)_safe_coordinates"
             try append("let \(valid) = \(bounds);", to: &lines)
-            try append("let \(safe) = select(vec2u(0u), \(unsigned), \(valid));", to: &lines)
+            let zero = kind.isVolumeTexture ? "vec3u(0u)" : kind.isLineTexture ? "0u" : "vec2u(0u)"
+            try append("let \(safe) = select(\(zero), \(unsigned), \(valid));", to: &lines)
             let slice = layer.map { ", select(0u, \($0), \(valid))" } ?? ""
             try append("let \(name) = select(\(initial), textureLoad(\(image), \(safe)\(slice)), \(valid));", to: &lines)
             return
@@ -1045,15 +2045,16 @@ struct ShaderBodyWriter {
             let location = layer.map { "uint3(\(unsigned), \($0))" } ?? unsigned
             texel = "\(image)[\(location)]"
         case .glsl:
-            let xy = "ivec2(\(coordinates))"
-            let location = layer.map { "ivec3(\(xy), int(\($0)))" } ?? xy
+            let coord = "\(kind.isVolumeTexture ? "ivec3" : kind.isLineTexture ? "int" : "ivec2")(\(coordinates))"
+            let location = layer.map { "ivec3(\(coord), int(\($0)))" } ?? coord
             texel = "imageLoad(\(image), \(location))"
         default: throw unsupported("storage texture load target")
         }
         if components < 4 && (outputFormat == .msl || outputFormat == .hlsl) {
-            let zero = scalar == .u32 ? "0u" : scalar == .f32 ? "0.0f" : "0"
-            let one = scalar == .u32 ? "1u" : scalar == .f32 ? "1.0f" : "1"
-            if outputFormat == .msl { texel += components == 1 ? ".x" : ".xy" }
+            let zero = scalarZero(scalar)
+            let one = scalar == .u64 ? unsigned64Literal(1, in: outputFormat) :
+                scalar == .u32 ? "1u" : scalar == .f32 ? "1.0f" : "1"
+            if outputFormat == .msl || components == 3 { texel += "." + String("xyz".prefix(components)) }
             let lanes = [texel] + Array(repeating: zero, count: 3 - components) + [one]
             texel = "\(try typeName(type))(\(lanes.joined(separator: ", ")))"
         }
@@ -1062,11 +2063,11 @@ struct ShaderBodyWriter {
     }
 
     private func imageCoordinateBounds(_ coordinates: String, unsigned: String, size: String, signed: Bool,
-                                       volume: Bool = false) -> String {
+                                       kind: IRTypeKind) -> String {
         let zero = outputFormat == .wgsl ? "0i" : "0"
-        let axes = volume ? ["x", "y", "z"] : ["x", "y"]
-        let positive = signed ? axes.map { "\(coordinates).\($0) >= \(zero)" } : []
-        return imageBounds(positive + axes.map { "(\(unsigned)).\($0) < \(size).\($0)" })
+        let lanes = kind.isLineTexture ? [""] : kind.isVolumeTexture ? [".x", ".y", ".z"] : [".x", ".y"]
+        let positive = signed ? lanes.map { "\(coordinates)\($0) >= \(zero)" } : []
+        return imageBounds(positive + lanes.map { "(\(unsigned))\($0) < \(size)\($0)" })
     }
 
     private mutating func writeImageStore(
@@ -1075,12 +2076,13 @@ struct ShaderBodyWriter {
         named name: String, to lines: inout [String]
     ) throws {
         let type = try function.expressions.value(for: image).type
-        guard let storage = try module.types.value(for: type).kind.storageTexture2D else {
+        let kind = try module.types.value(for: type).kind
+        guard let storage = kind.storageTexture else {
             throw unsupported("storage texture store type")
         }
         let image = try imageReference(image)
         let (coordinates, unsigned, layer, bounds) = try storageImageAddress(
-            image, coordinate: coordinate, arrayIndex: arrayIndex, named: name, to: &lines)
+            image, coordinate: coordinate, arrayIndex: arrayIndex, named: name, kind: kind, to: &lines)
         let color = try value(rhs)
         let store: String
         switch outputFormat {
@@ -1095,8 +2097,8 @@ struct ShaderBodyWriter {
             let location = layer.map { "uint3(\(unsigned), \($0))" } ?? unsigned
             store = "\(image)[\(location)] = \(value);"
         case .glsl:
-            let xy = "ivec2(\(coordinates))"
-            let location = layer.map { "ivec3(\(xy), int(\($0)))" } ?? xy
+            let coord = "\(kind.isVolumeTexture ? "ivec3" : kind.isLineTexture ? "int" : "ivec2")(\(coordinates))"
+            let location = layer.map { "ivec3(\(coord), int(\($0)))" } ?? coord
             store = "imageStore(\(image), \(location), \(color));"
         default: throw unsupported("storage texture target")
         }
@@ -1105,19 +2107,68 @@ struct ShaderBodyWriter {
 
     private mutating func storageImageAddress(
         _ image: String, coordinate: IRHandle<IRExpression>, arrayIndex: IRHandle<IRExpression>?,
-        named name: String, to lines: inout [String]
+        named name: String, kind: IRTypeKind, to lines: inout [String]
     ) throws -> (coordinates: String, unsigned: String, layer: String?, bounds: String) {
-        let (coordinates, unsigned, signed) = try imageCoordinates(coordinate, named: name, to: &lines)
+        let (coordinates, unsigned, signed) = try imageCoordinates(coordinate, named: name, kind: kind, to: &lines)
         let size = "\(name)_size"
-        try writeStatements(imageDimensions(image, level: nil, named: size, arrayed: arrayIndex != nil),
+        try writeStatements(imageDimensions(image, level: nil, named: size, kind: kind),
                             when: nil, to: &lines)
-        let bounds = imageCoordinateBounds(coordinates, unsigned: unsigned, size: size, signed: signed)
+        let bounds = imageCoordinateBounds(coordinates, unsigned: unsigned, size: size, signed: signed, kind: kind)
         guard let arrayIndex else { return (coordinates, unsigned, nil, bounds) }
         let (layer, nonnegative) = try indexedValue(arrayIndex)
         let layers = "\(name)_layers"
         try writeStatements(imageLayers(image, named: layers, storage: true), when: nil, to: &lines)
         let layerBounds = [nonnegative, "\(layer) < \(layers)"].compactMap { $0 }
         return (coordinates, unsigned, layer, imageBounds([bounds] + layerBounds))
+    }
+
+    private mutating func writeImageAtomic(
+        image: IRHandle<IRExpression>, coordinate: IRHandle<IRExpression>, arrayIndex: IRHandle<IRExpression>?,
+        function operationKind: IRAtomicFunction, value operand: IRHandle<IRExpression>, named name: String, to lines: inout [String]
+    ) throws {
+        let operation: String = switch operationKind {
+        case .add: "Add"
+        case .min: "Min"
+        case .max: "Max"
+        case .and: "And"
+        case .inclusiveOr: "Or"
+        case .exclusiveOr: "Xor"
+        default: throw unsupported("texture atomic operation")
+        }
+        let type = try function.expressions.value(for: image).type
+        let kind = try module.types.value(for: type).kind
+        let root = try SplitImageAccess(image, in: function)?.base ?? image
+        let rootExpression = try function.expressions.value(for: root)
+        let writeGuard = try storageLocation(rootExpression.kind)?.metalAtomicWriteGuard
+        let image = try imageReference(image)
+        let (coordinates, unsigned, layer, bounds) = try storageImageAddress(
+            image, coordinate: coordinate, arrayIndex: arrayIndex, named: name, kind: kind, to: &lines)
+        let rhs = try value(operand)
+        let call: String
+        switch outputFormat {
+        case .wgsl:
+            call = "textureAtomic\(operation)(\(image), \(coordinates)\(layer.map { ", \($0)" } ?? ""), \(rhs));"
+        case .msl:
+            let prefix = kind.storageTexture?.scalar == .u64 ? "atomic_" : "atomic_fetch_"
+            call = "\(image).\(prefix)\(operation.lowercased())(\(unsigned)\(layer.map { ", \($0)" } ?? ""), \(rhs));"
+        case .hlsl:
+            let location = layer.map { "uint3(\(unsigned), \($0))" } ?? unsigned
+            call = "Interlocked\(operation)(\(image)[\(location)], \(rhs));"
+        case .glsl:
+            let coord = "\(kind.isVolumeTexture ? "ivec3" : kind.isLineTexture ? "int" : "ivec2")(\(coordinates))"
+            let location = layer.map { "ivec3(\(coord), int(\($0)))" } ?? coord
+            call = "imageAtomic\(operation)(\(image), \(location), \(rhs));"
+        default: throw unsupported("texture atomic target")
+        }
+        var statements = [call]
+        if let writeGuard, let scalar = kind.storageTexture?.scalar {
+            // Keep a texture write visible to the Metal fragment driver. The backend binds zero.
+            let zero = scalarZero(scalar)
+            let vector = try shaderVectorType(4, scalar: scalar, in: outputFormat)
+            let location = "\(unsigned)\(layer.map { ", \($0)" } ?? "")"
+            statements.append("if (\(writeGuard) != 0u) { \(image).write(\(vector)(\(zero)), \(location)); }")
+        }
+        try writeStatements(statements, when: bounds, to: &lines)
     }
 
     private mutating func selectExpression(
@@ -1147,8 +2198,17 @@ struct ShaderBodyWriter {
             return
         }
         let declaration = declaration(try typeName(type), named: name)
-        let value = try source.memory.load(in: outputFormat)
-        if let condition = source.boundsCheck {
+        let value: String
+        if case .aggregate(let access) = source.memory {
+            value = try loadNested(access)
+        } else {
+            value = try source.memory.load(in: outputFormat)
+        }
+        if let condition = source.boundsCheck, safeBufferRead {
+            let captured = "\(name)_in_bounds"
+            try append("let \(captured) = \(value);", to: &lines)
+            try append("let \(name) = \(try selectCompositeValue(type, reference: captured, valid: condition));", to: &lines)
+        } else if let condition = source.boundsCheck {
             let fallback = try zeroValue(type)
             try append("\(declaration) = \(fallback);", to: &lines)
             try writeStatements(["\(name) = \(value);"], when: condition, to: &lines)
@@ -1167,10 +2227,21 @@ struct ShaderBodyWriter {
         let name = "saga_uniform_\(result.index)"
         if outputFormat == .wgsl {
             guard case .native(let reference) = source.memory else { throw unsupported("uniform load address") }
-            let call = "workgroupUniformLoad(&\(reference))"
+            var call = "workgroupUniformLoad(&\(reference))"
+            if try atomicScalar(at: pointer) == .f32 { call = try floatAtomicBitcast(call, to: .f32) }
             if let bounds = source.boundsCheck {
-                let initial = try zeroValue(type)
-                try append("let \(name) = select(\(initial), \(call), \(bounds));", to: &lines)
+                switch try module.types.value(for: type).kind {
+                case .scalar, .vector:
+                    let initial = try zeroValue(type)
+                    try append("let \(name) = select(\(initial), \(call), \(bounds));", to: &lines)
+                default:
+                    let captured = name + "_captured"
+                    let valid = name + "_valid"
+                    try append("let \(captured) = \(call);", to: &lines)
+                    try append("let \(valid) = \(bounds);", to: &lines)
+                    let value = try selectCompositeValue(type, reference: captured, valid: valid)
+                    try append("let \(name) = \(value);", to: &lines)
+                }
             } else {
                 try append("let \(name) = \(call);", to: &lines)
             }
@@ -1183,6 +2254,44 @@ struct ShaderBodyWriter {
         remember(result)
     }
 
+    // WGSL select accepts scalar and vector values. Rebuild larger values from
+    // selected components so a uniform value stays uniform after bounds handling.
+    private mutating func selectCompositeValue(
+        _ type: IRHandle<IRType>, reference: String, valid: String, reject: String? = nil
+    ) throws -> String {
+        try budget.consume(.work)
+        try budget.enterDepth()
+        defer { try? budget.leaveDepth() }
+        switch try module.types.value(for: type).kind {
+        case .scalar, .vector:
+            let fallback = try reject ?? zeroValue(type)
+            return "select(\(fallback), \(reference), \(valid))"
+        case .matrix(let columns, let rows, let scalar):
+            let column = try shaderVectorType(rows.rawValue, scalar: scalar, in: outputFormat)
+            let zero = "\(column)(\(scalarZero(scalar)))"
+            let values = (0..<columns.rawValue).map { index in
+                let fallback = reject.map { "\($0)[\(index)u]" } ?? zero
+                return "select(\(fallback), \(reference)[\(index)u], \(valid))"
+            }
+            return try construct(type, components: values)
+        case .array(let element, .constant(let count), _):
+            try budget.consume(.nodes, amount: Int(count))
+            let values = try (0..<count).map { index in
+                try selectCompositeValue(element, reference: "\(reference)[\(index)u]", valid: valid,
+                                      reject: reject.map { "\($0)[\(index)u]" })
+            }
+            return try construct(type, components: values)
+        case .structure(let members, _):
+            let values = try members.enumerated().map { index, field in
+                let path = try member(UInt32(index), of: type)
+                return try selectCompositeValue(field.type, reference: reference + path, valid: valid,
+                                             reject: reject.map { $0 + path })
+            }
+            return try construct(type, components: values)
+        default: throw unsupported("WGSL aggregate selection result type")
+        }
+    }
+
     private func atomicScalar(at handle: IRHandle<IRExpression>) throws -> IRScalar? {
         let expression = try function.expressions.value(for: handle)
         guard case .pointer(let type, _) = try module.types.value(for: expression.type).kind,
@@ -1191,42 +2300,77 @@ struct ShaderBodyWriter {
     }
 
     private mutating func writeCompareExchange(
-        target: ShaderAddress, scalar: IRScalar, expected: String, replacement: String,
-        result: IRHandle<IRExpression>?, temporary: String, to lines: inout [String]
+        target: ShaderAddress, scalar: IRScalar, expected: String, replacement: String, strong: Bool,
+        result: (name: String, type: IRHandle<IRType>)?, temporary: String, to lines: inout [String]
     ) throws {
-        let name = result.map { "saga_atomic_\($0.index)" }
-        if let result, let name {
-            let type = try function.expressions.value(for: result).type
-            let initial = try zeroValue(type)
-            try append("\(declaration(try typeName(type), named: name)) = \(initial);", to: &lines)
+        if outputFormat == .msl, scalar.width == 8 {
+            throw unsupported("Metal supports only unsigned 64-bit storage min/max atomics")
+        }
+        let lane = try shaderVectorType(1, scalar: scalar, in: outputFormat)
+        let name = result?.name
+        if let result {
+            let initial = try zeroValue(result.type)
+            try append("\(declaration(try typeName(result.type), named: result.name)) = \(initial);", to: &lines)
         }
         if outputFormat == .hlsl, let raw = target.memory.hlslAtomicByteAddress {
             let compared = "\(temporary)_expected"
-            let compareBits = scalar == .i32 ? "asuint(\(expected))" : expected
-            let replacementBits = scalar == .i32 ? "asuint(\(replacement))" : replacement
+            let signed32 = scalar == .i32
+            let compareBits = signed32 ? "asuint(\(expected))" : expected
+            let replacementBits = signed32 ? "asuint(\(replacement))" : replacement
+            let bitsType = signed32 ? "uint" : lane
+            let suffix = scalar.width == 8 ? "64" : ""
             var operations = [
-                "uint \(compared) = \(compareBits);",
-                "uint \(temporary);",
-                "\(raw.buffer).InterlockedCompareExchange(\(raw.offset), \(compared), \(replacementBits), \(temporary));",
+                "\(bitsType) \(compared) = \(compareBits);",
+                "\(bitsType) \(temporary);",
+                "\(raw.buffer).InterlockedCompareExchange\(suffix)(\(raw.offset), \(compared), \(replacementBits), \(temporary));",
             ]
             if let name {
-                let old = scalar == .i32 ? "asint(\(temporary))" : temporary
+                let old = signed32 ? "asint(\(temporary))" : temporary
                 operations += ["\(name).saga_member_0 = \(old);", "\(name).saga_member_1 = \(temporary) == \(compared);"]
             }
             try writeStatements(operations, when: target.boundsCheck, to: &lines)
             return
         }
+        if case .glslAtomicWord(let reference) = target.memory {
+            let compared = temporary + "_expected"
+            let signed = scalar == .i32
+            let expectedBits = signed ? "uint(\(expected))" : expected
+            let replacementBits = signed ? "uint(\(replacement))" : replacement
+            var operations = [
+                "uint \(compared) = \(expectedBits);",
+                "uint \(temporary) = atomicCompSwap(\(reference), \(compared), \(replacementBits));",
+            ]
+            if let name {
+                let previous = signed ? "int(\(temporary))" : temporary
+                operations += ["\(name).saga_member_0 = \(previous);", "\(name).saga_member_1 = \(temporary) == \(compared);"]
+            }
+            try writeStatements(operations, when: target.boundsCheck, to: &lines)
+            return
+        }
         guard case .native(let reference) = target.memory else { throw unsupported("atomic compare-exchange address") }
-        let lane = scalar == .i32 ? "int" : "uint"
         let oldValue = name.map { "\($0).saga_member_0" } ?? temporary
         let statements: [String]
         switch outputFormat {
         case .msl:
-            let start = name == nil ? "\(lane) \(oldValue)" : oldValue
-            let call = "atomic_compare_exchange_weak_explicit(&(\(reference)), &\(oldValue), \(replacement), " +
+            let newValue = strong ? temporary + "_replacement" : replacement
+            let call = "atomic_compare_exchange_weak_explicit(&(\(reference)), &\(oldValue), \(newValue), " +
                 "memory_order_relaxed, memory_order_relaxed)"
-            let assign = name.map { "\($0).saga_member_1 = " } ?? ""
-            statements = ["\(start) = \(expected);", "\(assign)\(call);"]
+            if strong {
+                let compared = temporary + "_expected"
+                let exchanged = name.map { "\($0).saga_member_1" } ?? temporary + "_exchanged"
+                var operations = ["const \(lane) \(compared) = \(expected);", "const \(lane) \(newValue) = \(replacement);"]
+                if name == nil { operations += ["\(lane) \(oldValue);", "bool \(exchanged);"] }
+                statements = operations + [
+                    "do {",
+                    "    \(oldValue) = \(compared);",
+                    "    \(exchanged) = \(call);",
+                    "} while (!\(exchanged) && \(oldValue) == \(compared));",
+                ]
+            } else {
+                let start = name == nil ? "\(lane) \(oldValue)" : oldValue
+                let assign = name.map { "\($0).saga_member_1 = " } ?? ""
+                statements = ["\(start) = \(expected);", "\(assign)\(call);"]
+            }
         case .hlsl, .glsl:
             let compared = "\(temporary)_expected"
             var operations = ["\(lane) \(compared) = \(expected);"]
@@ -1240,12 +2384,27 @@ struct ShaderBodyWriter {
             if let name { operations.append("\(name).saga_member_1 = \(oldValue) == \(compared);") }
             statements = operations
         case .wgsl:
-            let call = "atomicCompareExchangeWeak(&\(reference), \(expected), \(replacement))"
-            if let name {
+            if strong {
+                let compared = temporary + "_expected"
+                let newValue = temporary + "_replacement"
+                var operations = [
+                    "let \(compared) = \(expected);",
+                    "let \(newValue) = \(replacement);",
+                    "loop {",
+                    "    let \(temporary) = atomicCompareExchangeWeak(&\(reference), \(compared), \(newValue));",
+                    "    if (\(temporary).exchanged || \(temporary).old_value != \(compared)) {",
+                ]
+                if let name {
+                    operations += ["        \(oldValue) = \(temporary).old_value;",
+                                   "        \(name).saga_member_1 = \(temporary).exchanged;"]
+                }
+                statements = operations + ["        break;", "    }", "}"]
+            } else if let name {
+                let call = "atomicCompareExchangeWeak(&\(reference), \(expected), \(replacement))"
                 statements = ["let \(temporary) = \(call);", "\(oldValue) = \(temporary).old_value;",
                               "\(name).saga_member_1 = \(temporary).exchanged;"]
             } else {
-                statements = ["_ = \(call);"]
+                statements = ["_ = atomicCompareExchangeWeak(&\(reference), \(expected), \(replacement));"]
             }
         default: throw unsupported("atomic compare-exchange target")
         }
@@ -1256,15 +2415,45 @@ struct ShaderBodyWriter {
         _ operation: ShaderAtomicOperation, target: ShaderAddress, scalar: IRScalar,
         result: String?, temporary: String, to lines: inout [String]
     ) throws {
-        let signed = scalar == .i32
-        let zero = signed ? (outputFormat == .wgsl ? "0i" : "0") : "0u"
-        let type = outputFormat == .wgsl ? (signed ? "i32" : "u32") : (signed ? "int" : "uint")
+        if scalar == .f32 {
+            try writeFloatAtomic(operation, target: target, result: result, temporary: temporary, to: &lines)
+            return
+        }
+        if outputFormat == .msl, scalar.width == 8 {
+            guard scalar == .u64, result == nil, case .native(let reference) = target.memory,
+                  case .readModifyWrite(let function, let value) = operation, function == .min || function == .max else {
+                throw unsupported("Metal supports only unsigned 64-bit storage min/max atomics")
+            }
+            let name = function == .min ? "min" : "max"
+            let call = "atomic_\(name)_explicit(&(\(reference)), \(value), memory_order_relaxed);"
+            try writeStatements([call], when: target.boundsCheck, to: &lines)
+            return
+        }
+        let zero = scalarZero(scalar)
+        let type = try shaderVectorType(1, scalar: scalar, in: outputFormat)
         if let result { try append("\(declaration(type, named: result)) = \(zero);", to: &lines) }
         let assignment = result.map { "\($0) = " } ?? ""
-        let (intrinsic, operand) = try atomicIntrinsic(operation, signed: signed, zero: zero)
+        let (intrinsic, operand) = try atomicIntrinsic(operation, scalar: scalar, zero: zero)
         if outputFormat == .hlsl, let raw = target.memory.hlslAtomicByteAddress, let operand {
-            let statements = hlslRawAtomic(operation, intrinsic: intrinsic, operand: operand, signed: signed,
+            let statements: [String]
+            if scalar.width == 8 {
+                let unsignedBitwise = scalar == .i64 && operation.bitwiseOperator != nil
+                let input = unsignedBitwise ? "uint64_t(\(operand))" : operand
+                let old = unsignedBitwise ? temporary + "_bits" : result ?? temporary
+                var operations = result == nil || unsignedBitwise ? ["\(unsignedBitwise ? "uint64_t" : type) \(old);"] : []
+                operations.append("\(raw.buffer).\(intrinsic)64(\(raw.offset), \(input), \(old));")
+                if unsignedBitwise, let result { operations.append("\(result) = int64_t(\(old));") }
+                statements = operations
+            } else {
+                statements = hlslRawAtomic(operation, intrinsic: intrinsic, operand: operand, signed: scalar == .i32,
                                            raw: raw, result: result, temporary: "\(temporary)_bits")
+            }
+            try writeStatements(statements, when: target.boundsCheck, to: &lines)
+            return
+        }
+        if case .glslAtomicWord(let reference) = target.memory, let operand {
+            let statements = glslRawAtomic(operation, intrinsic: intrinsic, operand: operand, signed: scalar == .i32,
+                                           reference: reference, result: result, temporary: temporary + "_bits")
             try writeStatements(statements, when: target.boundsCheck, to: &lines)
             return
         }
@@ -1282,6 +2471,23 @@ struct ShaderBodyWriter {
             call = "\(intrinsic)(\(reference), \(operand))"
         case .hlsl:
             guard let operand else { throw unsupported("HLSL atomic operand") }
+            if scalar == .i64, let symbol = operation.bitwiseOperator {
+                let previous = temporary + "_previous"
+                let expected = temporary + "_expected"
+                // HLSL exposes 64-bit bitwise intrinsics only on unsigned destinations.
+                var statements = [
+                    "int64_t \(previous);",
+                    "InterlockedAdd(\(reference), \(zero), \(previous));",
+                    "int64_t \(expected);",
+                    "do {",
+                    "    \(expected) = \(previous);",
+                    "    InterlockedCompareExchange(\(reference), \(expected), \(expected) \(symbol) (\(operand)), \(previous));",
+                    "} while (\(previous) != \(expected));",
+                ]
+                if let result { statements.append("\(result) = \(previous);") }
+                try writeStatements(statements, when: target.boundsCheck, to: &lines)
+                return
+            }
             var statements: [String] = []
             if result == nil { statements.append("\(type) \(temporary);") }
             statements.append("\(intrinsic)(\(reference), \(operand), \(result ?? temporary));")
@@ -1290,6 +2496,120 @@ struct ShaderBodyWriter {
         default: throw unsupported("atomic operation target")
         }
         try writeStatements(["\(assignment)\(call);"], when: target.boundsCheck, to: &lines)
+    }
+
+    private mutating func writeFloatAtomic(
+        _ operation: ShaderAtomicOperation, target: ShaderAddress, result: String?,
+        temporary: String, to lines: inout [String]
+    ) throws {
+        // Float atomics use the same four bytes as uint atomics. Compare bit patterns so NaNs and signed zero cannot
+        // turn an otherwise successful compare-exchange into a failed floating-point comparison.
+        let bits = temporary + "_bits"
+        switch operation {
+        case .store(let value):
+            try writeAtomic(.store(floatAtomicBitcast(value, to: .u32)), target: target, scalar: .u32,
+                            result: nil, temporary: bits, to: &lines)
+            return
+        case .load:
+            try writeAtomic(.load, target: target, scalar: .u32, result: bits, temporary: bits, to: &lines)
+        case .readModifyWrite(.exchange(compare: nil, strong: false), let value):
+            let replacement = try floatAtomicBitcast(value, to: .u32)
+            try writeAtomic(.readModifyWrite(.exchange(compare: nil), replacement), target: target, scalar: .u32,
+                            result: result == nil ? nil : bits, temporary: bits, to: &lines)
+        case .readModifyWrite(let function, let value) where function == .add || function == .subtract:
+            try writeAtomic(.load, target: target, scalar: .u32, result: bits, temporary: bits, to: &lines)
+            let delta = temporary + "_delta"
+            let previous = temporary + "_previous"
+            let symbol = function == .add ? "+" : "-"
+            let oldFloat = try floatAtomicBitcast(previous, to: .f32)
+            let update = try floatAtomicBitcast("(\(oldFloat) \(symbol) \(delta))", to: .u32)
+            let statements: [String]
+            switch (outputFormat, target.memory) {
+            case (.wgsl, .native(let reference)):
+                let attempt = temporary + "_attempt"
+                statements = [
+                    "let \(delta) = \(value);",
+                    "loop {",
+                    "    let \(previous) = \(bits);",
+                    "    let \(attempt) = atomicCompareExchangeWeak(&\(reference), \(previous), \(update));",
+                    "    if (\(attempt).exchanged) { break; }",
+                    "    \(bits) = \(attempt).old_value;",
+                    "}",
+                ]
+            case (.msl, .native(let reference)):
+                statements = [
+                    "float \(delta) = \(value);",
+                    "while (true) {",
+                    "    uint \(previous) = \(bits);",
+                    "    if (atomic_compare_exchange_weak_explicit(&(\(reference)), &\(bits), \(update), " +
+                        "memory_order_relaxed, memory_order_relaxed)) { break; }",
+                    "}",
+                ]
+            default:
+                let exchange: String
+                if outputFormat == .hlsl, let raw = target.memory.hlslAtomicByteAddress {
+                    exchange = "\(raw.buffer).InterlockedCompareExchange(\(raw.offset), \(previous), \(update), \(bits));"
+                } else {
+                    switch (outputFormat, target.memory) {
+                    case (.glsl, .native(let reference)), (.glsl, .glslAtomicWord(let reference)):
+                        exchange = "\(bits) = atomicCompSwap(\(reference), \(previous), \(update));"
+                    case (.hlsl, .native(let reference)):
+                        exchange = "InterlockedCompareExchange(\(reference), \(previous), \(update), \(bits));"
+                    default: throw unsupported("float atomic address")
+                    }
+                }
+                let hint = outputFormat == .hlsl ? "[allow_uav_condition] " : ""
+                statements = [
+                    "float \(delta) = \(value);",
+                    "\(hint)while (true) {",
+                    "    uint \(previous) = \(bits);",
+                    "    \(exchange)",
+                    "    if (\(bits) == \(previous)) { break; }",
+                    "}",
+                ]
+            }
+            try writeStatements(statements, when: target.boundsCheck, to: &lines)
+        default: throw unsupported("float atomic operation")
+        }
+        if let result {
+            let type = floatType(1, in: outputFormat)
+            try append("\(declaration(type, named: result)) = \(try floatAtomicBitcast(bits, to: .f32));", to: &lines)
+        }
+    }
+
+    private func floatAtomicBitcast(_ value: String, to output: IRScalar) throws -> String {
+        try bitcastValue(value, from: output == .f32 ? .u32 : .f32, to: output,
+                         type: shaderVectorType(1, scalar: output, in: outputFormat))
+    }
+
+    private func glslRawAtomic(
+        _ operation: ShaderAtomicOperation, intrinsic: String, operand: String, signed: Bool,
+        reference: String, result: String?, temporary: String
+    ) -> [String] {
+        if signed, case .readModifyWrite(let function, _) = operation, function == .min || function == .max {
+            // The raw SSBO word is unsigned. Compare in signed space, then CAS the bit pattern.
+            let comparison = function == .min ? "min" : "max"
+            let input = temporary + "_operand"
+            let previous = temporary + "_previous"
+            let next = temporary + "_next"
+            var lines = [
+                "int \(input) = \(operand);",
+                "uint \(temporary) = atomicOr(\(reference), 0u);",
+                "while (true) {",
+                "    uint \(previous) = \(temporary);",
+                "    uint \(next) = uint(\(comparison)(int(\(previous)), \(input)));",
+                "    \(temporary) = atomicCompSwap(\(reference), \(previous), \(next));",
+                "    if (\(temporary) == \(previous)) { break; }",
+                "}",
+            ]
+            if let result { lines.append("\(result) = int(\(temporary));") }
+            return lines
+        }
+        let bits = signed ? "uint(\(operand))" : operand
+        let call = "\(intrinsic)(\(reference), \(bits))"
+        guard let result else { return ["\(call);"] }
+        let previous = signed ? "int(\(call))" : call
+        return ["\(result) = \(previous);"]
     }
 
     private func hlslRawAtomic(
@@ -1325,7 +2645,7 @@ struct ShaderBodyWriter {
     }
 
     private func atomicIntrinsic(
-        _ operation: ShaderAtomicOperation, signed: Bool, zero: String
+        _ operation: ShaderAtomicOperation, scalar: IRScalar, zero: String
     ) throws -> (String, String?) {
         let names: (msl: String, hlsl: String, glsl: String, wgsl: String)
         var operand: String?
@@ -1352,7 +2672,13 @@ struct ShaderBodyWriter {
             }
             names = (metal, hlsl, function == .subtract ? "atomicAdd" : builtin, builtin)
             if function == .subtract && (outputFormat == .glsl || outputFormat == .hlsl) {
-                operand = signed ? signedNegation(value, in: outputFormat) : "0u - (\(value))"
+                switch scalar {
+                case .i32: operand = signedNegation(value, in: outputFormat)
+                case .i64:
+                    let bits = "\(unsigned64Literal(0, in: outputFormat)) - uint64_t(\(value))"
+                    operand = "int64_t(\(bits))"
+                default: operand = "\(zero) - (\(value))"
+                }
             } else {
                 operand = value
             }
@@ -1391,16 +2717,31 @@ struct ShaderBodyWriter {
         try budget.enterDepth()
         defer { try? budget.leaveDepth() }
         let pointer = try function.expressions.value(for: handle)
+        if let selected = try nestedAccess(handle) {
+            return try .init(memory: nestedMemory(selected.access), boundsCheck: selected.bounds,
+                             writable: selected.access.buffer.writable)
+        }
+        if case .functionArgument(let argument) = pointer.kind,
+           case .pointer = try module.types.value(for: pointer.type).kind {
+            guard let slot = Int(exactly: argument), arguments.indices.contains(slot) else {
+                throw ShaderFailure.invalidHandle
+            }
+            let name = arguments[slot]
+            let reference = outputFormat == .wgsl ? "(*\(name))" : name
+            let valid = module.allowsPointerSubviews ? name + "_valid" : nil
+            return .init(memory: .native(reference), boundsCheck: valid, writable: true)
+        }
         if case .localVariable(let local) = pointer.kind {
             _ = try function.localVariables.value(for: local)
             return .init(memory: .native(localName(local.index)), boundsCheck: nil, writable: true)
         }
         if case .accessIndex(let base, let index) = pointer.kind {
             let source = try function.expressions.value(for: base)
-            if case .pointer(let pointee, .function) = try module.types.value(for: source.type).kind,
+            if case .pointer(let pointee, let space) = try module.types.value(for: source.type).kind,
+               space == .function || space == .workgroup || space == .private,
                case .structure = try module.types.value(for: pointee).kind {
                 let parent = try address(base, guardIndexForUniformLoad: guardIndexForUniformLoad)
-                guard case .native(let reference) = parent.memory else { throw unsupported("local structure storage") }
+                guard case .native(let reference) = parent.memory else { throw unsupported("structure storage address") }
                 let field = try member(index, of: pointee)
                 return .init(memory: .native(reference + field),
                              boundsCheck: parent.boundsCheck, writable: parent.writable)
@@ -1423,21 +2764,230 @@ struct ShaderBodyWriter {
             throw unsupported("storage access must name a scalar or an indexed array element")
         }
         let source = try function.expressions.value(for: base)
+        if case .pointer(let pointee, let space) = try module.types.value(for: source.type).kind,
+           space == .function || space == .workgroup || space == .private,
+           case .array(_, .constant(let count), _) = try module.types.value(for: pointee).kind,
+           try storageLocation(source.kind)?.bound == nil {
+            let parent = try address(base, guardIndexForUniformLoad: guardIndexForUniformLoad)
+            guard case .native(let reference) = parent.memory else { throw ShaderFailure.invalidHandle }
+            let bounds = addressBounds([parent.boundsCheck, nonnegative, "\(index) < \(count)u"],
+                                       uniform: guardIndexForUniformLoad)
+            let safeIndex = guardIndexForUniformLoad ? "select(0u, \(index), \(bounds))" : index
+            return .init(memory: .native(reference + outputFormat.valueArrayIndex(safeIndex)),
+                         boundsCheck: bounds, writable: parent.writable)
+        }
         if case .pointer(let pointee, _) = try module.types.value(for: source.type).kind,
            let width = try module.types.value(for: pointee).kind.componentCount {
             let parent = try address(base, guardIndexForUniformLoad: guardIndexForUniformLoad)
-            let bounds = [parent.boundsCheck, nonnegative, "\(index) < \(width)u"]
-                .compactMap { $0 }.joined(separator: " && ")
-            let safeIndex = guardIndexForUniformLoad ? "select(0u, \(index), \(bounds))" : index
-            return .init(memory: parent.memory.component(safeIndex), boundsCheck: bounds, writable: parent.writable)
+            let safeRead = guardIndexForUniformLoad || safeBufferRead
+            let bounds = addressBounds([parent.boundsCheck, nonnegative, "\(index) < \(width)u"],
+                                       uniform: safeRead)
+            let safeIndex = safeRead ? "select(0u, \(index), \(bounds))" : index
+            return try .init(memory: parent.memory.component(safeIndex), boundsCheck: bounds, writable: parent.writable)
         }
         guard let binding = try storageLocation(source.kind), let bound = binding.bound else {
             throw unsupported("storage access must name an indexed array element")
         }
         let upperBound = "\(index) < \(bound)"
-        let bounds = nonnegative.map { "\($0) && \(upperBound)" } ?? upperBound
+        let bounds = addressBounds([nonnegative, upperBound], uniform: guardIndexForUniformLoad)
         let safeIndex = guardIndexForUniformLoad ? "select(0u, \(index), \(bounds))" : index
         return .init(memory: binding.memory(at: safeIndex), boundsCheck: bounds, writable: binding.writable)
+    }
+
+    private mutating func nestedAccess(_ handle: IRHandle<IRExpression>) throws
+        -> (access: NestedBufferAccess, bounds: String?)? {
+        guard hasNestedBuffers else { return nil }
+        try budget.consume(.work)
+        try budget.enterDepth()
+        defer { try? budget.leaveDepth() }
+        let expression = try function.expressions.value(for: handle)
+        guard case .pointer(_, let space) = try module.types.value(for: expression.type).kind,
+              space.isBufferAddressSpace else { return nil }
+        if case .globalVariable(let global) = expression.kind, let buffer = storage[global.index].nested {
+            return (NestedBufferAccess(buffer), nil)
+        }
+        let base: IRHandle<IRExpression>
+        let staticIndex: UInt32?
+        let dynamicIndex: IRHandle<IRExpression>?
+        switch expression.kind {
+        case .accessIndex(let parent, let index):
+            (base, staticIndex, dynamicIndex) = (parent, index, nil)
+        case .access(let parent, let index):
+            (base, staticIndex, dynamicIndex) = (parent, nil, index)
+        default: return nil
+        }
+        let parent = try function.expressions.value(for: base)
+        guard case .pointer(let type, let parentSpace) = try module.types.value(for: parent.type).kind,
+              parentSpace.isBufferAddressSpace else { return nil }
+        func offset() throws -> (String, String?) {
+            if let dynamicIndex { return try indexedValue(dynamicIndex) }
+            if let staticIndex { return ("\(staticIndex)u", nil) }
+            throw ShaderFailure.invalidHandle
+        }
+        switch try module.types.value(for: type).kind {
+        case .bindingArray:
+            guard let selected = try nestedAccess(base), let array = selected.access.buffer.bindingArray else {
+                return nil
+            }
+            if array.splitsArray {
+                guard let element = webBufferElement, element.access == handle else { throw ShaderFailure.invalidHandle }
+                return (NestedBufferAccess(array.select(String(element.index), in: selected.access.buffer)), nil)
+            }
+            let (index, nonnegative) = try offset()
+            let bounds = addressBounds([nonnegative, "\(index) < \(array.count)u"], uniform: false)
+            // Even a zero-result arrayLength query needs a valid resource index.
+            let safe = boundedBufferValue(index, when: bounds)
+            let buffer = array.select(safe, in: selected.access.buffer)
+            return (NestedBufferAccess(buffer), bounds)
+        case .structure(let members, _):
+            guard let staticIndex, let selected = try nestedAccess(base) else { return nil }
+            return (selected.access.member(members[Int(staticIndex)], at: staticIndex), selected.bounds)
+        case .array(let element, let size, let stride):
+            guard let selected = try nestedAccess(base) else { return nil }
+            let (index, nonnegative) = try offset()
+            let count: String
+            switch size {
+            case .constant(let length): count = "\(length)u"
+            case .dynamic:
+                guard let length = selected.access.buffer.runtimeLength else { throw ShaderFailure.invalidHandle }
+                count = length
+            default: throw ShaderFailure.invalidHandle
+            }
+            let bounds = addressBounds([selected.bounds, nonnegative, "\(index) < \(count)"], uniform: safeBufferRead)
+            let safeIndex = safeBufferRead ? boundedBufferValue(index, when: bounds) : index
+            return (selected.access.element(element, stride: stride, index: safeIndex), bounds)
+        default:
+            // Vector lanes and matrix columns are handled by the ordinary component address path.
+            return nil
+        }
+    }
+
+    private func boundedBufferValue(_ value: String, when bounds: String) -> String {
+        if outputFormat == .wgsl { return "select(0u, \(value), \(bounds))" }
+        return "((\(bounds)) ? \(value) : 0u)"
+    }
+
+    private func nestedMemory(_ access: NestedBufferAccess) throws -> ShaderMemory {
+        let width: UInt8
+        let columns: UInt8?
+        let scalar: IRScalar
+        switch try module.types.value(for: access.type).kind {
+        case .structure, .array: return .aggregate(access)
+        case .atomic(let lane):
+            switch outputFormat {
+            case .wgsl: return .native(access.reference)
+            case .msl:
+                let atomic = lane == .u64 ? "atomic_ulong" : lane == .i32 ? "atomic_int" : "atomic_uint"
+                let reference = "reinterpret_cast<device \(atomic)*>(\(access.buffer.name))[(\(access.byteOffset)) / \(lane.width)u]"
+                return .native(reference)
+            case .glsl:
+                if access.buffer.glslReference != nil { return .native(access.reference) }
+                return .glslAtomicWord("\(access.buffer.name).words[(\(access.byteOffset)) / 4u]")
+            case .hlsl:
+                return .words(buffer: access.buffer.name, first: "(\(access.byteOffset)) / \(lane.width)u",
+                              width: 1, scalar: lane, addressing: .byteAddressed, columns: nil)
+            default: throw unsupported("nested atomic target")
+            }
+        case .scalar(let lane): (width, columns, scalar) = (1, nil, lane)
+        case .vector(let size, let lane): (width, columns, scalar) = (size.rawValue, nil, lane)
+        case .matrix(let count, let rows, let lane): (width, columns, scalar) = (rows.rawValue, count.rawValue, lane)
+        default: throw ShaderFailure.invalidHandle
+        }
+        if outputFormat == .wgsl || access.buffer.glslReference != nil { return .native(access.reference) }
+        if access.buffer.space == .uniform || access.buffer.space == .immediate {
+            let buffer: String
+            switch outputFormat {
+            case .msl where scalar == .f16 || scalar.width == 8:
+                buffer = "reinterpret_cast<constant \(scalar == .f16 ? "half" : "ulong")*>(\(access.buffer.name))"
+            case .glsl:
+                buffer = access.buffer.name + ".words"
+            default:
+                buffer = access.buffer.name
+            }
+            return .words(buffer: buffer, first: "(\(access.byteOffset)) / \(scalar.width)u", width: width, scalar: scalar,
+                          addressing: outputFormat == .msl ? .structured : .uniformRegisters, columns: columns)
+        }
+        let buffer: String
+        let addressing: ShaderStorage.WordAddressing
+        switch (outputFormat, scalar) {
+        case (.msl, _) where scalar == .f16 || scalar.width == 8:
+            let qualifier = access.buffer.writable ? "device" : "device const"
+            buffer = "reinterpret_cast<\(qualifier) \(scalar == .f16 ? "half" : "ulong")*>(\(access.buffer.name))"
+            addressing = .structured
+        case (.hlsl, _):
+            buffer = access.buffer.name
+            addressing = .byteAddressed
+        case (.glsl, .f16):
+            buffer = access.buffer.name + ".words"
+            addressing = .packedHalfWords(writable: access.buffer.writable)
+        case (.glsl, _):
+            buffer = access.buffer.name + ".words"
+            addressing = .structured
+        default:
+            buffer = access.buffer.name
+            addressing = .structured
+        }
+        return .words(buffer: buffer, first: "(\(access.byteOffset)) / \(scalar.width)u", width: width, scalar: scalar,
+                      addressing: addressing, columns: columns)
+    }
+
+    private mutating func loadNested(_ access: NestedBufferAccess) throws -> String {
+        try budget.consume(.work)
+        try budget.enterDepth()
+        defer { try? budget.leaveDepth() }
+        switch try module.types.value(for: access.type).kind {
+        case .structure(let members, _):
+            let fields = try members.enumerated().map { index, member in
+                try loadNested(access.member(member, at: UInt32(index)))
+            }
+            return try construct(access.type, components: fields)
+        case .array(let element, .constant(let count), let stride):
+            try budget.consume(.nodes, amount: Int(count))
+            let values = try (0..<count).map { index in
+                try loadNested(access.element(element, stride: stride, index: "\(index)u"))
+            }
+            return try construct(access.type, components: values)
+        default:
+            let value = try nestedMemory(access).load(in: outputFormat)
+            try budget.consume(.sourceBytes, amount: value.utf8.count)
+            return value
+        }
+    }
+
+    private mutating func storeNested(_ access: NestedBufferAccess, value: String, temporary: String) throws -> [String] {
+        try budget.consume(.work)
+        try budget.enterDepth()
+        defer { try? budget.leaveDepth() }
+        var lines: [String] = []
+        switch try module.types.value(for: access.type).kind {
+        case .structure(let members, _):
+            for (index, field) in members.enumerated() {
+                let suffix = try member(UInt32(index), of: access.type)
+                lines += try storeNested(access.member(field, at: UInt32(index)), value: value + suffix,
+                                         temporary: temporary + "_\(index)")
+            }
+        case .array(let element, .constant(let count), let stride):
+            try budget.consume(.nodes, amount: Int(count))
+            for index in 0..<count {
+                let subscriptValue = "\(index)u"
+                let suffix = outputFormat.valueArrayIndex(subscriptValue)
+                lines += try storeNested(access.element(element, stride: stride, index: subscriptValue), value: value + suffix,
+                                         temporary: temporary + "_\(index)")
+            }
+        default:
+            lines = try nestedMemory(access).stores(value, temporary: temporary, in: outputFormat)
+            for line in lines { try budget.consume(.sourceBytes, amount: line.utf8.count + 1) }
+        }
+        return lines
+    }
+
+    private func addressBounds(_ checks: [String?], uniform: Bool) -> String {
+        let tests = checks.compactMap { $0 }
+        if uniform && tests.count > 1 {
+            // These checks are pure and uniform. Avoid short-circuit lowering through a mutable temporary.
+            return tests.map { "(\($0))" }.joined(separator: " & ")
+        }
+        return tests.joined(separator: " && ")
     }
 
     private mutating func indexedValue(_ handle: IRHandle<IRExpression>) throws -> (String, String?) {
@@ -1474,16 +3024,94 @@ struct ShaderBodyWriter {
 
     private func scalar(_ handle: IRHandle<IRType>) throws -> IRScalar {
         guard case .scalar(let type) = try module.types.value(for: handle).kind,
-              type == .u32 || type == .i32 || type == .bool || type == .f32
-        else { throw unsupported("expected u32, i32, f32 or bool scalar") }
+              [.u32, .i32, .u64, .i64, .bool, .f32, .f16].contains(type)
+        else { throw unsupported("expected a numeric or boolean scalar") }
         return type
     }
 
     private func localName(_ index: Int) -> String { "saga_local_\(index)" }
+
+    private func derivativeExpression(_ axis: IRDerivativeAxis, control: IRDerivativeControl, operand: String) throws -> String {
+        let operations: (metal: String, hlsl: String, glsl: String) = switch axis {
+        case .x: ("dfdx", "ddx", "dFdx")
+        case .y: ("dfdy", "ddy", "dFdy")
+        case .width: ("fwidth", "fwidth", "fwidth")
+        }
+        let function: String
+        switch outputFormat {
+        case .wgsl: function = axis.wgslName(control: control)
+        case .msl: function = operations.metal
+        case .glsl: function = operations.glsl + control.nameSuffix
+        case .hlsl:
+            let suffix = control == .none ? "" : "_\(control.rawValue)"
+            if axis == .width && control != .none {
+                return "(abs(ddx\(suffix)(\(operand))) + abs(ddy\(suffix)(\(operand))))"
+            }
+            function = operations.hlsl + suffix
+        default: throw unsupported("derivative target")
+        }
+        return "\(function)(\(operand))"
+    }
+
+    private func bitcastShape(_ type: IRHandle<IRType>) throws -> IRBitcastShape {
+        guard let shape = try IRBitcastShape(module.types.value(for: type).kind),
+              [.i32, .u32, .i64, .u64, .f32, .f16].contains(shape.scalar) else { throw unsupported("bitcast value type") }
+        return shape
+    }
+
+    private mutating func bitcast(_ operand: IRHandle<IRExpression>, to target: IRHandle<IRType>) throws -> String {
+        let inputShape = try bitcastShape(function.expressions.value(for: operand).type)
+        let outputShape = try bitcastShape(target)
+        guard inputShape.permits(outputShape) else { throw unsupported("bitcast lane types or shapes") }
+        let input = inputShape.scalar
+        let output = outputShape.scalar
+        let source = try value(operand)
+        guard input != output else { return source }
+        if input.width == 8 {
+            return try wideIntegerBits(source, signed: output == .i64, width: outputShape.size?.rawValue ?? 1,
+                                       in: outputFormat)
+        }
+        if let words = inputShape.packedHalfWords(to: outputShape), outputFormat == .hlsl || outputFormat == .glsl {
+            return try packedHalfBitcast("(\(source))", input: inputShape, output: outputShape, words: words,
+                                         resultType: typeName(target), format: outputFormat)
+        }
+        return try bitcastValue(source, from: input, to: output, type: typeName(target))
+    }
+
+    private func bitcastValue(_ source: String, from input: IRScalar, to output: IRScalar, type: String) throws -> String {
+        let operation: String
+        switch outputFormat {
+        case .wgsl: operation = "bitcast<\(type)>"
+        case .msl: operation = "as_type<\(type)>"
+        case .hlsl: operation = output == .i32 ? "asint" : output == .u32 ? "asuint" : "asfloat"
+        case .glsl:
+            switch (input, output) {
+            case (.f32, .i32): operation = "floatBitsToInt"
+            case (.f32, .u32): operation = "floatBitsToUint"
+            case (.i32, .f32): operation = "intBitsToFloat"
+            case (.u32, .f32): operation = "uintBitsToFloat"
+            default: operation = type
+            }
+        default: throw unsupported("bitcast target")
+        }
+        return "\(operation)(\(source))"
+    }
+
+    private func floatingRemainder(_ lhs: String, _ rhs: String) -> String {
+        switch outputFormat {
+        case .wgsl: return "(\(lhs) % \(rhs))"
+        case .glsl: return "((\(lhs)) - (\(rhs)) * trunc((\(lhs)) / (\(rhs))))"
+        default: return "fmod(\(lhs), \(rhs))"
+        }
+    }
+
     private func scalarZero(_ type: IRScalar) -> String {
         if type == .bool { return "false" }
         if type == .f32 { return floatLiteral(0) }
+        if type == .f16 { return halfLiteral(0) }
         if type == .i32 { return outputFormat == .wgsl ? "0i" : "0" }
+        if type == .i64 { return signed64Literal(0, in: outputFormat) }
+        if type == .u64 { return unsigned64Literal(0, in: outputFormat) }
         return "0u"
     }
 
@@ -1493,12 +3121,20 @@ struct ShaderBodyWriter {
         defer { try? budget.leaveDepth() }
         switch try module.types.value(for: type).kind {
         case .scalar: return try scalarZero(scalar(type))
-        case .vector(let size, let scalar) where [.f32, .i32, .u32, .bool].contains(scalar):
+        case .vector(let size, let scalar) where [.f32, .f16, .i32, .u32, .i64, .u64, .bool].contains(scalar):
             return try construct(type, components: Array(repeating: scalarZero(scalar), count: Int(size.rawValue)))
-        case .matrix(let columns, let rows, .f32):
-            let zero = scalarZero(.f32)
-            let column = "\(floatType(rows.rawValue, in: outputFormat))(\(Array(repeating: zero, count: Int(rows.rawValue)).joined(separator: ", ")))"
+        case .matrix(let columns, let rows, let scalar) where [.f16, .f32].contains(scalar):
+            let zero = scalarZero(scalar)
+            let columnType = try shaderVectorType(rows.rawValue, scalar: scalar, in: outputFormat)
+            let column = "\(columnType)(\(Array(repeating: zero, count: Int(rows.rawValue)).joined(separator: ", ")))"
             return try construct(type, components: Array(repeating: column, count: Int(columns.rawValue)))
+        case .array(let element, .constant, _) where structures[type] != nil:
+            switch outputFormat {
+            case .wgsl, .msl: return try construct(type, components: [])
+            case .hlsl: return try numericCast(typeName(type), "0")
+            case .glsl: return try "saga_zero_array_\(type.index)(\(zeroValue(element)))"
+            default: throw unsupported("array zero value target")
+            }
         case .structure(let members, _) where structures[type] != nil:
             let components = try members.map { try zeroValue($0.type) }
             return try construct(type, components: components)
@@ -1507,7 +3143,52 @@ struct ShaderBodyWriter {
     }
 
     private func floatLiteral(_ value: Float) -> String {
-        outputFormat == .glsl ? String(value) : "\(value)f"
+        if outputFormat == .wgsl {
+            if value.bitPattern == 0x80000000 { return "bitcast<f32>(0x80000000u)" }
+            if value.magnitude == Float.greatestFiniteMagnitude {
+                let sign = value.sign == .minus ? "-" : ""
+                return "\(sign)0x1.fffffep+127f"
+            }
+        }
+        return outputFormat == .glsl ? String(value) : "\(value)f"
+    }
+
+    private func halfLiteral(_ value: Float) -> String {
+        if outputFormat == .wgsl { return "\(value)h" }
+        return numericCast(halfType(1, in: outputFormat), floatLiteral(value))
+    }
+
+    private func numericCast(_ type: String, _ value: String) -> String {
+        // Parenthesize C-style casts so a following swizzle applies to the converted vector.
+        outputFormat == .hlsl ? "((\(type))(\(value)))" : "\(type)(\(value))"
+    }
+
+    private func floatToIntegerCast(
+        _ value: String, input: IRScalar, target: IRScalar, width: UInt8?, resultType: String
+    ) -> String {
+        // Clamp to integers exactly representable by the source format. The ordinary
+        // native cast is only defined once the value lies within the destination range.
+        let unsigned = target.kind == .uint
+        let lower: String
+        let upper: String
+        if input == .f16 {
+            lower = unsigned ? "0.0" : "-65504.0"
+            upper = "65504.0"
+        } else if target.width == 8 {
+            lower = unsigned ? "0.0" : "-9223372036854775808.0"
+            upper = unsigned ? "18446742974197923840.0" : "9223371487098961920.0"
+        } else {
+            lower = unsigned ? "0.0" : "-2147483648.0"
+            upper = unsigned ? "4294967040.0" : "2147483520.0"
+        }
+        let suffix = outputFormat == .glsl ? "" : "f"
+        let floatingType = floatType(width ?? 1, in: outputFormat)
+        let source = input == .f16 ? numericCast(floatingType, value) : value
+        let bounds = [lower, upper].map { bound in
+            let literal = bound + suffix
+            return width == nil ? literal : numericCast(floatingType, literal)
+        }
+        return numericCast(resultType, "clamp(\(source), \(bounds[0]), \(bounds[1]))")
     }
 
     private func literalValue(_ literal: IRLiteral) throws -> String {
@@ -1518,7 +3199,10 @@ struct ShaderBodyWriter {
             let value = outputFormat == .wgsl ? "\(number)i" : String(number)
             return number < 0 ? "(\(value))" : value
         case .f32(let number) where number.isFinite: return floatLiteral(number)
+        case .f16Bits(let bits) where bits & 0x7c00 != 0x7c00: return halfLiteral(Binary16.decode(bits))
         case .bool(let flag): return flag ? "true" : "false"
+        case .u64(let value): return unsigned64Literal(value, in: outputFormat)
+        case .i64(let value): return signed64Literal(value, in: outputFormat)
         default: throw unsupported("literal type")
         }
     }
@@ -1542,6 +3226,111 @@ struct ShaderBodyWriter {
         }
     }
 
+    private mutating func writeLdexp(
+        _ mantissa: IRHandle<IRExpression>, exponent: IRHandle<IRExpression>,
+        result: IRHandle<IRExpression>, type: IRHandle<IRType>, to lines: inout [String]
+    ) throws {
+        let name = "saga_math_\(result.index)"
+        let x = try value(mantissa)
+        let y = try value(exponent)
+        let resultType = try typeName(type)
+        let binding = outputFormat == .wgsl ? "let \(name)" : "\(resultType) \(name)"
+        guard let shape = try module.types.value(for: type).kind.concreteFloatShape else {
+            throw ShaderFailure.invalidHandle
+        }
+        let widen = shape.scalar == .f16 && outputFormat != .wgsl
+        let nativeType = widen ? floatType(shape.size?.rawValue ?? 1, in: outputFormat) : resultType
+        let input = widen ? numericCast(nativeType, x) : x
+        let call: String
+        if outputFormat == .hlsl {
+            let exponentType = try typeName(function.expressions.value(for: exponent).type)
+            let power = "\(name)_exponent"
+            try append("\(exponentType) \(power) = \(y);", to: &lines)
+            // HLSL uses a float exponent. Keep its intermediate power of two finite at 128.
+            let adjusted = "\(input) * (1.0f + \(nativeType)(\(power) > 127))"
+            call = "ldexp(\(adjusted), \(nativeType)(min(\(power), 127)))"
+        } else {
+            let builtin = outputFormat == .msl ? "metal::ldexp" : "ldexp"
+            call = "\(builtin)(\(input), \(y))"
+        }
+        let resultValue = widen ? numericCast(resultType, call) : call
+        try append("\(binding) = \(resultValue);", to: &lines)
+    }
+
+    private mutating func writeDecomposition(
+        _ operation: IRMathFunction, operand: IRHandle<IRExpression>, type: IRHandle<IRType>,
+        result: IRHandle<IRExpression>, to lines: inout [String]
+    ) throws {
+        guard case .structure(let members, _) = try module.types.value(for: type).kind else {
+            throw ShaderFailure.invalidHandle
+        }
+        let name = "saga_math_\(result.index)"
+        let input = try value(operand)
+        let call = operation.rawValue
+        let other = "\(name)_other"
+        if outputFormat == .wgsl {
+            let native = "\(name)_native"
+            try append("let \(native) = \(call)(\(input));", to: &lines)
+            let constructed = try construct(type, components: ["\(native).fract", "\(native).\(operation.decompositionSecondMember)"])
+            try append("let \(name) = \(constructed);", to: &lines)
+            return
+        }
+        let fractionType = try typeName(members[0].type)
+        let otherType = try typeName(members[1].type)
+        guard let shape = try module.types.value(for: members[0].type).kind.concreteFloatShape else {
+            throw ShaderFailure.invalidHandle
+        }
+        let widen = shape.scalar == .f16
+        let nativeType = widen ? floatType(shape.size?.rawValue ?? 1, in: outputFormat) : fractionType
+        let argument = widen ? numericCast(nativeType, input) : input
+        let function = outputFormat == .msl ? "metal::\(call)" : call
+        let nativeOther = operation == .modf ? nativeType : otherType
+        let fraction = "\(name)_fract"
+        if outputFormat == .hlsl && operation == .frexp {
+            try writeHLSLFrexp(argument, size: shape.size, name: name, fraction: fraction,
+                               fractionType: nativeType, exponent: other, exponentType: otherType, to: &lines)
+        } else {
+            try append("\(nativeOther) \(other);", to: &lines)
+            try append("\(nativeType) \(fraction) = \(function)(\(argument), \(other));", to: &lines)
+        }
+        let narrowed = widen ? numericCast(fractionType, fraction) : fraction
+        let second = nativeOther == otherType ? other : numericCast(otherType, other)
+        let constructed = try construct(type, components: [narrowed, second])
+        try append("\(try typeName(type)) \(name) = \(constructed);", to: &lines)
+    }
+
+    private mutating func writeHLSLFrexp(
+        _ argument: String, size: IRVectorSize?, name: String, fraction: String, fractionType: String,
+        exponent: String, exponentType: String, to lines: inout [String]
+    ) throws {
+        let bits = "\(name)_bits"
+        let bitsType = try shaderVectorType(size?.rawValue ?? 1, scalar: .u32, in: .hlsl)
+        try append("\(bitsType) \(bits) = asuint(\(argument));", to: &lines)
+        try append("\(fractionType) \(fraction);", to: &lines)
+        try append("\(exponentType) \(exponent);", to: &lines)
+        // Normalize subnormal significands with integer shifts. Keep the sign bit,
+        // including for signed zero, and avoid the compiler-specific frexp overloads.
+        for lane in 0..<Int(size?.rawValue ?? 1) {
+            let component = size == nil ? "" : ".\(["x", "y", "z", "w"][lane])"
+            let word = bits + component
+            let prefix = "\(name)_\(lane)"
+            let magnitude = "\(prefix)_magnitude"
+            let mantissa = "\(prefix)_mantissa"
+            let biased = "\(prefix)_biased"
+            let leading = "\(prefix)_leading"
+            let normalized = "\(prefix)_normalized"
+            let special = "\(prefix)_special"
+            try append("uint \(magnitude) = \(word) & 0x7fffffffu;", to: &lines)
+            try append("uint \(mantissa) = \(magnitude) & 0x007fffffu;", to: &lines)
+            try append("uint \(biased) = \(magnitude) >> 23u;", to: &lines)
+            try append("uint \(leading) = uint(firstbithigh(max(\(mantissa), 1u)));", to: &lines)
+            try append("uint \(normalized) = \(biased) == 0u ? (\(mantissa) << (23u - \(leading))) & 0x007fffffu : \(mantissa);", to: &lines)
+            try append("bool \(special) = \(magnitude) == 0u || \(biased) == 255u;", to: &lines)
+            try append("\(fraction)\(component) = asfloat(\(special) ? \(word) : ((\(word) & 0x80000000u) | 0x3f000000u | \(normalized)));", to: &lines)
+            try append("\(exponent)\(component) = \(special) ? 0 : (\(biased) == 0u ? int(\(leading)) - 148 : int(\(biased)) - 126);", to: &lines)
+        }
+    }
+
     private func declaration(_ type: String, named name: String) -> String {
         outputFormat == .wgsl ? "var \(name): \(type)" : "\(type) \(name)"
     }
@@ -1559,15 +3348,18 @@ struct ShaderBodyWriter {
     }
 
     private func member(_ index: UInt32, of type: IRHandle<IRType>) throws -> String {
-        if case .matrix(let columns, _, .f32) = try module.types.value(for: type).kind,
-           index < UInt32(columns.rawValue) {
+        if case .matrix(let columns, _, let scalar) = try module.types.value(for: type).kind,
+           [.f16, .f32].contains(scalar), index < UInt32(columns.rawValue) {
             return "[\(index)u]"
         }
         if case .vector(let width, let scalar) = try module.types.value(for: type).kind,
-           [.f32, .u32, .i32, .bool].contains(scalar), index < UInt32(width.rawValue) {
+           [.f32, .f16, .u32, .i32, .u64, .i64, .bool].contains(scalar), index < UInt32(width.rawValue) {
             return [".x", ".y", ".z", ".w"][Int(index)]
         }
-        if structures[type] != nil { return ".saga_member_\(index)" }
+        if case .array(_, .constant(let count), _) = try module.types.value(for: type).kind, index < count {
+            return outputFormat.valueArrayIndex("\(index)u")
+        }
+        if let structure = structures[type] { return ".\(structure.memberName(Int(index)))" }
         throw unsupported("access outside a supported vector or render structure")
     }
 
@@ -1577,6 +3369,10 @@ struct ShaderBodyWriter {
         try budget.consume(.work)
         try budget.enterDepth()
         defer { try? budget.leaveDepth() }
+        if continuingCaptures[handle] != nil {
+            continuingCaptures[handle] = true
+            return "saga_loop_value_\(handle.index)"
+        }
         let expression = try function.expressions.value(for: handle)
         switch expression.kind {
         case .literal(let literal): return try literalValue(literal)
@@ -1584,25 +3380,38 @@ struct ShaderBodyWriter {
             let initializer = try module.constants.value(for: handle).initializer
             return try constantValue(initializer)
         case .zeroValue(let type): return try zeroValue(type)
+        case .arrayLength where temporaries.contains(handle): return "saga_array_length_\(handle.index)"
         case .arrayLength(let pointer):
+            if let nested = try nestedAccess(pointer), let length = nested.access.buffer.runtimeLength {
+                return nested.bounds.map { boundedBufferValue(length, when: $0) } ?? length
+            }
             guard let bound = try storageLocation(function.expressions.value(for: pointer).kind)?.bound
             else { throw unsupported("length of an array outside a supported storage binding") }
             return bound
         case .imageSample where temporaries.contains(handle), .imageLoad where temporaries.contains(handle),
              .imageQuery where temporaries.contains(handle):
             return "saga_image_\(handle.index)"
+        case .runtimeValue where temporaries.contains(handle): return "saga_value_\(handle.index)"
         case .load where temporaries.contains(handle): return "saga_load_\(handle.index)"
         case .access where temporaries.contains(handle): return "saga_index_\(handle.index)"
         case .select where temporaries.contains(handle): return "saga_select_\(handle.index)"
+        case .math where temporaries.contains(handle): return "saga_math_\(handle.index)"
+        case .bitcast where temporaries.contains(handle): return "saga_bitcast_\(handle.index)"
+        case .binary where temporaries.contains(handle): return "saga_remainder_\(handle.index)"
+        case .derivative where temporaries.contains(handle): return "saga_derivative_\(handle.index)"
         case .workgroupUniformLoadResult where temporaries.contains(handle): return "saga_uniform_\(handle.index)"
+        case .subgroupOperationResult, .subgroupBallotResult:
+            guard temporaries.contains(handle) else { throw unsupported("Unavailable subgroup result") }
+            return "saga_subgroup_\(handle.index)"
         case .atomicResult where temporaries.contains(handle): return "saga_atomic_\(handle.index)"
         case .callResult where temporaries.contains(handle): return "saga_call_\(handle.index)"
         case .functionArgument(let argument):
             guard let index = Int(exactly: argument), arguments.indices.contains(index) else {
                 throw ShaderFailure.invalidHandle
             }
-            guard !arguments[index].isEmpty else { throw unsupported("whole structure input value") }
-            return arguments[index]
+            if !arguments[index].isEmpty { return arguments[index] }
+            guard let fields = argumentFields[index] else { throw ShaderFailure.invalidHandle }
+            return try construct(expression.type, components: fields)
         case .compose(let type, let components):
             // Charge before expansion so an expression shared by several constructors stays bounded.
             try budget.consume(.sourceBytes, amount: components.count + 1)
@@ -1626,102 +3435,232 @@ struct ShaderBodyWriter {
             }
             let field = try member(index, of: source.type)
             return try value(base) + field
-        case .cast(let operand, let target):
+        case .relational(let reduction, let operand) where reduction.isBooleanReduction:
             let operandType = try function.expressions.value(for: operand).type
-            let input: IRScalar
-            let width: UInt8?
-            switch try module.types.value(for: operandType).kind {
-            case .vector(let size, let scalar):
-                input = scalar
-                width = size.rawValue
-            case .scalar(let scalar):
-                input = scalar
-                width = nil
-            default: throw unsupported("cast requires a scalar or vector")
-            }
-            guard [.i32, .u32].contains(input), [.i32, .u32, .f32].contains(target) else {
-                throw unsupported("cast outside the supported numeric profile")
-            }
-            let source = try value(operand)
-            if target == .f32 { return "\(try typeName(expression.type))(\(source))" }
-            return input == target ? source : integerBits(source, signed: target == .i32, width: width, in: outputFormat)
+            let argument = try value(operand)
+            if case .scalar(.bool) = try module.types.value(for: operandType).kind { return argument }
+            return "\(reduction.rawValue)(\(argument))"
+        case .bitcast(let operand, let target): return try bitcast(operand, to: target)
+        case .cast(let operand, let target):
+            return try castValue(operand, target: target, resultType: expression.type)
         case .unary(let op, let argument):
-            if case .vector(let size, let lane) = try module.types.value(for: expression.type).kind,
-               lane == .i32 || lane == .u32 {
-                let operand = try value(argument)
-                if op == .bitwiseNot { return "(~\(operand))" }
-                guard op == .negate && lane == .i32 else { throw unsupported("integer vector unary operation") }
-                let helper = IntegerVectorHelper(operation: .negate, signed: true, width: size.rawValue)
-                integerVectorHelpers.insert(helper)
-                return "\(helper.name)(\(operand))"
-            }
-            let type = try scalar(expression.type)
-            if op == .negate && type == .i32 {
-                return signedNegation(try value(argument), in: outputFormat)
-            }
-            let symbol: String
-            switch op {
-            case .logicalNot where type == .bool: symbol = "!"
-            case .bitwiseNot where type == .u32 || type == .i32: symbol = "~"
-            case .negate where type == .f32 || type == .i32: symbol = "-"
-            default: throw unsupported("unary operation \(op.rawValue)")
-            }
-            try budget.consume(.sourceBytes, amount: 3)
-            let unary = "\(symbol)\(try value(argument))"
-            return parenthesized ? "(\(unary))" : unary
+            return try unaryValue(op, argument: argument, resultType: expression.type, parenthesized: parenthesized)
         case .binary(let op, let left, let right):
-            let operandType = try function.expressions.value(for: left).type
-            let lhsKind = try module.types.value(for: operandType).kind
-            let rhsType = try function.expressions.value(for: right).type
-            let rhsKind = try module.types.value(for: rhsType).kind
-            if lhsKind.isMatrix || rhsKind.isMatrix {
-                try budget.consume(.sourceBytes, amount: 8)
-                let lhs = try value(left)
-                let rhs = try value(right)
-                // HLSL rows represent WGSL columns. The transpose of a product reverses the operands.
-                if outputFormat == .hlsl, op == .multiply, !lhsKind.isScalar, !rhsKind.isScalar {
-                    return "mul(\(rhs), \(lhs))"
-                }
-                let symbol = try shaderBinarySymbol(op, type: .f32)
-                let binary = "\(lhs) \(symbol) \(rhs)"
-                return parenthesized ? "(\(binary))" : binary
-            }
-            if case .vector(let size, let lane) = lhsKind,
-               lane == .i32 || lane == .u32 {
-                let helper = IntegerVectorHelper(operation: .binary(op), signed: lane == .i32, width: size.rawValue)
-                try budget.consume(.sourceBytes, amount: helper.name.utf8.count + 4)
-                let a = try value(left)
-                let b = try value(right)
-                integerVectorHelpers.insert(helper)
-                return "\(helper.name)(\(a), \(b))"
-            }
-            let type = try scalar(operandType)
-            let shift = op == .shiftLeft || op == .shiftRight
-            let rightType = try scalar(rhsType)
-            guard rightType == (shift ? .u32 : type) else {
-                throw unsupported("binary operand types")
-            }
-            // Charge each expansion before traversing children so shared IR cannot inflate output unchecked.
-            try budget.consume(.sourceBytes, amount: 8)
-            let lhs = try value(left)
-            let rhs = try value(right)
-            if let lowered = try integerBinary(op, scalar: type, left: lhs, right: rhs,
-                                               in: outputFormat, helpers: &integerHelpers) {
-                return lowered
-            }
-            let symbol = try shaderBinarySymbol(op, type: type)
-            let binary = "\(lhs) \(symbol) \(rhs)"
-            return parenthesized ? "(\(binary))" : binary
+            return try binaryValue(op, left: left, right: right, resultType: expression.type, parenthesized: parenthesized)
         default: throw unsupported("expression")
         }
     }
 
+    private mutating func castValue(
+        _ operand: IRHandle<IRExpression>, target: IRScalar, resultType: IRHandle<IRType>
+    ) throws -> String {
+        let operandType = try function.expressions.value(for: operand).type
+        let input: IRScalar
+        let width: UInt8?
+        switch try module.types.value(for: operandType).kind {
+        case .vector(let size, let scalar):
+            input = scalar
+            width = size.rawValue
+        case .scalar(let scalar):
+            input = scalar
+            width = nil
+        case .matrix(_, _, let scalar) where [.f16, .f32].contains(scalar) && [.f16, .f32].contains(target):
+            return try numericCast(typeName(resultType), value(operand))
+        default: throw unsupported("cast operand type")
+        }
+        if input == .bool || target == .bool {
+            let source = try value(operand)
+            let type = try typeName(resultType)
+            return booleanCast(type, source)
+        }
+        if input.width == 8 || target.width == 8 {
+            let source = try value(operand)
+            let type = try typeName(resultType)
+            if outputFormat == .wgsl { return numericCast(type, source) }
+            if input.kind == .float {
+                return floatToIntegerCast(source, input: input, target: target, width: width, resultType: type)
+            }
+            if input.width == 8, target.width == 8 {
+                return try wideIntegerBits(source, signed: target == .i64, width: width ?? 1, in: outputFormat)
+            }
+            return numericCast(type, source)
+        }
+        if [.f32, .f16].contains(input), [.i32, .u32].contains(target) {
+            return try floatToIntegerCast(value(operand), input: input, target: target,
+                                          width: width, resultType: typeName(resultType))
+        }
+        if target == .f16, [.f32, .i32, .u32].contains(input) {
+            return try numericCast(typeName(resultType), value(operand))
+        }
+        if input == .f16, target == .f32 {
+            return try numericCast(typeName(resultType), value(operand))
+        }
+        guard [.i32, .u32].contains(input), [.i32, .u32, .f32].contains(target) else {
+            throw unsupported("cast outside the supported numeric profile")
+        }
+        let source = try value(operand)
+        if target == .f32 { return "\(try typeName(resultType))(\(source))" }
+        return input == target ? source : integerBits(source, signed: target == .i32, width: width, in: outputFormat)
+    }
+
+    private func booleanCast(_ type: String, _ value: String) -> String {
+        outputFormat == .msl ? "static_cast<\(type)>(\(value))" : numericCast(type, value)
+    }
+
+    private func eagerBooleanBinary(_ symbol: String, left: String, right: String, width: UInt8) throws -> String {
+        if outputFormat == .wgsl { return "(\(left) \(symbol) \(right))" }
+        // Use integer bitwise operators so native scalar and vector targets
+        // preserve eager Boolean evaluation.
+        let word = try shaderVectorType(width, scalar: .u32, in: outputFormat)
+        let result = try shaderVectorType(width, scalar: .bool, in: outputFormat)
+        return booleanCast(result, "\(booleanCast(word, left)) \(symbol) \(booleanCast(word, right))")
+    }
+
+    private mutating func unaryValue(
+        _ op: IRUnaryOperator, argument: IRHandle<IRExpression>, resultType: IRHandle<IRType>, parenthesized: Bool
+    ) throws -> String {
+        if case .vector(let size, let lane) = try module.types.value(for: resultType).kind,
+           [.i32, .u32, .i64, .u64].contains(lane) {
+            let operand = try value(argument)
+            if op == .bitwiseNot { return "(~\(operand))" }
+            guard op == .negate && lane.kind == .sint else { throw unsupported("integer vector unary operation") }
+            let helper = IntegerVectorHelper(operation: .negate, scalar: lane, width: size.rawValue)
+            integerVectorHelpers.insert(helper)
+            return "\(helper.name)(\(operand))"
+        }
+        if op == .logicalNot, case .vector(_, .bool) = try module.types.value(for: resultType).kind {
+            try budget.consume(.sourceBytes, amount: 5)
+            let operand = try value(argument)
+            return outputFormat == .glsl ? "not(\(operand))" : "(!\(operand))"
+        }
+        if op == .negate, let shape = try module.types.value(for: resultType).kind.concreteFloatShape,
+           shape.size != nil {
+            return "(-\(try value(argument)))"
+        }
+        let type = try scalar(resultType)
+        if op == .negate && type.kind == .sint {
+            return try integerNegation(value(argument), scalar: type, in: outputFormat)
+        }
+        let symbol: String
+        switch op {
+        case .logicalNot where type == .bool: symbol = "!"
+        case .bitwiseNot where type.kind == .uint || type.kind == .sint: symbol = "~"
+        case .negate where [.f16, .f32].contains(type): symbol = "-"
+        default: throw unsupported("unary operation \(op.rawValue)")
+        }
+        try budget.consume(.sourceBytes, amount: 3)
+        let unary = "\(symbol)\(try value(argument))"
+        return parenthesized ? "(\(unary))" : unary
+    }
+
+    private mutating func binaryValue(
+        _ op: IRBinaryOperator, left: IRHandle<IRExpression>, right: IRHandle<IRExpression>,
+        resultType: IRHandle<IRType>, parenthesized: Bool
+    ) throws -> String {
+        let operandType = try function.expressions.value(for: left).type
+        let lhsKind = try module.types.value(for: operandType).kind
+        let rhsType = try function.expressions.value(for: right).type
+        let rhsKind = try module.types.value(for: rhsType).kind
+        if lhsKind.isMatrix || rhsKind.isMatrix {
+            try budget.consume(.sourceBytes, amount: 8)
+            let lhs = try value(left)
+            let rhs = try value(right)
+            // HLSL rows represent WGSL columns. The transpose of a product reverses the operands.
+            if outputFormat == .hlsl, op == .multiply, !lhsKind.isScalar, !rhsKind.isScalar {
+                return "mul(\(rhs), \(lhs))"
+            }
+            let symbol = try shaderBinarySymbol(op, type: .f32)
+            let binary = "\(lhs) \(symbol) \(rhs)"
+            return parenthesized ? "(\(binary))" : binary
+        }
+        if case .vector(let size, let lane) = lhsKind,
+           lane == .i32 || lane == .u32 || IntegerShaderHelper(operation: op, scalar: lane) != nil {
+            let helper = IntegerVectorHelper(operation: .binary(op), scalar: lane, width: size.rawValue)
+            try budget.consume(.sourceBytes, amount: helper.name.utf8.count + 4)
+            let a = try value(left)
+            let b = try value(right)
+            integerVectorHelpers.insert(helper)
+            return "\(helper.name)(\(a), \(b))"
+        }
+        if case .vector(let size, let lane) = lhsKind, lane == .i64 || lane == .u64 {
+            try budget.consume(.sourceBytes, amount: 8)
+            let lhs = try value(left)
+            let rhs = try value(right)
+            return try wideIntegerBinary(op, scalar: lane, width: size.rawValue, left: lhs, right: rhs, in: outputFormat)
+        }
+        if let shape = lhsKind.concreteFloatShape, lhsKind == rhsKind {
+            try budget.consume(.sourceBytes, amount: 8)
+            let lhs = try value(left)
+            let rhs = try value(right)
+            if op == .modulo {
+                let remainder = floatingRemainder(lhs, rhs)
+                if outputFormat == .hlsl && shape.scalar == .f16 {
+                    return try numericCast(typeName(resultType), remainder)
+                }
+                return remainder
+            }
+            if outputFormat == .glsl, shape.size != nil {
+                let builtin: String? = switch op {
+                case .equal: "equal"
+                case .notEqual: "notEqual"
+                case .less: "lessThan"
+                case .lessEqual: "lessThanEqual"
+                case .greater: "greaterThan"
+                case .greaterEqual: "greaterThanEqual"
+                default: nil
+                }
+                if let builtin { return "\(builtin)(\(lhs), \(rhs))" }
+            }
+            let symbol = try shaderBinarySymbol(op, type: shape.scalar)
+            let binary = "\(lhs) \(symbol) \(rhs)"
+            return parenthesized ? "(\(binary))" : binary
+        }
+        if case .vector(let width, .bool) = lhsKind {
+            try budget.consume(.sourceBytes, amount: 64)
+            let lhs = try value(left)
+            let rhs = try value(right)
+            let symbol = try shaderBinarySymbol(op, type: .bool)
+            if op == .and || op == .inclusiveOr {
+                return try eagerBooleanBinary(symbol, left: lhs, right: rhs, width: width.rawValue)
+            }
+            if outputFormat == .glsl {
+                let builtin = op == .equal ? "equal" : "notEqual"
+                return "\(builtin)(\(lhs), \(rhs))"
+            }
+            return "(\(lhs) \(symbol) \(rhs))"
+        }
+        let type = try scalar(operandType)
+        let shift = op == .shiftLeft || op == .shiftRight
+        let rightType = try scalar(rhsType)
+        guard rightType == (shift ? .u32 : type) else {
+            throw unsupported("binary operand types")
+        }
+        // Charge each expansion before traversing children so shared IR cannot inflate output unchecked.
+        try budget.consume(.sourceBytes, amount: 8)
+        let lhs = try value(left)
+        let rhs = try value(right)
+        if type == .bool, op == .and || op == .inclusiveOr {
+            try budget.consume(.sourceBytes, amount: 64)
+            return try eagerBooleanBinary(shaderBinarySymbol(op, type: type), left: lhs, right: rhs, width: 1)
+        }
+        if let lowered = try integerBinary(op, scalar: type, left: lhs, right: rhs,
+                                           in: outputFormat, helpers: &integerHelpers) {
+            return lowered
+        }
+        if type == .i64 || type == .u64 {
+            return try wideIntegerBinary(op, scalar: type, left: lhs, right: rhs, in: outputFormat)
+        }
+        let symbol = try shaderBinarySymbol(op, type: type)
+        let binary = "\(lhs) \(symbol) \(rhs)"
+        return parenthesized ? "(\(binary))" : binary
+    }
 }
 
 private extension IRTypeKind {
     var componentCount: UInt8? {
         switch self {
-        case .vector(let size, _), .matrix(let size, _, .f32): size.rawValue
+        case .vector(let size, _): size.rawValue
+        case .matrix(let size, _, let scalar) where [.f16, .f32].contains(scalar): size.rawValue
         default: nil
         }
     }
@@ -1738,7 +3677,13 @@ private extension IRTypeKind {
 }
 
 func shaderBinarySymbol(_ op: IRBinaryOperator, type: IRScalar) throws -> String {
-    switch (op, type) {
+    let lane: IRScalar = switch type {
+    case .f16: .f32
+    case .i64: .i32
+    case .u64: .u32
+    default: type
+    }
+    return switch (op, lane) {
     case (.equal, _): "=="
     case (.notEqual, _): "!="
     case (.logicalAnd, .bool): "&&"
@@ -1746,12 +3691,13 @@ func shaderBinarySymbol(_ op: IRBinaryOperator, type: IRScalar) throws -> String
     case (.add, .u32), (.add, .i32), (.add, .f32): "+"
     case (.subtract, .u32), (.subtract, .i32), (.subtract, .f32): "-"
     case (.multiply, .u32), (.multiply, .i32), (.multiply, .f32): "*"
+    case (.divide, .f32): "/"
     case (.less, .u32), (.less, .i32), (.less, .f32): "<"
     case (.lessEqual, .u32), (.lessEqual, .i32), (.lessEqual, .f32): "<="
     case (.greater, .u32), (.greater, .i32), (.greater, .f32): ">"
     case (.greaterEqual, .u32), (.greaterEqual, .i32), (.greaterEqual, .f32): ">="
-    case (.and, .u32), (.and, .i32): "&"
-    case (.inclusiveOr, .u32), (.inclusiveOr, .i32): "|"
+    case (.and, .u32), (.and, .i32), (.and, .bool): "&"
+    case (.inclusiveOr, .u32), (.inclusiveOr, .i32), (.inclusiveOr, .bool): "|"
     case (.exclusiveOr, .u32), (.exclusiveOr, .i32): "^"
     default: throw unsupported("binary operation \(op.rawValue)")
     }

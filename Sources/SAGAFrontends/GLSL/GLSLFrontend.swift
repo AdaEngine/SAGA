@@ -56,6 +56,7 @@ final class GLSLFunctionContext {
     var current:[IRHandle<IRStatement>]=[]
     var scopes:[[String:GLSLSymbol]]=[[:]]
     var loopDepth=0
+    var switches: [(loopDepth: Int, hasBreak: Bool)] = []
     let result:IRHandle<IRType>?
     init(result:IRHandle<IRType>?) { self.result=result }
 }
@@ -75,6 +76,7 @@ final class GLSLParser {
     var functions:[IRFunction]=[]
     var functionNames:[String:IRHandle<IRFunction>]=[:]
     var globalNames:[String:IRHandle<IRGlobalVariable>]=[:]
+    var globalIntegerConstants: [String: (type: IRHandle<IRType>, literal: IRLiteral)] = [:]
     var workgroup=IRWorkgroupSize()
     var hasLocalSize=false
     var context:GLSLFunctionContext?
@@ -93,7 +95,10 @@ final class GLSLParser {
     }
     func take(_ s:String) throws -> Bool { if text==s { _ = try advance(); return true }; return false }
     func identifier() throws -> GLSLToken {
-        guard glslIdentifier(text), !["void","if","else","while","for","return","break","continue","discard","true","false","struct","switch","do"].contains(text) else { throw glslError(token,.unexpectedToken,"Expected identifier") }
+        guard token.barycentricPerspective == nil else {
+            throw glslError(token, .unexpectedToken, "Cannot redeclare a barycentric builtin")
+        }
+        guard glslIdentifier(text), !["void","if","else","while","for","return","break","continue","discard","true","false","struct","switch","case","default","do"].contains(text) else { throw glslError(token,.unexpectedToken,"Expected identifier") }
         guard try builtinType(text)==nil else { throw glslError(token,.unexpectedToken,"Type name cannot be identifier") }
         return try advance()
     }
@@ -134,7 +139,7 @@ final class GLSLParser {
         interfaces.append(.init(global:h,type:type,binding:binding,input:input,name:name))
     }
     func function(_ name:GLSLToken,result:IRHandle<IRType>?) throws {
-        guard functionNames[name.text]==nil,globalNames[name.text]==nil,!name.text.hasPrefix("gl_") else { throw glslError(name,.duplicateName,"Duplicate/reserved function") }
+        guard !hasGlobalName(name.text), !name.text.hasPrefix("gl_") else { throw glslError(name,.duplicateName,"Duplicate/reserved function") }
         let c=GLSLFunctionContext(result:result); context=c
         var arguments:[IRFunctionArgument]=[]
         try expect("(")
@@ -211,6 +216,7 @@ final class GLSLParser {
             try append(.ifCondition(condition:condition.expression,accept:a,reject:r),at:t); return at && rt
         }
         if try take("for") { try forLoop(at:t); return false }
+        if try take("switch") { return try switchStatement(at: t) }
         if try take("while") {
             try expect("(")
             let saved=c.current; c.current=[]
@@ -232,7 +238,16 @@ final class GLSLParser {
             }; return true
         }
         if text=="break" || text=="continue" {
-            let isBreak=text=="break"; _ = try advance(); guard c.loopDepth>0 else { throw glslError(t,.invalidControlFlow,"Jump outside loop") }; try expect(";"); try append(isBreak ? .break:.continue,at:t); return true
+            let isBreak = text == "break"
+            _ = try advance()
+            if isBreak, let selection = c.switches.indices.last, c.switches[selection].loopDepth == c.loopDepth {
+                c.switches[selection].hasBreak = true
+            } else if c.loopDepth == 0 {
+                throw glslError(t, .invalidControlFlow, "Jump outside loop or switch")
+            }
+            try expect(";")
+            try append(isBreak ? .break : .continue, at: t)
+            return true
         }
         if try take("discard") { guard stage == .fragment else { throw glslError(t,.invalidControlFlow,"Discard outside fragment") }; try expect(";"); try append(.kill,at:t); return true }
         if ["barrier", "memoryBarrierShared", "memoryBarrierBuffer"].contains(text) {
@@ -250,12 +265,21 @@ final class GLSLParser {
             }
             return false
         }
-        if ["do","switch","struct","precision"].contains(text) { throw glslError(t,.unsupportedConstruct,"Unsupported GLSL statement: \(text)") }
+        if ["do","struct","precision"].contains(text) { throw glslError(t,.unsupportedConstruct,"Unsupported GLSL statement: \(text)") }
         var immutable=false
         if try take("const") { immutable=true }
         if let base=try builtinType(text) {
             _ = try advance(); let name=try identifier();let type=try arraySuffix(base)
             guard c.scopes[c.scopes.count-1][name.text]==nil, !name.text.hasPrefix("gl_") else { throw glslError(name,.duplicateName,"Duplicate/reserved local") }
+            if immutable, kind(type) == .scalar(.i32) || kind(type) == .scalar(.u32) {
+                try expect("=")
+                let constant = try integerConstant(at: name)
+                guard type == constant.type else { throw glslError(name, .typeMismatch, "Initializer type mismatch") }
+                let value = try expressionNode(type, .literal(constant.literal), at: name, emit: false)
+                c.scopes[c.scopes.count - 1][name.text] = .init(value: value)
+                try expect(";")
+                return false
+            }
             try budget.consume(.nodes); let local=try IRHandle<IRLocalVariable>(index:c.locals.count)
             c.locals.append(.init(name:name.text,type:type,location:try name.location))
             let pointerType=try addType(.pointer(base:type,space:.function))
@@ -278,12 +302,9 @@ final class GLSLParser {
             _ = try advance()
             try expect("(")
             let args = try callArguments(at: t)
-            let expected = functions[function.index].arguments
-            guard args.count == expected.count, zip(args, expected).allSatisfy({ $0.type == $1.type }) else {
-                throw glslError(t,.typeMismatch,"Function argument mismatch")
-            }
+            let operands = try functionOperands(args, for: functions[function.index], at: t)
             try expect(end)
-            try append(.call(function: function, arguments: args.map(\.expression), result: nil), at: t)
+            try append(.call(function: function, arguments: operands, result: nil), at: t)
             return
         }
         let left=try expression()
@@ -319,14 +340,24 @@ final class GLSLParser {
         guard kind(value.type) == .scalar(.bool) else { throw glslError(t,.typeMismatch,"Expected scalar bool") }
     }
     func symbol(_ name:GLSLToken) throws -> GLSLValue {
+        if name.barycentricPerspective != nil, !name.barycentricsEnabled {
+            throw glslError(name, .unsupportedCapability, "Barycentric coordinates require GL_EXT_fragment_shader_barycentric")
+        }
         let c=try requireContext()
         for scope in c.scopes.reversed() { try budget.consume(.work,amount:name.text.utf8.count); if let symbol=scope[name.text] { return symbol.value } }
+        if let constant = globalIntegerConstants[name.text] {
+            return try expressionNode(constant.type, .literal(constant.literal), at: name, emit: false)
+        }
         if globalNames[name.text]==nil { try builtin(name) }
         if let h=globalNames[name.text] {
             let global=globals[h.index]; let pointer=try addType(.pointer(base:global.type,space:global.space))
             return try expressionNode(pointer,.globalVariable(h),at:name,emit:false,pointer:true,writable:isWritable(global) && !(interfaces.first(where:{$0.global==h})?.input ?? false))
         }
         throw glslError(name,.unresolvedName,"Unresolved GLSL name: \(name.text)")
+    }
+
+    func hasGlobalName(_ name: String) -> Bool {
+        globalNames[name] != nil || functionNames[name] != nil || globalIntegerConstants[name] != nil
     }
     func builtin(_ name:GLSLToken) throws {
         let descriptor:(IRBuiltIn,String,Bool,IRStage)
@@ -345,7 +376,9 @@ final class GLSLParser {
         case "gl_FragCoord":descriptor=(.position(invariant:false),"vec4",true,.fragment)
         case "gl_FrontFacing":descriptor=(.frontFacing,"bool",true,.fragment)
         case "gl_FragDepth":descriptor=(.fragDepth,"float",false,.fragment)
-        default:return
+        default:
+            guard let perspective = name.barycentricPerspective else { return }
+            descriptor = (.barycentric(perspective: perspective), "vec3", true, .fragment)
         }
         guard descriptor.3==stage else { throw glslError(name,.invalidControlFlow,"Builtin not valid for stage") }
         guard let type=try builtinType(descriptor.1) else { throw glslError(name,.invalidType,"Builtin type unavailable") }
@@ -456,9 +489,10 @@ final class GLSLParser {
         if name.text=="main" { throw glslError(name,.invalidControlFlow,"main cannot be called from shader code") }
         if let function=functionNames[name.text] {
             let f=functions[function.index]
-            guard let result=f.result, f.arguments.count==args.count, zip(f.arguments,args).allSatisfy({$0.type==$1.type}) else { throw glslError(name,.typeMismatch,"Function argument/return mismatch; void calls not implemented in expression") }
+            guard let result = f.result else { throw glslError(name, .typeMismatch, "Void function used in an expression") }
+            let operands = try functionOperands(args, for: f, at: name)
             let value=try expressionNode(result.type,.callResult(function),at:name,emit:false)
-            try append(.call(function:function,arguments:args.map(\.expression),result:value.expression),at:name); return value
+            try append(.call(function:function,arguments:operands,result:value.expression),at:name); return value
         }
         let unary:[String:IRMathFunction] = ["sin":.sin,"cos":.cos,"tan":.tan,"sqrt":.sqrt,"abs":.abs,"floor":.floor,"ceil":.ceil,"normalize":.normalize,"exp":.exp,"log":.log]
         if let function=unary[name.text] {
@@ -471,6 +505,29 @@ final class GLSLParser {
         }
         throw glslError(name,.unsupportedConstruct,"Unimplemented function/builtin: \(name.text)")
     }
+
+    private func functionOperands(
+        _ arguments: [GLSLValue], for function: IRFunction, at name: GLSLToken
+    ) throws -> [IRHandle<IRExpression>] {
+        guard arguments.count == function.arguments.count else {
+            throw glslError(name, .typeMismatch, "Function argument count mismatch")
+        }
+        return try zip(arguments, function.arguments).map { value, parameter in
+            try budget.consume(.work)
+            if value.type == parameter.type { return value.expression }
+            // GLSL permits implicit conversion from signed to unsigned with the same shape.
+            switch (kind(value.type), kind(parameter.type)) {
+            case (.scalar(.i32), .scalar(.u32)):
+                break
+            case (.vector(let inputWidth, .i32), .vector(let outputWidth, .u32)) where inputWidth == outputWidth:
+                break
+            default:
+                throw glslError(name, .typeMismatch, "Function argument type mismatch")
+            }
+            return try expressionNode(parameter.type, .cast(expression: value.expression, target: .u32), at: name).expression
+        }
+    }
+
     func wrap(_ main:IRHandle<IRFunction>) throws -> IRHandle<IRFunction> {
         let c=GLSLFunctionContext(result:nil); context=c; defer { context=nil }
         let t=GLSLToken(text:"main",start:0,end:0); var args:[IRFunctionArgument]=[]

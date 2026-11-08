@@ -7,7 +7,8 @@ extension WGSLParser {
   func compactAbstractIntermediates() throws {
     var typeMap: [WType?] = []
     var keptTypes: [IRType] = []
-    for t in types {
+    let abstractStructures = Set(predeclaredTypes.filter { $0.kind.decomposition?.scalar == .abstractFloat }.map(\.type.index))
+    for (i, t) in types.enumerated() {
       try budget.consume(.work)
       let abstract: Bool
       if case .matrix(_,_,let s) = t.kind {
@@ -16,8 +17,11 @@ extension WGSLParser {
         abstract = s.kind == .abstractInt || s.kind == .abstractFloat
       } else if case .scalar(let s) = t.kind {
         abstract = s.kind == .abstractInt || s.kind == .abstractFloat
+      } else if case .array(let base, _, _) = t.kind {
+        guard typeMap.indices.contains(base.index) else { throw ShaderFailure.invalidHandle }
+        abstract = typeMap[base.index] == nil
       } else {
-        abstract = false
+        abstract = abstractStructures.contains(i)
       }
       typeMap.append(abstract ? nil : try WType(index: keptTypes.count))
       if !abstract { keptTypes.append(t) }
@@ -37,6 +41,7 @@ extension WGSLParser {
       switch t.kind {
       case .pointer(let b, let s): kind = .pointer(base: try ty(b), space: s)
       case .array(let b, let n, let s): kind = .array(base: try ty(b), size: n, stride: s)
+      case .bindingArray(let b, let n): kind = .bindingArray(base: try ty(b), size: n)
       case .structure(let ms, let span):
         kind = .structure(
           members: try ms.map { m in
@@ -52,20 +57,34 @@ extension WGSLParser {
       }
       keptTypes[i] = IRType(name: t.name, kind: kind, location: t.location)
     }
-    // Global expressions are concrete literals in the currently supported const profile.
+    // Global expressions include concrete literals and typed override references.
     for i in globalExpressions.indices {
       try budget.consume(.work)
       let e = globalExpressions[i]
-      guard case .literal = e.kind else {
-        throw ShaderFailure.unsupported("Nonliteral global initializer compaction not implemented")
+      let kind: IRExpressionKind
+      switch e.kind {
+      case .zeroValue(let type): kind = .zeroValue(try ty(type))
+      case .compose(let type, let operands): kind = .compose(type: try ty(type), components: operands)
+      case .bitcast(let operand, let type): kind = .bitcast(expression: operand, type: try ty(type))
+      default:
+        guard e.kind.pipelineOperands != nil else {
+          throw ShaderFailure.unsupported("Global initializer compaction not implemented")
+        }
+        kind = e.kind
       }
-      globalExpressions[i] = .init(type: try ty(e.type), kind: e.kind, location: e.location)
+      globalExpressions[i] = .init(type: try ty(e.type), kind: kind, location: e.location)
     }
     for i in constants.indices {
       try budget.consume(.work)
       let c = constants[i]
       constants[i] = .init(
         name: c.name, type: try ty(c.type), initializer: c.initializer, location: c.location)
+    }
+    for i in overrides.indices {
+      try budget.consume(.work)
+      let value = overrides[i]
+      overrides[i] = .init(name: value.name, id: value.id, type: try ty(value.type),
+                           initializer: value.initializer, location: value.location)
     }
     for i in globals.indices {
       try budget.consume(.work)
@@ -100,9 +119,10 @@ extension WGSLParser {
         let e = kept[j]
         let k: IRExpressionKind
         switch e.kind {
-        case .literal, .constant, .functionArgument, .globalVariable, .localVariable, .callResult:
+        case .literal, .constant, .override, .functionArgument, .globalVariable, .localVariable, .callResult, .subgroupBallotResult:
           k = e.kind
         case .zeroValue(let t): k = .zeroValue(try ty(t))
+        case .runtimeValue(let value): k = .runtimeValue(try ex(value))
         case .compose(let t, let xs): k = .compose(type: try ty(t), components: try xs.map(ex))
         case .access(let b, let x): k = .access(base: try ex(b), index: try ex(x))
         case .accessIndex(let b, let x): k = .accessIndex(base: try ex(b), index: x)
@@ -111,6 +131,7 @@ extension WGSLParser {
         case .load(let p): k = .load(pointer: try ex(p))
         case .atomicResult(let t, let comparison): k = .atomicResult(type: try ty(t), comparison: comparison)
         case .workgroupUniformLoadResult(let t): k = .workgroupUniformLoadResult(type: try ty(t))
+        case .subgroupOperationResult(let t): k = .subgroupOperationResult(type: try ty(t))
         case .arrayLength(let p): k = .arrayLength(try ex(p))
         case .imageSample(let sample):
           let level: IRSampleLevel
@@ -140,6 +161,8 @@ extension WGSLParser {
           k = .select(condition: try ex(c), accept: try ex(a), reject: try ex(b))
         case .derivative(let a, let c, let v):
           k = .derivative(axis: a, control: c, expression: try ex(v))
+        case .relational(let function, let operand):
+          k = .relational(function: function, argument: try ex(operand))
         case .math(let fn, let a, let b, let c, let d):
           k = .math(
             function: fn, argument: try ex(a), argument1: try optional(b),
@@ -164,7 +187,7 @@ extension WGSLParser {
             if let m = exprMap[x.index] { mapped.append(m) }
           }
           k = .emit(mapped)
-        case .block, .break, .continue, .kill, .controlBarrier, .memoryBarrier: k = s.kind
+        case .block, .break, .continue, .kill, .demoteToHelperInvocation, .controlBarrier, .memoryBarrier: k = s.kind
         case .ifCondition(let c, let a, let b):
           k = .ifCondition(condition: try ex(c), accept: a, reject: b)
         case .switchValue(let v, let cs): k = .switchValue(selector: try ex(v), cases: cs)
@@ -174,10 +197,21 @@ extension WGSLParser {
         case .imageStore(let image, let coordinate, let arrayIndex, let value):
           k = .imageStore(image: try ex(image), coordinate: try ex(coordinate),
                           arrayIndex: try optional(arrayIndex), value: try ex(value))
+        case .imageAtomic(let image, let coordinate, let arrayIndex, let function, let value):
+          k = .imageAtomic(image: try ex(image), coordinate: try ex(coordinate),
+                           arrayIndex: try optional(arrayIndex), function: function, value: try ex(value))
         case .workgroupUniformLoad(let p, let r): k = .workgroupUniformLoad(pointer: try ex(p), result: try ex(r))
+        case .subgroupGather(let mode, let argument, let result):
+          k = .subgroupGather(mode: try mode.remappingIndex(ex), argument: try ex(argument), result: try ex(result))
+        case .subgroupBallot(let result, let predicate):
+          k = .subgroupBallot(result: try ex(result), predicate: try optional(predicate))
+        case .subgroupCollectiveOperation(let operation, let collective, let argument, let result):
+          k = .subgroupCollectiveOperation(op: operation, collective: collective, argument: try ex(argument), result: try ex(result))
         case .atomic(let p, let operation, let v, let r):
           let mapped: IRAtomicFunction
-          if case .exchange(let compare) = operation { mapped = .exchange(compare: try optional(compare)) }
+          if case .exchange(let compare, let strong) = operation {
+            mapped = .exchange(compare: try optional(compare), strong: strong)
+          }
           else { mapped = operation }
           k = .atomic(pointer: try ex(p), function: mapped, value: try ex(v), result: try optional(r))
         case .call(let t, let xs, let r):
@@ -204,7 +238,10 @@ extension WGSLParser {
         }, statements: IRTable(statements), blocks: f.blocks, body: f.body,
         diagnosticFilter: f.diagnosticFilter, location: f.location)
     }
-    predeclaredTypes = try predeclaredTypes.map { .init(kind: $0.kind, type: try ty($0.type)) }
+    predeclaredTypes = try predeclaredTypes.compactMap {
+      guard !abstractStructures.contains($0.type.index) else { return nil }
+      return .init(kind: $0.kind, type: try ty($0.type))
+    }
     types = keptTypes
   }
 }

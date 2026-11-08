@@ -21,7 +21,7 @@ public struct SourceSpan: Sendable, Equatable {
 }
 
 public struct ShaderDiagnostic: Sendable, Equatable {
-    public enum Severity: Sendable { case warning, error }
+    public enum Severity: Sendable { case info, warning, error }
     public let severity: Severity
     public let message: String
     public let code: ShaderDiagnosticCode

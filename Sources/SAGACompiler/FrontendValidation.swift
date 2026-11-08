@@ -9,12 +9,20 @@ extension IndependentShaderCompiler {
     _ input: ShaderInput, capabilities: ShaderCapabilities = .referenceDefault,
     limits: ShaderLimits = .default
   ) throws -> ValidatedModule<IRModule> {
+    try parseAndValidate(input, capabilities: capabilities, limits: limits, allow1DTextureSampleLevelOffset: false)
+  }
+
+  func parseAndValidate(
+    _ input: ShaderInput, capabilities: ShaderCapabilities, limits: ShaderLimits = .default,
+    allow1DTextureSampleLevelOffset: Bool
+  ) throws -> ValidatedModule<IRModule> {
     try Task.checkCancellation()
     let module: IRModule
     switch input {
     case .wgsl:
-      module = try WGSLFrontend(options: .init(capabilities: capabilities), limits: limits).parse(
-        input)
+      let options = WGSLFrontendOptions(capabilities: capabilities,
+        allow1DTextureSampleLevelOffset: allow1DTextureSampleLevelOffset, nagaFloatRounding: nagaFloatRounding)
+      module = try WGSLFrontend(options: options, limits: limits).parse(input)
     case .glsl(_, let stage, let defines):
       module = try GLSLFrontend(
         options: .init(stage: IRStage(stage), defines: defines), limits: limits

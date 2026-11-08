@@ -6,31 +6,51 @@ private struct ShiftGroup {
 }
 
 extension WGSLParser {
-    func literal(_ t: WGSLToken) throws -> (IRLiteral,IRScalar) {
+    func literal(_ t: WGSLToken, negativeInt64: Bool = false) throws -> (IRLiteral,IRScalar) {
         if t.text == "true" || t.text == "false" { return (.bool(t.text == "true"),.bool) }
         guard t.kind == .number else { throw wgslError(.unexpectedToken,"Expected numeric/bool literal",t) }
         try budget.consume(.work,amount:t.text.utf8.count)
         var text = t.text
         let isHex = text.hasPrefix("0x") || text.hasPrefix("0X")
         let floating = text.contains(".") || (isHex ? text.lowercased().contains("p") : text.lowercased().contains("e"))
-        if text.hasSuffix("h") { throw unsupported("f16 literal (enable f16 also required)",at:t) }
+        let explicitHalf = text.hasSuffix("h")
+        if explicitHalf {
+            try requireFloat16(at: t)
+            guard !isHex || text.lowercased().contains("p") else {
+                throw wgslError(.invalidToken, "Hex f16 literal requires a binary exponent", t)
+            }
+        }
         // In hexadecimal integers 'f' is a digit, not a suffix.
         let explicitFloat = text.hasSuffix("f") && (!isHex || text.lowercased().contains("p"))
-        if floating || explicitFloat {
-            if explicitFloat { text.removeLast() }
-            if isHex {return try hexFloat(text,explicitF32:explicitFloat,at:t)}
+        if floating || explicitFloat || explicitHalf {
+            if explicitFloat || explicitHalf { text.removeLast() }
+            if isHex { return try hexFloat(text, kind: explicitHalf ? .f16 : explicitFloat ? .f32 : .abstract, at: t) }
             guard !text.hasSuffix("u"), !text.hasSuffix("i"), let d = Double(text), d.isFinite else { throw wgslError(.invalidToken,"Invalid float literal",t) }
             if explicitFloat {
                 guard let f = Float(text), f.isFinite else { throw wgslError(.invalidToken,"f32 literal overflow",t) }; return (.f32(f),.f32)
             }
+            if explicitHalf {
+                let bits = Binary16.encode(d)
+                guard bits & 0x7c00 != 0x7c00 else { throw wgslError(.invalidToken, "f16 literal overflow", t) }
+                return (.f16Bits(bits), .f16)
+            }
             return (.abstractFloat(d),.abstractFloat)
         }
         let suffix = text.last
+        let explicitU64 = text.hasSuffix("lu")
+        let explicitI64 = text.hasSuffix("li")
         let explicitU = suffix == "u", explicitI = suffix == "i"
-        if explicitU || explicitI { text.removeLast() }
+        if explicitU64 || explicitI64 { text.removeLast(2) }
+        else if explicitU || explicitI { text.removeLast() }
         let digits = isHex ? String(text.dropFirst(2)) : text
         if !isHex && digits.count > 1 && digits.hasPrefix("0") { throw wgslError(.invalidToken,"Leading zero integer",t) }
         guard let number = UInt64(digits,radix:isHex ? 16 : 10) else { throw wgslError(.invalidToken,"Integer literal overflow or missing digits",t) }
+        if explicitU64 { return (.u64(number), .u64) }
+        if explicitI64 {
+            if negativeInt64, number == UInt64(Int64.max) + 1 { return (.i64(.min), .i64) }
+            guard let value = Int64(exactly: number) else { throw wgslError(.invalidToken, "i64 literal overflow", t) }
+            return (.i64(negativeInt64 ? -value : value), .i64)
+        }
         if explicitU { guard let n = UInt32(exactly:number) else { throw wgslError(.invalidToken,"u32 literal overflow",t) }; return (.u32(n),.u32) }
         if explicitI { guard let n = Int32(exactly:number) else { throw wgslError(.invalidToken,"i32 literal overflow",t) }; return (.i32(n),.i32) }
         guard let n = Int64(exactly:number) else { throw wgslError(.invalidToken,"Abstract integer overflow",t) }
@@ -41,27 +61,55 @@ extension WGSLParser {
         if s == scalar { return literal }
         switch literal {
         case .abstractInt(let n):
+            if s == .i64 { return .i64(n) }
+            if s == .u64, let v = UInt64(exactly: n) { return .u64(v) }
             if s == .u32, let v = UInt32(exactly:n) { return .u32(v) }
             if s == .i32, let v = Int32(exactly:n) { return .i32(v) }
             if s == .f32 { let v = Float(n); if v.isFinite { return .f32(v) } }
+            if s == .f16,
+               let converted = WGSLFloatingConstant.rounded(Double(n), to: .f16, nagaFloatRounding: options.nagaFloatRounding) {
+                return converted.literal
+            }
             if s == .abstractFloat { return .abstractFloat(Double(n)) }
         case .abstractFloat(let n):
-            if s == .f32, abs(n) <= Double(Float.greatestFiniteMagnitude) { let v = Float(n); if v.isFinite { return .f32(v) } }
+            if s == .f32 || s == .f16,
+               let converted = WGSLFloatingConstant.rounded(n, to: s == .f32 ? .f32 : .f16,
+                                                            nagaFloatRounding: options.nagaFloatRounding) {
+                return converted.literal
+            }
         default: break
         }
         throw wgslError(.typeMismatch,"Literal cannot be materialized as requested type",t)
     }
     func statement(_ kind: IRStatementKind, at t: WGSLToken? = nil) throws {
+        if !allowsPointerSubviews, case .call(_, let arguments, _) = kind {
+            allowsPointerSubviews = try arguments.contains { argument in
+                try budget.consume(.work)
+                let expression = body.expressions[argument.index]
+                guard case .pointer = types[expression.type.index].kind else { return false }
+                switch expression.kind {
+                case .access, .accessIndex: return true
+                default: return false
+                }
+            }
+        }
         try node(); let h = try IRHandle<IRStatement>(index:body.statements.count)
         body.statements.append(IRStatement(kind:kind,location:t?.location)); body.current.append(h)
     }
     func expressionNode(_ kind: IRExpressionKind, type: WType, at t: WGSLToken, emit: Bool = true) throws -> WGSLValue {
         try node(); let h = try WExpr(index:body.expressions.count)
         body.expressions.append(IRExpression(type:type,kind:kind,location:t.location))
+        body.pipelineStages.append(kind.pipelineEvaluationStage(type: types[type.index].kind) {
+            body.pipelineStages[$0.index]
+        })
         if emit { try statement(.emit([h]),at:t) }
         return WGSLValue(handle:h,type:type,pointer:false,writable:false)
     }
     func loaded(_ value: WGSLValue, at t: WGSLToken) throws -> WGSLValue {
+        if let view = value.swizzle { return try readSwizzleView(value, view: view, at: t) }
+        if case .bindingArray = types[value.type.index].kind {
+            throw wgslError(.typeMismatch, "A binding array can only be indexed", t)
+        }
         if !value.pointer { return value }
         if case .atomic = types[value.type.index].kind { throw unsupported("atomic read without atomicLoad",at:t) }
         return try expressionNode(.load(pointer:value.handle),type:value.type,at:t)
@@ -70,6 +118,21 @@ extension WGSLParser {
         let v = try loaded(value,at:t)
         if v.type == target { return v }
         let kind = types[v.type.index].kind
+        if case .array(_, .constant(let size), _) = kind,
+           case .array(let element, .constant(let targetSize), _) = types[target.index].kind,
+           size == targetSize, case .compose(_, let components) = body.expressions[v.handle.index].kind {
+            try enter()
+            defer { nesting -= 1 }
+            let source = try constantKind(v.type, at: t)
+            guard source.containsAbstract else { throw wgslError(.typeMismatch, "Incompatible array type", t) }
+            let converted = try components.map { handle in
+                try budget.consume(.work)
+                let value = WGSLValue(handle: handle, type: body.expressions[handle.index].type,
+                                      pointer: false, writable: false)
+                return try coerce(value, to: element, at: t).handle
+            }
+            return try expressionNode(.compose(type: target, components: converted), type: target, at: t)
+        }
         if case .matrix(let columns,let rows,let scalar)=types[target.index].kind,
            case .matrix(let c,let r,let source)=kind,columns == c,rows == r,source.kind == .abstractFloat,
            case .compose(_,let xs)=body.expressions[v.handle.index].kind {
@@ -120,6 +183,10 @@ extension WGSLParser {
             return try coerce(v,to:intern(.vector(size:n,scalar:scalar.kind == .abstractInt ? .i32:.f32)),at:t)
         case .scalar(.abstractInt): return try coerce(v,to:intern(.scalar(.i32)),at:t)
         case .scalar(.abstractFloat): return try coerce(v,to:intern(.scalar(.f32)),at:t)
+        case .array(_, .constant, _):
+            let kind = try constantKind(v.type, at: t)
+            return try kind.containsAbstract ? coerce(v, to: constantType(kind.concretized, at: t), at: t) : v
+        case .structure: return try materializeDecomposition(v, at: t) ?? v
         default: return v
         }
     }
@@ -134,6 +201,11 @@ extension WGSLParser {
             }
         }
         try resolveValueDeclaration(name)
+        if let handle = overrideNames[key] {
+            return try expressionNode(.override(handle), type: overrides[handle.index].type, at: name, emit: false)
+        }
+        if let composite = compositeConstants[key] { return try compositeRuntimeValue(composite, at: name) }
+        if let parts = decompositionConstants[key] { return try decompositionRuntimeValue(parts, at: name) }
         if let matrix=matrixConstants[wgslKey(name.text)] {return try matrixRuntimeValue(matrix,to:nil,at:name)}
         if let vector=vectorConstants[wgslKey(name.text)] {return try vectorRuntimeValue(vector,to:nil,at:name)}
         if let value=abstractFloatConstants[wgslKey(name.text)] {
@@ -153,7 +225,7 @@ extension WGSLParser {
             let pointerType = try intern(.pointer(base: g.type, space: g.space))
             let reference = try expressionNode(.globalVariable(try IRHandle(index:i)),type:pointerType,at:name,emit:false)
             let writable: Bool
-            switch g.space { case .uniform: writable = false; case .storage(let access): writable = access.contains(.store); default:writable = true }
+            switch g.space { case .uniform, .immediate: writable = false; case .storage(let access): writable = access.contains(.store); default:writable = true }
             return WGSLValue(handle:reference.handle,type:g.type,pointer:true,writable:writable)
         }
         throw wgslError(.unresolvedName,"Unknown name '\(name.text)'",name)
@@ -168,11 +240,11 @@ extension WGSLParser {
         let leftStart = cursor
         var left = try prefix()
         var numericOperator: String?
-        while true {
+        while cursor != pipelineExpressionEnd {
             try budget.consume(.work)
             let operatorStart = cursor
             let op = expressionOperator()
-            guard let (precedence, binary) = Self.binary[op.text], precedence >= minimum else { break }
+            guard op.kind == .symbol, let (precedence, binary) = Self.binary[op.text], precedence >= minimum else { break }
             let shift = binary == .shiftLeft || binary == .shiftRight
             let bitwise = binary == .and || binary == .exclusiveOr || binary == .inclusiveOr
             if (shift && group.hasBitwise) || (bitwise && group.hasShift) {
@@ -209,9 +281,23 @@ extension WGSLParser {
                 left = vector
                 continue
             }
+            if let vector = try floatingVectorBinary(binary, left: left, right: right, constantTokens: leftStart..<cursor, at: op) {
+                left = vector
+                continue
+            }
+            if case .vector(_, .bool) = types[left.type.index].kind {
+                guard left.type == right.type, [.and, .inclusiveOr, .equal, .notEqual].contains(binary) else {
+                    throw wgslError(.typeMismatch, "Boolean vector operands require a matching shape and &, |, == or !=", op)
+                }
+                left = try expressionNode(.binary(op: binary, left: left.handle, right: right.handle), type: left.type, at: op)
+                continue
+            }
             if left.type != right.type {
-                if isAbstract(left.type) { left = try coerce(left,to:right.type,at:op) }
-                else if isAbstract(right.type) { right = try coerce(right,to:left.type,at:op) }
+                if isAbstract(left.type), types[right.type.index].kind != .scalar(.abstractInt) {
+                    left = try coerce(left, to: right.type, at: op)
+                } else if isAbstract(right.type) {
+                    right = try coerce(right, to: left.type, at: op)
+                }
             }
             guard left.type == right.type else { throw wgslError(.typeMismatch,"Binary operands must match",op) }
             let comparison = ["==","!=","<",">","<=",">="].contains(op.text)
@@ -221,17 +307,24 @@ extension WGSLParser {
             else { throw unsupported("vector/matrix binary overload",at:op) }
             if s == .bool {
                 guard ["==","!=","&","|"].contains(op.text) else { throw wgslError(.typeMismatch,"Invalid bool operator",op) }
-            } else if ["&","|","^","%"].contains(op.text) && (s.kind == .float || s.kind == .abstractFloat) { throw wgslError(.typeMismatch,"Integer operand required",op) }
+            } else if ["&","|","^"].contains(op.text) && (s.kind == .float || s.kind == .abstractFloat) { throw wgslError(.typeMismatch,"Integer operand required",op) }
             if (binary == .divide || binary == .modulo) && [.sint, .uint, .abstractInt].contains(s.kind),
                let divisor = try knownIntegerConstant(rightStart..<cursor, at: op) {
                 guard divisor.value != 0 else { throw wgslError(.invalidType,"Constant division or remainder by zero",op) }
-                if divisor.value == -1, s == .i32,
-                   try knownIntegerConstant(leftStart..<operatorStart, at: op)?.value == Int64(Int32.min) {
+                let minimum = s == .i64 ? Int64.min : Int64(Int32.min)
+                if divisor.value == -1, s.kind == .sint,
+                   try knownIntegerConstant(leftStart..<operatorStart, at: op)?.value == minimum {
                     throw wgslError(.invalidType,"Constant signed division or remainder overflow",op)
                 }
             }
             let result = comparison ? try intern(.scalar(.bool)) : left.type
-            if let folded = try fold(binary,left:left,right:right,at:op) {
+            let folded: IRLiteral?
+            if s == .f32 || s == .f16 {
+                folded = try knownConstantValue(leftStart..<cursor, at: op)?.literal
+            } else {
+                folded = try fold(binary, left: left, right: right, at: op)
+            }
+            if let folded {
                 left = try expressionNode(.literal(folded),type:result,at:op,emit:false)
             } else {
                 left = try expressionNode(.binary(op:binary,left:left.handle,right:right.handle),type:result,at:op)
@@ -251,11 +344,24 @@ extension WGSLParser {
         try enter(); defer { nesting -= 1 }
         let t = token
         var value: WGSLValue
+        if t.text == "&" || t.text == "*" {
+            _ = try take()
+            let operand = try prefix()
+            return t.text == "&" ? try addressOf(operand, at: t) : try dereference(operand, at: t)
+        }
         if ["-","!","~"].contains(t.text) {
-            _ = try take(); let v = try loaded(prefix(),at:t)
+            _ = try take()
+            if t.text == "-", token.kind == .number, token.text.hasSuffix("li") {
+                let (literal, scalar) = try literal(take(), negativeInt64: true)
+                return try expressionNode(.literal(literal), type: intern(.scalar(scalar)), at: t, emit: false)
+            }
+            let v = try loaded(prefix(),at:t)
             if case .vector(_, let scalar) = types[v.type.index].kind {
-                guard (t.text == "-" && scalar == .i32) ||
-                      (t.text == "~" && (scalar == .i32 || scalar == .u32)) else {
+                if t.text == "!", scalar == .bool {
+                    return try expressionNode(.unary(op: .logicalNot, expression: v.handle), type: v.type, at: t)
+                }
+                guard (t.text == "-" && [.i32, .i64, .f16, .f32].contains(scalar)) ||
+                      (t.text == "~" && [.i32, .u32, .i64, .u64].contains(scalar)) else {
                     throw unsupported("vector unary overload",at:t)
                 }
                 return try expressionNode(.unary(op: t.text == "-" ? .negate : .bitwiseNot, expression: v.handle),
@@ -286,32 +392,73 @@ extension WGSLParser {
                 let name = try ident()
                 guard !isNext("(") else { throw wgslError(.typeMismatch,"Local value shadows predeclared type",name) }
                 value = try lookup(name)
+            } else if t.text == "array", cursor + 1 < tokens.count, tokens[cursor + 1].text == "(" {
+                _ = try take(); try expect("("); value = try inferredArray(t)
             } else if (["vec2", "vec3", "vec4"].contains(t.text) || WGSLScalarEvaluator.matrixNames[t.text] != nil),
                declarationNames[wgslKey(t.text)] == nil, cursor + 1 < tokens.count, tokens[cursor + 1].text == "(" {
                 _ = try take(); try expect("("); value = try inferredComposite(t)
             } else if isTypeName(t.text) {
-                let target = try type(); try expect("("); value = try construct(target,at:t)
+                value = try typedConstructor(at: t)
             } else {
+                let start = cursor
                 let n = try ident()
-                if try eat("(") { value = try call(n) }
+                if n.text == "bitcast", isNext("<"), declarationNames[wgslKey(n.text)] == nil,
+                   !(try localConstantNameExists(n)) {
+                    value = try bitcastExpression(at: n, start: start)
+                } else if try eat("(") { value = try call(n) }
                 else { value = try lookup(n) }
             }
         } else { throw wgslError(.unexpectedToken,"Expected expression",t) }
         while true {
+            if isNext("[") || isNext("."), !value.pointer, case .pointer = types[value.type.index].kind {
+                value = try dereference(value, at: t)
+            }
             if try eat("[") {
-                let indexAt=token
-                let index = try defaultMaterialize(expression(),at:indexAt); try expect("]")
-                if case .vector(let width,_)=types[value.type.index].kind,
-                   let literal=try abstractScalarLeaf(index.handle,at:indexAt) {
-                    let number:Int64
-                    switch literal {case .u32(let x):number=Int64(x);case .i32(let x):number=Int64(x);default:throw wgslError(.typeMismatch,"Index must be integer",indexAt)}
-                    guard number >= 0,number < Int64(width.rawValue) else {throw wgslError(.invalidType,"Constant vector index out of bounds",indexAt)}
-                }
+                let indexAt = token
+                let indexStart = cursor
+                let index = try defaultMaterialize(expression(), at: indexAt)
+                let indexTokens = indexStart..<cursor
+                try expect("]")
                 let indexType = types[index.type.index].kind
                 guard indexType == .scalar(.u32) || indexType == .scalar(.i32) else { throw wgslError(.typeMismatch,"Index must be i32/u32",t) }
+                if let view = value.swizzle {
+                    value = try indexSwizzleView(value, view: view, index: index, tokens: indexTokens, at: indexAt)
+                    continue
+                }
+                let isConstantIndex = body.pipelineStages[index.handle.index] == .constant
+                var fixedOffset: UInt32?
+                if let extent = try abstractIndexExtent(value, at: t) {
+                    if isConstantIndex {
+                        let offset = try constantSubscript(index, tokens: indexTokens, at: indexAt)
+                        guard offset >= 0, offset < Int64(extent) else {
+                            throw wgslError(.invalidType, "Constant index out of bounds", indexAt)
+                        }
+                        if case .array = types[value.type.index].kind,
+                           case .compose(_, let elements) = body.expressions[value.handle.index].kind {
+                            let handle = elements[Int(offset)]
+                            value = WGSLValue(handle: handle, type: body.expressions[handle.index].type,
+                                              pointer: false, writable: false)
+                            continue
+                        }
+                        fixedOffset = UInt32(offset)
+                    } else {
+                        value = try defaultMaterialize(value, at: t)
+                    }
+                } else if isConstantIndex, case .vector(let width, _) = types[value.type.index].kind,
+                          let literal = try abstractScalarLeaf(index.handle, at: indexAt) {
+                    let offset: Int64
+                    switch literal {
+                    case .i32(let n): offset = Int64(n)
+                    case .u32(let n): offset = Int64(n)
+                    default: throw wgslError(.typeMismatch, "Index must be integer", indexAt)
+                    }
+                    guard offset >= 0, offset < Int64(width.rawValue) else {
+                        throw wgslError(.invalidType, "Constant vector index out of bounds", indexAt)
+                    }
+                }
                 let element: WType
                 switch types[value.type.index].kind {
-                case .array(let base,_,_):element = base
+                case .array(let base,_,_), .bindingArray(let base,_):element = base
                 case .vector(_,let scalar):element = try intern(.scalar(scalar))
                 case .matrix(_,let rows,let scalar):element = try intern(.vector(size:rows,scalar:scalar))
                 default:throw wgslError(.typeMismatch,"Value not indexable",t)
@@ -321,7 +468,9 @@ extension WGSLParser {
                     let p = try expressionNode(.access(base:value.handle,index:index.handle),type:intern(.pointer(base:element,space:space)),at:t)
                     value = WGSLValue(handle:p.handle,type:element,pointer:true,writable:value.writable)
                 } else {
-                    value = try expressionNode(.access(base:value.handle,index:index.handle),type:element,at:t)
+                    let access = fixedOffset.map { IRExpressionKind.accessIndex(base: value.handle, index: $0) }
+                        ?? .access(base: value.handle, index: index.handle)
+                    value = try expressionNode(access, type: element, at: t)
                 }
             } else if try eat(".") {
                 let field = try ident()
@@ -331,6 +480,11 @@ extension WGSLParser {
                     for (i,m) in members.enumerated() { try budget.consume(.work,amount:field.text.utf8.count+1); if m.name?.utf8.elementsEqual(field.text.utf8) == true { match = i; break } }
                     guard let i = match else { throw wgslError(.unresolvedName,"No such struct member",field) }
                     let ty = members[i].type
+                    if !value.pointer, case .compose(_, let components) = body.expressions[value.handle.index].kind,
+                       predeclaredTypes.contains(where: { $0.type == value.type && $0.kind.decomposition != nil }) {
+                        value = WGSLValue(handle: components[i], type: ty, pointer: false, writable: false)
+                        continue
+                    }
                     let resultType = value.pointer ? try intern(.pointer(base:ty,space:pointerSpace(value))) : ty
                     let p = try expressionNode(.accessIndex(base:value.handle,index:UInt32(i)),type:resultType,at:field)
                     value = WGSLValue(handle:p.handle,type:ty,pointer:value.pointer,writable:value.writable)
@@ -343,29 +497,76 @@ extension WGSLParser {
                     for c in chars {
                         guard let n = alphabet.firstIndex(of:c), n < Int(size.rawValue) else { throw wgslError(.typeMismatch,"Invalid swizzle",field) }; indices.append(n)
                     }
-                    if indices.count == 1 {
-                        let ty = try intern(.scalar(scalar))
-                        let resultType = value.pointer ? try intern(.pointer(base:ty,space:pointerSpace(value))) : ty
-                        let p = try expressionNode(.accessIndex(base:value.handle,index:UInt32(indices[0])),type:resultType,at:field)
-                        value = WGSLValue(handle:p.handle,type:ty,pointer:value.pointer,writable:value.writable)
-                    } else {
-                        let v = try loaded(value,at:field)
-                        let components: [IRSwizzleComponent] = [.x,.y,.z,.w]
-                        while indices.count < 4 { indices.append(0) }
-                        guard let outSize = IRVectorSize(rawValue:UInt8(chars.count)) else { throw wgslError(.invalidType,"Bad swizzle",field) }
-                        value = try expressionNode(.swizzle(size:outSize,vector:v.handle,pattern:IRSwizzle(x:components[indices[0]],y:components[indices[1]],z:components[indices[2]],w:components[indices[3]])),type:intern(.vector(size:outSize,scalar:scalar)),at:field)
-                    }
+                    value = try vectorSelection(value, lanes: indices, scalar: scalar, at: field)
                 default: throw wgslError(.typeMismatch,"Member access on noncomposite",field)
                 }
             } else { break }
         }
         return value
     }
+
+    private func abstractIndexExtent(_ value: WGSLValue, at token: WGSLToken) throws -> UInt32? {
+        guard !value.pointer else { return nil }
+        switch types[value.type.index].kind {
+        case .vector(let width, .abstractInt), .vector(let width, .abstractFloat),
+             .matrix(let width, _, .abstractFloat):
+            return UInt32(width.rawValue)
+        case .array(_, .constant(let count), _):
+            return try constantKind(value.type, at: token).containsAbstract ? count : nil
+        default:
+            return nil
+        }
+    }
+
+    private func constantSubscript(_ value: WGSLValue, tokens range: Range<Int>, at token: WGSLToken) throws -> Int64 {
+        switch body.expressions[value.handle.index].kind {
+        case .literal(.i32(let index)): return Int64(index)
+        case .literal(.u32(let index)): return Int64(index)
+        default:
+            guard case .integer(let index) = try scalarConstant(Array(tokens[range]), at: token) else {
+                throw wgslError(.typeMismatch, "Index must be integer", token)
+            }
+            return index.value
+        }
+    }
+    private func addressOf(_ value: WGSLValue, at t: WGSLToken) throws -> WGSLValue {
+        guard value.pointer else { throw wgslError(.typeMismatch, "Address-of requires a reference", t) }
+        if case .bindingArray = types[value.type.index].kind {
+            throw wgslError(.invalidReference, "Cannot take the address of an entire binding array", t)
+        }
+        guard value.swizzle == nil else { throw wgslError(.invalidReference, "Cannot take the address of a swizzle view", t) }
+        let expression = body.expressions[value.handle.index]
+        let base: WExpr?
+        switch expression.kind {
+        case .access(let parent, _), .accessIndex(let parent, _): base = parent
+        default: base = nil
+        }
+        if let base, case .pointer(let pointee, _) = types[body.expressions[base.index].type.index].kind,
+           case .vector = types[pointee.index].kind {
+            throw wgslError(.invalidReference, "Cannot take the address of a vector component", t)
+        }
+        // The IR stores both WGSL references and pointer values as typed addresses.
+        return WGSLValue(handle: value.handle, type: expression.type, pointer: false, writable: false)
+    }
+
+    private func dereference(_ value: WGSLValue, at t: WGSLToken) throws -> WGSLValue {
+        guard !value.pointer, case .pointer(let base, let space) = types[value.type.index].kind else {
+            throw wgslError(.typeMismatch, "Indirection requires a pointer", t)
+        }
+        let writable: Bool
+        switch space {
+        case .storage(let access): writable = access.contains(.store)
+        case .uniform: writable = false
+        default: writable = true
+        }
+        return WGSLValue(handle: value.handle, type: base, pointer: true, writable: writable)
+    }
+
     func pointerSpace(_ value: WGSLValue) throws -> IRAddressSpace {
         guard case .pointer(_,let space) = types[body.expressions[value.handle.index].type.index].kind else { throw wgslError(.invalidType,"Expected pointer",token) }; return space
     }
     func isTypeName(_ name: String) -> Bool {
-        predeclaredType(name) != nil || typeNames[wgslKey(name)] != nil || declarationNames[wgslKey(name)].map { ["alias","struct"].contains(declarations[$0].kind) } == true || ["u32","i32","f32","bool","vec2","vec3","vec4","array","mat2x2","mat2x3","mat2x4","mat3x2","mat3x3","mat3x4","mat4x2","mat4x3","mat4x4"].contains(name)
+        predeclaredType(name) != nil || typeNames[wgslKey(name)] != nil || declarationNames[wgslKey(name)].map { ["alias","struct"].contains(declarations[$0].kind) } == true || ["u32","u64","i32","i64","f32","f16","bool","vec2","vec3","vec4","array","mat2x2","mat2x3","mat2x4","mat3x2","mat3x3","mat3x4","mat4x2","mat4x3","mat4x4"].contains(name)
     }
     func arguments() throws -> [WGSLValue] {
         var args: [WGSLValue] = []
@@ -375,11 +576,26 @@ extension WGSLParser {
         }
         try expect(")"); return args
     }
+    private func typedConstructor(at name: WGSLToken) throws -> WGSLValue {
+        let start = cursor
+        let target = try type()
+        try expect("(")
+        let result = try construct(target, at: name)
+        guard types[target.index].kind.usesFloat16,
+              let constant = try knownConstantValue(start..<cursor, at: name) else { return result }
+        if case .matrix(let matrix) = constant {
+            return try matrixRuntimeValue(matrix, to: target, at: name)
+        }
+        if case .vector(let vector) = constant {
+            return try vectorRuntimeValue(vector, to: target, at: name)
+        }
+        return try expressionNode(.literal(constant.literal), type: target, at: name, emit: false)
+    }
     func construct(_ target: WType, at t: WGSLToken, supplied: [WGSLValue]? = nil) throws -> WGSLValue {
         var args = try supplied ?? arguments()
         if args.isEmpty {
             switch types[target.index].kind {
-            case .scalar,.vector,.matrix:break
+            case .scalar, .vector, .matrix, .array(_, .constant, _), .structure: break
             default:throw unsupported("zero composite constructor",at:t)
             }
             return try expressionNode(.zeroValue(target),type:target,at:t,emit:false)
@@ -388,15 +604,35 @@ extension WGSLParser {
         case .scalar(let scalar):
             guard args.count == 1 else { throw wgslError(.typeMismatch,"Scalar constructor arity",t) }
             if args[0].type == target { return args[0] }
-            if isAbstract(args[0].type) { return try coerce(args[0],to:target,at:t) }
-            guard case .scalar(let from) = types[args[0].type.index].kind, scalar != .bool, from != .bool else { throw unsupported("bool conversion",at:t) }
-            return try expressionNode(.cast(expression:args[0].handle,target:scalar),type:target,at:t)
+            guard case .scalar(let source) = types[args[0].type.index].kind, scalar.isWGSLConversionScalar else {
+                throw wgslError(.typeMismatch, "Scalar constructor requires a scalar", t)
+            }
+            if source.isWGSLConversionScalar {
+                return try expressionNode(.cast(expression: args[0].handle, target: scalar), type: target, at: t)
+            }
+            guard let value = try pureCompositeConstant(args[0], at: t) else {
+                throw wgslError(.typeMismatch, "Abstract scalar conversion requires a constant", t)
+            }
+            let evaluator = WGSLScalarEvaluator(parser: self, tokens: [], fallback: t)
+            let result = try evaluator.scalarConvert(value, to: .scalar(scalar, at: t), at: t, explicit: true)
+            return try expressionNode(.literal(result.literal), type: target, at: t, emit: false)
         case .vector(let size,let scalar):
             let elem = try intern(.scalar(scalar))
             if args.count == 1, case .vector(let sourceSize, let source) = types[args[0].type.index].kind,
-               sourceSize == size, source != scalar,
-               [.i32, .u32].contains(source), [.i32, .u32, .f32].contains(scalar) {
-                return try expressionNode(.cast(expression: args[0].handle, target: scalar), type: target, at: t)
+               sourceSize == size, source != scalar, scalar.isWGSLConversionScalar {
+                if source.isWGSLConversionScalar {
+                    return try expressionNode(.cast(expression: args[0].handle, target: scalar), type: target, at: t)
+                }
+                guard case .vector(let vector)? = try pureCompositeConstant(args[0], at: t) else {
+                    throw wgslError(.typeMismatch, "Abstract vector conversion requires a constant", t)
+                }
+                let leaf = try WGSLConstKind.scalar(scalar, at: t)
+                let evaluator = WGSLScalarEvaluator(parser: self, tokens: [], fallback: t)
+                let elements = try vector.elements.map { value in
+                    try budget.consume(.work)
+                    return try evaluator.scalarConvert(value, to: leaf, at: t, explicit: true)
+                }
+                return try vectorRuntimeValue(.init(elements: elements, element: leaf), to: target, at: t)
             }
             if args.count == 1, case .scalar = types[args[0].type.index].kind {
                 let v = try coerce(args[0],to:elem,at:t)
@@ -421,10 +657,12 @@ extension WGSLParser {
             guard components.count == Int(size.rawValue) else {throw wgslError(.typeMismatch,"Too few vector components",t)}
             args=components
         case .matrix(let columns,let rows,let scalar):
-            if args.count == 1,case .matrix = types[args[0].type.index].kind {
-                // The currently enabled source scalar is f32; another scalar's explicit conversion
-                // must be added with its capability/type validation, not shape-coerced here.
-                return try coerce(args[0],to:target,at:t)
+            if args.count == 1, case .matrix(let c, let r, let input) = types[args[0].type.index].kind {
+                guard c == columns, r == rows else { throw wgslError(.typeMismatch, "Matrix conversion shape mismatch", t) }
+                if input != scalar, [.f16, .f32].contains(input), [.f16, .f32].contains(scalar) {
+                    return try expressionNode(.cast(expression: args[0].handle, target: scalar), type: target, at: t)
+                }
+                return try coerce(args[0], to: target, at: t)
             }
             let column=try intern(.vector(size:rows,scalar:scalar))
             if args.count == Int(columns.rawValue),args.allSatisfy({if case .vector=types[$0.type.index].kind {true} else {false}}) {
@@ -451,10 +689,19 @@ extension WGSLParser {
     }
     func call(_ name: WGSLToken) throws -> WGSLValue {
         try resolveFunctionDeclaration(name)
+        if declarationNames[wgslKey(name.text)] == nil, Self.subgroupGatherBuiltins.contains(name.text) {
+            return try subgroupGather(at: name)
+        }
+        if declarationNames[wgslKey(name.text)] == nil {
+            if name.text == "subgroupBallot" { return try subgroupBallot(at: name) }
+            if name.text == "subgroupElect" { return try subgroupElect(at: name) }
+            if let (operation, collective) = IRSubgroupOperation.wgslBuiltins[name.text] {
+                return try subgroupCollective(operation, collective: collective, at: name)
+            }
+        }
         if name.text == "workgroupUniformLoad", declarationNames[wgslKey(name.text)] == nil {
-            try expect("&")
-            let pointer = try expression()
-            guard pointer.pointer, try pointerSpace(pointer) == .workgroup else {
+            let pointer = try dereference(expression(), at: name)
+            guard try pointerSpace(pointer) == .workgroup else {
                 throw wgslError(.typeMismatch, "workgroupUniformLoad requires the address of a workgroup value", name)
             }
             let type: WType
@@ -481,6 +728,9 @@ extension WGSLParser {
             let operation: IRAtomicFunction
             let resultType: WType
             if compares {
+                guard types[type.index].kind != .scalar(.f32) else {
+                    throw wgslError(.typeMismatch, "Float atomics support add, subtract and exchange", name)
+                }
                 try expect(",")
                 value = try coerce(expression(), to: type, at: name)
                 operation = .exchange(compare: first.handle)
@@ -498,9 +748,8 @@ extension WGSLParser {
             return result
         }
         if name.text == "arrayLength", functionNames[wgslKey(name.text)] == nil {
-            try expect("&")
-            let array = try expression()
-            guard array.pointer, case .storage = try pointerSpace(array),
+            let array = try dereference(expression(), at: name)
+            guard case .storage = try pointerSpace(array),
                   case .array(_, .dynamic, _) = types[array.type.index].kind else {
                 throw wgslError(.typeMismatch, "arrayLength requires the address of a runtime storage array", name)
             }
@@ -514,6 +763,15 @@ extension WGSLParser {
            declarationNames[wgslKey(name.text)] == nil {
             return try textureSampleBuiltin(at: name)
         }
+        if declarationNames[wgslKey(name.text)] == nil,
+           let function = IRMathFunction(wgslName: name.text) {
+            if let arity = function.integerBitArity { return try integerBitBuiltin(function, arity: arity, at: name) }
+            if let packing = function.packingBuiltin { return try packingCall(packing, function: function, at: name) }
+            if function.geometricArity != nil { return try geometricBuiltin(function, at: name) }
+            if function.decomposesFloat { return try decompositionBuiltin(function, at: name) }
+            if function == .ldexp { return try ldexpBuiltin(at: name) }
+            if let numeric = function.numericBuiltin { return try numericBuiltin(function, builtin: numeric, at: name) }
+        }
         var args = try arguments()
         if let i = functionNames[wgslKey(name.text)] {
             guard !entries.contains(where: { $0.function.index == i }) else { throw wgslError(.invalidControlFlow,"Entry point cannot be called",name) }
@@ -524,6 +782,15 @@ extension WGSLParser {
             let v = try expressionNode(.callResult(try IRHandle(index:i)),type:result.type,at:name,emit:false)
             try statement(.call(function:try IRHandle(index:i),arguments:args.map(\.handle),result:v.handle),at:name); return v
         }
+        if declarationNames[wgslKey(name.text)] == nil,
+           let reduction = IRRelationalFunction(rawValue: name.text), reduction.isBooleanReduction {
+            guard !(try localConstantNameExists(name)), args.count == 1, let operand = args.first,
+                  reduction.accepts(types[operand.type.index].kind) else {
+                throw wgslError(.typeMismatch, "Boolean reduction requires one bool scalar or vector", name)
+            }
+            return try expressionNode(.relational(function: reduction, argument: operand.handle),
+                                      type: intern(.scalar(.bool)), at: name)
+        }
         if name.text == "select", declarationNames[wgslKey(name.text)] == nil {
             return try selectValue(args, at: name)
         }
@@ -531,31 +798,22 @@ extension WGSLParser {
            declarationNames[wgslKey(name.text)] == nil {
             return try textureBuiltin(args, at: name)
         }
-        // Deliberately bounded overload table, not unknown-name passthrough.
-        let math: [String:(IRMathFunction,Int)] = ["abs":(.abs,1),"min":(.min,2),"max":(.max,2),"clamp":(.clamp,3),"sqrt":(.sqrt,1),"sin":(.sin,1),"cos":(.cos,1),"floor":(.floor,1),"ceil":(.ceil,1)]
-        guard let (op,arity) = math[name.text] else { throw unsupported("builtin or forward function '\(name.text)'",at:name) }
-        guard args.count == arity, let first = args.first else { throw wgslError(.typeMismatch,"Builtin arity",name) }
-        // Select an explicit concrete consensus before default-materializing abstract arguments.
-        // A large abstract value can fit u32 even when default i32 would be unrepresentable.
-        var consensus: WType?
-        for argument in args {
-            try budget.consume(.work)
-            if !isAbstract(argument.type) {
-                if let consensus, consensus != argument.type {throw wgslError(.typeMismatch,"Builtin concrete argument types disagree",name)}
-                consensus = argument.type
+        if declarationNames[wgslKey(name.text)] == nil, let derivative = IRDerivativeAxis.wgslBuiltins[name.text] {
+            guard !(try localConstantNameExists(name)), args.count == 1 else {
+                throw wgslError(.typeMismatch, "Derivative builtin requires one operand", name)
             }
+            let shape: IRTypeKind
+            switch types[args[0].type.index].kind {
+            case .scalar: shape = .scalar(.f32)
+            case .vector(let size, _): shape = .vector(size: size, scalar: .f32)
+            default: throw wgslError(.typeMismatch, "Derivative operand must be f32 or an f32 vector", name)
+            }
+            let type = try intern(shape)
+            let value = try coerce(args[0], to: type, at: name)
+            return try expressionNode(.derivative(axis: derivative.axis, control: derivative.control, expression: value.handle),
+                                      type: type, at: name)
         }
-        let concrete: WGSLValue
-        if let consensus { concrete = try coerce(first,to:consensus,at:name) }
-        else if args.contains(where: { types[$0.type.index].kind == .scalar(.abstractFloat) }) {
-            concrete = try defaultMaterialize(coerce(first,to:intern(.scalar(.abstractFloat)),at:name),at:name)
-        } else { concrete = try defaultMaterialize(first,at:name) }
-        args[0] = concrete
-        guard case .scalar(let scalar) = types[concrete.type.index].kind, scalar != .bool else { throw unsupported("vector/matrix builtin overload",at:name) }
-        if !["abs","min","max","clamp"].contains(name.text) && scalar.kind != .float { throw wgslError(.typeMismatch,"Float builtin operand required",name) }
-        if name.text == "abs" && scalar.kind == .uint { throw wgslError(.typeMismatch,"abs requires signed/float",name) }
-        for i in args.indices.dropFirst() { args[i] = try coerce(args[i],to:concrete.type,at:name) }
-        return try expressionNode(.math(function:op,argument:args[0].handle,argument1:args.count>1 ? args[1].handle:nil,argument2:args.count>2 ? args[2].handle:nil,argument3:nil),type:concrete.type,at:name)
+        throw unsupported("builtin or forward function '\(name.text)'",at:name)
     }
 
     private func textureSampleBuiltin(at name: WGSLToken) throws -> WGSLValue {
@@ -586,11 +844,18 @@ extension WGSLParser {
         let imageType = types[image.type.index].kind
         let arrayed = imageType.isArrayedTexture
         let volume = imageType.isVolumeTexture
+        let line = imageType.isLineTexture
+        if line && name.text != "textureSample" && name.text != "textureSampleLevel" {
+            throw wgslError(.typeMismatch, "Unsupported sampling operation on texture_1d", name)
+        }
         if volume && gather != nil {
             throw wgslError(.typeMismatch, "Volume textures do not support texture gathers", name)
         }
-        if clampToEdge && imageType != .sampledFloat2D {
-            throw wgslError(.typeMismatch, "Base clamp sampling requires texture_2d<f32>", name)
+        if imageType.isExternalTexture && !clampToEdge {
+            throw wgslError(.typeMismatch, "External texture sampling requires textureSampleBaseClampToEdge", name)
+        }
+        if clampToEdge && imageType != .sampledFloat2D && !imageType.isExternalTexture {
+            throw wgslError(.typeMismatch, "Base clamp sampling requires texture_2d<f32> or texture_external", name)
         }
         var args = [image]
         for _ in 1..<(arity + (arrayed ? 1 : 0)) {
@@ -603,10 +868,11 @@ extension WGSLParser {
             guard !clampToEdge else {
                 throw wgslError(.typeMismatch, "textureSampleBaseClampToEdge takes three arguments", token)
             }
-            guard !imageType.isCubeTexture else {
-                throw wgslError(.typeMismatch, "Cube textures do not take texel offsets", token)
+            let nativeLineOffset = options.allow1DTextureSampleLevelOffset && name.text == "textureSampleLevel"
+            guard !imageType.isCubeTexture && (!line || nativeLineOffset) else {
+                throw wgslError(.typeMismatch, "Texture dimension does not support texel offsets", token)
             }
-            offset = try textureSampleOffset(width: volume ? .three : .two)
+            offset = try textureSampleOffset(width: line ? nil : (volume ? .three : .two))
             _ = try eat(",")
         } else {
             offset = nil
@@ -615,7 +881,8 @@ extension WGSLParser {
         let comparison = ["textureSampleCompare", "textureSampleCompareLevel", "textureGatherCompare"].contains(name.text)
         let depth = imageType.isDepthTexture
         let validDepth = comparison || depthGather || name.text == "textureSample" || name.text == "textureSampleLevel"
-        guard let scalar = imageType.sampledTextureScalar, !imageType.isMultisampled2D,
+        let sampledScalar = imageType.isExternalTexture ? IRScalar.f32 : imageType.sampledTextureScalar
+        guard let scalar = sampledScalar, !imageType.isMultisampled2D,
               depth ? validDepth : (!comparison && (scalar == .f32 || gather != nil)),
               types[args[1].type.index].kind == .sampler(comparison: comparison) else {
             throw wgslError(.typeMismatch, "Texture and sampler types do not match the sampling operation", name)
@@ -628,8 +895,10 @@ extension WGSLParser {
         }
         let levelIndex = arrayed ? 4 : 3
         let reference = comparison ? try coerce(args[levelIndex], to: intern(.scalar(.f32)), at: name).handle : nil
-        let vector = try intern(.vector(size: imageType.isCubeTexture || volume ? .three : .two, scalar: .f32))
-        let uv = try coerce(args[2], to: vector, at: name)
+        let coordinateType = imageType.isCubeTexture ? IRTypeKind.vector(size: .three, scalar: .f32) :
+            imageType.texelCoordinateType(.f32)
+        let coordinate = try intern(coordinateType)
+        let uv = try coerce(args[2], to: coordinate, at: name)
         let level: IRSampleLevel
         switch name.text {
         case "textureSample", "textureSampleCompare": level = .auto
@@ -642,8 +911,8 @@ extension WGSLParser {
             }
             level = .exact(value.handle)
         case "textureSampleGrad":
-            let x = try coerce(args[levelIndex], to: vector, at: name)
-            let y = try coerce(args[levelIndex + 1], to: vector, at: name)
+            let x = try coerce(args[levelIndex], to: coordinate, at: name)
+            let y = try coerce(args[levelIndex + 1], to: coordinate, at: name)
             level = .gradient(x: x.handle, y: y.handle)
         default:
             let value = try coerce(args[levelIndex], to: intern(.scalar(.f32)), at: name)
@@ -689,18 +958,27 @@ extension WGSLParser {
         // Keep nested constructor arguments together while finding the call argument boundary.
         while token.kind != .end {
             if depth == 0 && (isNext(")") || isNext(",")) { break }
-            switch try take().text {
-            case "(": depth += 1
-            case ")": depth -= 1
-            default: break
-            }
+            let next = try take()
+            if next.opensGroup { depth += 1 }
+            else if next.closesGroup { depth -= 1 }
         }
         return try scalarConstant(Array(tokens[start..<cursor]), at: first)
     }
 
-    private func textureSampleOffset(width: IRVectorSize) throws -> WExpr {
+    private func textureSampleOffset(width: IRVectorSize?) throws -> WExpr {
         let first = token
-        guard case .vector(let value) = try textureConstantArgument(), value.elements.count == Int(width.rawValue),
+        let argument = try textureConstantArgument()
+        guard let width else {
+            guard case .integer(let value) = argument, value.kind == .sint || value.kind == .abstract else {
+                throw wgslError(.typeMismatch, "1D texture sample offset must be a constant i32", first)
+            }
+            guard (-8...7).contains(value.value) else {
+                throw wgslError(.invalidType, "Texture sample offset must be between -8 and 7", first)
+            }
+            return try expressionNode(.literal(.i32(Int32(value.value))), type: intern(.scalar(.i32)),
+                                      at: first, emit: false).handle
+        }
+        guard case .vector(let value) = argument, value.elements.count == Int(width.rawValue),
               [.integer(.abstract), .integer(.sint)].contains(value.element) else {
             throw wgslError(.typeMismatch, "Texture sample offset must be a constant vec\(width.rawValue)i", first)
         }
@@ -714,24 +992,39 @@ extension WGSLParser {
     }
 
     private func textureBuiltin(_ args: [WGSLValue], at name: WGSLToken) throws -> WGSLValue {
+        if let first = args.first, types[first.type.index].kind.isExternalTexture {
+            let kind = types[first.type.index].kind
+            switch (name.text, args.count) {
+            case ("textureDimensions", 1):
+                return try expressionNode(.imageQuery(image: first.handle, query: .size(level: nil)),
+                                          type: intern(kind.texelCoordinateType(.u32)), at: name)
+            case ("textureLoad", 2):
+                let coordinate = try texelCoordinates(args[1], image: kind, at: name)
+                return try expressionNode(.imageLoad(.init(image: first.handle, coordinate: coordinate.handle)),
+                                          type: intern(.vector(size: .four, scalar: .f32)), at: name)
+            default:
+                throw wgslError(.typeMismatch, "Invalid operation on an external texture", name)
+            }
+        }
         let arity: ClosedRange<Int>
         switch name.text {
         case "textureLoad": arity = 3...4
         case "textureDimensions": arity = 1...2
         default: arity = 1...1
         }
-        if let first = args.first, let storage = types[first.type.index].kind.storageTexture2D {
-            let arrayed = types[first.type.index].kind.isArrayedTexture
+        if let first = args.first, let storage = types[first.type.index].kind.storageTexture {
+            let kind = types[first.type.index].kind
+            let arrayed = kind.isArrayedTexture
             if name.text == "textureDimensions", args.count == 1 {
                 return try expressionNode(.imageQuery(image: first.handle, query: .size(level: nil)),
-                                          type: intern(.vector(size: .two, scalar: .u32)), at: name)
+                                          type: intern(kind.texelCoordinateType(.u32)), at: name)
             }
             if name.text == "textureNumLayers", args.count == 1, arrayed {
                 return try expressionNode(.imageQuery(image: first.handle, query: .numLayers),
                                           type: intern(.scalar(.u32)), at: name)
             }
             if name.text == "textureLoad", args.count == (arrayed ? 3 : 2), storage.access.contains(.load) {
-                let coordinates = try texelCoordinates(args[1], at: name)
+                let coordinates = try texelCoordinates(args[1], image: kind, at: name)
                 let layer = arrayed ? try textureArrayIndex(args[2], at: name) : nil
                 return try expressionNode(.imageLoad(.init(image: first.handle, coordinate: coordinates.handle, arrayIndex: layer)),
                                           type: intern(.vector(size: .four, scalar: storage.scalar)), at: name)
@@ -744,7 +1037,6 @@ extension WGSLParser {
         }
         let image = first.handle
         let kind = types[first.type.index].kind
-        let width: IRVectorSize = kind.isVolumeTexture ? .three : .two
         let multisampled = kind.isMultisampled2D
         let level: WGSLValue?
         if args.count > 1 {
@@ -763,7 +1055,7 @@ extension WGSLParser {
                 throw wgslError(.typeMismatch, "Texture load arguments do not match the texture dimension", name)
             }
             let layer = kind.isArrayedTexture ? try textureArrayIndex(args[2], at: name) : nil
-            let coordinates = try texelCoordinates(args[1], width: width, at: name)
+            let coordinates = try texelCoordinates(args[1], image: kind, at: name)
             let result: IRTypeKind = kind.isDepthTexture ? .scalar(scalar) : .vector(size: .four, scalar: scalar)
             return try expressionNode(.imageLoad(.init(image: image, coordinate: coordinates.handle, arrayIndex: layer,
                 sample: multisampled ? level?.handle : nil, level: multisampled ? nil : level?.handle)),
@@ -773,7 +1065,7 @@ extension WGSLParser {
                 throw wgslError(.typeMismatch, "Multisampled texture dimensions do not take a mip level", name)
             }
             return try expressionNode(.imageQuery(image: image, query: .size(level: level?.handle)),
-                                      type: intern(.vector(size: width, scalar: .u32)), at: name)
+                                      type: intern(kind.texelCoordinateType(.u32)), at: name)
         case "textureNumLayers":
             guard kind.isArrayedTexture else {
                 throw wgslError(.typeMismatch, "Expected an array texture for textureNumLayers", name)
@@ -798,11 +1090,11 @@ extension WGSLParser {
         return layer.handle
     }
 
-    func texelCoordinates(_ value: WGSLValue, width: IRVectorSize = .two, at name: WGSLToken) throws -> WGSLValue {
+    func texelCoordinates(_ value: WGSLValue, image: IRTypeKind, at name: WGSLToken) throws -> WGSLValue {
         let coordinates = try defaultMaterialize(value, at: name)
-        guard [.vector(size: width, scalar: .i32), .vector(size: width, scalar: .u32)]
+        guard [image.texelCoordinateType(.i32), image.texelCoordinateType(.u32)]
             .contains(types[coordinates.type.index].kind) else {
-            throw wgslError(.typeMismatch, "Texture coordinates must be vec\(width.rawValue)i or vec\(width.rawValue)u", name)
+            throw wgslError(.typeMismatch, "Texture coordinates must match the texture dimension and use i32 or u32", name)
         }
         return coordinates
     }
@@ -831,9 +1123,8 @@ extension WGSLParser {
     }
 
     func atomicPointer(at name: WGSLToken) throws -> (WGSLValue, WType) {
-        try expect("&")
-        let value = try expression()
-        guard value.pointer, value.writable, case .atomic(let scalar) = types[value.type.index].kind else {
+        let value = try dereference(expression(), at: name)
+        guard value.writable, case .atomic(let scalar) = types[value.type.index].kind else {
             throw wgslError(.typeMismatch, "Atomic operation requires the address of a writable atomic value", name)
         }
         return (value, try intern(.scalar(scalar)))
@@ -844,12 +1135,14 @@ extension WGSLParser {
         let kind = IRPredeclaredType.atomicCompareExchangeWeakResult(scalar)
         if let existing = predeclaredTypes.first(where: { $0.kind == kind }) { return existing.type }
         let boolean = try intern(.scalar(.bool))
+        let width = UInt32(scalar.width)
         let members: [IRStructMember] = [
             .init(name: "old_value", type: type, offset: 0),
-            .init(name: "exchanged", type: boolean, offset: 4),
+            .init(name: "exchanged", type: boolean, offset: width),
         ]
-        let result = try intern(.structure(members: members, span: 8),
-                                name: scalar == .i32 ? "__atomic_compare_result_i32" : "__atomic_compare_result_u32", at: name)
+        let lane = "\(scalar.kind == .sint ? "i" : "u")\(width * 8)"
+        let result = try intern(.structure(members: members, span: width * 2),
+                                name: "__atomic_compare_result_\(lane)", at: name)
         predeclaredTypes.append(.init(kind: kind, type: result))
         return result
     }

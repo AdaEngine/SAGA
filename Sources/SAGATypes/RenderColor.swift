@@ -41,6 +41,24 @@ public enum RenderBlendFactor: UInt32, Sendable, Equatable {
     case sourceAlphaSaturated
     case constant
     case oneMinusConstant
+    case source1Color
+    case oneMinusSource1Color
+    case source1Alpha
+    case oneMinusSource1Alpha
+
+    package var usesSourceAlpha: Bool {
+        switch self {
+        case .sourceAlpha, .oneMinusSourceAlpha, .sourceAlphaSaturated, .source1Alpha, .oneMinusSource1Alpha: true
+        default: false
+        }
+    }
+
+    package var usesSecondSource: Bool {
+        switch self {
+        case .source1Color, .oneMinusSource1Color, .source1Alpha, .oneMinusSource1Alpha: true
+        default: false
+        }
+    }
 }
 
 public struct RenderBlendComponent: Sendable, Equatable {
@@ -81,6 +99,12 @@ public struct RenderColorState: Sendable, Equatable {
         self.blend = blend
         self.writeMask = writeMask
     }
+
+    package var usesSecondBlendSource: Bool {
+        guard let blend else { return false }
+        return [blend.color.sourceFactor, blend.color.destinationFactor, blend.alpha.sourceFactor, blend.alpha.destinationFactor]
+            .contains(where: \.usesSecondSource)
+    }
 }
 
 public struct RenderColorTarget: Sendable, Equatable {
@@ -98,12 +122,15 @@ public struct RenderColorAttachment: Sendable, Equatable {
     public let mipLevel: UInt32
     public let loadAction: RenderColorLoadAction
     public let resolve: RenderResolveAttachment?
+    /// Required for a 3D color attachment and relative to the selected mip.
+    public let depthSlice: UInt32?
 
     public init(texture: ResourceID, mipLevel: UInt32 = 0, loadAction: RenderColorLoadAction = .load,
-                resolve: RenderResolveAttachment? = nil) {
+                resolve: RenderResolveAttachment? = nil, depthSlice: UInt32? = nil) {
         self.texture = texture
         self.mipLevel = mipLevel
         self.loadAction = loadAction
         self.resolve = resolve
+        self.depthSlice = depthSlice
     }
 }

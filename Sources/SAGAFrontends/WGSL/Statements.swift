@@ -8,12 +8,16 @@ extension WGSLParser {
         body.scopes[last][wgslKey(n.text)] = v
     }
     func function(_ attrs: [String:Attribute]) throws {
-        try checkAttributes(attrs,allowed:["compute","fragment","vertex","workgroup_size"])
+        try checkAttributes(attrs,allowed:["compute","fragment","vertex","workgroup_size","subgroup_size","diagnostic","early_depth_test","must_use"])
         let name = try ident(); try reserve(name)
+        let diagnostic = try functionDiagnosticFilters(attrs)
         body = WGSLFunctionBody()
         try expect("(")
         while !isNext(")") {
             let a = try attributes(), n = try ident(); try expect(":"); let ty = try type()
+            if case .pointer(_, let space) = types[ty.index].kind, space != .function, space != .private {
+                allowsPointerSubviews = true
+            }
             try node()
             let index = UInt32(body.arguments.count)
             body.arguments.append(IRFunctionArgument(name:n.text,type:ty,binding:try binding(a),location:n.location))
@@ -25,8 +29,10 @@ extension WGSLParser {
         if try eat("->") {
             let a = try attributes(); body.result = IRFunctionResult(type:try type(),binding:try binding(a))
         }
+        if let attribute = attrs["must_use"], body.result == nil {
+            throw wgslError(.invalidType, "@must_use requires a function with a return type", attribute.name)
+        }
         let root = try block(newScope:false)
-        if try body.result != nil && !terminates(root) { throw wgslError(.invalidControlFlow,"Non-void function must return on every path",name) }
         if try body.result == nil && !terminates(root) {
             let saved = body.current; body.current = body.blocks[root.index].statements
             try statement(.returnValue(nil),at:name)
@@ -38,34 +44,54 @@ extension WGSLParser {
         for s in stageNames {
             if let a = attrs[s], !a.arguments.isEmpty { throw wgslError(.unexpectedToken,"Stage attribute has no arguments",a.name) }
         }
+        let subgroupSize: IRSubgroupSize?
+        if let attribute = attrs["subgroup_size"] {
+            guard stageNames == ["compute"] else {
+                throw wgslError(.invalidBinding, "subgroup_size requires a compute entry point", attribute.name)
+            }
+            guard subgroupSizeControlEnabled else {
+                throw wgslError(.unsupportedCapability, "subgroup_size requires subgroup_size_control", attribute.name)
+            }
+            subgroupSize = try subgroupSizeConfiguration(attribute)
+        } else {
+            subgroupSize = nil
+        }
+        var earlyDepthTest: IREarlyDepthTest?
+        if let attribute = attrs["early_depth_test"], let mode = attribute.arguments.first {
+            guard stageNames == ["fragment"] else {
+                throw wgslError(.invalidControlFlow, "@early_depth_test requires a fragment entry point", attribute.name)
+            }
+            switch mode.text {
+            case "force": earlyDepthTest = .force
+            case "greater_equal": earlyDepthTest = .allow(.greaterEqual)
+            case "less_equal": earlyDepthTest = .allow(.lessEqual)
+            case "unchanged": earlyDepthTest = .allow(.unchanged)
+            default: throw wgslError(.unexpectedToken, "Unknown early depth test mode", mode)
+            }
+        }
         let fh = try IRHandle<IRFunction>(index:functions.count)
         if let s = stageNames.first {
             let stage: IRStage = s == "compute" ? .compute : s == "vertex" ? .vertex : .fragment
             var workgroup = IRWorkgroupSize()
+            var workgroupOverrides: IRWorkgroupOverrides?
             if s == "compute" {
-                guard let a = attrs["workgroup_size"], (1...3).contains(a.expressions.count) else { throw wgslError(.invalidBinding,"Compute needs workgroup_size with 1...3 dimensions",name) }
-                var dims: [UInt32] = []
-                let values = try a.expressions.map { try integerConstant($0,at:a.name) }
-                let concrete = Set(values.filter { $0.kind != .abstract }.map { $0.kind == .sint ? "i32" : "u32" })
-                guard concrete.count <= 1 else { throw wgslError(.typeMismatch,"Workgroup dimensions must share i32/u32 type",a.name) }
-                for (i,v) in values.enumerated() {
-                    let context: WGSLIntegerConstant.Kind = concrete.first == "u32" ? .uint : .sint
-                    let evaluator = WGSLIntegerEvaluator(parser:self,tokens:[],fallback:a.name)
-                    let typed = v.kind == .abstract ? try evaluator.checked(v.value,context,at:a.expressions[i][0]) : v
-                    let d = try attributeValue(typed,at:a.expressions[i][0])
-                    guard d > 0 else { throw wgslError(.invalidBinding,"Zero workgroup dimension",a.expressions[i][0]) }; dims.append(d)
+                guard let a = attrs["workgroup_size"], (1...3).contains(a.expressions.count) else {
+                    throw wgslError(.invalidBinding, "Compute needs workgroup_size with 1...3 dimensions", name)
                 }
-                while dims.count < 3 { dims.append(1) }
-                workgroup = IRWorkgroupSize(x:dims[0],y:dims[1],z:dims[2])
+                (workgroup, workgroupOverrides) = try workgroupConfiguration(a)
                 guard body.result == nil else { throw wgslError(.invalidBinding,"Compute cannot return a value",name) }
             } else if attrs["workgroup_size"] != nil { throw wgslError(.invalidBinding,"Non-compute workgroup_size",name) }
-            try node(); entries.append(IREntryPoint(name:name.text,stage:stage,function:fh,workgroupSize:workgroup,location:name.location))
+            try node()
+            entries.append(.init(name: name.text, stage: stage, function: fh, earlyDepthTest: earlyDepthTest,
+                                 workgroupSize: workgroup, workgroupOverrides: workgroupOverrides,
+                                 subgroupSize: subgroupSize, location: name.location))
         } else {
             guard body.arguments.allSatisfy({ $0.binding == nil }), body.result?.binding == nil else { throw wgslError(.invalidBinding,"Non-entry function has IO attributes",name) }
         }
         try node()
-        functions.append(IRFunction(name:name.text,arguments:body.arguments,result:body.result,localVariables:IRTable(body.locals),expressions:IRTable(body.expressions),statements:IRTable(body.statements),blocks:IRTable(body.blocks),body:root,location:name.location))
-        functionNames[wgslKey(name.text)] = functions.count-1
+        functions.append(IRFunction(name:name.text,arguments:body.arguments,result:body.result,localVariables:IRTable(body.locals),expressions:IRTable(body.expressions),statements:IRTable(body.statements),blocks:IRTable(body.blocks),body:root,diagnosticFilter:diagnostic,location:name.location))
+        functionNames[wgslKey(name.text)] = fh.index
+        if attrs["must_use"] != nil { mustUseFunctions.insert(fh.index) }
         body = WGSLFunctionBody()
     }
     func block(newScope: Bool = true) throws -> IRHandle<IRBlock> {
@@ -74,12 +100,9 @@ extension WGSLParser {
         let previous = body.current; body.current = []
         if newScope { body.scopes.append([:]);body.constScopes.append([:]) }
         defer { body.current = previous; if newScope { body.scopes.removeLast();body.constScopes.removeLast() } }
-        var terminated = false
         while !isNext("}") {
             guard token.kind != .end else { throw wgslError(.unexpectedToken,"Unterminated block",token) }
-            if terminated && !isNext(";") && !isNext("const_assert") && !isNext("const") { throw unsupported("unreachable statement",at:token) }
             try parseStatement()
-            if let last = body.current.last { terminated = try statementTerminates(last) }
         }
         try expect("}")
         return try saveBlock(body.current,at:start)
@@ -90,13 +113,12 @@ extension WGSLParser {
     }
     func terminates(_ block: IRHandle<IRBlock>) throws -> Bool {
         try enter(); defer { nesting -= 1 }
-        guard let last = body.blocks[block.index].statements.last else { return false }
-        return try statementTerminates(last)
+        return try body.blocks[block.index].statements.contains(where: statementTerminates)
     }
     func statementTerminates(_ h: IRHandle<IRStatement>) throws -> Bool {
         try budget.consume(.work)
         switch body.statements[h.index].kind {
-        case .returnValue,.kill,.break,.continue: return true
+        case .returnValue,.break,.continue: return true
         case .block(let b):return try terminates(b)
         case .ifCondition(_,let a,let b):return try terminates(a) && terminates(b)
         case .switchValue(_, let cases):
@@ -121,6 +143,7 @@ extension WGSLParser {
                 if try breaksSwitch(yes) || breaksSwitch(no) { return true }
             default: break
             }
+            if try statementTerminates(statement) { break }
         }
         return false
     }
@@ -156,97 +179,157 @@ extension WGSLParser {
             try noteContinue()
             try expect(";"); try statement(.continue,at:start); return
         }
-        if try eat("discard") { try expect(";"); try statement(.kill,at:start); return }
+        if try eat("discard") { try expect(";"); try statement(.demoteToHelperInvocation,at:start); return }
         if ["continuing"].contains(start.text) { throw unsupported("statement '\(start.text)'",at:start) }
-        if try eat("_") { try expect("="); _ = try loaded(expression(),at:start); try expect(";"); return }
-        if token.kind == .word && cursor+1 < tokens.count && tokens[cursor+1].text == "(" {
-            try resolveFunctionDeclaration(start)
-            let key = wgslKey(start.text)
-            if start.text == "atomicStore", declarationNames[key] == nil {
-                try budget.consume(.work, amount: body.scopes.count)
-                guard !body.scopes.contains(where: { $0[key] != nil }) else {
-                    throw wgslError(.typeMismatch, "Local value is not callable", start)
-                }
-                _ = try take()
-                try expect("(")
-                let (pointer, type) = try atomicPointer(at: start)
-                try expect(",")
-                let value = try coerce(expression(), to: type, at: start)
-                _ = try eat(",")
-                try expect(")")
-                try expect(";")
-                try statement(.store(pointer: pointer.handle, value: value.handle), at: start)
-                return
-            }
-            if ["workgroupBarrier","storageBarrier","textureBarrier"].contains(start.text) {
-                try budget.consume(.work, amount: body.scopes.count)
-                guard !body.scopes.contains(where: { $0[key] != nil }) else {
-                    throw wgslError(.typeMismatch, "Local value is not callable", start)
-                }
-                if declarationNames[key] == nil {
-                    _ = try take(); try expect("("); try expect(")"); try expect(";")
-                    let flag: IRBarrier = start.text == "workgroupBarrier" ? .workgroup : start.text == "storageBarrier" ? .storage : .texture
-                    try statement(.controlBarrier(flag),at:start); return
-                }
-            }
-            if let i = functionNames[key], functions[i].result == nil {
-                _ = try take(); try expect("("); var args = try arguments(); let fn = functions[i]
-                guard !entries.contains(where: {$0.function.index == i}) else { throw wgslError(.invalidControlFlow,"Cannot call entry point",start) }
-                guard args.count == fn.arguments.count else { throw wgslError(.typeMismatch,"Function arity",start) }
-                for j in args.indices { args[j] = try coerce(args[j],to:fn.arguments[j].type,at:start) }
-                try expect(";"); try statement(.call(function:try IRHandle(index:i),arguments:args.map(\.handle),result:nil),at:start); return
-            }
-        }
-        try simpleStatement(end:";")
+        try simpleStatement(end: ";")
     }
+
     func simpleStatement(end: String) throws {
         let start = token
         let key = wgslKey(start.text)
-        if start.text == "textureStore", declarationNames[key] == nil,
-           cursor + 1 < tokens.count, tokens[cursor + 1].text == "(" {
-            try budget.consume(.work, amount: body.scopes.count)
-            guard !body.scopes.contains(where: { $0[key] != nil }) else {
-                throw wgslError(.typeMismatch, "Local value is not callable", start)
+        if try eat("_") {
+            try expect("=")
+            _ = try loaded(expression(), at: start)
+            try expect(end)
+            return
+        }
+        if start.kind == .word, cursor + 1 < tokens.count, tokens[cursor + 1].text == "(",
+           !isTypeName(start.text) {
+            try resolveFunctionDeclaration(start)
+            if let index = functionNames[key], functions[index].result == nil {
+                guard !entries.contains(where: { $0.function.index == index }) else {
+                    throw wgslError(.invalidControlFlow, "Cannot call entry point", start)
+                }
+                _ = try take()
+                try expect("(")
+                var args = try arguments()
+                let parameters = functions[index].arguments
+                guard args.count == parameters.count else { throw wgslError(.typeMismatch, "Function arity", start) }
+                for i in args.indices { args[i] = try coerce(args[i], to: parameters[i].type, at: start) }
+                try expect(end)
+                try statement(.call(function: try IRHandle(index: index), arguments: args.map(\.handle), result: nil), at: start)
+                return
             }
+            if declarationNames[key] == nil {
+                if start.text == "atomicMin" || start.text == "atomicMax" {
+                    _ = try take()
+                    try expect("(")
+                    let (pointer, type) = try atomicPointer(at: start)
+                    try expect(",")
+                    let value = try coerce(expression(), to: type, at: start)
+                    _ = try eat(",")
+                    try expect(")")
+                    try expect(end)
+                    let result: WExpr?
+                    if [.scalar(.u64), .scalar(.i64)].contains(types[type.index].kind) {
+                        result = nil
+                    } else {
+                        result = try expressionNode(.atomicResult(type: type, comparison: false),
+                                                    type: type, at: start, emit: false).handle
+                    }
+                    try statement(.atomic(pointer: pointer.handle, function: start.text == "atomicMin" ? .min : .max,
+                                          value: value.handle, result: result), at: start)
+                    return
+                }
+                if start.text == "atomicStore" {
+                    _ = try take()
+                    try expect("(")
+                    let (pointer, type) = try atomicPointer(at: start)
+                    try expect(",")
+                    let value = try coerce(expression(), to: type, at: start)
+                    _ = try eat(",")
+                    try expect(")")
+                    try expect(end)
+                    try statement(.store(pointer: pointer.handle, value: value.handle), at: start)
+                    return
+                }
+                if ["workgroupBarrier", "storageBarrier", "textureBarrier", "subgroupBarrier"].contains(start.text) {
+                    _ = try take()
+                    try expect("(")
+                    try expect(")")
+                    try expect(end)
+                    let flag: IRBarrier = switch start.text {
+                    case "workgroupBarrier": .workgroup
+                    case "storageBarrier": .storage
+                    case "textureBarrier": .texture
+                    default: .subgroup
+                    }
+                    try statement(.controlBarrier(flag), at: start)
+                    return
+                }
+            }
+        }
+        let textureAtomic: IRAtomicFunction? = switch start.text {
+        case "textureAtomicAdd": .add
+        case "textureAtomicMin": .min
+        case "textureAtomicMax": .max
+        case "textureAtomicAnd": .and
+        case "textureAtomicOr": .inclusiveOr
+        case "textureAtomicXor": .exclusiveOr
+        default: nil
+        }
+        if start.text == "textureStore" || textureAtomic != nil, declarationNames[key] == nil,
+           cursor + 1 < tokens.count, tokens[cursor + 1].text == "(" {
             _ = try take()
             try expect("(")
             let args = try arguments()
             guard let image = args.first else { throw wgslError(.typeMismatch, "Missing storage texture", start) }
             let kind = types[image.type.index].kind
             let arrayed = kind.isArrayedTexture
-            guard let storage = kind.storageTexture2D, storage.access.contains(.store),
+            guard let storage = kind.storageTexture, storage.access.contains(.store),
                   args.count == (arrayed ? 4 : 3) else {
                 throw wgslError(.typeMismatch, "textureStore requires a writable storage texture and matching arguments", start)
             }
-            let coordinate = try texelCoordinates(args[1], at: start)
+            let coordinate = try texelCoordinates(args[1], image: kind, at: start)
             let layer = arrayed ? try textureArrayIndex(args[2], at: start) : nil
-            let value = try coerce(args[args.count - 1], to: intern(.vector(size: .four, scalar: storage.scalar)), at: start)
+            if textureAtomic != nil, !storage.access.contains(.atomic) {
+                throw wgslError(.typeMismatch, "Texture atomic operation requires atomic access", start)
+            }
+            let valueType: IRTypeKind = textureAtomic == nil ? .vector(size: .four, scalar: storage.scalar) : .scalar(storage.scalar)
+            let value = try coerce(args[args.count - 1], to: intern(valueType), at: start)
             try expect(end)
-            try statement(.imageStore(image: image.handle, coordinate: coordinate.handle,
-                                      arrayIndex: layer, value: value.handle), at: start)
+            if let textureAtomic {
+                try statement(.imageAtomic(image: image.handle, coordinate: coordinate.handle,
+                                           arrayIndex: layer, function: textureAtomic, value: value.handle), at: start)
+            } else {
+                try statement(.imageStore(image: image.handle, coordinate: coordinate.handle,
+                                          arrayIndex: layer, value: value.handle), at: start)
+            }
             return
         }
+        let leftStart = cursor
         let lhs = try expression()
+        let leftTokens = leftStart..<cursor
         if try eat(end) {
-            // Only function calls may be standalone expressions in WGSL.
-            if let last = body.current.last {
-                switch body.statements[last.index].kind {
-                case .call(_, _, let result), .atomic(_, _, _, let result):
-                    if result == lhs.handle { return }
-                default: break
-                }
+            guard try isStandaloneCall(leftTokens) else {
+                throw wgslError(.unexpectedToken, "Only a call may be an expression statement", start)
             }
-            throw wgslError(.unexpectedToken,"Only a call may be an expression statement",start)
+            switch body.expressions[lhs.handle.index].kind {
+            case .callResult(let callee):
+                if functionNames[key] == callee.index && !mustUseFunctions.contains(callee.index) { return }
+            case .atomicResult where declarationNames[key] == nil:
+                return
+            case .load where start.text == "atomicLoad" && declarationNames[key] == nil:
+                return
+            default:
+                break
+            }
+            throw wgslError(.unusedResult, "The result of '\(start.text)' must be used", start)
         }
         guard lhs.pointer && lhs.writable else { throw wgslError(.invalidAddressSpace,"Assignment needs writable reference",start) }
-        let op = try take()
-        var rhs: WGSLValue
-        if op.text == "=" { rhs = try coerce(expression(),to:lhs.type,at:op) }
-        else if ["+=","-=","*=","/=","%=","&=","|=","^="].contains(op.text) {
-            let left = try loaded(lhs,at:op)
-            let right = try coerce(expression(),to:lhs.type,at:op)
-            guard case .scalar(let s) = types[lhs.type.index].kind, s != .bool, let (_,binary) = Self.binary[String(op.text.dropLast())] else { throw unsupported("compound assignment overload",at:op) }
-            rhs = try expressionNode(.binary(op:binary,left:left.handle,right:right.handle),type:lhs.type,at:op)
+        let op = expressionOperator()
+        _ = try take()
+        if op.text == "<<=" || op.text == ">>=" { _ = try take() }
+        let rhs: WGSLValue
+        if op.text == "=" {
+            rhs = try coerce(expression(), to: lhs.type, at: op)
+        } else if ["+=", "-=", "*=", "/=", "%=", "&=", "|=", "^=", "<<=", ">>="].contains(op.text),
+                  let (_, binary) = Self.binary[String(op.text.dropLast())] {
+            let left = try loaded(lhs, at: op)
+            let rightStart = cursor
+            let operand = try loaded(expression(), at: op)
+            rhs = try compoundValue(binary, left: left, right: operand, leftTokens: leftTokens,
+                                    rightTokens: rightStart..<cursor, at: op)
         } else if op.text == "++" || op.text == "--" {
             let l = try loaded(lhs,at:op)
             let lit: IRLiteral
@@ -256,7 +339,71 @@ extension WGSLParser {
             let one = try expressionNode(.literal(lit),type:lhs.type,at:op,emit:false)
             rhs = try expressionNode(.binary(op:op.text == "++" ? .add : .subtract,left:l.handle,right:one.handle),type:lhs.type,at:op)
         } else { throw wgslError(.unexpectedToken,"Expected assignment",op) }
-        try expect(end); try statement(.store(pointer:lhs.handle,value:rhs.handle),at:start)
+        try expect(end)
+        if let view = lhs.swizzle {
+            try writeSwizzleView(lhs, view: view, update: rhs, at: start)
+        } else {
+            try statement(.store(pointer: lhs.handle, value: rhs.handle), at: start)
+        }
+    }
+
+    private func isStandaloneCall(_ range: Range<Int>) throws -> Bool {
+        let start = range.lowerBound
+        guard range.count >= 3, tokens[start].kind == .word,
+              tokens[range.upperBound - 1].text == ")" else { return false }
+        try budget.consume(.work, amount: range.count)
+        // Find the opening parenthesis of the final argument list without mistaking a
+        // parenthesized expression inside a template argument or a trailing operand for the call.
+        var depth = 0
+        for index in range.reversed() {
+            switch tokens[index].text {
+            case ")": depth += 1
+            case "(":
+                depth -= 1
+                if depth == 0 {
+                    if index == start + 1 { return true }
+                    return tokens[start + 1].kind == .templateStart && tokens[index - 1].kind == .templateEnd &&
+                        (isTypeName(tokens[start].text) || tokens[start].text == "bitcast")
+                }
+            default: break
+            }
+        }
+        return false
+    }
+
+    private func compoundValue(
+        _ op: IRBinaryOperator, left: WGSLValue, right: WGSLValue, leftTokens: Range<Int>,
+        rightTokens: Range<Int>, at token: WGSLToken
+    ) throws -> WGSLValue {
+        if op == .shiftLeft || op == .shiftRight {
+            return try integerShift(op, left: left, right: right, leftTokens: leftTokens, rightTokens: rightTokens, at: token)
+        }
+        if let value = try matrixBinary(op, left: left, right: right, at: token) {
+            return try coerce(value, to: left.type, at: token)
+        }
+        if let value = try integerVectorBinary(op, left: left, right: right,
+                                              leftTokens: leftTokens, rightTokens: rightTokens, at: token) {
+            return try coerce(value, to: left.type, at: token)
+        }
+        if let value = try floatingVectorBinary(op, left: left, right: right, at: token) {
+            return try coerce(value, to: left.type, at: token)
+        }
+        let operand = try coerce(right, to: left.type, at: token)
+        switch types[left.type.index].kind {
+        case .scalar(.bool), .vector(_, .bool):
+            guard op == .and || op == .inclusiveOr else {
+                throw wgslError(.typeMismatch, "Boolean compound assignment requires &= or |=", token)
+            }
+            return try expressionNode(.binary(op: op, left: left.handle, right: operand.handle), type: left.type, at: token)
+        case .scalar(let scalar):
+            if (op == .divide || op == .modulo), scalar.kind == .sint || scalar.kind == .uint,
+               let divisor = try knownIntegerConstant(rightTokens, at: token), divisor.value == 0 {
+                throw wgslError(.invalidType, "Constant divisor is zero", token)
+            }
+            return try expressionNode(.binary(op: op, left: left.handle, right: operand.handle), type: left.type, at: token)
+        default:
+            throw unsupported("compound assignment overload", at: token)
+        }
     }
 
     func local(mutable: Bool, at t: WGSLToken) throws {
@@ -284,7 +431,17 @@ extension WGSLParser {
             try define(n,WGSLValue(handle:ptr.handle,type:ty,pointer:true,writable:true))
             let value = try v ?? expressionNode(.zeroValue(ty),type:ty,at:n,emit:false)
             try statement(.store(pointer:ptr.handle,value:value.handle),at:n)
-        } else if let v { try define(n,v) }
+        } else if let v {
+            let scalar: Bool
+            if case .scalar = types[ty.index].kind { scalar = true } else { scalar = false }
+            if !types[ty.index].kind.isTextureOrSampler, body.pipelineStages[v.handle.index] != .runtime,
+               scalar || hasOverrideDeclarations {
+                let snapshot = try expressionNode(.runtimeValue(v.handle), type: ty, at: n)
+                try define(n, snapshot)
+            } else {
+                try define(n, v)
+            }
+        }
         try expect(";")
     }
     func ifStatement(at t: WGSLToken) throws {

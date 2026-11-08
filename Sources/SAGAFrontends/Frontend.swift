@@ -27,8 +27,20 @@ extension BoundedShaderFrontend {
 public struct WGSLFrontendOptions: Sendable, Equatable {
     public let parseDocComments: Bool
     public let capabilities: ShaderCapabilities
+    package let allow1DTextureSampleLevelOffset: Bool
+    package let nagaFloatRounding: Bool
     public init(parseDocComments: Bool = false, capabilities: ShaderCapabilities = .allKnown) {
-        self.parseDocComments = parseDocComments; self.capabilities = capabilities
+        self.init(parseDocComments: parseDocComments, capabilities: capabilities, allow1DTextureSampleLevelOffset: false)
+    }
+
+    package init(
+        parseDocComments: Bool = false, capabilities: ShaderCapabilities, allow1DTextureSampleLevelOffset: Bool,
+        nagaFloatRounding: Bool = false
+    ) {
+        self.parseDocComments = parseDocComments
+        self.capabilities = capabilities
+        self.allow1DTextureSampleLevelOffset = allow1DTextureSampleLevelOffset
+        self.nagaFloatRounding = nagaFloatRounding
     }
 }
 

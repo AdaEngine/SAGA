@@ -8,7 +8,7 @@ import SAGAMetal
 private let volumeShader = """
     @group(0) @binding(0) var volume: texture_3d<f32>;
     @group(0) @binding(1) var nearest: sampler;
-    @group(0) @binding(2) var<storage, read_write> result: array<vec4f, 9>;
+    @group(0) @binding(2) var<storage, read_write> result: array<vec4f, 10>;
     @compute @workgroup_size(1) fn run() {
         result[0] = textureLoad(volume, vec3i(0, 0, 0), 0i);
         result[1] = textureLoad(volume, vec3u(0, 0, 1), 0u);
@@ -21,6 +21,7 @@ private let volumeShader = """
         result[7] = vec4f(f32(size.x), f32(size.y), f32(size.z), f32(textureNumLevels(volume)));
         let invalid = textureDimensions(volume, 1u);
         result[8] = vec4f(f32(invalid.x), f32(invalid.y), f32(invalid.z), textureLoad(volume, vec3u(0), -1i).a);
+        result[9] = textureSampleLevel(volume, nearest, vec3f(0.25, 0.5, 0.5), 0.0, vec3i(0, 0, -1));
     }
     """
 
@@ -83,7 +84,7 @@ func rejectsInvalidVolumeTextureOperations(expression: String) throws {
         }
         let nearest = try await device.createSampler(.init())
         let upload = try await device.createBuffer(.init(size: 264, usage: [.copySource, .copyDestination]))
-        let out = try await device.createBuffer(.init(size: 144, usage: [.storage, .copySource]))
+        let out = try await device.createBuffer(.init(size: 160, usage: [.storage, .copySource]))
         let read = try await device.createBuffer(.init(size: 520, usage: [.copyDestination, .mapRead]))
         let region = TextureCopyRegion(width: 2, height: 1, mipLevel: 1, depth: 2)
         await #expect(throws: GPUError.validation("Invalid texture copy source or aspect")) {
@@ -99,13 +100,13 @@ func rejectsInvalidVolumeTextureOperations(expression: String) throws {
                 sourceRegion: .init(width: 1, height: 1, mipLevel: 1, z: 1), destinationOrigin: .init(x: 1, mipLevel: 1, z: 2)),
             .dispatchCompute(pipeline: pipeline, bindings: [.init(binding: 2): out], workgroups: .init(x: 1),
                              textures: [.init(binding: 0): view], samplers: [.init(binding: 1): nearest]),
-            .copy(source: out, destination: read, byteCount: 144), .read(buffer: read, byteCount: 144),
+            .copy(source: out, destination: read, byteCount: 160), .read(buffer: read, byteCount: 160),
             .copyTextureToBuffer(source: volume, destination: read, bytesPerRow: 256, mipLevel: 1, depth: 3),
             .read(buffer: read, byteCount: 520),
         ])
         let snapshots = try await ticket.wait()
         let expected: [Float] = [1, 0, 0, 1, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                                 0, 1, 0, 1, 0, 1, 0, 1, 2, 1, 3, 1, 0, 0, 0, 0]
+                                 0, 1, 0, 1, 0, 1, 0, 1, 2, 1, 3, 1, 0, 0, 0, 0, 1, 0, 0, 1]
         #expect(snapshots[0] == expected.map(\.bitPattern))
         #expect([0, 1, 64, 65, 128, 129].map { snapshots[1][$0] } ==
                 [0xff0000ff, 0xff0000ff, 0xff00ff00, 0xff00ff00, 0, 0xff00ff00])

@@ -15,12 +15,27 @@ public enum VertexFormat: UInt32, Sendable, Equatable {
     case sint32x2 = 10
     case sint32x3 = 11
     case sint32x4 = 12
+    case float16 = 13
+    case float16x2 = 14
+    case float16x4 = 15
 
-    public var componentCount: UInt32 { (rawValue - 1) % 4 + 1 }
-    public var byteSize: UInt32 { componentCount * 4 }
+    public var componentCount: UInt32 {
+        switch self {
+        case .float16: 1
+        case .float16x2: 2
+        case .float16x4: 4
+        default: (rawValue - 1) % 4 + 1
+        }
+    }
+    public var byteSize: UInt32 {
+        switch self {
+        case .float16, .float16x2, .float16x4: componentCount * 2
+        default: componentCount * 4
+        }
+    }
     public var dataType: VertexDataType {
         switch self {
-        case .float32, .float32x2, .float32x3, .float32x4: .float
+        case .float32, .float32x2, .float32x3, .float32x4, .float16, .float16x2, .float16x4: .float
         case .uint32, .uint32x2, .uint32x3, .uint32x4: .uint
         case .sint32, .sint32x2, .sint32x3, .sint32x4: .sint
         }
@@ -70,7 +85,8 @@ public struct VertexBufferLayout: Sendable, Equatable {
                 throw GPUError.validation("Invalid vertex buffer stride or attribute range")
             }
             for attribute in layout.attributes {
-                guard attribute.location < 16, attribute.offset % 4 == 0,
+                let alignment = min(4, attribute.format.byteSize)
+                guard attribute.location < 16, attribute.offset % alignment == 0,
                       locations.updateValue(attribute.format, forKey: attribute.location) == nil else {
                     throw GPUError.validation("Invalid, duplicate or unaligned vertex attribute")
                 }

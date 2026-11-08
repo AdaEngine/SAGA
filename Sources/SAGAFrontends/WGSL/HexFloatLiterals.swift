@@ -1,10 +1,10 @@
 import SAGAShaderIR
 
 extension WGSLParser {
-  func hexFloat(_ source: String, explicitF32: Bool, at t: WGSLToken) throws -> (
+  func hexFloat(_ source: String, kind: WGSLFloatKind, at t: WGSLToken) throws -> (
     IRLiteral, IRScalar
   ) {
-    // Lexer already separates the number; validate exact f32 representability from significand bits,
+    // Lexer already separates the number; validate exact concrete representability from significand bits,
     // not from rounded Double(text), which could hide a too-precise suffix literal.
     let text = source.lowercased()
     let parts = text.dropFirst(2).split(separator: "p", omittingEmptySubsequences: false)
@@ -38,7 +38,7 @@ extension WGSLParser {
       if dot { fractional += 1 }
     }
     guard !digits.isEmpty else { throw wgslError(.invalidToken, "Missing hex significand", t) }
-    if explicitF32, let first = digits.firstIndex(where: { $0 != 0 }),
+    if kind != .abstract, let first = digits.firstIndex(where: { $0 != 0 }),
       let last = digits.lastIndex(where: { $0 != 0 })
     {
       let leading = UInt32(digits[first]).leadingZeroBitCount - 28
@@ -46,15 +46,17 @@ extension WGSLParser {
       let significant = (last - first + 1) * 4 - leading - trailing
       let lowest = exponent - fractional * 4 + (digits.count - 1 - last) * 4 + trailing
       let highest = lowest + significant - 1
-      guard significant <= 24, lowest >= -149, highest <= 127 else {
-        throw wgslError(.invalidToken, "Hex f32 literal not exactly representable", t)
+      let limits = kind == .f16 ? (11, -24, 15) : (24, -149, 127)
+      guard significant <= limits.0, lowest >= limits.1, highest <= limits.2 else {
+        throw wgslError(.invalidToken, "Hex literal not exactly representable", t)
       }
     }
     let parseText = parts.count == 1 ? text + "p0" : text
     guard let d = Double(parseText), d.isFinite else {
       throw wgslError(.invalidToken, "Hex floating overflow/invalid syntax", t)
     }
-    if explicitF32 {
+    if kind == .f16 { return (.f16Bits(Binary16.encode(d)), .f16) }
+    if kind == .f32 {
       guard let f = Float(parseText), f.isFinite else {
         throw wgslError(.invalidToken, "Hex f32 literal overflow", t)
       }

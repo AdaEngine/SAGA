@@ -8,6 +8,9 @@ enum WGSLScalarConstant {
   case floating(WGSLFloatingConstant)
   case vector(WGSLVectorConstant)
   case matrix(WGSLMatrixConstant)
+  case array(WGSLArrayConstant)
+  case composite(IRHandle<IRType>, [WGSLScalarConstant])
+  indirect case decomposition(WGSLDecompositionConstant)
   var kind: WGSLConstKind {
     switch self {
     case .integer(let x): .integer(x.kind)
@@ -15,6 +18,9 @@ enum WGSLScalarConstant {
     case .floating(let f): .floating(f.kind)
     case .vector(let v): .vector(v.elements.count, v.element)
     case .matrix(let m): .matrix(m.columns.count, m.rows, m.element)
+    case .array(let array): .array(array.elements.count, array.elementKind)
+    case .composite(let type, let components): .composite(type, components.count)
+    case .decomposition(let parts): .decomposition(parts.function, parts.fraction.kind)
     }
   }
   var literal: IRLiteral {
@@ -23,8 +29,8 @@ enum WGSLScalarConstant {
       case .integer(let x): return x.literal
       case .boolean(let x): return .bool(x)
       case .floating(let x): return x.literal
-      case .vector, .matrix:
-        throw ShaderFailure.unsupported("Vector cannot be encoded as scalar literal")
+      case .vector, .matrix, .array, .composite, .decomposition:
+        throw ShaderFailure.unsupported("Aggregate cannot be encoded as scalar literal")
       }
     }
   }
@@ -39,17 +45,31 @@ indirect enum WGSLConstKind: Equatable {
   case boolean
   case vector(Int, WGSLConstKind)
   case matrix(Int, Int, WGSLConstKind)
+  case array(Int, WGSLConstKind)
+  case composite(IRHandle<IRType>, Int)
+  case decomposition(IRMathFunction, WGSLConstKind)
 }
 struct WGSLConstNode {
   enum Op {
     case value(WGSLScalarConstant)
     case vector(Int, WGSLConstKind, [Int], Bool)
     case matrix(Int, Int, WGSLConstKind, [Int], Bool)
+    case array(WGSLConstKind, [Int])
+    case composite(IRHandle<IRType>, [Int])
+    case convert(Int)
     case swizzle(Int, [Int])
     case index(Int, Int)
     case unary(String, Int)
     case binary(String, Int, Int)
     case call(String, [Int])
+    case bitcast(Int, WGSLConstKind)
+    case integerBit(IRMathFunction, [Int], [WGSLConstKind])
+    case packing(IRPackingBuiltin, Int)
+    case geometric(IRMathFunction, [Int], [WGSLConstKind])
+    case numeric(IRMathFunction, [Int])
+    case decomposition(IRMathFunction, Int, WGSLConstKind)
+    case decompositionMember(Int, fraction: Bool)
+    case ldexp(Int, Int, WGSLConstKind)
   }
   let op: Op
   let kind: WGSLConstKind
@@ -57,6 +77,9 @@ struct WGSLConstNode {
 }
 
 struct WGSLScalarEvaluator {
+  static let constantFunctions = [
+    "bool", "i32", "u32", "i64", "u64", "f32", "f16", "all", "any", "select",
+  ]
   let parser: WGSLParser
   let tokens: [WGSLToken]
   let fallback: WGSLToken
@@ -86,8 +109,9 @@ struct WGSLScalarEvaluator {
   }
   func operation(at i: Int) -> (String, Int) {
     let t = tokens[i]
+    if t.kind == .templateStart || t.kind == .templateEnd { return ("", 1) }
     if ["<", ">"].contains(t.text), i + 1 < tokens.count,
-      tokens[i + 1].text == t.text, t.end == tokens[i + 1].start
+      tokens[i + 1].kind == .symbol, tokens[i + 1].text == t.text, t.end == tokens[i + 1].start
     {
       return (t.text + t.text, 2)
     }
@@ -149,9 +173,29 @@ struct WGSLScalarEvaluator {
     while i < tokens.count {
       try parser.budget.consume(.work)
       let t = tokens[i]
+      if expectOperand, t.text == "array", i + 1 < tokens.count, tokens[i + 1].kind == .templateStart {
+        (_, i) = try arrayTemplate(at: i)
+        expectOperand = false
+        continue
+      }
+      if expectOperand, t.text == "bitcast", i + 1 < tokens.count, tokens[i + 1].kind == .templateStart,
+        parser.declarationNames[wgslKey(t.text)] == nil, !(try parser.localConstantNameExists(t))
+      {
+        var angles = 1
+        i += 2
+        while i < tokens.count, angles > 0 {
+          try parser.budget.consume(.work)
+          if tokens[i].kind == .templateStart { angles += 1 }
+          if tokens[i].kind == .templateEnd { angles -= 1 }
+          i += 1
+        }
+        guard angles == 0 else { throw wgslError(.unexpectedToken, "Unclosed bitcast type", t) }
+        expectOperand = false
+        continue
+      }
       if ["vec2", "vec3", "vec4"].contains(t.text) || Self.matrixNames[t.text] != nil,
-        i + 3 < tokens.count, tokens[i + 1].text == "<",
-        tokens[i + 3].text == ">"
+        i + 3 < tokens.count, tokens[i + 1].kind == .templateStart,
+        tokens[i + 3].kind == .templateEnd
       {
         i += 4
         expectOperand = false
@@ -261,7 +305,7 @@ struct WGSLScalarEvaluator {
       } else if ["&", "|"].contains(op), a == .boolean, b == .boolean {
         type = .boolean
       } else if op == "<<" || op == ">>" {
-        guard case .integer = a, case .integer(let k) = b, k != .sint else {
+        guard case .integer = a, case .integer(let k) = b, k == .abstract || k == .uint else {
           throw wgslError(.typeMismatch, "Invalid shift operand types", at)
         }
         type = a
@@ -299,7 +343,12 @@ struct WGSLScalarEvaluator {
   func common(_ a: WGSLConstKind, _ b: WGSLConstKind, at t: WGSLToken) throws -> WGSLConstKind {
     if case .floating(let x) = a {
       if b == .integer(.abstract) { return a }
-      if case .floating(let y) = b { return .floating(x == .f32 || y == .f32 ? .f32 : .abstract) }
+      if case .floating(let y) = b {
+        guard x == y || x == .abstract || y == .abstract else {
+          throw wgslError(.typeMismatch, "Mixed concrete float types", t)
+        }
+        return .floating(x == .abstract ? y : x)
+      }
     }
     if case .floating = b, a == .integer(.abstract) { return b }
     guard case .integer(let x) = a, case .integer(let y) = b else {
@@ -323,6 +372,13 @@ struct WGSLScalarEvaluator {
       return n
     }
     if ["!", "~", "-"].contains(t.text) {
+      if t.text == "-", token.kind == .number, token.text.hasSuffix("li") {
+        let number = try take()
+        guard case .i64(let value) = try parser.literal(number, negativeInt64: true).0 else {
+          throw ShaderFailure.invalidHandle
+        }
+        return try append(.value(.integer(.init(value: value, kind: .sint64))), .integer(.sint64), t)
+      }
       let n = try primary()
       let kind = nodes[n].kind
       if t.text == "!" {
@@ -335,7 +391,7 @@ struct WGSLScalarEvaluator {
             throw wgslError(.typeMismatch, "Float complement is invalid", t)
           }
         } else {
-          guard case .integer(let k) = kind.scalarLeaf, t.text != "-" || k != .uint else {
+          guard case .integer(let k) = kind.scalarLeaf, t.text != "-" || !k.isUnsigned else {
             throw wgslError(.typeMismatch, "Invalid integer unary operand", t)
           }
         }
@@ -352,18 +408,35 @@ struct WGSLScalarEvaluator {
       case .abstractInt(let x): v = .init(value: x, kind: .abstract)
       case .i32(let x): v = .init(value: Int64(x), kind: .sint)
       case .u32(let x): v = .init(value: Int64(x), kind: .uint)
+      case .i64(let x): v = .init(value: x, kind: .sint64)
+      case .u64(let x): v = .init(value: Int64(bitPattern: x), kind: .uint64)
       case .abstractFloat(let x):
         return try append(
           .value(.floating(.init(value: x, kind: .abstract))), .floating(.abstract), t)
       case .f32(let x):
         return try append(
           .value(.floating(.init(value: Double(x), kind: .f32))), .floating(.f32), t)
+      case .f16Bits(let bits):
+        return try append(.value(.floating(.init(value: Double(Binary16.decode(bits)), kind: .f16))), .floating(.f16), t)
       default: throw wgslError(.unsupportedConstruct, "Numeric constant kind unsupported", t)
       }
       return try append(.value(.integer(v)), .integer(v.kind), t)
     }
     guard t.kind == .word else {
       throw wgslError(.unexpectedToken, "Expected scalar constant expression", t)
+    }
+    if t.text == "array", index < tokens.count, !(try parser.localConstantNameExists(t)) {
+      if token.kind == .templateStart {
+        let (type, end) = try arrayTemplate(at: index - 1)
+        index = end
+        return try compositeConstructor(t, type: type)
+      }
+      return try compositeConstructor(t, type: nil)
+    }
+    if t.text == "bitcast", index < tokens.count, token.kind == .templateStart,
+      parser.declarationNames[wgslKey(t.text)] == nil, !(try parser.localConstantNameExists(t))
+    {
+      return try constantBitcast(at: t)
     }
     if let (columns, rows) = Self.matrixNames[t.text],
       parser.declarationNames[wgslKey(t.text)] == nil
@@ -372,20 +445,20 @@ struct WGSLScalarEvaluator {
         throw wgslError(.typeMismatch, "Shadowed matrix type", t)
       }
       var element: WGSLConstKind?
-      if index < tokens.count, token.text == "<" {
+      if index < tokens.count, token.kind == .templateStart {
         _ = try take()
         let name = try take()
         try parser.resolveTypeDeclarationIfIndexed(name)
-        if name.text == "f32", parser.declarationNames[wgslKey(name.text)] == nil {
-          element = .floating(.f32)
-        } else if let handle = parser.typeNames[wgslKey(name.text)],
-          case .scalar(.f32) = parser.types[handle.index].kind
-        {
-          element = .floating(.f32)
+        if let handle = parser.typeNames[wgslKey(name.text)],
+           case .scalar(let scalar) = parser.types[handle.index].kind, scalar == .f16 || scalar == .f32 {
+          element = try .scalar(scalar, at: name)
+        } else if parser.declarationNames[wgslKey(name.text)] == nil, name.text == "f32" || name.text == "f16" {
+          if name.text == "f16" { try parser.requireFloat16(at: name) }
+          element = .floating(name.text == "f16" ? .f16 : .f32)
         } else {
-          throw wgslError(.unsupportedConstruct, "Matrix scalar template unsupported", name)
+          throw wgslError(.typeMismatch, "Matrix scalar must be f32 or f16", name)
         }
-        guard index < tokens.count, try take().text == ">" else {
+        guard index < tokens.count, try take().kind == .templateEnd else {
           throw wgslError(.unexpectedToken, "Unclosed matrix type", t)
         }
       }
@@ -397,7 +470,7 @@ struct WGSLScalarEvaluator {
       }
       let size = t.text == "vec2" ? 2 : t.text == "vec3" ? 3 : 4
       var element: WGSLConstKind?
-      if index < tokens.count, token.text == "<" {
+      if index < tokens.count, token.kind == .templateStart {
         _ = try take()
         let name = try take()
         try parser.resolveTypeDeclarationIfIndexed(name)
@@ -412,149 +485,177 @@ struct WGSLScalarEvaluator {
           scalar = .i32
         } else if name.text == "u32" {
           scalar = .u32
+        } else if name.text == "i64" {
+          scalar = .i64
+        } else if name.text == "u64" {
+          scalar = .u64
         } else if name.text == "f32" {
           scalar = .f32
+        } else if name.text == "f16" {
+          try parser.requireFloat16(at: name)
+          scalar = .f16
         } else {
           throw wgslError(.unsupportedConstruct, "Vector scalar template type unsupported", name)
         }
-        guard index < tokens.count, try take().text == ">" else {
+        guard index < tokens.count, try take().kind == .templateEnd else {
           throw wgslError(.unexpectedToken, "Vector template closing bracket", t)
         }
         element = try .scalar(scalar, at: name)
       }
       return try vectorConstructor(t, size: size, target: element)
     }
-    if index < tokens.count, token.text == "(" {
-      guard !(try parser.localConstantNameExists(t)) else {
-        throw wgslError(.typeMismatch, "Local value shadows constructor", t)
-      }
-      if let kind = parser.predeclaredType(t.text) {
-        switch kind {
-        case .vector(let n,let s):
-          return try vectorConstructor(t,size:Int(n.rawValue),target:.scalar(s,at:t))
-        case .matrix(let c,let r,let s):
-          return try matrixConstructor(t,columns:Int(c.rawValue),rows:Int(r.rawValue),target:.scalar(s,at:t))
-        default:throw ShaderFailure.invalidHandle
-        }
-      }
-      var callName = t.text
-      if let declaration = parser.declarationNames[wgslKey(t.text)] {
-        guard parser.declarations[declaration].kind == "alias" else {
-          throw wgslError(.typeMismatch, "Module value is not a constructor", t)
-        }
-        try parser.resolveTypeDeclaration(t)
-        if let handle = parser.typeNames[wgslKey(t.text)],
-          case .matrix(let c, let r, let s) = parser.types[handle.index].kind
-        {
-          return try matrixConstructor(
-            t, columns: Int(c.rawValue), rows: Int(r.rawValue), target: .scalar(s, at: t))
-        }
-        if let handle = parser.typeNames[wgslKey(t.text)],
-          case .vector(let n, let s) = parser.types[handle.index].kind
-        {
-          return try vectorConstructor(t, size: Int(n.rawValue), target: .scalar(s, at: t))
-        }
-        guard let handle = parser.typeNames[wgslKey(t.text)],
-          case .scalar(let scalar) = parser.types[handle.index].kind
-        else {
-          throw wgslError(.unsupportedConstruct, "Aggregate alias const constructor unsupported", t)
-        }
-        if scalar == .bool {
-          callName = "bool"
-        } else if scalar == .i32 {
-          callName = "i32"
-        } else if scalar == .u32 {
-          callName = "u32"
-        } else if scalar == .f32 {
-          callName = "f32"
-        } else {
-          throw wgslError(.unsupportedConstruct, "Scalar alias kind unsupported", t)
-        }
-      }
-      guard
-        [
-          "bool", "i32", "u32", "f32", "min", "max", "clamp", "all", "any", "select", "sqrt",
-          "inverseSqrt",
-        ].contains(
-          callName)
-      else { throw wgslError(.unsupportedConstruct, "Const function not implemented", t) }
-      _ = try take()
-      var args: [Int] = []
-      while index < tokens.count, token.text != ")" {
-        guard args.count < 3 else { throw wgslError(.typeMismatch, "Too many const arguments", t) }
-        args.append(try parse())
-        if index < tokens.count, token.text == "," { _ = try take() } else { break }
-      }
-      guard index < tokens.count, try take().text == ")" else {
-        throw wgslError(.unexpectedToken, "Unterminated const call", t)
-      }
-      let needed =
-        (callName == "clamp" || callName == "select")
-        ? 3 : ["min", "max"].contains(callName) ? 2 : 1
-      if args.isEmpty && ["bool", "i32", "u32", "f32"].contains(callName) {
-        let zero: WGSLScalarConstant
-        switch callName {
-        case "bool": zero = .boolean(false)
-        case "f32": zero = .floating(.init(value: 0, kind: .f32))
-        case "i32": zero = .integer(.init(value: 0, kind: .sint))
-        default: zero = .integer(.init(value: 0, kind: .uint))
-        }
-        return try append(.value(zero), zero.kind, t)
-      }
-      guard args.count == needed else {
-        throw wgslError(.typeMismatch, "Constant function arity", t)
-      }
-      if callName == "all" || callName == "any" {
-        guard nodes[args[0]].kind.scalarLeaf == .boolean else {
-          throw wgslError(.typeMismatch, "Scalar all/any require bool", t)
-        }
-        return try append(.call(callName, args), .boolean, t)
-      }
-      if callName == "select" {
-        let result = try selectType(args, at: t)
-        return try append(.call(callName, args), result, t)
-      }
-      if callName == "sqrt" || callName == "inverseSqrt" {
-        let source = nodes[args[0]].kind
-        let leaf = source.scalarLeaf
-        guard leaf == .floating(.f32) || leaf == .floating(.abstract) || leaf == .integer(.abstract)
-        else { throw wgslError(.typeMismatch, "Floating builtin needs floating operand", t) }
-        let resultLeaf: WGSLConstKind = leaf == .integer(.abstract) ? .floating(.abstract) : leaf
-        let result: WGSLConstKind =
-          source.lanes == 1 ? resultLeaf : .vector(source.lanes, resultLeaf)
-        if source != result { conversions.append((args[0], result, t)) }
-        return try append(.call(callName, args), result, t)
-      }
-      guard args.allSatisfy({ nodes[$0].kind.lanes == 1 && !nodes[$0].kind.isMatrix }) else {
-        throw wgslError(.unsupportedConstruct, "Vector builtin overload not yet implemented", t)
-      }
-      var kind = nodes[args[0]].kind
-      if ["min", "max", "clamp"].contains(callName) {
-        guard kind != .boolean else {
-          throw wgslError(.typeMismatch, "Numeric builtin requires numbers", t)
-        }
-      }
-      for a in args.dropFirst() { kind = try common(kind, nodes[a].kind, at: t) }
-      if ["min", "max", "clamp"].contains(callName), case .integer(let target) = kind,
-        target != .abstract
-      {
-        for arg in args {
-          if nodes[arg].kind == .integer(.abstract) {
-            conversions.append((arg, .integer(target), t))
-          }
-        }
-      }
-      if ["min", "max", "clamp"].contains(callName), case .floating = kind {
-        for arg in args where nodes[arg].kind != kind { conversions.append((arg, kind, t)) }
-      }
-      if callName == "f32" { kind = .floating(.f32) }
-      if callName == "bool" { kind = .boolean }
-      if callName == "i32" { kind = .integer(.sint) }
-      if callName == "u32" { kind = .integer(.uint) }
-      return try append(.call(callName, args), kind, t)
-    }
+    if index < tokens.count, token.text == "(" { return try constantCall(t) }
     let v = try parser.scalarConstantName(t)
     return try append(.value(v), v.kind, t)
+  }
+  private mutating func constantCall(_ t: WGSLToken) throws -> Int {
+    guard !(try parser.localConstantNameExists(t)) else {
+      throw wgslError(.typeMismatch, "Local value shadows constructor", t)
+    }
+    if let kind = parser.predeclaredType(t.text) {
+      if kind.usesFloat16 { try parser.requireFloat16(at: t) }
+      switch kind {
+      case .vector(let n,let s):
+        return try vectorConstructor(t,size:Int(n.rawValue),target:.scalar(s,at:t))
+      case .matrix(let c,let r,let s):
+        return try matrixConstructor(t,columns:Int(c.rawValue),rows:Int(r.rawValue),target:.scalar(s,at:t))
+      default:throw ShaderFailure.invalidHandle
+      }
+    }
+    var callName = t.text
+    if let declaration = parser.declarationNames[wgslKey(t.text)] {
+      guard ["alias", "struct"].contains(parser.declarations[declaration].kind) else {
+        throw wgslError(.typeMismatch, "Module value is not a constructor", t)
+      }
+      try parser.resolveTypeDeclaration(t)
+      if let handle = parser.typeNames[wgslKey(t.text)] {
+        switch parser.types[handle.index].kind {
+        case .array(_, .constant, _), .structure:
+          return try compositeConstructor(t, type: handle)
+        default: break
+        }
+      }
+      if let handle = parser.typeNames[wgslKey(t.text)],
+        case .matrix(let c, let r, let s) = parser.types[handle.index].kind
+      {
+        return try matrixConstructor(
+          t, columns: Int(c.rawValue), rows: Int(r.rawValue), target: .scalar(s, at: t))
+      }
+      if let handle = parser.typeNames[wgslKey(t.text)],
+        case .vector(let n, let s) = parser.types[handle.index].kind
+      {
+        return try vectorConstructor(t, size: Int(n.rawValue), target: .scalar(s, at: t))
+      }
+      guard let handle = parser.typeNames[wgslKey(t.text)],
+        case .scalar(let scalar) = parser.types[handle.index].kind
+      else {
+        throw wgslError(.unsupportedConstruct, "Aggregate alias const constructor unsupported", t)
+      }
+      if scalar == .bool {
+        callName = "bool"
+      } else if scalar == .i32 {
+        callName = "i32"
+      } else if scalar == .u32 {
+        callName = "u32"
+      } else if scalar == .f32 {
+        callName = "f32"
+      } else if scalar == .f16 {
+        callName = "f16"
+      } else {
+        throw wgslError(.unsupportedConstruct, "Scalar alias kind unsupported", t)
+      }
+    }
+    if callName == "f16" { try parser.requireFloat16(at: t) }
+    let function = IRMathFunction(wgslName: callName)
+    let bitArity = function?.integerBitArity
+    let packing = function?.packingBuiltin
+    let geometryArity = function?.geometricArity
+    let numeric = function?.numericBuiltin
+    guard Self.constantFunctions.contains(callName) || bitArity != nil || packing != nil || geometryArity != nil ||
+      numeric != nil || function?.decomposesFloat == true || function == .ldexp
+    else { throw wgslError(.unsupportedConstruct, "Const function not implemented", t) }
+    _ = try take()
+    var args: [Int] = []
+    let maxArguments = packing != nil || function?.decomposesFloat == true ? 1
+      : bitArity ?? geometryArity ?? numeric?.arity ?? (function == .ldexp ? 2 : 3)
+    while index < tokens.count, token.text != ")" {
+      guard args.count < maxArguments else {
+        throw wgslError(.typeMismatch, "Too many const arguments", t)
+      }
+      args.append(try parse())
+      if index < tokens.count, token.text == "," { _ = try take() } else { break }
+    }
+    guard index < tokens.count, try take().text == ")" else {
+      throw wgslError(.unexpectedToken, "Unterminated const call", t)
+    }
+    if let function, let bitArity {
+      let signature = try integerBitArgumentKinds(args.map { nodes[$0].kind }, arity: bitArity, at: t)
+      conversions += zip(args, signature).compactMap { node, kind in nodes[node].kind == kind ? nil : (node, kind, t) }
+      return try append(.integerBit(function, args, signature), signature[0], t)
+    }
+    if let packing {
+      guard let argument = args.first else { throw wgslError(.typeMismatch, "Packing builtin requires one operand", t) }
+      let input = try numericConstKind(packing.argumentType, at: t)
+      let actual = nodes[argument].kind
+      guard actual.lanes == input.lanes, canAuto(actual.scalarLeaf, to: input.scalarLeaf) else {
+        throw wgslError(.typeMismatch, "Packing builtin argument type mismatch", t)
+      }
+      if input != actual { conversions.append((argument, input, t)) }
+      return try append(.packing(packing, argument), numericConstKind(packing.resultType, at: t), t)
+    }
+    if let function, geometryArity != nil { return try geometricConstCall(function, arguments: args, at: t) }
+    if let function, function.decomposesFloat { return try decompositionCall(function, arguments: args, at: t) }
+    if function == .ldexp { return try ldexpConstCall(args, at: t) }
+    if let function, let numeric {
+      let signature = try numericSignature(numeric, arguments: args.map { nodes[$0].kind }, materialize: false, at: t)
+      for (argument, kind) in zip(args, signature.arguments) where nodes[argument].kind != kind {
+        conversions.append((argument, kind, t))
+      }
+      return try append(.numeric(function, args), signature.result, t)
+    }
+    let needed = callName == "select" ? 3 : 1
+    if args.isEmpty && ["bool", "i32", "u32", "i64", "u64", "f32", "f16"].contains(callName) {
+      let zero: WGSLScalarConstant
+      switch callName {
+      case "bool": zero = .boolean(false)
+      case "f32": zero = .floating(.init(value: 0, kind: .f32))
+      case "f16": zero = .floating(.init(value: 0, kind: .f16))
+      case "i32": zero = .integer(.init(value: 0, kind: .sint))
+      case "i64": zero = .integer(.init(value: 0, kind: .sint64))
+      case "u64": zero = .integer(.init(value: 0, kind: .uint64))
+      default: zero = .integer(.init(value: 0, kind: .uint))
+      }
+      return try append(.value(zero), zero.kind, t)
+    }
+    guard args.count == needed else {
+      throw wgslError(.typeMismatch, "Constant function arity", t)
+    }
+    if callName == "all" || callName == "any" {
+      guard nodes[args[0]].kind.scalarLeaf == .boolean else {
+        throw wgslError(.typeMismatch, "Scalar all/any require bool", t)
+      }
+      return try append(.call(callName, args), .boolean, t)
+    }
+    if callName == "select" {
+      let result = try selectType(args, at: t)
+      return try append(.call(callName, args), result, t)
+    }
+    let kind: WGSLConstKind
+    switch callName {
+    case "f32": kind = .floating(.f32)
+    case "f16": kind = .floating(.f16)
+    case "bool": kind = .boolean
+    case "i32": kind = .integer(.sint)
+    case "u32": kind = .integer(.uint)
+    case "i64": kind = .integer(.sint64)
+    case "u64": kind = .integer(.uint64)
+    default: throw ShaderFailure.invalidHandle
+    }
+    switch nodes[args[0]].kind {
+    case .integer, .floating, .boolean: return try append(.call(callName, args), kind, t)
+    case .vector, .matrix, .array, .composite, .decomposition:
+      throw wgslError(.typeMismatch, "Scalar constructor requires one scalar", t)
+    }
   }
   mutating func evaluate() throws -> WGSLScalarConstant {
     guard !tokens.isEmpty else {
@@ -565,6 +666,10 @@ struct WGSLScalarEvaluator {
     guard index == tokens.count else {
       throw wgslError(.unexpectedToken, "Unexpected constant expression token", token)
     }
+    return try evaluateTyped(root)
+  }
+
+  mutating func evaluateTyped(_ root: Int) throws -> WGSLScalarConstant {
     for (node, target, at) in conversions {
       try parser.budget.consume(.work)
       _ = try converted(value(node), to: target, at: at)
@@ -575,6 +680,13 @@ struct WGSLScalarEvaluator {
       try parser.budget.consume(.work)
       let n = nodes[i]
       switch n.op {
+      case .integerBit(_, let arguments, _) where arguments.count > 1:
+        guard case .integer(let offset) = try value(arguments[arguments.count - 2]),
+              case .integer(let count) = try value(arguments[arguments.count - 1]) else {
+          throw ShaderFailure.invalidHandle
+        }
+        let scalar = try n.kind.scalarLeaf.irScalar(at: n.token)
+        try validateIntegerBitRange(offset.value, count.value, width: Int64(scalar.width) * 8, at: n.token)
       case .index(let base, let ix): _ = try checkedIndex(base, ix, at: n.token)
       case .binary(let op, let lhs, let rhs)
       where n.kind.lanes > 1 && ["/", "%", "<<", ">>"].contains(op):
@@ -592,7 +704,7 @@ struct WGSLScalarEvaluator {
           throw wgslError(.invalidType, "Constant division/remainder by zero", n.token)
         }
         // Only the -1 divisor needs the signed numerator for the mandatory overflow check.
-        if denominator.value == -1, case .integer(let kind) = nodes[lhs].kind, kind != .uint {
+        if denominator.value == -1, case .integer(let kind) = nodes[lhs].kind, !kind.isUnsigned {
           guard case .integer(let numerator) = try value(lhs) else {
             throw ShaderFailure.invalidHandle
           }
@@ -604,28 +716,20 @@ struct WGSLScalarEvaluator {
       case .binary(let op, let lhs, let rhs) where op == "<<" || op == ">>":
         guard case .integer(let count) = try value(rhs), case .integer(let kind) = nodes[lhs].kind
         else { throw ShaderFailure.invalidHandle }
-        let width: Int64 = kind == .abstract ? 64 : 32
+        let width = kind.bitWidth
         guard count.value >= 0 && count.value < width else {
           throw wgslError(.invalidType, "Const shift count exceeds supported bit width", n.token)
         }
         if op == "<<" { _ = try value(i) }  // both constant operands determine left-shift overflow
-      case .call("clamp", let args):
-        let low = try value(args[1])
-        let high = try value(args[2])
-        let ordered: Bool
-        if case .floating = nodes[i].kind {
-          guard case .boolean(let b) = try floatingBinary("<=", low, high, at: n.token) else {
-            throw ShaderFailure.invalidHandle
-          }
-          ordered = b
-        } else if case .integer(let a) = low, case .integer(let b) = high {
-          ordered = a.value <= b.value
-        } else {
-          throw ShaderFailure.invalidHandle
-        }
-        guard ordered else {
-          throw wgslError(.invalidType, "Const clamp bounds out of order", n.token)
-        }
+      case .ldexp(_, let exponent, let kind):
+        try validateLdexpExponent(converted(value(exponent), to: kind, at: n.token), mantissa: n.kind, at: n.token)
+      case .numeric(.quantizeToF16, _):
+        _ = try value(i)
+      case .numeric(let function, let args) where function == .clamp || function == .smoothStep:
+        let lowIndex = function == .clamp ? 1 : 0
+        let low = try converted(value(args[lowIndex]), to: n.kind, at: n.token)
+        let high = try converted(value(args[lowIndex + 1]), to: n.kind, at: n.token)
+        try validateNumericBounds(function, low, high, at: n.token)
       default: break
       }
     }
@@ -642,6 +746,42 @@ struct WGSLScalarEvaluator {
     let result: WGSLScalarConstant
     switch n.op {
     case .value(let v): result = v
+    case .bitcast(let operand, let input):
+      let value = try converted(value(operand), to: input, at: n.token)
+      result = try bitcastConstant(value, to: n.kind, at: n.token)
+    case .integerBit(let function, let arguments, let signature):
+      let operands = try zip(arguments, signature).map { argument, kind in
+        try converted(value(argument), to: kind, at: n.token)
+      }
+      result = try constantIntegerBitBuiltin(function, arguments: operands, at: n.token)
+    case .packing(let builtin, let operand):
+      let argument = try converted(value(operand), to: numericConstKind(builtin.argumentType, at: n.token), at: n.token)
+      result = try packingConstant(builtin, argument: argument, at: n.token)
+    case .geometric(let function, let arguments, let signature):
+      let operands = try zip(arguments, signature).map { argument, kind in
+        try converted(value(argument), to: kind, at: n.token)
+      }
+      result = try geometricConstant(function, arguments: operands, result: n.kind, at: n.token)
+    case .numeric(let function, let arguments):
+      result = try numericConstValue(function, arguments: arguments, kind: n.kind, at: n.token)
+    case .decomposition(let function, let argument, let input):
+      let value = try decompositionValue(function, argument: argument, input: input, at: n.token)
+      if case .composite(let type, _) = n.kind, case .decomposition(let parts) = value {
+        result = .composite(type, [parts.fraction, parts.second])
+      } else {
+        result = value
+      }
+    case .decompositionMember(let base, let fraction):
+      result = try decompositionMember(base, fraction: fraction)
+    case .ldexp(let mantissa, let exponent, let kind):
+      result = try ldexpConstValue(mantissa, exponent, exponentKind: kind, result: n.kind, at: n.token)
+    case .array(let element, let components):
+      let elements = try components.map { try converted(value($0), to: element, at: n.token) }
+      result = .array(.init(elements: elements, elementKind: element))
+    case .composite(let type, let components):
+      result = .composite(type, try components.map { try value($0) })
+    case .convert(let operand):
+      result = try converted(value(operand), to: n.kind, at: n.token)
     case .matrix(let c, let r, let k, let xs, let explicit):
       result = try matrixValue(c, r, k, xs, conversion: explicit, at: n.token)
     case .swizzle(let base, let indices):
@@ -659,6 +799,8 @@ struct WGSLScalarEvaluator {
       switch try value(base) {
       case .vector(let vector): result = vector.elements[j]
       case .matrix(let matrix): result = .vector(matrix.columns[j])
+      case .array(let array): result = array.elements[j]
+      case .composite(_, let components): result = components[j]
       default: throw ShaderFailure.invalidHandle
       }
     case .vector(let n, let k, let args, let explicit):
@@ -677,7 +819,9 @@ struct WGSLScalarEvaluator {
       } else if case .boolean(let b) = v {
         result = .boolean(!b)
       } else if case .integer(let a) = v {
-        if op == "~" {
+        if a.kind.isWide {
+          result = .integer(.init(value: op == "~" ? ~a.value : 0 &- a.value, kind: a.kind))
+        } else if op == "~" {
           result = .integer(
             try arithmetic.checked(
               a.kind == .uint ? Int64(~UInt32(a.value)) : ~a.value, a.kind, at: n.token))
@@ -700,161 +844,94 @@ struct WGSLScalarEvaluator {
       if case .boolean(let b) = a, (op == "&&" && !b) || (op == "||" && b) {
         result = a
       } else {
-        let b = try value(y)
-        if a.kind.isMatrix || b.kind.isMatrix {
-          result = try matrixBinaryValue(op, a, b, result: n.kind, at: n.token)
-        } else if case .vector = n.kind {
-          result = try vectorBinaryValue(op, a, b, result: n.kind, at: n.token)
-        } else if case .boolean(let l) = a, case .boolean(let r) = b {
-          switch op {
-          case "&&", "&": result = .boolean(l && r)
-          case "||", "|": result = .boolean(l || r)
-          case "==": result = .boolean(l == r)
-          case "!=": result = .boolean(l != r)
-          default: throw wgslError(.typeMismatch, "Invalid boolean operation", n.token)
-          }
-        } else if a.isFloat || b.isFloat {
-          result = try floatingBinary(op, a, b, at: n.token)
-        } else if case .integer(var l) = a, case .integer(var r) = b {
-          if ["==", "!=", "<", "<=", ">", ">="].contains(op) {
-            let kind = try common(a.kind, b.kind, at: n.token)
-            guard case .integer(let k) = kind else { throw ShaderFailure.invalidHandle }
-            l = try arithmetic.checked(l.value, k, at: n.token)
-            r = try arithmetic.checked(r.value, k, at: n.token)
-            let v: Bool
-            switch op {
-            case "==": v = l.value == r.value
-            case "!=": v = l.value != r.value
-            case "<": v = l.value < r.value
-            case "<=": v = l.value <= r.value
-            case ">": v = l.value > r.value
-            default: v = l.value >= r.value
-            }
-            result = .boolean(v)
-          } else {
-            result = .integer(try arithmetic.binary(op, l, r, at: n.token))
-          }
-        } else {
-          throw wgslError(.typeMismatch, "Mismatched constant operand values", n.token)
-        }
+        result = try binaryValue(op, a, value(y), node: n)
       }
     case .call(let name, let args):
-      if name == "sqrt" || name == "inverseSqrt" {
-        result = try floatingRoot(
-          value(args[0]), result: n.kind, inverse: name == "inverseSqrt", at: n.token)
-        cache[i] = result
-        return result
-      }
-      if name == "all" || name == "any" {
-        let operand = try value(args[0])
-        if case .vector(let vector) = operand {
-          var reduction = name == "all"
-          for component in vector.elements {
-            try parser.budget.consume(.work)
-            guard case .boolean(let b) = component else { throw ShaderFailure.invalidHandle }
-            reduction = name == "all" ? reduction && b : reduction || b
-          }
-          result = .boolean(reduction)
-        } else {
-          result = operand
-        }
-        cache[i] = result
-        return result
-      }
-      if name == "select" {
-        let a = try value(args[0])
-        let b = try value(args[1])
-        let c = try value(args[2])
-        result = try selectedValue(a, b, c, result: n.kind, at: n.token)
-        cache[i] = result
-        return result
-      }
-      if name == "bool" {
-        let v = try value(args[0])
-        switch v {
-        case .boolean: result = v
-        case .integer(let x): result = .boolean(x.value != 0)
-        case .floating(let x): result = .boolean(x.value != 0)
-        case .vector, .matrix:
-          throw wgslError(.typeMismatch, "Scalar bool constructor requires scalar", n.token)
-        }
-        cache[i] = result
-        return result
-      }
-      if name == "i32" || name == "u32", case .boolean(let b) = try value(args[0]) {
-        result = .integer(.init(value: b ? 1 : 0, kind: name == "i32" ? .sint : .uint))
-        cache[i] = result
-        return result
-      }
-      if name == "f32" {
-        result = try floatValue(value(args[0]), kind: .f32, at: n.token, explicit: true)
-        cache[i] = result
-        return result
-      }
-      if name == "i32" || name == "u32", case .floating(let f) = try value(args[0]) {
-        result = try floatToInteger(f, target: name == "i32" ? .sint : .uint, at: n.token)
-        cache[i] = result
-        return result
-      }
-      if case .floating(let kind) = n.kind {
-        var xs: [WGSLFloatingConstant] = []
-        for arg in args {
-          guard case .floating(let v) = try floatValue(value(arg), kind: kind, at: n.token) else {
-            throw ShaderFailure.invalidHandle
-          }
-          xs.append(v)
-        }
-        let v: Double
-        if name == "min" {
-          v = min(xs[0].value, xs[1].value)
-        } else if name == "max" {
-          v = max(xs[0].value, xs[1].value)
-        } else {
-          guard xs[1].value <= xs[2].value else {
-            throw wgslError(.invalidType, "Const clamp bounds out of order", n.token)
-          }
-          v = min(max(xs[0].value, xs[1].value), xs[2].value)
-        }
-        result = try floating(v, kind: kind, at: n.token)
-        cache[i] = result
-        return result
-      }
-      var values: [WGSLIntegerConstant] = []
-      for arg in args {
-        try parser.budget.consume(.work)
-        guard case .integer(let v) = try value(arg) else { throw ShaderFailure.invalidHandle }
-        values.append(v)
-      }
-      guard case .integer(let target) = n.kind else { throw ShaderFailure.invalidHandle }
-      if name == "i32" || name == "u32" {
-        let x = values[0]
-        if x.kind == .abstract || x.kind == target {
-          result = .integer(try arithmetic.checked(x.value, target, at: n.token))
-        } else {
-          let bits = UInt32(truncatingIfNeeded: x.value)
-          result = .integer(
-            .init(
-              value: target == .uint ? Int64(bits) : Int64(Int32(bitPattern: bits)), kind: target))
-        }
-      } else {
-        values = try values.map { try arithmetic.checked($0.value, target, at: n.token) }
-        let v: Int64
-        if name == "min" {
-          v = min(values[0].value, values[1].value)
-        } else if name == "max" {
-          v = max(values[0].value, values[1].value)
-        } else {
-          guard values[1].value <= values[2].value else {
-            throw wgslError(.invalidType, "Const clamp bounds out of order", n.token)
-          }
-          v = min(max(values[0].value, values[1].value), values[2].value)
-        }
-        result = .integer(.init(value: v, kind: target))
-      }
+      result = try callValue(name, arguments: args, node: n)
     }
     cache[i] = result
     return result
   }
+  private func binaryValue(
+    _ op: String, _ a: WGSLScalarConstant, _ b: WGSLScalarConstant, node n: WGSLConstNode
+  ) throws -> WGSLScalarConstant {
+    let arithmetic = WGSLIntegerEvaluator(parser: parser, tokens: [], fallback: n.token)
+    let result: WGSLScalarConstant
+    if a.kind.isMatrix || b.kind.isMatrix {
+      result = try matrixBinaryValue(op, a, b, result: n.kind, at: n.token)
+    } else if case .vector = n.kind {
+      result = try vectorBinaryValue(op, a, b, result: n.kind, at: n.token)
+    } else if case .boolean(let l) = a, case .boolean(let r) = b {
+      switch op {
+      case "&&", "&": result = .boolean(l && r)
+      case "||", "|": result = .boolean(l || r)
+      case "==": result = .boolean(l == r)
+      case "!=": result = .boolean(l != r)
+      default: throw wgslError(.typeMismatch, "Invalid boolean operation", n.token)
+      }
+    } else if a.isFloat || b.isFloat {
+      result = try floatingBinary(op, a, b, at: n.token)
+    } else if case .integer(var l) = a, case .integer(var r) = b {
+      if ["==", "!=", "<", "<=", ">", ">="].contains(op) {
+        let kind = try common(a.kind, b.kind, at: n.token)
+        guard case .integer(let k) = kind else { throw ShaderFailure.invalidHandle }
+        l = try arithmetic.materialized(l, as: k, at: n.token)
+        r = try arithmetic.materialized(r, as: k, at: n.token)
+        result = .boolean(arithmetic.compare(op, l, r))
+      } else {
+        result = .integer(try arithmetic.binary(op, l, r, at: n.token))
+      }
+    } else {
+      throw wgslError(.typeMismatch, "Mismatched constant operand values", n.token)
+    }
+    return result
+  }
+
+  private mutating func callValue(_ name: String, arguments args: [Int], node n: WGSLConstNode) throws -> WGSLScalarConstant {
+    let result: WGSLScalarConstant
+    if name == "all" || name == "any" {
+      let operand = try value(args[0])
+      if case .vector(let vector) = operand {
+        var reduction = name == "all"
+        for component in vector.elements {
+          try parser.budget.consume(.work)
+          guard case .boolean(let b) = component else { throw ShaderFailure.invalidHandle }
+          reduction = name == "all" ? reduction && b : reduction || b
+        }
+        result = .boolean(reduction)
+      } else {
+        result = operand
+      }
+      return result
+    }
+    if name == "select" {
+      let a = try value(args[0])
+      let b = try value(args[1])
+      let c = try value(args[2])
+      result = try selectedValue(a, b, c, result: n.kind, at: n.token)
+      return result
+    }
+    if name == "bool" {
+      let v = try value(args[0])
+      switch v {
+      case .boolean: result = v
+      case .integer(let x): result = .boolean(x.value != 0)
+      case .floating(let x): result = .boolean(x.value != 0)
+      case .vector, .matrix, .array, .composite, .decomposition:
+        throw wgslError(.typeMismatch, "Scalar bool constructor requires scalar", n.token)
+      }
+      return result
+    }
+    if name == "f32" || name == "f16" {
+      result = try floatValue(value(args[0]), kind: name == "f16" ? .f16 : .f32, at: n.token, explicit: true)
+      return result
+    }
+    guard case .integer = n.kind else {
+      throw ShaderFailure.invalidHandle
+    }
+    return try scalarConvert(value(args[0]), to: n.kind, at: n.token, explicit: true)
+  }
+
 }
 
 extension WGSLParser {
@@ -879,6 +956,8 @@ extension WGSLParser {
       }
     }
     try resolveConstantDeclaration(t)
+    if let composite = compositeConstants[key] { return composite }
+    if let parts = decompositionConstants[key] { return .decomposition(parts) }
     if let m = matrixConstants[key] { return .matrix(m) }
     if let v = vectorConstants[key] { return .vector(v) }
     if let b = booleanConstants[key] { return .boolean(b) }
@@ -893,6 +972,34 @@ extension WGSLParser {
   func scalarConstant(_ tokens: [WGSLToken], at t: WGSLToken) throws -> WGSLScalarConstant {
     var e = WGSLScalarEvaluator(parser: self, tokens: tokens, fallback: t)
     return try e.evaluate()
+  }
+  func knownConstantValue(_ range: Range<Int>, at name: WGSLToken) throws -> WGSLScalarConstant? {
+    for index in range {
+      try budget.consume(.work)
+      let token = tokens[index]
+      guard token.kind == .word, index == range.lowerBound || tokens[index - 1].text != "." else { continue }
+      let key = wgslKey(token.text)
+      var isLocalConst = false
+      for scope in body.scopes.indices.reversed() {
+        try budget.consume(.work)
+        if body.scopes[scope][key] != nil {
+          guard body.constScopes[scope][key] != nil else { return nil }
+          isLocalConst = true
+          break
+        }
+      }
+      if isLocalConst { continue }
+      if let declaration = declarationNames[key] {
+        guard ["alias", "const", "struct"].contains(declarations[declaration].kind) else { return nil }
+        continue
+      }
+      let math = IRMathFunction(wgslName: token.text)
+      guard WGSLScalarEvaluator.constantFunctions.contains(token.text) || predeclaredType(token.text) != nil ||
+            math?.integerBitArity != nil || math?.packingBuiltin != nil || math?.geometricArity != nil ||
+            math?.numericBuiltin != nil || math?.decomposesFloat == true || math == .ldexp ||
+            ["array", "bitcast", "vec2", "vec3", "vec4", "true", "false"].contains(token.text) else { return nil }
+    }
+    return try scalarConstant(Array(tokens[range]), at: name)
   }
   func constantExpressionTokens(at start: WGSLToken) throws -> [WGSLToken] {
     var result: [WGSLToken] = []
@@ -936,6 +1043,18 @@ extension WGSLParser {
     let expression = try constantExpressionTokens(at: start)
     var value = try scalarConstant(expression, at: name)
     if let annotation { value = try annotatedConstant(value, type: annotation, at: name) }
+    switch value {
+    case .array, .composite:
+      try define(name, compositeRuntimeValue(value, at: name))
+      body.constScopes[body.constScopes.count - 1][wgslKey(name.text)] = value
+      return
+    default: break
+    }
+    if case .decomposition(let parts) = value {
+      try define(name, decompositionRuntimeValue(parts, at: name))
+      body.constScopes[body.constScopes.count - 1][wgslKey(name.text)] = value
+      return
+    }
     if case .matrix(let matrix)=value {
       let v=try matrixRuntimeValue(matrix,to:annotation,at:name)
       try define(name,v);body.constScopes[body.constScopes.count-1][wgslKey(name.text)]=value;return

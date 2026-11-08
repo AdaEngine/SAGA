@@ -2,15 +2,34 @@ import SAGAShaderIR
 
 // Typed integer values and audited arithmetic, shared by the scalar constant tree.
 struct WGSLIntegerConstant {
-  enum Kind { case abstract, sint, uint }
+  enum Kind {
+    case abstract, sint, uint, sint64, uint64
+
+    var isUnsigned: Bool { self == .uint || self == .uint64 }
+    var isWide: Bool { self == .sint64 || self == .uint64 }
+    var bitWidth: Int64 { self == .abstract || isWide ? 64 : 32 }
+    var scalar: IRScalar {
+      switch self {
+      case .abstract: .abstractInt
+      case .sint: .i32
+      case .uint: .u32
+      case .sint64: .i64
+      case .uint64: .u64
+      }
+    }
+  }
+  // Unsigned 64-bit values retain their full bit pattern.
   var value: Int64
   var kind: Kind
-  var scalar: IRScalar { kind == .abstract ? .abstractInt : kind == .sint ? .i32 : .u32 }
+  var scalar: IRScalar { kind.scalar }
+  var bits: UInt64 { UInt64(bitPattern: value) }
   var literal: IRLiteral {
     switch kind {
     case .abstract: .abstractInt(value)
     case .sint: .i32(Int32(value))
     case .uint: .u32(UInt32(value))
+    case .sint64: .i64(value)
+    case .uint64: .u64(bits)
     }
   }
 }
@@ -22,13 +41,34 @@ struct WGSLIntegerEvaluator {
   func checked(_ value: Int64, _ kind: WGSLIntegerConstant.Kind, at t: WGSLToken) throws
     -> WGSLIntegerConstant
   {
-    let valid =
-      kind == .abstract
-      || (kind == .sint ? Int32(exactly: value) != nil : UInt32(exactly: value) != nil)
+    let valid: Bool = switch kind {
+    case .abstract, .sint64: true
+    case .sint: Int32(exactly: value) != nil
+    case .uint: UInt32(exactly: value) != nil
+    case .uint64: value >= 0
+    }
     guard valid else {
       throw wgslError(.invalidType, "Integer constant overflow or unrepresentable conversion", t)
     }
     return .init(value: value, kind: kind)
+  }
+  func materialized(_ x: WGSLIntegerConstant, as kind: WGSLIntegerConstant.Kind, at t: WGSLToken) throws
+    -> WGSLIntegerConstant
+  {
+    if x.kind == kind { return x }
+    return try checked(x.value, kind, at: t)
+  }
+  func compare(_ op: String, _ lhs: WGSLIntegerConstant, _ rhs: WGSLIntegerConstant) -> Bool {
+    let equal = lhs.value == rhs.value
+    let less = lhs.kind == .uint64 ? lhs.bits < rhs.bits : lhs.value < rhs.value
+    return switch op {
+    case "==": equal
+    case "!=": !equal
+    case "<": less
+    case "<=": less || equal
+    case ">": !less && !equal
+    default: !less
+    }
   }
   func binary(_ op: String, _ lhs: WGSLIntegerConstant, _ rhs: WGSLIntegerConstant, at t: WGSLToken)
     throws -> WGSLIntegerConstant
@@ -39,9 +79,16 @@ struct WGSLIntegerEvaluator {
       guard b.kind == .abstract || b.kind == .uint else {
         throw wgslError(.typeMismatch, "Shift count requires u32 or abstract integer", t)
       }
-      let width = a.kind == .abstract ? 64 : 32
+      let width = a.kind.bitWidth
       guard b.value >= 0 && b.value < width else {
         throw wgslError(.invalidType, "Constant shift count outside bit width", t)
+      }
+      if a.kind == .uint64 {
+        if op == ">>" { return .init(value: Int64(bitPattern: a.bits >> b.value), kind: .uint64) }
+        guard a.bits <= UInt64.max >> b.value else {
+          throw wgslError(.invalidType, "Constant shift overflow", t)
+        }
+        return .init(value: Int64(bitPattern: a.bits << b.value), kind: .uint64)
       }
       if op == ">>" { return try checked(a.value >> b.value, a.kind, at: t) }
       // WGSL const left shift requires no significant bits to be lost.
@@ -62,6 +109,28 @@ struct WGSLIntegerEvaluator {
       } else {
         throw wgslError(.typeMismatch, "Mixed concrete integer types", t)
       }
+    }
+    if a.kind.isWide {
+      let value: Int64
+      switch op {
+      case "+": value = a.value &+ b.value
+      case "-": value = a.value &- b.value
+      case "*": value = a.value &* b.value
+      case "&": value = a.value & b.value
+      case "|": value = a.value | b.value
+      case "^": value = a.value ^ b.value
+      case "/", "%":
+        guard b.value != 0, a.kind == .uint64 || a.value != Int64.min || b.value != -1 else {
+          throw wgslError(.invalidType, "Invalid constant division/remainder", t)
+        }
+        if a.kind == .uint64 {
+          value = Int64(bitPattern: op == "/" ? a.bits / b.bits : a.bits % b.bits)
+        } else {
+          value = op == "/" ? a.value / b.value : a.value % b.value
+        }
+      default: throw wgslError(.unsupportedConstruct, "Integer operator not implemented", t)
+      }
+      return .init(value: value, kind: a.kind)
     }
     if a.kind != .abstract && ["+", "-", "*"].contains(op) {
       let x = UInt32(truncatingIfNeeded: a.value)
@@ -118,7 +187,7 @@ extension WGSLParser {
   }
   func attributeValue(_ v: WGSLIntegerConstant, at t: WGSLToken) throws -> UInt32 {
     // An abstract integer is materialized as i32, per the attribute parameter rule.
-    guard let value = UInt32(exactly: v.value),
+    guard !v.kind.isWide, let value = UInt32(exactly: v.value),
       v.kind != .abstract || Int32(exactly: v.value) != nil
     else {
       throw wgslError(.invalidType, "Attribute integer must resolve to non-negative i32/u32", t)

@@ -20,7 +20,7 @@ public enum IRScalarKind: String, Sendable, Equatable, CaseIterable {
     case abstractFloat
 }
 
-public struct IRScalar: Sendable, Equatable {
+public struct IRScalar: Sendable, Hashable {
     public let kind: IRScalarKind
     public let width: UInt8
     public init(kind: IRScalarKind, width: UInt8) {
@@ -31,10 +31,19 @@ public struct IRScalar: Sendable, Equatable {
 
 extension IRScalar {
  public static let u32 = IRScalar(kind: .uint, width: 4)
+ public static let u64 = IRScalar(kind: .uint, width: 8)
+ public static let i64 = IRScalar(kind: .sint, width: 8)
  public static let i32 = IRScalar(kind: .sint, width: 4)
  public static let f32 = IRScalar(kind: .float, width: 4)
  public static let f16 = IRScalar(kind: .float, width: 2)
  public static let bool = IRScalar(kind: .bool, width: 1)
+
+ package var isWGSLConversionScalar: Bool {
+  switch self {
+  case .bool, .i32, .u32, .i64, .u64, .f32, .f16: return true
+  default: return false
+  }
+ }
  public static let abstractInt = IRScalar(kind: .abstractInt, width: 8)
  public static let abstractFloat = IRScalar(kind: .abstractFloat, width: 8)
 }
@@ -99,7 +108,7 @@ public enum IRSampling: String, Sendable, Equatable, CaseIterable {
     case either
 }
 
-public enum IRBuiltIn: Sendable, Equatable {
+public enum IRBuiltIn: Sendable, Hashable {
     case primitiveIndex
     case position(invariant: Bool)
     case viewIndex
@@ -118,9 +127,11 @@ public enum IRBuiltIn: Sendable, Equatable {
     case sampleIndex
     case sampleMask
     case globalInvocationId
+    case globalInvocationIndex
     case localInvocationId
     case localInvocationIndex
     case workgroupId
+    case workgroupIndex
     case workgroupSize
     case numWorkgroups
     case numSubgroups
@@ -216,18 +227,57 @@ public enum IRStorageFormat: String, Sendable, Equatable, CaseIterable {
     case rgba16Unorm
     case rgba16Snorm
 
-    package var coreStorageTexel: (scalar: IRScalar, components: Int)? {
+    package var isNormalized16Bit: Bool {
         switch self {
-        case .r32Uint: (.u32, 1)
-        case .r32Sint: (.i32, 1)
-        case .r32Float: (.f32, 1)
-        case .rg32Uint: (.u32, 2)
-        case .rg32Sint: (.i32, 2)
-        case .rg32Float: (.f32, 2)
-        case .rgba8Uint, .rgba16Uint, .rgba32Uint: (.u32, 4)
+        case .r16Unorm, .r16Snorm, .rg16Unorm, .rg16Snorm, .rgba16Unorm, .rgba16Snorm: true
+        default: false
+        }
+    }
+
+    package var isPackedColor: Bool { self == .rgb10a2Unorm || self == .rgb10a2Uint || self == .rg11b10Ufloat }
+
+    package var isNarrow8Bit: Bool {
+        switch self {
+        case .r8Unorm, .r8Snorm, .r8Uint, .r8Sint, .rg8Unorm, .rg8Snorm, .rg8Uint, .rg8Sint: true
+        default: false
+        }
+    }
+
+    package var requires8BitReadWriteFeature: Bool {
+        switch self {
+        case .r8Unorm, .r8Uint, .r8Sint, .rgba8Unorm, .rgba8Uint, .rgba8Sint: true
+        default: false
+        }
+    }
+
+    package var requiresWideRGBAReadWriteFeature: Bool {
+        switch self {
+        case .rgba16Float, .rgba32Float, .rgba32Uint, .rgba32Sint: true
+        default: false
+        }
+    }
+
+    package var requiresTextureFormatsTier1: Bool {
+        switch self {
+        case .r16Float, .rg16Float, .r16Uint, .r16Sint, .rg16Uint, .rg16Sint: true
+        default: isNormalized16Bit || isPackedColor || isNarrow8Bit
+        }
+    }
+
+    package var storageTexel: (scalar: IRScalar, components: Int) {
+        switch self {
+        case .r8Uint, .r16Uint, .r32Uint: (.u32, 1)
+        case .r64Uint: (.u64, 1)
+        case .r8Sint, .r16Sint, .r32Sint: (.i32, 1)
+        case .r8Unorm, .r8Snorm, .r16Float, .r32Float, .r16Unorm, .r16Snorm: (.f32, 1)
+        case .rg8Uint, .rg16Uint, .rg32Uint: (.u32, 2)
+        case .rg8Sint, .rg16Sint, .rg32Sint: (.i32, 2)
+        case .rg8Unorm, .rg8Snorm, .rg16Float, .rg32Float, .rg16Unorm, .rg16Snorm: (.f32, 2)
+        case .rgba8Uint, .rgba16Uint, .rgba32Uint, .rgb10a2Uint: (.u32, 4)
         case .rgba8Sint, .rgba16Sint, .rgba32Sint: (.i32, 4)
-        case .rgba8Unorm, .rgba8Snorm, .rgba16Float, .rgba32Float: (.f32, 4)
-        default: nil
+        case .rgba8Unorm, .rgba8Snorm, .bgra8Unorm, .rgba16Float, .rgba32Float, .rgba16Unorm, .rgba16Snorm,
+             .rgb10a2Unorm: (.f32, 4)
+        case .rg11b10Ufloat: (.f32, 3)
         }
     }
 }
@@ -313,13 +363,22 @@ extension IRTypeKind {
         return false
     }
 
+    package var isLineTexture: Bool {
+        if case .image(.d1, _, _) = self { return true }
+        return false
+    }
+
+    package func texelCoordinateType(_ scalar: IRScalar) -> IRTypeKind {
+        isLineTexture ? .scalar(scalar) : .vector(size: isVolumeTexture ? .three : .two, scalar: scalar)
+    }
+
     package var isSampledTexture: Bool { sampledTextureScalar != nil }
 
     package var sampledTextureScalar: IRScalar? {
         switch self {
         case .image(let dimension, let arrayed, .sampled(let kind, let multisampled))
             where ((dimension == .d2 || dimension == .cube) && (!multisampled || (dimension == .d2 && !arrayed))) ||
-                  (dimension == .d3 && !arrayed && !multisampled):
+                  ((dimension == .d1 || dimension == .d3) && !arrayed && !multisampled):
             switch kind {
             case .sint: .i32
             case .uint: .u32
@@ -337,10 +396,23 @@ extension IRTypeKind {
         return false
     }
 
-    package var storageTexture2D: (format: IRStorageFormat, access: IRStorageAccess, scalar: IRScalar, components: Int)? {
-        guard case .image(.d2, _, .storage(let format, let access)) = self,
-              let texel = format.coreStorageTexel,
-              access == .load || access == .store || (access == [.load, .store] && texel.components == 1)
+    package var isExternalTexture: Bool {
+        if case .image(.d2, false, .external) = self { return true }
+        return false
+    }
+
+    package var isTextureOrSampler: Bool { isSampledTexture || isExternalTexture || isSampler || storageTexture != nil }
+
+    package var storageTexture: (format: IRStorageFormat, access: IRStorageAccess, scalar: IRScalar, components: Int)? {
+        guard case .image(let dimension, let arrayed, .storage(let format, let access)) = self,
+              dimension == .d2 || ((dimension == .d1 || dimension == .d3) && !arrayed) else { return nil }
+        let texel = format.storageTexel
+        guard format != .bgra8Unorm || access == .store,
+              access == .load || access == .store ||
+                  (access == [.load, .store, .atomic] && (format == .r32Uint || format == .r32Sint || format == .r64Uint)) ||
+                  (access == [.load, .store] && !format.isNormalized16Bit && format != .r8Snorm &&
+                      (texel.components == 1 || format.requires8BitReadWriteFeature || format.requiresWideRGBAReadWriteFeature ||
+                       format == .rgba16Uint || format == .rgba16Sint))
         else { return nil }
         return (format, access, texel.scalar, texel.components)
     }
@@ -407,7 +479,7 @@ public enum IRAtomicFunction: Sendable, Equatable {
     case inclusiveOr
     case min
     case max
-    case exchange(compare: IRHandle<IRExpression>?)
+    case exchange(compare: IRHandle<IRExpression>?, strong: Bool = false)
 
     package static let integerRMWBuiltins: [String: Self] = [
         "atomicAdd": .add, "atomicSub": .subtract,
@@ -425,12 +497,34 @@ public enum IRDerivativeControl: String, Sendable, Equatable, CaseIterable {
     case coarse
     case fine
     case none
+
+    package var nameSuffix: String {
+        switch self {
+        case .none: ""
+        case .fine: "Fine"
+        case .coarse: "Coarse"
+        }
+    }
 }
 
 public enum IRDerivativeAxis: String, Sendable, Equatable, CaseIterable {
     case x
     case y
     case width
+
+    package func wgslName(control: IRDerivativeControl) -> String {
+        let name = switch self {
+        case .x: "dpdx"
+        case .y: "dpdy"
+        case .width: "fwidth"
+        }
+        return name + control.nameSuffix
+    }
+
+    package static let wgslBuiltins: [String: (axis: IRDerivativeAxis, control: IRDerivativeControl)] =
+        Dictionary(uniqueKeysWithValues: allCases.flatMap { axis in
+            IRDerivativeControl.allCases.map { control in (axis.wgslName(control: control), (axis, control)) }
+        })
 }
 
 public enum IRRelationalFunction: String, Sendable, Equatable, CaseIterable {
@@ -438,6 +532,16 @@ public enum IRRelationalFunction: String, Sendable, Equatable, CaseIterable {
     case any
     case isNan
     case isInf
+
+    package var isBooleanReduction: Bool { self == .all || self == .any }
+
+    package func accepts(_ operand: IRTypeKind) -> Bool {
+        guard isBooleanReduction else { return false }
+        switch operand {
+        case .scalar(.bool), .vector(_, .bool): return true
+        default: return false
+        }
+    }
 }
 
 public enum IRMathFunction: String, Sendable, Equatable, CaseIterable {
@@ -542,6 +646,17 @@ public struct IRSwizzle: Sendable, Equatable {
     }
 }
 
+extension IRMathFunction {
+    package var integerBitArity: Int? {
+        switch self {
+        case .countLeadingZeros, .countTrailingZeros, .countOneBits, .reverseBits, .firstLeadingBit, .firstTrailingBit: 1
+        case .extractBits: 3
+        case .insertBits: 4
+        default: nil
+        }
+    }
+}
+
 public enum IRSampleLevel: Sendable, Equatable {
     case auto
     case zero
@@ -618,6 +733,8 @@ public enum IRExpressionKind: Sendable, Equatable {
     case literal(IRLiteral)
     case constant(IRHandle<IRConstant>)
     case override(IRHandle<IROverride>)
+    /// Captures an immutable runtime value without changing its uniformity.
+    case runtimeValue(IRHandle<IRExpression>)
     case zeroValue(IRHandle<IRType>)
     case compose(type: IRHandle<IRType>, components: [IRHandle<IRExpression>])
     case access(base: IRHandle<IRExpression>, index: IRHandle<IRExpression>)
@@ -703,7 +820,32 @@ public enum IRGatherMode: Sendable, Equatable {
     case shuffleUp(IRHandle<IRExpression>)
     case shuffleXor(IRHandle<IRExpression>)
     case quadBroadcast(IRHandle<IRExpression>)
+    /// The source requires a dynamically uniform selector in 0..<4.
+    case quadBroadcastDynamic(IRHandle<IRExpression>)
     case quadSwap(IRDirection)
+}
+
+extension IRGatherMode {
+    package var index: IRHandle<IRExpression>? {
+        switch self {
+        case .broadcast(let index), .shuffle(let index), .shuffleDown(let index),
+             .shuffleUp(let index), .shuffleXor(let index), .quadBroadcast(let index), .quadBroadcastDynamic(let index): index
+        case .broadcastFirst, .quadSwap: nil
+        }
+    }
+
+    package func remappingIndex(_ map: (IRHandle<IRExpression>) throws -> IRHandle<IRExpression>) rethrows -> Self {
+        switch self {
+        case .broadcast(let index): try .broadcast(map(index))
+        case .shuffle(let index): try .shuffle(map(index))
+        case .shuffleDown(let index): try .shuffleDown(map(index))
+        case .shuffleUp(let index): try .shuffleUp(map(index))
+        case .shuffleXor(let index): try .shuffleXor(map(index))
+        case .quadBroadcast(let index): try .quadBroadcast(map(index))
+        case .quadBroadcastDynamic(let index): try .quadBroadcastDynamic(map(index))
+        case .broadcastFirst, .quadSwap: self
+        }
+    }
 }
 
 public enum IRSubgroupOperation: String, Sendable, Equatable, CaseIterable {
@@ -716,6 +858,44 @@ public enum IRSubgroupOperation: String, Sendable, Equatable, CaseIterable {
     case and
     case or
     case xor
+}
+
+extension IRSubgroupOperation {
+    package static let wgslBuiltins: [String: (IRSubgroupOperation, IRCollectiveOperation)] = {
+        var entries: [String: (IRSubgroupOperation, IRCollectiveOperation)] = [:]
+        for operation in allCases {
+            for collective in IRCollectiveOperation.allCases {
+                if let name = operation.wgslName(collective) { entries[name] = (operation, collective) }
+            }
+        }
+        return entries
+    }()
+
+    package func wgslName(_ collective: IRCollectiveOperation) -> String? {
+        guard collective == .reduce || self == .add || self == .mul else { return nil }
+        let prefix: String
+        switch collective {
+        case .reduce: prefix = "subgroup"
+        case .inclusiveScan: prefix = "subgroupInclusive"
+        case .exclusiveScan: prefix = "subgroupExclusive"
+        }
+        return prefix + rawValue.prefix(1).uppercased() + rawValue.dropFirst()
+    }
+
+    package var isVote: Bool { self == .all || self == .any }
+    package var isBitwise: Bool { self == .and || self == .or || self == .xor }
+
+    package func accepts(_ type: IRTypeKind, collective: IRCollectiveOperation) -> Bool {
+        guard wgslName(collective) != nil else { return false }
+        if isVote { return type == .scalar(.bool) }
+        let scalar: IRScalar
+        switch type {
+        case .scalar(let value), .vector(_, let value): scalar = value
+        default: return false
+        }
+        if isBitwise { return scalar == .i32 || scalar == .u32 }
+        return [.i32, .u32, .f32, .f16].contains(scalar)
+    }
 }
 
 public enum IRCollectiveOperation: String, Sendable, Equatable, CaseIterable {
@@ -734,6 +914,8 @@ public enum IRStatementKind: Sendable, Equatable {
     case `continue`
     case returnValue(IRHandle<IRExpression>?)
     case kill
+    /// Suppresses fragment output and subsequent resource writes while execution can continue.
+    case demoteToHelperInvocation
     case controlBarrier(IRBarrier)
     case memoryBarrier(IRBarrier)
     case store(pointer: IRHandle<IRExpression>, value: IRHandle<IRExpression>)
@@ -947,6 +1129,11 @@ public struct IRMeshStageInfo: Sendable, Equatable {
     }
 }
 
+public enum IRSubgroupSize: Sendable, Equatable {
+    case fixed(UInt32)
+    case overrideExpression(IRHandle<IRExpression>)
+}
+
 public struct IREntryPoint: Sendable, Equatable {
     public let name: String
     public let stage: IRStage
@@ -954,17 +1141,19 @@ public struct IREntryPoint: Sendable, Equatable {
     public let earlyDepthTest: IREarlyDepthTest?
     public let workgroupSize: IRWorkgroupSize
     public let workgroupOverrides: IRWorkgroupOverrides?
+    public let subgroupSize: IRSubgroupSize?
     public let meshInfo: IRMeshStageInfo?
     public let taskPayload: IRHandle<IRGlobalVariable>?
     public let incomingRayPayload: IRHandle<IRGlobalVariable>?
     public let location: ShaderLocation?
-    public init(name: String, stage: IRStage, function: IRHandle<IRFunction>, earlyDepthTest: IREarlyDepthTest? = nil, workgroupSize: IRWorkgroupSize = IRWorkgroupSize(), workgroupOverrides: IRWorkgroupOverrides? = nil, meshInfo: IRMeshStageInfo? = nil, taskPayload: IRHandle<IRGlobalVariable>? = nil, incomingRayPayload: IRHandle<IRGlobalVariable>? = nil, location: ShaderLocation? = nil) {
+    public init(name: String, stage: IRStage, function: IRHandle<IRFunction>, earlyDepthTest: IREarlyDepthTest? = nil, workgroupSize: IRWorkgroupSize = IRWorkgroupSize(), workgroupOverrides: IRWorkgroupOverrides? = nil, subgroupSize: IRSubgroupSize? = nil, meshInfo: IRMeshStageInfo? = nil, taskPayload: IRHandle<IRGlobalVariable>? = nil, incomingRayPayload: IRHandle<IRGlobalVariable>? = nil, location: ShaderLocation? = nil) {
         self.name = name
         self.stage = stage
         self.function = function
         self.earlyDepthTest = earlyDepthTest
         self.workgroupSize = workgroupSize
         self.workgroupOverrides = workgroupOverrides
+        self.subgroupSize = subgroupSize
         self.meshInfo = meshInfo
         self.taskPayload = taskPayload
         self.incomingRayPayload = incomingRayPayload
@@ -1015,10 +1204,13 @@ public struct IRDiagnosticFilter: Sendable, Equatable {
     public let parent: IRHandle<IRDiagnosticFilter>?
     public let rule: IRDiagnosticRule
     public let severity: IRDiagnosticSeverity
-    public init(parent: IRHandle<IRDiagnosticFilter>? = nil, rule: IRDiagnosticRule, severity: IRDiagnosticSeverity) {
+    public let location: ShaderLocation?
+    public init(parent: IRHandle<IRDiagnosticFilter>? = nil, rule: IRDiagnosticRule, severity: IRDiagnosticSeverity,
+                location: ShaderLocation? = nil) {
         self.parent = parent
         self.rule = rule
         self.severity = severity
+        self.location = location
     }
 }
 
@@ -1053,7 +1245,10 @@ public struct IRModule: Sendable, Equatable {
     public let diagnosticFilters: IRTable<IRDiagnosticFilter>
     public let diagnosticFilter: IRHandle<IRDiagnosticFilter>?
     public let documentation: [IRDocumentation]
-    public init(types: IRTable<IRType> = IRTable(), specialTypes: IRSpecialTypes = IRSpecialTypes(), constants: IRTable<IRConstant> = IRTable(), overrides: IRTable<IROverride> = IRTable(), globalVariables: IRTable<IRGlobalVariable> = IRTable(), globalExpressions: IRTable<IRExpression> = IRTable(), functions: IRTable<IRFunction> = IRTable(), entryPoints: [IREntryPoint] = [], diagnosticFilters: IRTable<IRDiagnosticFilter> = IRTable(), diagnosticFilter: IRHandle<IRDiagnosticFilter>? = nil, documentation: [IRDocumentation] = []) {
+    public let allowsPointerSubviews: Bool
+    public let uniformBufferStandardLayout: Bool
+    public let requiresSubgroupUniformity: Bool
+    public init(types: IRTable<IRType> = IRTable(), specialTypes: IRSpecialTypes = IRSpecialTypes(), constants: IRTable<IRConstant> = IRTable(), overrides: IRTable<IROverride> = IRTable(), globalVariables: IRTable<IRGlobalVariable> = IRTable(), globalExpressions: IRTable<IRExpression> = IRTable(), functions: IRTable<IRFunction> = IRTable(), entryPoints: [IREntryPoint] = [], diagnosticFilters: IRTable<IRDiagnosticFilter> = IRTable(), diagnosticFilter: IRHandle<IRDiagnosticFilter>? = nil, documentation: [IRDocumentation] = [], allowsPointerSubviews: Bool = false, uniformBufferStandardLayout: Bool = false, requiresSubgroupUniformity: Bool = false) {
         self.types = types
         self.specialTypes = specialTypes
         self.constants = constants
@@ -1065,16 +1260,29 @@ public struct IRModule: Sendable, Equatable {
         self.diagnosticFilters = diagnosticFilters
         self.diagnosticFilter = diagnosticFilter
         self.documentation = documentation
+        self.allowsPointerSubviews = allowsPointerSubviews
+        self.uniformBufferStandardLayout = uniformBufferStandardLayout
+        self.requiresSubgroupUniformity = requiresSubgroupUniformity
     }
 }
 
 extension IRModule: ShaderIRModule { public var schemaVersion: UInt32 { 1 } }
 
 /// Filterable language rule, distinct from emitted SAGA diagnostic codes.
-public enum IRDiagnosticRule: Sendable, Equatable {
+public enum IRDiagnosticRule: Sendable, Hashable {
     case derivativeUniformity
+    case subgroupUniformity
     case unknown(String)
     case user(namespace: String, name: String)
+
+    package var wgslName: String {
+        switch self {
+        case .derivativeUniformity: "derivative_uniformity"
+        case .subgroupUniformity: "subgroup_uniformity"
+        case .unknown(let name): name
+        case .user(let namespace, let name): "\(namespace).\(name)"
+        }
+    }
 }
 
 public enum IRRayQueryIntersection: UInt32, Sendable, Equatable { case none = 0, triangle = 1, generated = 2, aabb = 3 }

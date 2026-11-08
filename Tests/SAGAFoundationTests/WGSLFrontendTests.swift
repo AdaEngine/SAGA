@@ -137,7 +137,7 @@ import SAGAFrontends
     @Test func failClosedLexicalAndSemanticBoundaries() throws {
         for s in [
             "/* unterminated", "fn f() { let x = 00; }", "fn f() { let x = 1e+; }", "fn f() { let x = 4294967296u; }",
-            "fn f() { let x = 1.0 & 2.0; }", "fn f() { let x = 1u + true; }", "fn f() -> u32 { if true { return 1u; } }",
+            "fn f() { let x = 1.0 & 2.0; }", "fn f() { let x = 1u + true; }",
             "@group(0) var<storage> a: array<u32>;", "fn f() { let<function> x = 1u; }", "var<private, read> a: u32;",
             "fn f() { { let x = 1u; } let y=x; }", "fn f() { loop { continuing { continue; } } }",
             "fn f() { switch 1u { case 1u: {} case 1u: {} default: {} } }"

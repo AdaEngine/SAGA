@@ -83,15 +83,14 @@ func rejectsBarriersSomeInvocationsCanSkip(body: String) {
     _ = try IndependentShaderCompiler().parseAndValidate(.wgsl(source))
 }
 
-@Test func rejectsExcessiveWorkgroupMemory() {
+@Test func reflectsPerVariableWorkgroupMemoryRounding() throws {
     let source = """
         var<workgroup> data: array<u32, 4096>;
         var<workgroup> tail: u32;
         @compute @workgroup_size(1) fn run() { data[0] = tail; }
         """
-    #expect(throws: ShaderFailure.unsupported("Compute code generation: workgroup storage exceeds 16 KiB")) {
-        try IndependentShaderCompiler().compileCompute(.wgsl(source), to: .msl)
-    }
+    let shader = try IndependentShaderCompiler().compileCompute(.wgsl(source), to: .msl)
+    #expect(shader.workgroupStorageByteSize == 16_400)
 }
 
 @Test func workgroupInitializationSuppliesAnInvocationIndexWhenNeeded() throws {

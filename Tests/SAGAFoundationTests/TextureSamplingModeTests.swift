@@ -41,12 +41,6 @@ func implicitSampleIsFragmentOnly(entry: String) throws {
     }
     """,
     """
-    @fragment fn run(@location(0) uv: vec2f) -> @location(0) vec4f {
-        if uv.x > 0.5 { discard; }
-        return textureSample(image, state, uv);
-    }
-    """,
-    """
     @fragment fn run() -> @location(0) vec4f {
         let first = textureSample(image, state, vec2f(0.5));
         if first.r > 0.5 { return textureSample(image, state, vec2f(0.5)); }
@@ -60,6 +54,19 @@ func implicitSampleRequiresUniformControlFlow(entry: String) throws {
         Issue.record("Implicit sampling accepted in divergent control flow")
     } catch ShaderFailure.diagnostics(let issues) {
         #expect(issues.first?.code == .nonUniformControlFlow)
+    }
+}
+
+@Test func discardReconvergesBeforeImplicitTextureSampling() throws {
+    let source = bindings + "\n" + """
+        @fragment fn run(@location(0) uv: vec2f) -> @location(0) vec4f {
+            if uv.x > 0.5 { discard; }
+            return textureSample(image, state, uv);
+        }
+        """
+    let compiler = IndependentShaderCompiler()
+    for format in [ShaderOutputFormat.wgsl, .msl, .hlsl, .glsl] {
+        _ = try compiler.compileRenderStage(.wgsl(source), entryPoint: "run", to: format)
     }
 }
 

@@ -44,6 +44,11 @@ arithmetic, `bool`, `i32` and `u32` locals, `if/else`, and structured loops with
 runtime `break if`. `switch` supports signed and unsigned constant selectors,
 grouped labels and default clauses. It preserves switch-local breaks and
 continues that target the enclosing loop.
+Use `compileCompute(_:entryPoint:to:constants:bindingArrayLengths:)` or
+`compileWebGPUCompute(_:entryPoint:constants:bindingArrayLengths:)` to select a
+named compute entry point. With the name omitted, the compiler selects the sole
+compute entry point, even if the module contains render entry points. Compiling
+a named entry reflects its reachable bindings.
 Compute supports up to eight storage bindings across groups 0–3
 with binding indices 0–999. HLSL uses the WGSL group as its register space.
 MSL and OpenGL GLSL use the reflected `flatBindingIndex`. Low group-zero
@@ -89,9 +94,30 @@ the result to zero on an out-of-bounds index, preserving result uniformity.
 Compile-time `select` expressions can initialize module and local constants
 and determine fixed array lengths and workgroup sizes. Compute and render
 writers emit their validated constant values.
+WGSL `bitcast<T>` preserves bits between `i32`, `u32` and `f32` scalars or
+vectors of the same width. Module and local constants fold the same overloads
+and reject non-finite floating-point results.
+The integer bit builtins support `i32` and `u32` scalars and vectors in runtime
+and constant expressions. `extractBits` and `insertBits` check constant ranges
+at shader creation and clamp dynamic offset and count to the word width.
+WGSL packing and unpacking cover 8- and 16-bit normalized channels, binary16
+float pairs and four packed integer bytes. Constant expressions use the same
+lane order as runtime shaders. Normalized signed packing emits the WGSL
+rounding formula explicitly to preserve the result at negative ties.
+Geometric builtins cover `dot`, `cross`, `length`, `distance`, `normalize`,
+`faceForward`, `reflect` and `refract`. Integer `dot` wraps at 32 bits.
+`dot4I8Packed` and `dot4U8Packed` multiply four byte lanes from two `u32`
+words with signed or unsigned interpretation.
+Scalar and vector numeric builtins cover signed absolute value and sign,
+min/max/clamp, rounding, fractional parts, saturation and square roots.
+Trigonometric and hyperbolic functions, angle conversions, exponentials,
+logarithms and `pow` also support scalar and vector calls. These functions
+fold in constant expressions with domain and finite-range validation.
 Runtime `f32` matrices support column construction and indexing, addition,
 subtraction, scaling and matrix or vector products. HLSL represents each WGSL
 column as a row and reverses the operands of `mul` to preserve the product.
+`transpose` swaps matrix dimensions, and `determinant` accepts square matrices
+from 2×2 through 4×4. Both also evaluate in WGSL constant expressions.
 Storage and uniform buffers can hold `f32` matrices in the supported scalar,
 vector and flat-structure layouts. Storage writes preserve padding between
 columns. GLSL reads uniform matrices with two rows from packed `uvec4`
@@ -260,6 +286,13 @@ Fragment shaders can read `@builtin(position)` and `@builtin(front_facing)`.
 The position contains pixel coordinates, viewport depth and reciprocal clip
 `w`. When linking the generated GLSL pair in OpenGL, use `GL_CW` for the
 WebGPU default front face to account for the generated vertex Y flip.
+Fragment shaders can also use `dpdx`, `dpdy` and `fwidth` with the default,
+fine or coarse variants. Validation checks uniform control flow through helper
+calls. The Metal writer maps fine and coarse to its native derivative functions.
+Module `diagnostic` directives and function `@diagnostic` attributes control
+`derivative_uniformity`. `parseAndValidate` returns nonfatal messages in
+`ValidatedModule.diagnostics`. Stage restrictions and workgroup barrier
+validation still apply.
 HLSL vertex shaders that use draw offsets report `vs_6_8` in `hlslProfile`.
 GLSL vertex shaders using `instance_index` target desktop GLSL 4.60 for
 `gl_BaseInstance`. The generated shader adds the base offset on these targets.
@@ -329,6 +362,18 @@ supports up to 2048 texels per axis for volume textures. A `.d3` view selects
 mips and includes all Z slices in each selected mip. Pass `z` and `depth` to
 copy several consecutive planes. Buffer copies pack planes consecutively at
 the specified row stride, with no extra padding between planes.
+`texture_storage_3d` binds one mip of a volume and addresses it with XYZ texel
+coordinates. Compute and fragment shaders can write these views. Readable
+views use the same format and access rules as 2D storage textures.
+For rendering, allocate the volume with `.renderAttachment` and supply
+`targetDepthSlice` on the draw or `depthSlice` on an additional color attachment.
+The slice index is relative to the selected mip. A pass can render to different
+slices of that mip as separate color attachments. Shader bindings can use other
+mips of the volume in the same pass.
+Use `dimension: .d1` for 1D sampled and storage textures. The portable runtime
+uses one mip and requires `height` and `depth` to be one. WGSL uses scalar
+coordinates for loads, stores and sampling, and returns the width from
+`textureDimensions`.
 Use `device.present(texture)` to present a copy-source color texture to the
 attached surface in Swift queue order. The browser resizes its canvas to the
 source dimensions. On macOS, attach a `MetalPresentationSurface` to a

@@ -11,9 +11,13 @@ public struct ShaderSemanticValidator: IRValidator {
     self.limits = limits
   }
   public func validate(_ module: IRModule) throws {
+    _ = try validateReportingDiagnostics(module)
+  }
+  public func validateReportingDiagnostics(_ module: IRModule) throws -> [ShaderDiagnostic] {
     var checker = SemanticChecker(
       module: module, capabilities: capabilities, budget: ShaderBudget(limits: limits))
     try checker.run()
+    return checker.diagnostics
   }
 }
 
@@ -24,8 +28,11 @@ private struct TypeLayout {
   var data: Bool = true
   var constructible: Bool = true
   var containsAtomic: Bool = false
+  var containsWideAtomic: Bool = false
+  var containsArray: Bool = false
   var host: Bool = true
   var uniformIssue: ShaderDiagnostic? = nil
+  var pipelineSized: Bool = false
 }
 
 private struct StatementFlow: OptionSet {
@@ -36,15 +43,164 @@ private struct StatementFlow: OptionSet {
   static let continueTarget = Self(rawValue: 8)
 }
 
+private struct UniformScopes: OptionSet {
+  let rawValue: UInt8
+  static let whole = Self(rawValue: 1)
+  static let subgroup = Self(rawValue: 2)
+  static let all: Self = [.whole, .subgroup]
+}
+
+// Each scope refers to a node in the current function's dependency graph.
+// Zero is uniform, -1 is intrinsically varying, and other negative values are formal parameters.
+private struct UniformValue {
+  let whole: Int
+  let subgroup: Int
+
+  static let uniform = Self(whole: 0, subgroup: 0)
+  static let varying = Self(whole: -1, subgroup: -1)
+
+  static func argument(_ index: UInt32) -> Self {
+    let node = -Int(index) - 2
+    return Self(whole: node, subgroup: node)
+  }
+
+  static func known(_ scopes: UniformScopes) -> Self {
+    Self(whole: scopes.contains(.whole) ? 0 : -1, subgroup: scopes.contains(.subgroup) ? 0 : -1)
+  }
+
+  subscript(scope: UniformScopes) -> Int { scope == .whole ? whole : subgroup }
+}
+
+private enum UniformityRule: Int, Hashable {
+  case barrier, derivative, subgroup
+}
+
+private struct UniformArgument: Hashable {
+  let index: Int
+  let rule: UniformityRule
+}
+
+private struct UniformReturn {
+  var whole: Set<Int>?
+  var subgroup: Set<Int>?
+}
+
+private enum LocalBreakTarget {
+  case loop(Int)
+  case selection([UniformValue]?)
+}
+
+private struct LoopUniformity {
+  var breaks: [UniformValue]?
+  var continues: [UniformValue]?
+  var continueControl: UniformValue = .uniform
+  var continueScope: Set<IRHandle<IRExpression>>?
+}
+
+private enum UniformityCheck {
+  case rule(UniformityRule, IRDiagnosticSeverity, String, ShaderLocation?)
+  case bindingIndex(ShaderCapabilities, ShaderLocation?)
+}
+
+private struct FunctionUniformity {
+  var computeEntry = false
+  var merges: [(Int, Int)] = []
+  var arguments: [UniformArgument: UniformityRequirement] = [:]
+  var returns: UniformValue = .uniform
+  var exits: UniformValue = .uniform
+  var breakTargets: [LocalBreakTarget] = []
+  var loops: [LoopUniformity] = []
+  var pendingChecks: [(Int, UniformityCheck)] = []
+  var controlRequirements = UniformityRequirements()
+
+  mutating func merge(_ left: Int, _ right: Int, budget: inout ShaderBudget) throws -> Int {
+    if left == -1 || right == -1 { return -1 }
+    if left == right || right == 0 { return left }
+    if left == 0 { return right }
+    return try addDependencies(left, right, budget: &budget)
+  }
+
+  private mutating func addDependencies(_ left: Int, _ right: Int, budget: inout ShaderBudget) throws -> Int {
+    try budget.consume(.nodes)
+    merges.append((left, right))
+    return merges.count
+  }
+
+  mutating func loopHeader(_ entry: UniformValue, budget: inout ShaderBudget) throws -> UniformValue {
+    try UniformValue(whole: addDependencies(entry.whole, 0, budget: &budget),
+                     subgroup: addDependencies(entry.subgroup, 0, budget: &budget))
+  }
+
+  mutating func linkBackedge(_ header: UniformValue, to next: UniformValue) {
+    merges[header.whole - 1].1 = next.whole
+    merges[header.subgroup - 1].1 = next.subgroup
+  }
+
+  func parameters(of node: Int, budget: inout ShaderBudget) throws -> Set<Int>? {
+    if node == -1 { return nil }
+    if node == 0 { return [] }
+    var parameters: Set<Int> = []
+    var visited: Set<Int> = []
+    var pending = [node]
+    while let next = pending.popLast() {
+      try budget.consume(.work)
+      if next == -1 { return nil }
+      if next < -1 {
+        parameters.insert(-next - 2)
+      } else if next > 0, visited.insert(next).inserted {
+        let (left, right) = merges[next - 1]
+        pending.append(left)
+        pending.append(right)
+      }
+    }
+    return parameters
+  }
+}
+
+private struct UniformityRequirement {
+  var severity: IRDiagnosticSeverity = .off
+  var location: ShaderLocation?
+
+  mutating func require(_ severity: IRDiagnosticSeverity, at location: ShaderLocation?) {
+    let order = IRDiagnosticSeverity.allCases
+    if let old = order.firstIndex(of: self.severity), let new = order.firstIndex(of: severity), new > old {
+      self.severity = severity
+      self.location = location
+    }
+  }
+}
+
+private struct UniformityRequirements {
+  var barrier = false
+  var derivative = UniformityRequirement()
+  var subgroup = UniformityRequirement()
+  var arguments: [UniformArgument: UniformityRequirement] = [:]
+  var returns = UniformReturn()
+}
+
+private struct DiagnosticLevels {
+  var derivative: IRDiagnosticSeverity = .error
+  var subgroup: IRDiagnosticSeverity = .error
+}
+
 private struct SemanticChecker {
   let module: IRModule
   let capabilities: ShaderCapabilities
   var budget: ShaderBudget
   var layouts: [TypeLayout] = []
   var functionStages: [Set<IRStage>] = []
-  var functionUniform: [Bool] = []
+  var functionImmediates: [Set<IRHandle<IRGlobalVariable>>] = []
+  var reusedResourceBindings: Set<IRResourceBinding> = []
+  var functionResourceAliases: [Set<IRHandle<IRGlobalVariable>>] = []
+  var functionUniform: [UniformityRequirements] = []
+  var functionPointerWrites: [Int: Set<Int>] = [:]
+  var uniformity = FunctionUniformity()
+  var reachable = true
+  var diagnosticLevels: [DiagnosticLevels] = []
+  var diagnostics: [ShaderDiagnostic] = []
   var atomicCompareResults: [IRHandle<IRType>: IRScalar] = [:]
   let allStages: Set<IRStage> = [.vertex, .fragment, .compute]
+  var subgroupScope: UniformScopes { module.requiresSubgroupUniformity ? .subgroup : .whole }
 
   func fail(_ code: ShaderDiagnosticCode, _ message: String, _ location: ShaderLocation? = nil)
     throws -> Never
@@ -80,6 +236,8 @@ private struct SemanticChecker {
     case (.pointer(let x, let xs), .pointer(let y, let ys)): return try xs == ys && same(x, y)
     case (.array(let x, let nx, let sx), .array(let y, let ny, let sy)):
       return try nx == ny && sx == sy && same(x, y)
+    case (.bindingArray(let x, let nx), .bindingArray(let y, let ny)):
+      return try nx == ny && same(x, y)
     case (.structure, .structure): return false  // Nominal aggregate equivalence requires a dedicated interning pass.
     default: return try type(a) == type(b)
     }
@@ -115,26 +273,276 @@ private struct SemanticChecker {
       try budget.consume(.work)
     }
   }
+  mutating func validateDiagnosticFilters() throws {
+    for (index, filter) in module.diagnosticFilters.values.enumerated() {
+      try budget.consume(.nodes)
+      try budget.consume(.work)
+      var inherited = DiagnosticLevels()
+      if let parent = filter.parent {
+        try need(parent.index < index, .invalidReference, "Diagnostic filter parent must precede the filter", filter.location)
+        inherited = diagnosticLevels[parent.index]
+      }
+      switch filter.rule {
+      case .derivativeUniformity:
+        inherited.derivative = filter.severity
+      case .subgroupUniformity:
+        inherited.subgroup = filter.severity
+      case .unknown(let name):
+        try validateDiagnosticName(name, at: filter.location)
+        try need(name != "derivative_uniformity" && name != "subgroup_uniformity",
+                 .invalidType, "Standard diagnostic rule has invalid IR representation", filter.location)
+        diagnostics.append(.init(severity: .warning, code: .unknownDiagnosticRule,
+                                 message: "Unknown diagnostic rule '\(name)'", location: filter.location))
+      case .user(let namespace, let name):
+        try validateDiagnosticName(namespace, at: filter.location)
+        try validateDiagnosticName(name, at: filter.location)
+      }
+      diagnosticLevels.append(inherited)
+    }
+    try validateDiagnosticScope(module.diagnosticFilter, parent: nil)
+  }
+
+  mutating func validateDiagnosticName(_ name: String, at location: ShaderLocation?) throws {
+    try text(name)
+    let scalars = name.unicodeScalars
+    guard let first = scalars.first, first == "_" || first.properties.isXIDStart,
+          name != "_", scalars.dropFirst().allSatisfy({ $0.properties.isXIDContinue }) else {
+      try fail(.invalidType, "Invalid diagnostic rule identifier", location)
+    }
+  }
+
+  mutating func validateDiagnosticScope(_ leaf: IRHandle<IRDiagnosticFilter>?, parent: IRHandle<IRDiagnosticFilter>?) throws {
+    var cursor = leaf
+    var seen = Set<IRDiagnosticRule>()
+    while cursor != parent {
+      try budget.consume(.work)
+      guard let handle = cursor, diagnosticLevels.indices.contains(handle.index) else {
+        try fail(.invalidReference, "Invalid diagnostic filter scope")
+      }
+      let filter = try module.diagnosticFilters.value(for: handle)
+      try need(seen.insert(filter.rule).inserted, .duplicateName, "Duplicate diagnostic rule in one scope", filter.location)
+      cursor = filter.parent
+    }
+  }
+
+  func diagnosticLevels(for function: IRFunction) -> DiagnosticLevels {
+    (function.diagnosticFilter ?? module.diagnosticFilter).map { diagnosticLevels[$0.index] } ?? .init()
+  }
+
+  mutating func reportUniformity(_ severity: IRDiagnosticSeverity, _ message: String, at location: ShaderLocation?) throws {
+    switch severity {
+    case .off: return
+    case .error: try fail(.nonUniformControlFlow, message, location)
+    case .warning, .info:
+      try budget.consume(.nodes)
+      diagnostics.append(.init(severity: severity == .warning ? .warning : .info, code: .nonUniformControlFlow,
+                               message: message, location: location))
+    }
+  }
+
+  mutating func mergeUniformity(_ left: UniformValue, _ right: UniformValue) throws -> UniformValue {
+    let whole = try uniformity.merge(left.whole, right.whole, budget: &budget)
+    let subgroup = left.whole == left.subgroup && right.whole == right.subgroup
+      ? whole : try uniformity.merge(left.subgroup, right.subgroup, budget: &budget)
+    return UniformValue(whole: whole, subgroup: subgroup)
+  }
+
+  mutating func requireUniformity(
+    _ value: UniformValue, rule: UniformityRule, severity: IRDiagnosticSeverity,
+    message: String, at location: ShaderLocation?
+  ) throws {
+    guard severity != .off else { return }
+    let scope = rule == .subgroup ? subgroupScope : .whole
+    try checkUniformity(value[scope], .rule(rule, severity, message, location))
+  }
+
+  mutating func checkUniformity(_ node: Int, _ check: UniformityCheck) throws {
+    guard reachable else { return }
+    // The graph is complete only after the enclosing loops have connected their backedges.
+    if node > 0, !uniformity.loops.isEmpty {
+      try budget.consume(.nodes)
+      uniformity.pendingChecks.append((node, check))
+      return
+    }
+    let parameters = try uniformity.parameters(of: node, budget: &budget)
+    switch check {
+    case .rule(let rule, let severity, let message, let location):
+      guard let parameters else {
+        try reportUniformity(severity, message, at: location)
+        return
+      }
+      for index in parameters {
+        try budget.consume(.work)
+        uniformity.arguments[UniformArgument(index: index, rule: rule), default: .init()].require(severity, at: location)
+      }
+    case .bindingIndex(let capability, let location):
+      if parameters?.isEmpty != true { try cap(capability, location) }
+    }
+  }
+
+  mutating func requireUniformControl(
+    _ control: UniformValue, rule: UniformityRule, severity: IRDiagnosticSeverity,
+    message: String, at location: ShaderLocation?
+  ) throws {
+    guard reachable, severity != .off else { return }
+    switch rule {
+    case .barrier: uniformity.controlRequirements.barrier = true
+    case .derivative: uniformity.controlRequirements.derivative.require(severity, at: location)
+    case .subgroup: uniformity.controlRequirements.subgroup.require(severity, at: location)
+    }
+    let active = try mergeUniformity(control, uniformity.exits)
+    try requireUniformity(active, rule: rule, severity: severity, message: message, at: location)
+  }
+
+  mutating func returnDependency(
+    _ parameters: Set<Int>?, arguments: [IRHandle<IRExpression>], uniform: [UniformValue], scope: UniformScopes
+  ) throws -> Int {
+    guard let parameters else { return -1 }
+    var result = 0
+    for parameter in parameters.sorted() {
+      try budget.consume(.work)
+      guard arguments.indices.contains(parameter), uniform.indices.contains(arguments[parameter].index) else { return -1 }
+      result = try uniformity.merge(result, uniform[arguments[parameter].index][scope], budget: &budget)
+    }
+    return result
+  }
+
+  mutating func localReference(
+    _ handle: IRHandle<IRExpression>, in function: IRFunction
+  ) throws -> (index: Int, partial: Bool)? {
+    var cursor = handle
+    var partial = false
+    while true {
+      try budget.consume(.work)
+      switch try function.expressions.value(for: cursor).kind {
+      case .localVariable(let local): return (local.index, partial)
+      case .access(let base, _), .accessIndex(let base, _):
+        partial = true
+        cursor = base
+      case .runtimeValue(let base): cursor = base
+      default: return nil
+      }
+    }
+  }
+
+  mutating func joinLocalUniformity(_ previous: [UniformValue]?, _ next: [UniformValue]) throws -> [UniformValue] {
+    guard var merged = previous else { return next }
+    try budget.consume(.work, amount: merged.count)
+    for index in merged.indices {
+      merged[index] = try mergeUniformity(merged[index], next[index])
+    }
+    return merged
+  }
+
+  mutating func recordLocalBreak(_ locals: [UniformValue]) throws {
+    guard reachable, let target = uniformity.breakTargets.indices.last else { return }
+    switch uniformity.breakTargets[target] {
+    case .loop(let loop):
+      let joined = try joinLocalUniformity(uniformity.loops[loop].breaks, locals)
+      uniformity.loops[loop].breaks = joined
+    case .selection(let previous):
+      let joined = try joinLocalUniformity(previous, locals)
+      uniformity.breakTargets[target] = .selection(joined)
+    }
+  }
+
+  mutating func recordLocalContinue(
+    _ locals: [UniformValue], control: UniformValue, available: Set<IRHandle<IRExpression>>
+  ) throws {
+    guard reachable, let loop = uniformity.loops.indices.last else { return }
+    let joined = try joinLocalUniformity(uniformity.loops[loop].continues, locals)
+    let continuing = try mergeUniformity(uniformity.loops[loop].continueControl, control)
+    uniformity.loops[loop].continues = joined
+    uniformity.loops[loop].continueControl = continuing
+    if let previous = uniformity.loops[loop].continueScope {
+      try budget.consume(.work, amount: min(previous.count, available.count))
+      uniformity.loops[loop].continueScope = previous.intersection(available)
+    } else {
+      uniformity.loops[loop].continueScope = available
+    }
+  }
+
+  func uniformComputeBuiltin(_ binding: IRBinding?) -> UniformValue {
+    guard uniformity.computeEntry else { return .varying }
+    switch binding {
+    case .builtIn(.workgroupId), .builtIn(.numWorkgroups), .builtIn(.subgroupSize), .builtIn(.numSubgroups):
+      return .uniform
+    case .builtIn(.subgroupId): return .known(.subgroup)
+    default: return .varying
+    }
+  }
+
+  mutating func expressionUniformity(
+    _ expression: IRExpression, in function: IRFunction, uniform: [UniformValue], locals: [UniformValue]
+  ) throws -> UniformValue {
+    var value = UniformValue.uniform
+    for operand in expression.kind.operands {
+      try budget.consume(.work)
+      value = try mergeUniformity(value, uniform[operand.index])
+    }
+    switch expression.kind {
+    case .load(let pointer):
+      let pointerType = try type(function.expressions.value(for: pointer).type)
+      switch pointerType {
+      case .pointer(_, .function):
+        guard let reference = try localReference(pointer, in: function) else { return .varying }
+        return try mergeUniformity(value, locals[reference.index])
+      case .pointer(_, .uniform), .pointer(_, .immediate): break
+      case .pointer(_, .storage(let access)) where !access.contains(.store): break
+      default: return .varying
+      }
+    case .access(let base, let index):
+      if uniform[index.index].whole != 0,
+         let capability = try nonUniformBindingArrayCapability(for: function.expressions.value(for: base).type) {
+        try checkUniformity(uniform[index.index].whole, .bindingIndex(capability, expression.location))
+      }
+    case .accessIndex(let base, let member) where uniformity.computeEntry:
+      let argument = try function.expressions.value(for: base)
+      if case .functionArgument = argument.kind,
+         case .structure(let members, _) = try type(argument.type), members.indices.contains(Int(member)) {
+        return uniformComputeBuiltin(members[Int(member)].binding)
+      }
+    case .imageLoad(let load):
+      if try type(function.expressions.value(for: load.image).type).storageTexture?.access.contains(.store) == true {
+        return .varying
+      }
+    default: break
+    }
+    return requiresImplicitDerivatives(expression.kind) ? .varying : value
+  }
+
+  mutating func subgroupResultUniformity(
+    _ operands: [IRHandle<IRExpression>], uniform: [UniformValue], control: UniformValue
+  ) throws -> UniformValue {
+    guard module.requiresSubgroupUniformity else { return .varying }
+    var subgroup = try uniformity.merge(control.subgroup, uniformity.exits.subgroup, budget: &budget)
+    for operand in operands {
+      subgroup = try uniformity.merge(subgroup, uniform[operand.index].subgroup, budget: &budget)
+    }
+    return UniformValue(whole: -1, subgroup: subgroup)
+  }
+
   mutating func run() throws {
     try budget.consume(.work)
     try need(
       capabilities.rawValue & ~ShaderCapabilities.allKnown.rawValue == 0, .unsupportedCapability,
       "Unknown capability bits")
-    // Filter/interchange/special-type semantic rules are not silently ignored.
-    guard module.diagnosticFilters.count == 0, module.diagnosticFilter == nil,
-      module.specialTypes.predeclared.count <= 2,
+    guard module.specialTypes.predeclared.count <= 2 + 4 * (IRVectorSize.allCases.count + 1),
       module.specialTypes == IRSpecialTypes(predeclared: module.specialTypes.predeclared),
       module.documentation.isEmpty
     else {
       try unsupported(
-        "Special type, diagnostic-filter and documentation handle validation not implemented")
+        "Special type and documentation handle validation not implemented")
     }
+    try validateDiagnosticFilters()
     for (i, t) in module.types.values.enumerated() {
       try budget.consume(.nodes)
       try budget.consume(.work)
       try text(t.name)
       var checked = try checkType(t, index: i)
-      checked.uniformIssue = try uniformConstraint(t)
+      if !module.uniformBufferStandardLayout {
+        checked.uniformIssue = try uniformConstraint(t)
+      }
       layouts.append(checked)
     }
     try validatePredeclaredTypes()
@@ -150,24 +558,27 @@ private struct SemanticChecker {
         try constant(c.initializer), .typeMismatch,
         "Constant initializer is not a constant expression", c.location)
     }
-    // Override evaluation, specialization and dependent layout need separate rule implementation.
-    if module.overrides.count != 0 { try unsupported("Override validation is not implemented") }
-    var bindings = Set<String>()
+    try validateOverrides()
+    var bindings: Set<IRResourceBinding> = []
     for g in module.globalVariables.values {
       try text(g.name)
       try budget.consume(.nodes)
       try budget.consume(.work)
-      let layout = try layout(g.type)
-      if g.space != .handle { try storeType(g.type, space: g.space, location: g.location) }
+      let resourceType = try bindingArrayElement(of: g)
+      let layout = try layout(resourceType)
+      if g.space != .handle { try storeType(resourceType, space: g.space, location: g.location) }
       switch g.space {
       case .handle:
-        let kind = try type(g.type)
+        let kind = try type(resourceType)
+        if kind.storageTexture?.format.isNormalized16Bit == true {
+          try cap(.storageTexture16BitNormFormats, g.location)
+        }
         try need(
-          (kind.isSampledTexture || kind.isSampler || kind.storageTexture2D != nil) && g.binding != nil,
+          kind.isTextureOrSampler && g.binding != nil,
           .invalidBinding, "Texture or sampler requires a resource binding", g.location)
       case .private, .workgroup:
         try need(
-          g.binding == nil && layout.data && layout.sized, .invalidAddressSpace,
+          g.binding == nil && layout.data && (layout.sized || (g.space == .workgroup && layout.pipelineSized)), .invalidAddressSpace,
           "Invalid private/workgroup global", g.location)
         if g.space == .workgroup {
           try need(
@@ -184,6 +595,8 @@ private struct SemanticChecker {
         if g.space == .uniform, let issue = layout.uniformIssue {
           try fail(issue.code, issue.message, issue.location ?? g.location)
         }
+      case .immediate:
+        try need(g.binding == nil, .invalidBinding, "Immediate data cannot have a resource binding", g.location)
       default: try unsupported("Global address space \(g.space) not implemented", g.location)
       }
       let allowedDecorations: IRMemoryDecorations
@@ -196,10 +609,8 @@ private struct SemanticChecker {
       try need(
         g.memoryDecorations.subtracting(allowedDecorations).isEmpty, .unsupportedConstruct,
         "Unsupported memory decoration for this address space", g.location)
-      if let b = g.binding {
-        try need(
-          bindings.insert("\(b.group):\(b.binding)").inserted, .invalidBinding,
-          "Duplicate resource binding", g.location)
+      if let binding = g.binding, !bindings.insert(binding).inserted {
+        reusedResourceBindings.insert(binding)
       }
       if let initExpr = g.initializer {
         try need(
@@ -209,13 +620,38 @@ private struct SemanticChecker {
         try need(
           try same(g.type, expr.type), .typeMismatch, "Global initializer type mismatch", g.location
         )
-        try need(
-          try constant(initExpr), .typeMismatch, "Global initializer must be constant", g.location)
+        if try !constant(initExpr) {
+          let graph = try module.pipelineGraph(initExpr, budget: &budget)
+          var hasOverride = false
+          for handle in graph {
+            try budget.consume(.work)
+            if case .override = try module.globalExpressions.value(for: handle).kind { hasOverride = true }
+          }
+          try need(hasOverride, .typeMismatch, "Global initializer must be constant or use overrides", g.location)
+        }
       }
     }
     try budget.consume(.work, amount: module.entryPoints.count)
     let entryIndices = Set(module.entryPoints.map { $0.function.index })
-    for (i, f) in module.functions.values.enumerated() { try function(f, index: i, entryIndices: entryIndices) }
+    let computeEntries = Set(module.entryPoints.compactMap { $0.stage == .compute ? $0.function.index : nil })
+    var hasPointerParameters = false
+    for function in module.functions.values {
+      try budget.consume(.work)
+      for argument in function.arguments {
+        try budget.consume(.work)
+        if case .pointer = try type(argument.type) { hasPointerParameters = true }
+      }
+      if hasPointerParameters { break }
+    }
+    var pointerAccesses: [Int: ShaderPointerAccesses] = [:]
+    for (i, f) in module.functions.values.enumerated() {
+      try function(f, index: i, entryIndices: entryIndices, computeEntry: computeEntries.contains(i))
+      if hasPointerParameters {
+        let access = try ShaderPointerAccesses.checking(f, in: module, callees: pointerAccesses, budget: &budget)
+        pointerAccesses[i] = access
+        functionPointerWrites[i] = access.writtenParameters
+      }
+    }
     var entryNames = Set<String>()
     var entryFunctions = Set<IRHandle<IRFunction>>()
     for ep in module.entryPoints {
@@ -232,10 +668,35 @@ private struct SemanticChecker {
       try need(
         functionStages[ep.function.index].contains(ep.stage), .invalidControlFlow,
         "Operation incompatible with entrypoint stage", ep.location)
-      guard ep.meshInfo == nil, ep.taskPayload == nil, ep.incomingRayPayload == nil,
-        ep.workgroupOverrides == nil
-      else {
-        try unsupported("Extended entrypoint metadata/overrides not implemented", ep.location)
+      try need(functionImmediates[ep.function.index].count <= 1, .invalidBinding,
+               "An entry point can use at most one immediate data variable", ep.location)
+      let aliases = functionResourceAliases[ep.function.index]
+      try budget.consume(.work, amount: aliases.count)
+      var entryBindings: Set<IRResourceBinding> = []
+      for handle in aliases.sorted(by: { $0.index < $1.index }) {
+        let global = try module.globalVariables.value(for: handle)
+        if let binding = global.binding, !entryBindings.insert(binding).inserted {
+          try fail(.invalidBinding,
+                   "Duplicate resource binding at group \(binding.group), binding \(binding.binding) in entry point '\(ep.name)'",
+                   global.location)
+        }
+      }
+      guard ep.meshInfo == nil, ep.taskPayload == nil, ep.incomingRayPayload == nil else {
+        try unsupported("Extended entrypoint metadata not implemented", ep.location)
+      }
+      if let overrides = ep.workgroupOverrides {
+        try need(ep.stage == .compute, .invalidBinding, "Workgroup overrides require a compute entry point", ep.location)
+        try validateWorkgroupOverrides(overrides, at: ep.location)
+      }
+      if let subgroupSize = ep.subgroupSize {
+        try cap(.subgroup, ep.location)
+        try need(ep.stage == .compute, .invalidBinding, "Subgroup size requires a compute entry point", ep.location)
+        switch subgroupSize {
+        case .fixed(let size):
+          try need(size.nonzeroBitCount == 1, .invalidBinding, "Subgroup size must be a power of two", ep.location)
+        case .overrideExpression(let handle):
+          _ = try validateIntegerOverride(handle, subject: "Subgroup size")
+        }
       }
       if ep.earlyDepthTest != nil {
         try cap(.earlyDepthTest, ep.location)
@@ -301,8 +762,9 @@ private struct SemanticChecker {
         l.constructible && l.sized, .invalidAddressSpace,
         "Private/function store type must be constructible and sized", location)
     case .workgroup:
+      if l.containsWideAtomic { try cap(.shaderInt64AtomicAllOps, location) }
       try need(
-        l.sized, .invalidAddressSpace, "Workgroup store type must have fixed footprint", location)
+        l.sized || l.pipelineSized, .invalidAddressSpace, "Workgroup store type must have fixed footprint", location)
     case .uniform:
       try need(
         l.host && l.constructible && l.sized, .invalidAddressSpace,
@@ -310,6 +772,10 @@ private struct SemanticChecker {
       if let issue = l.uniformIssue {
         try fail(issue.code, issue.message, issue.location ?? location)
       }
+    case .immediate:
+      try cap(.immediates, location)
+      try need(l.host && l.constructible && l.sized && !l.containsArray, .invalidAddressSpace,
+               "Immediate data must be a fixed host-shareable constructible type without arrays", location)
     case .storage(let access):
       try need(l.host, .invalidAddressSpace, "Storage store type must be host-shareable", location)
       try need(
@@ -322,6 +788,20 @@ private struct SemanticChecker {
       }
     default: try unsupported("Store address space legality not implemented", location)
     }
+  }
+
+  func bindingArrayElement(of global: IRGlobalVariable) throws -> IRHandle<IRType> {
+    guard case .bindingArray(let element, _) = try type(global.type) else { return global.type }
+    let capability: ShaderCapabilities
+    switch global.space {
+    case .handle:
+      capability = try type(element).storageTexture == nil ? .textureAndSamplerBindingArray : .storageTextureBindingArray
+    case .uniform: capability = .bufferBindingArray
+    case .storage: capability = .storageBufferBindingArray
+    default: try fail(.invalidAddressSpace, "Binding arrays require a resource address space", global.location)
+    }
+    try cap(capability, global.location)
+    return element
   }
 
   mutating func scalarCheck(_ s: IRScalar, loc: ShaderLocation?) throws {
@@ -346,7 +826,14 @@ private struct SemanticChecker {
         h.index < index, .invalidReference, "Type reference must precede use (cycles forbidden)",
         loc)
     }
-    if t.kind.storageTexture2D != nil || t.kind.isSampledTexture || t.kind.isSampler {
+    if t.kind.isExternalTexture { try cap(.textureExternal, loc) }
+    if let storage = t.kind.storageTexture {
+      if storage.scalar == .u64 { try cap(.shaderInt64, loc) }
+      if storage.access.contains(.atomic) {
+        try cap(storage.scalar == .u64 ? .textureInt64Atomic : .textureAtomic, loc)
+      }
+    }
+    if t.kind.isTextureOrSampler {
       return TypeLayout(alignment: 1, size: 0, sized: false, data: false, constructible: false, host: false)
     }
     switch t.kind {
@@ -368,17 +855,32 @@ private struct SemanticChecker {
         alignment: align, size: try round(row * UInt64(s.width), align) * UInt64(cols.rawValue))
     case .atomic(let s):
       try scalarCheck(s, loc: loc)
-      try need(
-        (s.kind == .uint || s.kind == .sint) && s.width == 4, .unsupportedConstruct,
-        "Only 32-bit integer atomic type rules implemented", loc)
+      if s == .i64 || s == .u64 {
+        if !capabilities.contains(.shaderInt64AtomicAllOps) { try cap(.shaderInt64AtomicMinMax, loc) }
+        return TypeLayout(alignment: 8, size: 8, constructible: false, containsAtomic: true, containsWideAtomic: true)
+      }
+      if s == .f32 {
+        try cap(.shaderFloat32Atomic, loc)
+      } else {
+        try need(s == .i32 || s == .u32, .unsupportedConstruct, "Unsupported atomic scalar type", loc)
+      }
       return TypeLayout(alignment: 4, size: 4, constructible: false, containsAtomic: true)
     case .pointer(let base, let space):
       try prior(base)
+      if case .bindingArray(let element, _) = try type(base) {
+        // Indexing the global address produces a regular pointer to the bound buffer.
+        switch space {
+        case .uniform, .storage: break
+        default: try fail(.invalidAddressSpace, "Only buffer binding arrays use pointers", loc)
+        }
+        try storeType(element, space: space, location: loc)
+        return TypeLayout(alignment: 1, size: 0, data: false, constructible: false, host: false)
+      }
       let pointee = try layout(base)
       try storeType(base, space: space, location: loc)
       try need(pointee.data, .invalidType, "Pointer base must be a plain type", loc)
       switch space {
-      case .function, .private, .workgroup, .uniform: break
+      case .function, .private, .workgroup, .uniform, .immediate: break
       case .storage(let a):
         try need(
           a.rawValue > 0 && a.rawValue & ~UInt8(7) == 0, .invalidAddressSpace,
@@ -399,21 +901,49 @@ private struct SemanticChecker {
           "Array size overflow/zero", loc)
         return TypeLayout(
           alignment: b.alignment, size: UInt64(n) * UInt64(stride), constructible: b.constructible,
-          containsAtomic: b.containsAtomic, host: b.host)
+          containsAtomic: b.containsAtomic, containsWideAtomic: b.containsWideAtomic, containsArray: true, host: b.host)
       case .dynamic:
         return TypeLayout(
           alignment: b.alignment, size: UInt64(stride), sized: false, constructible: false,
-          containsAtomic: b.containsAtomic, host: b.host)
-      case .override: try unsupported("Override-sized arrays not implemented", loc)
+          containsAtomic: b.containsAtomic, containsWideAtomic: b.containsWideAtomic, containsArray: true, host: b.host)
+      case .override(let handle):
+        let countType = try type(module.overrides.value(for: handle).type)
+        try need(countType == .scalar(.i32) || countType == .scalar(.u32), .typeMismatch,
+                 "Workgroup array override count must be i32 or u32", loc)
+        return TypeLayout(alignment: b.alignment, size: UInt64(stride), sized: false, constructible: false,
+                          containsAtomic: b.containsAtomic, containsWideAtomic: b.containsWideAtomic,
+                          containsArray: true, host: false, pipelineSized: true)
       }
+    case .bindingArray(let base, let count):
+      try prior(base)
+      let element = try type(base)
+      try need(!element.isExternalTexture, .invalidType, "External textures cannot be binding array elements", loc)
+      switch element {
+      case .structure: break
+      default:
+        try need(element.isTextureOrSampler, .invalidType, "Binding array elements must be textures, samplers or buffer structures", loc)
+      }
+      switch count {
+      case .constant(let count):
+        try need(count > 0, .invalidType, "Binding array count must be positive", loc)
+      case .override(let handle):
+        let countType = try type(module.overrides.value(for: handle).type)
+        try need(countType == .scalar(.i32) || countType == .scalar(.u32), .typeMismatch,
+                 "Binding array override count must be i32 or u32", loc)
+      case .dynamic: break
+      }
+      return TypeLayout(alignment: 1, size: 0, sized: false, data: false, constructible: false, host: false)
     case .structure(let members, let span):
       try need(!members.isEmpty, .invalidType, "Empty structure", loc)
+      try validateDualSourceMembers(members, at: loc)
       var end: UInt64 = 0
       var align: UInt64 = 1
       var sized = true
       var host = true
       var constructible = true
       var atomic = false
+      var wideAtomic = false
+      var containsArray = false
       for (j, m) in members.enumerated() {
         try text(m.name)
         try budget.consume(.work)
@@ -435,13 +965,15 @@ private struct SemanticChecker {
         host = host && b.host
         constructible = constructible && b.constructible
         atomic = atomic || b.containsAtomic
+        wideAtomic = wideAtomic || b.containsWideAtomic
+        containsArray = containsArray || b.containsArray
       }
       try need(
         UInt64(span) >= end && UInt64(span) % align == 0 && UInt64(span) <= UInt64(Int32.max),
         .invalidType, "Invalid structure span", loc)
       return TypeLayout(
         alignment: align, size: UInt64(span), sized: sized, constructible: constructible && sized,
-        containsAtomic: atomic, host: host)
+        containsAtomic: atomic, containsWideAtomic: wideAtomic, containsArray: containsArray, host: host)
     default: try unsupported("Type rule family not implemented", loc)
     }
   }
@@ -493,6 +1025,66 @@ private struct SemanticChecker {
     return nil
   }
 
+  mutating func validateOverrides() throws {
+    var ids: Set<UInt16> = []
+    var names: Set<[UInt8]> = []
+    for (index, value) in module.overrides.values.enumerated() {
+      try budget.consume(.nodes)
+      try text(value.name)
+      if let id = value.id {
+        try need(ids.insert(id).inserted, .duplicateName, "Duplicate override ID", value.location)
+      }
+      if let name = value.name {
+        try need(names.insert(Array(name.utf8)).inserted, .duplicateName, "Duplicate override name", value.location)
+      }
+      guard case .scalar(let scalar) = try type(value.type), [.bool, .i32, .u32, .f16, .f32].contains(scalar) else {
+        try fail(.typeMismatch, "Override must have a concrete WGSL scalar type", value.location)
+      }
+      if value.name == nil && value.id == nil {
+        try need(value.initializer != nil && (scalar == .i32 || scalar == .u32), .invalidReference,
+                 "Anonymous array count override needs an integer initializer", value.location)
+      }
+      guard let initializer = value.initializer else { continue }
+      let expression = try module.globalExpressions.value(for: initializer)
+      try need(try same(expression.type, value.type), .typeMismatch, "Override initializer type mismatch", value.location)
+      let graph = try module.pipelineGraph(initializer, budget: &budget)
+      for handle in graph {
+        try budget.consume(.work)
+        if case .override(let dependency) = try module.globalExpressions.value(for: handle).kind {
+          try need(dependency.index < index, .invalidReference, "Forward or cyclic override initializer", value.location)
+        }
+      }
+    }
+  }
+
+  mutating func validateWorkgroupOverrides(_ overrides: IRWorkgroupOverrides, at location: ShaderLocation?) throws {
+    let handles = [overrides.x, overrides.y, overrides.z].compactMap { $0 }
+    try need(!handles.isEmpty, .invalidBinding, "Workgroup overrides must specify a dimension", location)
+    var dimensionType: IRTypeKind?
+    for handle in handles {
+      let kind = try validateIntegerOverride(handle, subject: "Workgroup")
+      let location = try module.globalExpressions.value(for: handle).location
+      try need(dimensionType == nil || dimensionType == kind, .typeMismatch,
+               "Workgroup override types disagree", location)
+      dimensionType = kind
+    }
+  }
+
+  mutating func validateIntegerOverride(_ handle: IRHandle<IRExpression>, subject: String) throws -> IRTypeKind {
+    let expression = try module.globalExpressions.value(for: handle)
+    let graph = try module.pipelineGraph(handle, budget: &budget)
+    var hasOverride = false
+    for dependency in graph {
+      try budget.consume(.work)
+      if case .override = try module.globalExpressions.value(for: dependency).kind { hasOverride = true }
+    }
+    try need(hasOverride, .invalidBinding, "\(subject) override expression must reference an override", expression.location)
+    let kind = try type(expression.type)
+    try need(kind == .scalar(.i32) || kind == .scalar(.u32), .typeMismatch,
+             "\(subject) override must be i32 or u32", expression.location)
+    return kind
+  }
+
   mutating func constant(_ h: IRHandle<IRExpression>) throws -> Bool {
     try budget.consume(.work)
     try budget.enterDepth()
@@ -507,8 +1099,9 @@ private struct SemanticChecker {
     default: return false
     }
   }
-  func validateTextureSampleOffset(_ offset: IRExpression, width: IRVectorSize, in table: IRTable<IRExpression>) throws {
-    try need(try type(offset.type) == .vector(size: width, scalar: .i32), .typeMismatch,
+  func validateTextureSampleOffset(_ offset: IRExpression, width: IRVectorSize?, in table: IRTable<IRExpression>) throws {
+    let offsetType = width.map { IRTypeKind.vector(size: $0, scalar: .i32) } ?? .scalar(.i32)
+    try need(try type(offset.type) == offsetType, .typeMismatch,
              "Texture sample offset has the wrong dimension or scalar type", offset.location)
     let expression: IRExpression
     let expressions: IRTable<IRExpression>
@@ -520,6 +1113,14 @@ private struct SemanticChecker {
       expression = offset
       expressions = table
     }
+    func validateLane(_ lane: IRExpression) throws {
+      if case .zeroValue = lane.kind, try type(lane.type) == .scalar(.i32) { return }
+      guard case .literal(.i32(let value)) = lane.kind, (-8...7).contains(value) else {
+        try fail(.invalidType, "Texture sample offset components must be constant integers between -8 and 7",
+                 offset.location)
+      }
+    }
+    guard let width else { return try validateLane(expression) }
     let components: [IRHandle<IRExpression>]
     switch expression.kind {
     case .zeroValue: return
@@ -528,12 +1129,7 @@ private struct SemanticChecker {
     default: try fail(.invalidType, "Texture sample offset must be constant", offset.location)
     }
     for component in components {
-      let lane = try expressions.value(for: component)
-      if case .zeroValue = lane.kind, try type(lane.type) == .scalar(.i32) { continue }
-      guard case .literal(.i32(let value)) = lane.kind, (-8...7).contains(value) else {
-        try fail(.invalidType, "Texture sample offset components must be constant integers between -8 and 7",
-                 offset.location)
-      }
+      try validateLane(expressions.value(for: component))
     }
   }
 
@@ -546,9 +1142,11 @@ private struct SemanticChecker {
       let declared = try type(e.type)
       if function == nil {
         switch e.kind {
-        case .literal, .zeroValue, .compose, .constant: break
+        case .literal, .zeroValue, .compose, .constant, .override: break
         default:
-          try unsupported("Global expression constant evaluation not implemented", e.location)
+          guard declared.isPipelineValueType, e.kind.pipelineOperands != nil else {
+            try unsupported("Global expression requires supported pipeline operations", e.location)
+          }
         }
       }
       func operand(_ h: IRHandle<IRExpression>) throws -> IRExpression {
@@ -602,6 +1200,14 @@ private struct SemanticChecker {
             c.initializer.index < i, .invalidReference, "Forward/cyclic constant expression",
             e.location)
         }
+      case .override(let handle):
+        let value = try module.overrides.value(for: handle)
+        try need(try same(e.type, value.type), .typeMismatch, "Override reference type mismatch", e.location)
+      case .runtimeValue(let handle):
+        let value = try operand(handle)
+        try need(try layout(e.type).constructible && layout(e.type).sized, .typeMismatch,
+                 "Runtime value snapshot requires a constructible, sized type", e.location)
+        try need(try same(e.type, value.type), .typeMismatch, "Runtime value snapshot type mismatch", e.location)
       case .functionArgument(let n):
         guard let f = function, let index = Int(exactly: n), f.arguments.indices.contains(index)
         else { try fail(.invalidReference, "Invalid function argument", e.location) }
@@ -639,6 +1245,7 @@ private struct SemanticChecker {
           try fail(.typeMismatch, "Load requires pointer", e.location)
         }
         if let atomic = try atomicPointee(p.type) {
+          if atomic.width == 8 { try cap(.shaderInt64AtomicAllOps, e.location) }
           try match(.scalar(atomic))
           break
         }
@@ -655,18 +1262,23 @@ private struct SemanticChecker {
         let depth = imageType.isDepthTexture
         let volume = imageType.isVolumeTexture
         let width: IRVectorSize = imageType.isCubeTexture || volume ? .three : .two
-        guard let scalar = imageType.sampledTextureScalar, !imageType.isMultisampled2D,
+        let coordinateType = imageType.isLineTexture ? IRTypeKind.scalar(.f32) : .vector(size: width, scalar: .f32)
+        let sampledScalar = imageType.isExternalTexture ? IRScalar.f32 : imageType.sampledTextureScalar
+        guard let scalar = sampledScalar, !imageType.isMultisampled2D,
               depth ? (sample.gather == nil || sample.gather == .x) : (!comparison && (scalar == .f32 || sample.gather != nil)),
               try type(operand(sample.sampler).type) == .sampler(comparison: comparison),
-              try type(operand(sample.coordinate).type) == .vector(size: width, scalar: .f32),
+              try type(operand(sample.coordinate).type) == coordinateType,
               imageType.isArrayedTexture == (sample.arrayIndex != nil)
         else { try fail(.typeMismatch, "Invalid sampled texture operation", e.location) }
+        try need(!imageType.isExternalTexture || sample.clampToEdge, .typeMismatch,
+                 "External texture sampling requires base clamp", e.location)
         if let arrayIndex = sample.arrayIndex {
           try need(try [.scalar(.i32), .scalar(.u32)].contains(type(operand(arrayIndex).type)),
                    .typeMismatch, "Texture array index must be i32 or u32", e.location)
         }
         if sample.clampToEdge {
-          try need(imageType == .sampledFloat2D && sample.gather == nil && sample.offset == nil && sample.level == .zero,
+          try need((imageType == .sampledFloat2D || imageType.isExternalTexture) &&
+                   sample.gather == nil && sample.offset == nil && sample.level == .zero,
                    .typeMismatch, "Clamped sampling requires a float texture at the base level without gather or offset",
                    e.location)
         }
@@ -676,13 +1288,27 @@ private struct SemanticChecker {
                    .typeMismatch, "Invalid depth comparison operands or level", e.location)
         }
         if sample.gather != nil {
-          try need(!volume && sample.level == .zero, .typeMismatch, "Invalid texture gather dimension or level", e.location)
+          try need(!volume && !imageType.isLineTexture && sample.level == .zero,
+                   .typeMismatch, "Invalid texture gather dimension or level", e.location)
         }
         if let offset = sample.offset {
-          try need(!imageType.isCubeTexture, .typeMismatch, "Cube textures do not take texel offsets", e.location)
-          try validateTextureSampleOffset(operand(offset), width: width, in: table)
+          try need(!imageType.isCubeTexture,
+                   .typeMismatch, "Texture dimension does not support texel offsets", e.location)
+          if imageType.isLineTexture {
+            switch sample.level {
+            case .exact, .zero: break
+            default: try fail(.typeMismatch, "A 1D texture sample offset requires an explicit mip level", e.location)
+            }
+          }
+          try validateTextureSampleOffset(operand(offset), width: imageType.isLineTexture ? nil : width, in: table)
         }
         let levelTypes: [IRTypeKind]
+        if imageType.isLineTexture {
+          switch sample.level {
+          case .bias, .gradient: try fail(.typeMismatch, "Invalid 1D texture sample level", e.location)
+          default: break
+          }
+        }
         switch (depth, sample.level) {
         case (true, .gradient), (true, .bias):
           try fail(.typeMismatch, "Depth sampling does not support gradients or bias", e.location)
@@ -700,9 +1326,8 @@ private struct SemanticChecker {
         try match(depth && sample.gather == nil ? .scalar(scalar) : .vector(size: .four, scalar: scalar))
       case .imageLoad(let load):
         let imageType = try type(operand(load.image).type)
-        let width: IRVectorSize = imageType.isVolumeTexture ? .three : .two
         let coordinate = try type(operand(load.coordinate).type)
-        guard [.vector(size: width, scalar: .i32), .vector(size: width, scalar: .u32)].contains(coordinate) else {
+        guard [imageType.texelCoordinateType(.i32), imageType.texelCoordinateType(.u32)].contains(coordinate) else {
           try fail(.typeMismatch, "Invalid texture load coordinates", e.location)
         }
         try need(imageType.isArrayedTexture == (load.arrayIndex != nil), .typeMismatch,
@@ -711,10 +1336,14 @@ private struct SemanticChecker {
           try need(try [.scalar(.i32), .scalar(.u32)].contains(type(operand(arrayIndex).type)),
                    .typeMismatch, "Texture array index must be i32 or u32", e.location)
         }
-        if let storage = imageType.storageTexture2D {
+        if let storage = imageType.storageTexture {
           try need(storage.access.contains(.load) && load.level == nil && load.sample == nil, .typeMismatch,
                    "Storage texture load requires read access and the bound mip level", e.location)
           try match(.vector(size: .four, scalar: storage.scalar))
+        } else if imageType.isExternalTexture {
+          try need(load.level == nil && load.sample == nil, .typeMismatch,
+                   "External texture load has no mip or sample index", e.location)
+          try match(.vector(size: .four, scalar: .f32))
         } else {
           let multisampled = imageType.isMultisampled2D
           guard let scalar = imageType.sampledTextureScalar, !imageType.isCubeTexture,
@@ -727,11 +1356,11 @@ private struct SemanticChecker {
         }
       case .imageQuery(let image, let query):
         let imageType = try type(operand(image).type)
-        if imageType.storageTexture2D != nil {
+        if imageType.storageTexture != nil || imageType.isExternalTexture {
           switch query {
-          case .size(nil): try match(.vector(size: .two, scalar: .u32))
+          case .size(nil): try match(imageType.texelCoordinateType(.u32))
           case .numLayers where imageType.isArrayedTexture: try match(.scalar(.u32))
-          default: try fail(.typeMismatch, "Invalid storage texture query", e.location)
+          default: try fail(.typeMismatch, "Invalid storage or external texture query", e.location)
           }
           break
         }
@@ -742,7 +1371,7 @@ private struct SemanticChecker {
             try need(try !imageType.isMultisampled2D && [.scalar(.i32), .scalar(.u32)].contains(type(operand(level).type)),
                      .typeMismatch, "Texture level must be i32 or u32", e.location)
           }
-          try match(.vector(size: imageType.isVolumeTexture ? .three : .two, scalar: .u32))
+          try match(imageType.texelCoordinateType(.u32))
         case .numLevels where !imageType.isMultisampled2D, .numSamples where imageType.isMultisampled2D,
              .numLayers where imageType.isArrayedTexture:
           try match(.scalar(.u32))
@@ -777,13 +1406,14 @@ private struct SemanticChecker {
         if op == .shiftLeft || op == .shiftRight {
           let valid: Bool
           switch (leftKind, rightKind) {
-          case (.scalar(.i32), .scalar(.u32)), (.scalar(.u32), .scalar(.u32)): valid = true
-          case (.vector(let a, .i32), .vector(let b, .u32)),
-               (.vector(let a, .u32), .vector(let b, .u32)): valid = a == b
+          case (.scalar(let scalar), .scalar(.u32)):
+            valid = [.i32, .u32, .i64, .u64].contains(scalar)
+          case (.vector(let a, let scalar), .vector(let b, .u32)):
+            valid = a == b && [.i32, .u32, .i64, .u64].contains(scalar)
           default: valid = false
           }
           try need(
-            valid, .typeMismatch, "Shifts require i32/u32 and a matching u32 count", e.location)
+            valid, .typeMismatch, "Shifts require an integer and a matching u32 count", e.location)
           try match(leftKind)
           break
         }
@@ -964,27 +1594,24 @@ private struct SemanticChecker {
       case .cast(let source, let target):
         let x = try operand(source)
         guard let input = try scalar(x.type) else {
-          try fail(.typeMismatch, "Cast needs numeric scalar/vector", e.location)
+          try fail(.typeMismatch, "Cast needs a scalar, vector or matrix", e.location)
         }
-        try need(
-          input.kind != .bool && target.kind != .bool, .typeMismatch, "Boolean cast is not numeric",
-          e.location)
+        if input.kind == .bool || target.kind == .bool {
+          try need(input.isWGSLConversionScalar && target.isWGSLConversionScalar, .typeMismatch,
+                   "Boolean conversion requires a supported scalar type", e.location)
+        }
         switch try type(x.type) {
         case .scalar: try match(.scalar(target))
         case .vector(let size, _): try match(.vector(size: size, scalar: target))
-        default: try unsupported("Matrix cast overload not implemented", e.location)
+        case .matrix(let columns, let rows, _) where [.f16, .f32].contains(input) && [.f16, .f32].contains(target):
+          try match(.matrix(columns: columns, rows: rows, scalar: target))
+        default: try fail(.typeMismatch, "Matrix cast needs an f32 or f16 destination", e.location)
         }
       case .bitcast(let source, let target):
         let x = try operand(source)
         try need(try same(target, e.type), .typeMismatch, "Bitcast target mismatch", e.location)
-        guard let a = try scalar(x.type), let b = try scalar(e.type), a.kind != .bool,
-          b.kind != .bool, a.width == b.width
-        else { try fail(.typeMismatch, "Bitcast width/type mismatch", e.location) }
-        switch (try type(x.type), declared) {
-        case (.scalar, .scalar): break
-        case (.vector(let n, _), .vector(let m, _)):
-          try need(n == m, .typeMismatch, "Bitcast shape mismatch", e.location)
-        default: try unsupported("Packed/matrix bitcast overload not implemented", e.location)
+        guard let a = try IRBitcastShape(type(x.type)), let b = IRBitcastShape(declared), a.permits(b) else {
+          try fail(.typeMismatch, "Bitcast width/type mismatch", e.location)
         }
       case .arrayLength(let pointer):
         let value = try operand(pointer)
@@ -993,52 +1620,83 @@ private struct SemanticChecker {
           try fail(.typeMismatch, "arrayLength requires a pointer to a runtime storage array", e.location)
         }
         try match(.scalar(.u32))
+      case .relational(let fn, let arg) where fn.isBooleanReduction:
+        let operand = try operand(arg)
+        try need(try fn.accepts(type(operand.type)), .typeMismatch,
+                 "Boolean reduction requires a bool scalar or vector", e.location)
+        try match(.scalar(.bool))
       case .math(let fn, let arg, let arg1, let arg2, let arg3):
         let a = try operand(arg)
+        if fn == .ldexp {
+          let mantissa = try type(a.type)
+          guard let exponent = arg1, arg2 == nil, arg3 == nil,
+                let expected = mantissa.ldexpExponentType, try type(operand(exponent).type) == expected else {
+            try fail(.typeMismatch, "ldexp needs matching floating mantissa and i32 exponent shapes", e.location)
+          }
+          try match(mantissa)
+          break
+        }
+        if fn.decomposesFloat {
+          try validateDecompositionCall(fn, operand: a.type, result: e.type,
+                                        hasExtraArguments: arg1 != nil || arg2 != nil || arg3 != nil, at: e.location)
+          break
+        }
+        if let packing = fn.packingBuiltin {
+          try need(try type(a.type) == packing.argumentType && arg1 == nil && arg2 == nil && arg3 == nil,
+                   .typeMismatch, "Packing builtin argument type or arity mismatch", e.location)
+          try match(packing.resultType)
+          break
+        }
+        if let arity = fn.geometricArity {
+          let supplied = [arg1, arg2, arg3]
+          guard let signature = fn.geometricSignature(for: try type(a.type)),
+                supplied.enumerated().allSatisfy({ ($0.offset < arity - 1) == ($0.element != nil) }) else {
+            try fail(.typeMismatch, "Invalid geometric builtin operand or arity", e.location)
+          }
+          for (extra, expected) in zip(supplied.compactMap({ $0 }), signature.arguments.dropFirst()) {
+            try need(try type(operand(extra).type) == expected, .typeMismatch, "Geometric builtin argument type mismatch", e.location)
+          }
+          try match(signature.result)
+          break
+        }
         guard let scalar = try scalar(a.type) else {
           try fail(.typeMismatch, "Math needs numeric scalar/vector", e.location)
         }
         if case .matrix = try type(a.type) {
           try unsupported("Matrix builtin overload not implemented", e.location)
         }
-        let count: Int
-        let floatsOnly: Bool
-        switch fn {
-        case .min, .max:
-          count = 2
-          floatsOnly = false
-        case .clamp:
-          count = 3
-          floatsOnly = false
-        case .abs, .sign:
-          count = 1
-          floatsOnly = false
-        case .ceil, .floor, .round, .fract, .trunc, .sqrt, .inverseSqrt, .sin, .cos, .tan, .asin,
-          .acos, .atan, .exp, .exp2, .log, .log2, .saturate:
-          count = 1
-          floatsOnly = true
-        case .pow, .atan2:
-          count = 2
-          floatsOnly = true
-        default: try unsupported("Math builtin overload rules not implemented", e.location)
+        if let arity = fn.integerBitArity {
+          let arguments = [arg1, arg2, arg3]
+          try need([.i32, .u32, .i64, .u64].contains(scalar) &&
+                   arguments.enumerated().allSatisfy { ($0.offset < arity - 1) == ($0.element != nil) },
+                   .typeMismatch, "Invalid integer bit builtin type or arity", e.location)
+          if arity == 4, let inserted = arg1 {
+            try need(try same(operand(inserted).type, a.type), .typeMismatch, "Bit insertion value type mismatch", e.location)
+          }
+          if arity > 1 {
+            for bound in arguments[(arity - 3)..<(arity - 1)].compactMap({ $0 }) {
+              try need(try type(operand(bound).type) == .scalar(.u32), .typeMismatch, "Bit range must be u32", e.location)
+            }
+          }
+          try need(try same(e.type, a.type), .typeMismatch, "Bit builtin result type mismatch", e.location)
+          break
         }
-        try need(
-          scalar.kind != .bool && (!floatsOnly || scalar.kind == .float), .typeMismatch,
-          "Math scalar kind mismatch", e.location)
-        if fn == .abs || fn == .sign {
-          try need(
-            scalar.kind == .float || scalar.kind == .sint, .typeMismatch,
-            "abs/sign require signed or float", e.location)
+        if let numeric = fn.numericBuiltin {
+          let operands = [arg1, arg2, arg3]
+          try need(numeric.accepts(scalar) &&
+                   operands.enumerated().allSatisfy({ ($0.offset < numeric.arity - 1) == ($0.element != nil) }),
+                   .typeMismatch, "Numeric builtin scalar type or arity mismatch", e.location)
+          for (index, operandHandle) in operands.compactMap({ $0 }).enumerated() {
+            let operandType = try operand(operandHandle).type
+            if numeric.scalarLastArgument, index == numeric.arity - 2, try type(operandType) == .scalar(scalar) {
+              continue
+            }
+            try need(try same(operandType, a.type), .typeMismatch, "Numeric builtin operand type mismatch", e.location)
+          }
+          try need(try same(e.type, a.type), .typeMismatch, "Numeric builtin result type mismatch", e.location)
+          break
         }
-        try need(
-          arg3 == nil && ((count >= 2) == (arg1 != nil)) && ((count >= 3) == (arg2 != nil)),
-          .typeMismatch, "Math argument count", e.location)
-        for extra in [arg1, arg2].compactMap({ $0 }) {
-          try need(
-            try same(operand(extra).type, a.type), .typeMismatch, "Math argument type mismatch",
-            e.location)
-        }
-        try need(try same(e.type, a.type), .typeMismatch, "Math result type mismatch", e.location)
+        try unsupported("Math builtin overload rules not implemented", e.location)
       case .callResult(let target):
         guard let currentFunction, target.index < currentFunction else {
           try fail(.invalidReference, "Calls must target earlier functions", e.location)
@@ -1055,13 +1713,19 @@ private struct SemanticChecker {
                    .typeMismatch, "Atomic comparison needs its predeclared result type", e.location)
         } else {
           let resultKind = try type(resultType)
-          try need(resultKind == .scalar(.i32) || resultKind == .scalar(.u32),
-                   .typeMismatch, "Atomic result must be a 32-bit integer", e.location)
+          try need([IRTypeKind.scalar(.i32), .scalar(.u32), .scalar(.i64), .scalar(.u64), .scalar(.f32)].contains(resultKind),
+                   .typeMismatch, "Atomic result must be a supported numeric scalar", e.location)
           try match(resultKind)
         }
       case .workgroupUniformLoadResult(let resultType):
         try need(currentFunction != nil && (try same(e.type, resultType)), .typeMismatch,
                  "Invalid workgroup uniform load result", e.location)
+      case .subgroupOperationResult(let resultType):
+        try need(currentFunction != nil && (try same(e.type, resultType)), .typeMismatch,
+                 "Invalid subgroup operation result", e.location)
+      case .subgroupBallotResult:
+        try need(currentFunction != nil, .invalidReference, "Subgroup ballot requires a function", e.location)
+        try match(.vector(size: .four, scalar: .u32))
       case .derivative(_, _, let x):
         let x = try operand(x)
         switch try type(x.type) {
@@ -1117,7 +1781,7 @@ private struct SemanticChecker {
     let child: IRTypeKind
     var childHandle: IRHandle<IRType>?
     switch base {
-    case .array(let t, let n, _):
+    case .array(let t, let n, _), .bindingArray(let t, let n):
       if let index, case .constant(let count) = n {
         try need(index < count, .typeMismatch, "Index out of bounds", loc)
       }
@@ -1158,19 +1822,45 @@ private struct SemanticChecker {
       try need(try type(result) == child, .typeMismatch, "Indexed value type mismatch", loc)
     }
   }
-  mutating func function(_ f: IRFunction, index: Int, entryIndices: Set<Int>) throws {
+  func nonUniformBindingArrayCapability(for handle: IRHandle<IRType>) throws -> ShaderCapabilities? {
+    switch try type(handle) {
+    case .bindingArray(let element, _):
+      return try type(element).storageTexture == nil
+        ? .textureAndSamplerBindingArrayNonUniformIndexing
+        : .storageTextureBindingArrayNonUniformIndexing
+    case .pointer(let base, let space):
+      guard case .bindingArray = try type(base) else { return nil }
+      switch space {
+      case .uniform: return .bufferBindingArrayNonUniformIndexing
+      case .storage: return .storageBufferBindingArrayNonUniformIndexing
+      default: return nil
+      }
+    default: return nil
+    }
+  }
+
+  mutating func function(_ f: IRFunction, index: Int, entryIndices: Set<Int>, computeEntry: Bool) throws {
     try text(f.name)
     try budget.consume(.nodes)
     try budget.consume(.work)
-    guard f.diagnosticFilter == nil else {
-      try unsupported("Function diagnostic filters not implemented", f.location)
-    }
+    if let filter = f.diagnosticFilter { try validateDiagnosticScope(filter, parent: module.diagnosticFilter) }
     for a in f.arguments {
       try text(a.name)
       try budget.consume(.work)
-      try need(
-        try layout(a.type).constructible && layout(a.type).sized, .invalidType,
-        "Function arguments must be sized data", a.location)
+      let kind = try type(a.type)
+      if case .pointer(let base, let space) = kind {
+        if case .bindingArray = try type(base) {
+          try fail(.invalidType, "Functions cannot take pointers to entire binding arrays", a.location)
+        }
+        try need(!entryIndices.contains(index) && (module.allowsPointerSubviews || space == .function || space == .private),
+                 .invalidAddressSpace, "Shared pointer parameters require unrestricted_pointer_parameters", a.location)
+      } else if kind.isTextureOrSampler {
+        try need(!entryIndices.contains(index), .invalidType, "Entry points cannot take texture or sampler parameters", a.location)
+      } else {
+        try need(
+          try layout(a.type).constructible && layout(a.type).sized, .invalidType,
+          "Function arguments must be sized data", a.location)
+      }
     }
     if let r = f.result {
       try need(
@@ -1196,18 +1886,24 @@ private struct SemanticChecker {
       }
     }
     try expressions(f.expressions, function: f, currentFunction: index)
+    uniformity = FunctionUniformity(computeEntry: computeEntry)
     var stages = allStages
-    var requiresUniform = false
+    var immediates: Set<IRHandle<IRGlobalVariable>> = []
+    var resourceAliases: Set<IRHandle<IRGlobalVariable>> = []
     for e in f.expressions.values {
       try budget.consume(.work)
       if requiresImplicitDerivatives(e.kind) {
         stages.formIntersection([.fragment])
-        requiresUniform = true
       }
       if case .globalVariable(let g) = e.kind {
         let global = try module.globalVariables.value(for: g)
+        if let binding = global.binding, reusedResourceBindings.contains(binding) { resourceAliases.insert(g) }
+        if global.space == .immediate, immediates.count < 2 { immediates.insert(g) }
         if global.space == .workgroup { stages.formIntersection([.compute]) }
-        if try type(global.type).storageTexture2D?.access.contains(.store) == true {
+        if case .storage(let access) = global.space, access.contains(.store) {
+          stages.formIntersection([.compute, .fragment])
+        }
+        if try type(bindingArrayElement(of: global)).storageTexture?.access.contains(.store) == true {
           stages.formIntersection([.compute, .fragment])
         }
       }
@@ -1215,74 +1911,67 @@ private struct SemanticChecker {
     for s in f.statements.values {
       try budget.consume(.work)
       switch s.kind {
-      case .kill: stages.formIntersection([.fragment])
-      case .imageStore: stages.formIntersection([.compute, .fragment])
+      case .kill, .demoteToHelperInvocation: stages.formIntersection([.fragment])
+      case .subgroupGather, .subgroupBallot, .subgroupCollectiveOperation:
+        try cap(.subgroup, s.location)
+        stages.formIntersection([.compute, .fragment])
+      case .imageStore, .imageAtomic: stages.formIntersection([.compute, .fragment])
       case .controlBarrier, .memoryBarrier, .workgroupUniformLoad:
         stages.formIntersection([.compute])
-        requiresUniform = true
       case .call(let target, _, _):
         try need(
           target.index < index, .invalidReference, "Recursive/forward function calls forbidden",
           s.location)
         try need(!entryIndices.contains(target.index), .invalidControlFlow, "Cannot call an entry point", s.location)
         stages.formIntersection(functionStages[target.index])
-        requiresUniform = requiresUniform || functionUniform[target.index]
+        let calleeAliases = functionResourceAliases[target.index]
+        try budget.consume(.work, amount: calleeAliases.count)
+        resourceAliases.formUnion(calleeAliases)
+        for immediate in functionImmediates[target.index] where immediates.count < 2 {
+          immediates.insert(immediate)
+        }
       default: break
       }
     }
     var available = Set<IRHandle<IRExpression>>()
-    var uniform = [Bool]()
-    for (i, e) in f.expressions.values.enumerated() {
+    let isEntry = entryIndices.contains(index)
+    var uniform: [UniformValue] = []
+    for (index, expression) in f.expressions.values.enumerated() {
       try budget.consume(.work)
-      let h = try f.expressions.handle(at: i)
-      switch e.kind {
-      case .literal, .constant, .zeroValue:
-        available.insert(h)
-        uniform.append(true)
+      let handle = try f.expressions.handle(at: index)
+      switch expression.kind {
+      case .literal, .constant, .override, .zeroValue, .localVariable:
+        available.insert(handle)
+        uniform.append(.uniform)
       case .functionArgument(let argument):
-        available.insert(h)
-        let binding = f.arguments[Int(argument)].binding
-        uniform.append(
-          entryIndices.contains(index) &&
-            (binding == .builtIn(.workgroupId) || binding == .builtIn(.numWorkgroups)))
+        available.insert(handle)
+        if try type(expression.type).isTextureOrSampler {
+          uniform.append(.uniform)
+        } else {
+          uniform.append(isEntry ? uniformComputeBuiltin(f.arguments[Int(argument)].binding) : .argument(argument))
+        }
       case .globalVariable(let global):
-        available.insert(h)
-        let space = try module.globalVariables.value(for: global).space
-        uniform.append(space == .workgroup || space == .handle || space == .uniform)
-      case .localVariable:
-        available.insert(h)
-        uniform.append(false)
+        available.insert(handle)
+        switch try module.globalVariables.value(for: global).space {
+        case .workgroup, .handle, .uniform, .immediate: uniform.append(.uniform)
+        case .storage(let access): uniform.append(access.contains(.store) ? .varying : .uniform)
+        default: uniform.append(.varying)
+        }
       default:
-        var u = true
-        for dep in dependencies(e.kind) {
-          try budget.consume(.work)
-          try need(dep.index < i, .invalidReference, "Forward dependency", e.location)
-          u = u && uniform[dep.index]
-        }
-        if case .load(let pointer) = e.kind {
-          switch try type(f.expressions.value(for: pointer).type) {
-          case .pointer(_, .uniform): break
-          default: u = false
-          }
-        }
-        if case .imageLoad(let load) = e.kind,
-           try type(f.expressions.value(for: load.image).type).storageTexture2D?.access.contains(.store) == true {
-          u = false
-        }
-        if requiresImplicitDerivatives(e.kind) { u = false }
-        if case .callResult = e.kind { u = false }
-        if case .atomicResult = e.kind { u = false }
-        uniform.append(u)
+        uniform.append(.varying)
       }
     }
+    var locals = Array(repeating: UniformValue.uniform, count: f.localVariables.count)
     var seenBlocks = Set<IRHandle<IRBlock>>()
     var seenStatements = Set<IRHandle<IRStatement>>()
     var results = Set<IRHandle<IRExpression>>()
-    var divergentExit = false
     let result = try block(
-      f.body, f: f, available: available, uniform: uniform, controlUniform: true, active: [],
+      f.body, f: f, available: available, uniform: &uniform, locals: &locals, controlUniform: .uniform, active: [],
       seen: &seenBlocks, statements: &seenStatements, callResults: &results,
-      divergentExit: &divergentExit, loopDepth: 0, inContinuing: false)
+      loopDepth: 0, inContinuing: false)
+    for (node, check) in uniformity.pendingChecks {
+      try checkUniformity(node, check)
+    }
     if f.result != nil {
       try need(!result.flow.contains(.next), .invalidControlFlow, "Not all function paths return a value", f.location)
     }
@@ -1296,16 +1985,26 @@ private struct SemanticChecker {
     }
     for (i, e) in f.expressions.values.enumerated() {
       switch e.kind {
-      case .callResult, .atomicResult, .workgroupUniformLoadResult:
+      case .callResult, .atomicResult, .workgroupUniformLoadResult, .subgroupOperationResult, .subgroupBallotResult:
         try need(
           results.contains(try f.expressions.handle(at: i)), .invalidReference,
           "Statement result has no matching producer", e.location)
       default: break
       }
     }
+    var requiresUniform = uniformity.controlRequirements
+    requiresUniform.arguments = uniformity.arguments
+    if f.result != nil {
+      requiresUniform.returns = try .init(
+        whole: uniformity.parameters(of: uniformity.returns.whole, budget: &budget),
+        subgroup: uniformity.parameters(of: uniformity.returns.subgroup, budget: &budget))
+    }
     functionStages.append(stages)
+    functionImmediates.append(immediates)
+    functionResourceAliases.append(resourceAliases)
     functionUniform.append(requiresUniform)
   }
+
   func atomicPointee(_ handle: IRHandle<IRType>) throws -> IRScalar? {
     guard case .pointer(let base, let space) = try type(handle),
           case .atomic(let scalar) = try type(base) else { return nil }
@@ -1316,21 +2015,58 @@ private struct SemanticChecker {
     }
   }
   mutating func validatePredeclaredTypes() throws {
+    var handles: Set<IRHandle<IRType>> = []
+    var kinds: [IRPredeclaredType] = []
     for entry in module.specialTypes.predeclared {
       try budget.consume(.work)
+      try need(handles.insert(entry.type).inserted && !kinds.contains(entry.kind),
+               .invalidType, "Duplicate predeclared type")
+      kinds.append(entry.kind)
+      if let shape = entry.kind.decomposition {
+        try validateDecompositionType(entry.type, function: shape.function, size: shape.size, scalar: shape.scalar)
+        continue
+      }
       guard case .atomicCompareExchangeWeakResult(let scalar) = entry.kind else {
         try unsupported("Predeclared type validation not implemented")
       }
-      guard scalar == .i32 || scalar == .u32,
-            atomicCompareResults[entry.type] == nil, !atomicCompareResults.values.contains(scalar),
-            case .structure(let members, 8) = try type(entry.type), members.count == 2,
+      let width = UInt32(scalar.width)
+      guard [.i32, .u32, .i64, .u64].contains(scalar),
+            case .structure(let members, let span) = try type(entry.type), span == width * 2, members.count == 2,
             members[0].name == "old_value", members[0].offset == 0, members[0].binding == nil,
-            members[1].name == "exchanged", members[1].offset == 4, members[1].binding == nil,
+            members[1].name == "exchanged", members[1].offset == width, members[1].binding == nil,
             try type(members[0].type) == .scalar(scalar), try type(members[1].type) == .scalar(.bool)
       else { try fail(.invalidType, "Invalid predeclared atomic comparison result") }
       atomicCompareResults[entry.type] = scalar
     }
   }
+  func validateDecompositionType(
+    _ handle: IRHandle<IRType>, function: IRMathFunction, size: IRVectorSize?, scalar: IRScalar
+  ) throws {
+    func shape(_ lane: IRScalar) -> IRTypeKind {
+      size.map { .vector(size: $0, scalar: lane) } ?? .scalar(lane)
+    }
+    let stride = function.decompositionMemberStride(size: size, scalar: scalar)
+    guard scalar == .f32 || scalar == .f16,
+          case .structure(let members, let span) = try type(handle), members.count == 2, span == 2 * stride,
+          members[0].name == "fract", members[0].offset == 0, members[0].binding == nil,
+          members[1].name == function.decompositionSecondMember, members[1].offset == stride, members[1].binding == nil,
+          try type(members[0].type) == shape(scalar),
+          try type(members[1].type) == shape(function.decompositionSecondScalar(scalar))
+    else { try fail(.invalidType, "Invalid predeclared float decomposition result") }
+  }
+
+  func validateDecompositionCall(
+    _ function: IRMathFunction, operand: IRHandle<IRType>, result: IRHandle<IRType>,
+    hasExtraArguments: Bool, at location: ShaderLocation?
+  ) throws {
+    guard let shape = try type(operand).concreteFloatShape else {
+      try fail(.typeMismatch, "Float decomposition needs a floating scalar or vector", location)
+    }
+    let kind = function.decompositionResult(size: shape.size, scalar: shape.scalar)
+    try need(!hasExtraArguments && module.specialTypes.predeclared.contains(.init(kind: kind, type: result)),
+             .typeMismatch, "Float decomposition result or arity mismatch", location)
+  }
+
   func requiresImplicitDerivatives(_ kind: IRExpressionKind) -> Bool {
     switch kind {
     case .derivative: return true
@@ -1343,33 +2079,495 @@ private struct SemanticChecker {
     }
   }
 
-  func dependencies(_ k: IRExpressionKind) -> [IRHandle<IRExpression>] {
-    switch k {
-    case .unary(_, let x), .load(let x), .derivative(_, _, let x), .cast(let x, _),
-      .bitcast(let x, _), .arrayLength(let x):
-      return [x]
-    case .binary(_, let a, let b), .access(let a, let b): return [a, b]
-    case .select(let c, let a, let b): return [c, a, b]
-    case .accessIndex(let b, _), .splat(_, let b), .swizzle(_, let b, _): return [b]
-    case .imageSample(let sample):
-      return [sample.image, sample.sampler, sample.coordinate] + sample.level.operands +
-        [sample.arrayIndex, sample.offset, sample.depthReference].compactMap { $0 }
-    case .imageLoad(let load):
-      return [load.image, load.coordinate] + [load.arrayIndex, load.sample, load.level].compactMap { $0 }
-    case .imageQuery(let image, .size(let level?)): return [image, level]
-    case .imageQuery(let image, _): return [image]
-    case .compose(_, let xs): return xs
-    case .math(_, let a, let b, let c, let d): return [a] + [b, c, d].compactMap({ $0 })
-    default: return []
+  mutating func validateSubgroupStatement(
+    _ kind: IRStatementKind, function: IRFunction, available: inout Set<IRHandle<IRExpression>>,
+    uniform: inout [UniformValue], control: UniformValue, severity: IRDiagnosticSeverity,
+    producedResults: inout Set<IRHandle<IRExpression>>, location: ShaderLocation?
+  ) throws {
+    func use(_ handle: IRHandle<IRExpression>, _ loc: ShaderLocation?) throws -> IRExpression {
+      try need(available.contains(handle), .invalidReference, "Expression is outside evaluation scope", loc)
+      return try function.expressions.value(for: handle)
+    }
+    let loc = location
+    switch kind {
+    case .subgroupBallot(let result, let predicate):
+      if let predicate {
+        try need(try type(use(predicate, loc).type) == .scalar(.bool), .typeMismatch, "Invalid subgroup ballot predicate", loc)
+      }
+      let produced = try function.expressions.value(for: result)
+      guard case .subgroupBallotResult = produced.kind, producedResults.insert(result).inserted else {
+        try fail(.invalidReference, "Incorrect or duplicate subgroup ballot result", loc)
+      }
+      uniform[result.index] = try subgroupResultUniformity(predicate.map { [$0] } ?? [], uniform: uniform, control: control)
+      available.insert(result)
+    case .subgroupCollectiveOperation(let operation, let collective, let argument, let result):
+      let value = try use(argument, loc)
+      try need(try operation.accepts(type(value.type), collective: collective), .typeMismatch,
+               "Invalid subgroup collective operand", loc)
+      let produced = try function.expressions.value(for: result)
+      guard case .subgroupOperationResult(let resultType) = produced.kind,
+            try same(value.type, resultType), producedResults.insert(result).inserted else {
+        try fail(.invalidReference, "Incorrect or duplicate subgroup collective result", loc)
+      }
+      if collective == .reduce {
+        uniform[result.index] = try subgroupResultUniformity([argument], uniform: uniform, control: control)
+      }
+      available.insert(result)
+    case .subgroupGather(let mode, let argument, let result):
+      let value = try use(argument, loc)
+      switch try type(value.type) {
+      case .scalar(let scalar), .vector(_, let scalar):
+        try need([.u32, .i32, .f32, .f16].contains(scalar), .typeMismatch, "Invalid subgroup gather operand", loc)
+      default:
+        try fail(.typeMismatch, "Invalid subgroup gather operand", loc)
+      }
+      if let index = mode.index {
+        let operand = try use(index, loc)
+        let indexType = try type(operand.type)
+        let indexLimit: UInt32
+        switch mode {
+        case .quadBroadcast, .quadBroadcastDynamic: indexLimit = 4
+        default: indexLimit = 128
+        }
+        switch mode {
+        case .quadBroadcastDynamic:
+          try need(indexType == .scalar(.u32), .typeMismatch, "Invalid dynamic quad selector type", loc)
+        case .shuffle:
+          try need([.scalar(.i32), .scalar(.u32)].contains(indexType), .typeMismatch, "Invalid shuffle index type", loc)
+        case .broadcast, .quadBroadcast:
+          switch operand.kind {
+          case .literal(.u32), .literal(.i32): break
+          default:
+            try fail(.invalidType, "Broadcast requires a constant index", loc)
+          }
+          try need([.scalar(.i32), .scalar(.u32)].contains(indexType), .typeMismatch, "Invalid broadcast index type", loc)
+        default:
+          try need(indexType == .scalar(.u32), .typeMismatch, "Invalid relative shuffle selector type", loc)
+          try requireUniformity(uniform[index.index], rule: .subgroup, severity: severity,
+                               message: "Relative shuffle selector must be uniform", at: operand.location ?? loc)
+        }
+        switch operand.kind {
+        case .literal(.u32(let value)): try need(value < indexLimit, .invalidType, "Subgroup selector is out of range", loc)
+        case .literal(.i32(let value)): try need((0..<Int32(indexLimit)).contains(value), .invalidType,
+                                                "Subgroup selector is out of range", loc)
+        default: break
+        }
+      }
+      let produced = try function.expressions.value(for: result)
+      guard case .subgroupOperationResult(let resultType) = produced.kind,
+            try same(value.type, resultType), producedResults.insert(result).inserted else {
+        try fail(.invalidReference, "Incorrect or duplicate subgroup gather result", loc)
+      }
+      switch mode {
+      case .broadcastFirst:
+        uniform[result.index] = try subgroupResultUniformity([argument], uniform: uniform, control: control)
+      case .broadcast(let index):
+        uniform[result.index] = try subgroupResultUniformity([argument, index], uniform: uniform, control: control)
+      default: break
+      }
+      available.insert(result)
+    default:
+      throw ShaderFailure.invalidHandle
     }
   }
+
+  // Keep call-specific state out of the recursive block frame.
+  mutating func validateCall(
+    _ target: IRHandle<IRFunction>, arguments: [IRHandle<IRExpression>], result: IRHandle<IRExpression>?,
+    function: IRFunction, available: inout Set<IRHandle<IRExpression>>, producedResults: inout Set<IRHandle<IRExpression>>,
+    uniform: inout [UniformValue], locals: inout [UniformValue], uniformControl: UniformValue, at location: ShaderLocation?
+  ) throws {
+    let callee = try module.functions.value(for: target)
+    try need(arguments.count == callee.arguments.count, .typeMismatch, "Call argument count mismatch", location)
+    for (value, parameter) in zip(arguments, callee.arguments) {
+      try budget.consume(.work)
+      try need(available.contains(value), .invalidReference, "Expression is outside evaluation scope", location)
+      let operand = try function.expressions.value(for: value)
+      try need(try same(operand.type, parameter.type), .typeMismatch, "Call argument type mismatch", location)
+    }
+    let requirements = functionUniform[target.index]
+    if requirements.barrier {
+      try requireUniformControl(uniformControl, rule: .barrier, severity: .error,
+                                message: "Uniformity-requiring call in divergent control flow", at: location)
+    }
+    try requireUniformControl(uniformControl, rule: .derivative, severity: requirements.derivative.severity,
+                              message: "Uniformity-requiring call in divergent control flow",
+                              at: requirements.derivative.location ?? location)
+    try requireUniformControl(uniformControl, rule: .subgroup, severity: requirements.subgroup.severity,
+                              message: "Subgroup call in divergent control flow", at: requirements.subgroup.location ?? location)
+    for (parameter, requirement) in requirements.arguments.sorted(by: {
+      ($0.key.index, $0.key.rule.rawValue) < ($1.key.index, $1.key.rule.rawValue)
+    }) {
+      try budget.consume(.work)
+      let argument = arguments[parameter.index]
+      let operand = try function.expressions.value(for: argument)
+      try requireUniformity(uniform[argument.index], rule: parameter.rule, severity: requirement.severity,
+                            message: "Uniformity-requiring call needs a uniform argument", at: operand.location ?? location)
+    }
+    if let result, callee.result != nil {
+      let expression = try function.expressions.value(for: result)
+      try need(expression.kind == .callResult(target) && producedResults.insert(result).inserted,
+               .invalidReference, "Incorrect/duplicate call result", location)
+      let summary = requirements.returns
+      let value = try UniformValue(
+        whole: returnDependency(summary.whole, arguments: arguments, uniform: uniform, scope: .whole),
+        subgroup: returnDependency(summary.subgroup, arguments: arguments, uniform: uniform, scope: .subgroup))
+      let active = try mergeUniformity(uniformControl, uniformity.exits)
+      uniform[result.index] = try mergeUniformity(active, value)
+      available.insert(result)
+    } else {
+      try need(callee.result == nil && result == nil, .typeMismatch, "Missing/unexpected call result", location)
+    }
+    for parameter in functionPointerWrites[target.index, default: []].sorted() {
+      try budget.consume(.work)
+      if let reference = try localReference(arguments[parameter], in: function) {
+        locals[reference.index] = .varying
+      }
+    }
+  }
+
+  // Keep leaf validation out of the recursive block frame.
+  mutating func validateLeafStatement(
+    _ s: IRStatement, f: IRFunction, available: inout Set<IRHandle<IRExpression>>,
+    uniform: inout [UniformValue], locals: inout [UniformValue], ctrl: UniformValue,
+    callResults: inout Set<IRHandle<IRExpression>>,
+    loopDepth: Int, inContinuing: Bool, switchDepth: Int
+  ) throws -> StatementFlow {
+    let loc = s.location
+    let severities = diagnosticLevels(for: f)
+    var step: StatementFlow = .next
+    func use(_ handle: IRHandle<IRExpression>, _ location: ShaderLocation?) throws -> IRExpression {
+      try need(available.contains(handle), .invalidReference, "Expression is outside evaluation scope", location)
+      return try f.expressions.value(for: handle)
+    }
+    switch s.kind {
+    case .emit(let xs):
+      for x in xs {
+        try budget.consume(.work)
+        let e = try f.expressions.value(for: x)
+        try need(!available.contains(x), .invalidReference, "Duplicate or invalid emit", loc)
+        switch e.kind {
+        case .callResult, .atomicResult, .workgroupUniformLoadResult, .subgroupOperationResult, .subgroupBallotResult:
+          try fail(.invalidReference, "Statement result cannot be produced by emit", loc)
+        default: break
+        }
+        for dep in e.kind.operands { _ = try use(dep, loc) }
+        if requiresImplicitDerivatives(e.kind) {
+          try requireUniformControl(ctrl, rule: .derivative, severity: severities.derivative,
+                                    message: "Operation requiring derivatives in non-uniform control flow", at: e.location ?? loc)
+        }
+        uniform[x.index] = try expressionUniformity(e, in: f, uniform: uniform, locals: locals)
+        available.insert(x)
+      }
+    case .returnValue(let x):
+      try need(!inContinuing, .invalidControlFlow, "Return forbidden in continuing", loc)
+      if let r = f.result, let x {
+        try need(try same(use(x, loc).type, r.type), .typeMismatch, "Return type mismatch", loc)
+        if reachable {
+          let active = try mergeUniformity(ctrl, uniformity.exits)
+          let result = try mergeUniformity(active, uniform[x.index])
+          uniformity.returns = try mergeUniformity(uniformity.returns, result)
+        }
+      } else {
+        try need(f.result == nil && x == nil, .typeMismatch, "Return value mismatch", loc)
+      }
+      if reachable { uniformity.exits = try mergeUniformity(uniformity.exits, ctrl) }
+      step = .exit
+    case .imageStore(let image, let coordinate, let arrayIndex, let value),
+         .imageAtomic(let image, let coordinate, let arrayIndex, _, let value):
+      let coordinateType = try type(use(coordinate, loc).type)
+      let imageExpression = try use(image, loc)
+      let imageType = try type(imageExpression.type)
+      guard let storage = imageType.storageTexture, storage.access.contains(.store),
+            imageType.isArrayedTexture == (arrayIndex != nil),
+            [imageType.texelCoordinateType(.i32), imageType.texelCoordinateType(.u32)].contains(coordinateType) else {
+        try fail(.typeMismatch, "Invalid storage texture store", loc)
+      }
+      let valueType: IRTypeKind
+      if case .imageAtomic(_, _, _, let operation, _) = s.kind {
+        try cap(storage.scalar == .u64 ? .textureInt64Atomic : .textureAtomic, loc)
+        try need(storage.access.contains(.atomic), .typeMismatch, "Texture atomic operation requires atomic access", loc)
+        switch operation {
+        case .min, .max: break
+        case .add, .and, .inclusiveOr, .exclusiveOr:
+          try need(storage.scalar != .u64, .typeMismatch, "R64Uint atomics support min and max", loc)
+        default: try fail(.typeMismatch, "Invalid texture atomic operation", loc)
+        }
+        let root: IRExpressionKind
+        switch imageExpression.kind {
+        case .access(let base, _), .accessIndex(let base, _): root = try use(base, loc).kind
+        default: root = imageExpression.kind
+        }
+        guard case .globalVariable = root else {
+          try fail(.invalidReference, "Texture atomics require a global texture binding", loc)
+        }
+        valueType = .scalar(storage.scalar)
+      } else {
+        valueType = .vector(size: .four, scalar: storage.scalar)
+      }
+      try need(try type(use(value, loc).type) == valueType, .typeMismatch, "Invalid storage texture value", loc)
+      if let arrayIndex {
+        try need(try [.scalar(.i32), .scalar(.u32)].contains(type(use(arrayIndex, loc).type)),
+                 .typeMismatch, "Texture array index must be i32 or u32", loc)
+      }
+    case .store(let pointer, let value):
+      let p = try use(pointer, loc)
+      let v = try use(value, loc)
+      guard case .pointer(let base, let space) = try type(p.type) else {
+        try fail(.typeMismatch, "Store requires pointer", loc)
+      }
+      switch space {
+      case .function, .private, .workgroup: break
+      case .storage(let access):
+        try need(access.contains(.store), .invalidAddressSpace, "Read-only store", loc)
+      default: try fail(.invalidAddressSpace, "Read-only address space", loc)
+      }
+      if let atomic = try atomicPointee(p.type) {
+        if atomic.width == 8 { try cap(.shaderInt64AtomicAllOps, loc) }
+        try need(try type(v.type) == .scalar(atomic), .typeMismatch, "Atomic store value type mismatch", loc)
+      } else {
+        try need(
+          try layout(base).constructible, .typeMismatch,
+          "Ordinary store requires constructible type", loc)
+        try need(try same(base, v.type), .typeMismatch, "Store value type mismatch", loc)
+      }
+      if space == .function, let reference = try localReference(pointer, in: f) {
+        let active = try mergeUniformity(ctrl, uniformity.exits)
+        let assignment = try mergeUniformity(mergeUniformity(active, uniform[pointer.index]), uniform[value.index])
+        locals[reference.index] = reference.partial ? try mergeUniformity(locals[reference.index], assignment) : assignment
+      }
+    case .atomic(let pointer, let operation, let value, let result):
+      let p = try use(pointer, loc)
+      let v = try use(value, loc)
+      guard let atomic = try atomicPointee(p.type) else {
+        try fail(.typeMismatch, "Atomic operation requires a pointer to an atomic integer", loc)
+      }
+      try need(try type(v.type) == .scalar(atomic), .typeMismatch, "Atomic operand type mismatch", loc)
+      if atomic == .f32 {
+        guard case .pointer(_, .storage) = try type(p.type) else {
+          try fail(.invalidAddressSpace, "Float atomic read-modify-write requires storage memory", loc)
+        }
+        switch operation {
+        case .add, .subtract, .exchange(compare: nil, strong: false): break
+        default: try fail(.typeMismatch, "Float atomics support add, subtract and exchange", loc)
+        }
+      }
+      if atomic.width == 8, !capabilities.contains(.shaderInt64AtomicAllOps) {
+        if (operation == .min || operation == .max), result == nil,
+           case .pointer(_, .storage) = try type(p.type) {
+          try cap(.shaderInt64AtomicMinMax, loc)
+        } else {
+          try cap(.shaderInt64AtomicAllOps, loc)
+        }
+      }
+      let compares: Bool
+      if case .exchange(compare: nil, strong: true) = operation {
+        try fail(.invalidReference, "Strong compare-exchange requires a comparator", loc)
+      }
+      if case .exchange(let compare?, _) = operation {
+        let expected = try use(compare, loc)
+        try need(try type(expected.type) == .scalar(atomic), .typeMismatch, "Atomic comparison type mismatch", loc)
+        compares = true
+      } else { compares = false }
+      if let result {
+        let e = try f.expressions.value(for: result)
+        let matches = try compares ? atomicCompareResults[e.type] == atomic : type(e.type) == .scalar(atomic)
+        guard case .atomicResult(_, let comparison) = e.kind, comparison == compares, matches,
+              callResults.insert(result).inserted else {
+          try fail(.invalidReference, "Incorrect or duplicate atomic result", loc)
+        }
+        available.insert(result)
+      }
+    case .subgroupBallot, .subgroupCollectiveOperation, .subgroupGather:
+      try requireUniformControl(ctrl, rule: .subgroup, severity: severities.subgroup,
+                                message: "Subgroup operations require uniform control flow", at: loc)
+      try validateSubgroupStatement(s.kind, function: f, available: &available, uniform: &uniform,
+                                    control: ctrl, severity: severities.subgroup, producedResults: &callResults, location: loc)
+    case .workgroupUniformLoad(let pointer, let result):
+      let p = try use(pointer, loc)
+      guard case .pointer(let base, .workgroup) = try type(p.type) else {
+        try fail(.typeMismatch, "Uniform load requires a workgroup pointer", loc)
+      }
+      try requireUniformControl(ctrl, rule: .barrier, severity: .error,
+                                message: "Workgroup uniform load requires uniform control flow", at: loc)
+      try requireUniformity(uniform[pointer.index], rule: .barrier, severity: .error,
+                            message: "Workgroup uniform load requires a uniform address", at: loc)
+      let e = try f.expressions.value(for: result)
+      guard case .workgroupUniformLoadResult = e.kind, callResults.insert(result).inserted else {
+        try fail(.invalidReference, "Incorrect or duplicate workgroup uniform load result", loc)
+      }
+      if let atomic = try atomicPointee(p.type) {
+        try need(try type(e.type) == .scalar(atomic), .typeMismatch, "Atomic uniform load result type mismatch", loc)
+      } else {
+        try need(try layout(base).constructible && same(base, e.type), .typeMismatch,
+                 "Uniform load requires a constructible pointee and matching result", loc)
+      }
+      uniform[result.index] = .uniform
+      available.insert(result)
+    case .call(let target, let args, let result):
+      try validateCall(target, arguments: args, result: result, function: f, available: &available,
+                       producedResults: &callResults, uniform: &uniform, locals: &locals, uniformControl: ctrl, at: loc)
+    case .controlBarrier(let barrier), .memoryBarrier(let barrier):
+      try need(
+        barrier.rawValue > 0 && barrier.rawValue & ~UInt8(15) == 0, .invalidType,
+        "Invalid barrier flags", loc)
+      if barrier.contains(.subgroup) { try cap([.subgroup, .subgroupBarrier], loc) }
+      try requireUniformControl(ctrl, rule: .barrier, severity: .error, message: "Barrier in divergent control flow", at: loc)
+    case .kill:
+      try need(!inContinuing, .invalidControlFlow, "Discard forbidden in continuing", loc)
+      if reachable { uniformity.exits = try mergeUniformity(uniformity.exits, ctrl) }
+      step = .exit
+    case .demoteToHelperInvocation:
+      // Demoted invocations can continue computing derivatives after reconvergence.
+      break
+    case .break:
+      try need((loopDepth > 0 || switchDepth > 0) && !inContinuing, .invalidControlFlow, "Invalid break target", loc)
+      try recordLocalBreak(locals)
+      step = .breakTarget
+    case .continue:
+      try need(loopDepth > 0 && !inContinuing, .invalidControlFlow, "Invalid loop jump", loc)
+      try recordLocalContinue(locals, control: ctrl, available: available)
+      step = .continueTarget
+    default: try unsupported("Statement rule family not implemented", loc)
+    }
+    return step
+  }
+
+  mutating func validateLoop(
+    _ body: IRHandle<IRBlock>, continuing: IRHandle<IRBlock>, breakIf: IRHandle<IRExpression>?,
+    f: IRFunction, available: Set<IRHandle<IRExpression>>, uniform: inout [UniformValue],
+    locals: inout [UniformValue], control: UniformValue, active: Set<IRHandle<IRBlock>>,
+    seen: inout Set<IRHandle<IRBlock>>, statements: inout Set<IRHandle<IRStatement>>,
+    callResults: inout Set<IRHandle<IRExpression>>, loopDepth: Int, switchDepth: Int
+  ) throws -> StatementFlow {
+    // Reserve header values before walking the body so each load sees both entry and backedge values.
+    let headerControl = try uniformity.loopHeader(control, budget: &budget)
+    try budget.consume(.work, amount: locals.count)
+    var headerLocals: [UniformValue] = []
+    for value in locals {
+      headerLocals.append(try uniformity.loopHeader(value, budget: &budget))
+    }
+    uniformity.breakTargets.append(.loop(uniformity.loops.count))
+    uniformity.loops.append(LoopUniformity())
+    var bodyLocals = headerLocals
+    let bodyResult = try block(
+      body, f: f, available: available, uniform: &uniform, locals: &bodyLocals, controlUniform: headerControl, active: active,
+      seen: &seen, statements: &statements, callResults: &callResults,
+      loopDepth: loopDepth, inContinuing: false, switchDepth: switchDepth)
+    let entersContinuing = bodyResult.flow.contains(.next) || bodyResult.flow.contains(.continueTarget)
+    let loop = uniformity.loops[uniformity.loops.count - 1]
+    var continuingLocals = loop.continues ?? bodyLocals
+    if bodyResult.flow.contains(.next) {
+      continuingLocals = try joinLocalUniformity(loop.continues, bodyLocals)
+    }
+    let continuingControl = try mergeUniformity(
+      mergeUniformity(headerControl, bodyResult.trailingUniformity), loop.continueControl)
+    // The continuing block inherits the body's outer scope. A continue can bypass an emit.
+    var continuingScope = bodyResult.available
+    if let continueScope = loop.continueScope {
+      try budget.consume(.work, amount: min(continuingScope.count, continueScope.count))
+      continuingScope.formIntersection(continueScope)
+    }
+    let continuingResult = try block(
+      continuing, f: f, available: continuingScope, uniform: &uniform, locals: &continuingLocals,
+      controlUniform: continuingControl, active: active, seen: &seen, statements: &statements,
+      callResults: &callResults, loopDepth: loopDepth, inContinuing: true, breakIf: breakIf, switchDepth: switchDepth,
+      reachableFromEntry: entersContinuing)
+    var exits = loop.breaks
+    if entersContinuing {
+      let backedge = try mergeUniformity(continuingControl, continuingResult.trailingUniformity)
+      uniformity.linkBackedge(headerControl, to: backedge)
+      for index in headerLocals.indices {
+        try budget.consume(.work)
+        uniformity.linkBackedge(headerLocals[index], to: continuingLocals[index])
+      }
+      if breakIf != nil {
+        exits = try joinLocalUniformity(exits, continuingLocals)
+      }
+    }
+    _ = uniformity.breakTargets.removeLast()
+    _ = uniformity.loops.removeLast()
+    if let exits { locals = exits }
+    var flow = bodyResult.flow.intersection(.exit)
+    if bodyResult.flow.contains(.breakTarget) || (entersContinuing && breakIf != nil) {
+      flow.insert(.next)
+    }
+    return flow.isEmpty ? .next : flow
+  }
+
+  mutating func validateSwitch(
+    _ cases: [IRSwitchCase], selector: UniformValue, type selectionType: IRTypeKind,
+    f: IRFunction, available: Set<IRHandle<IRExpression>>, uniform: inout [UniformValue],
+    locals: inout [UniformValue], control: UniformValue, active: Set<IRHandle<IRBlock>>,
+    seen: inout Set<IRHandle<IRBlock>>, statements: inout Set<IRHandle<IRStatement>>,
+    callResults: inout Set<IRHandle<IRExpression>>, loopDepth: Int, inContinuing: Bool,
+    switchDepth: Int, location: ShaderLocation?
+  ) throws -> (flow: StatementFlow, trailing: UniformValue) {
+    try need(selectionType == .scalar(.i32) || selectionType == .scalar(.u32),
+             .typeMismatch, "Switch selector must be i32 or u32", location)
+    var labels = Set<IRSwitchValue>()
+    var branches: StatementFlow = []
+    var nextLocals: [UniformValue]?
+    var fallthroughLocals: [UniformValue]?
+    var fallthroughControl = UniformValue.uniform
+    var trailing = selector
+    let entryControl = try mergeUniformity(control, selector)
+    uniformity.breakTargets.append(.selection(nil))
+    var index = 0
+    while index < cases.count {
+      let group = cases[index]
+      repeat {
+        let entry = cases[index]
+        try budget.consume(.work)
+        try need(entry.fallThrough == group.fallThrough, .invalidControlFlow,
+                 "Grouped labels must share the fall-through behavior", location)
+        try need(labels.insert(entry.value).inserted, .duplicateName, "Duplicate switch selector", location)
+        switch entry.value {
+        case .i32: try need(selectionType == .scalar(.i32), .typeMismatch, "Switch case type mismatch", location)
+        case .u32: try need(selectionType == .scalar(.u32), .typeMismatch, "Switch case type mismatch", location)
+        case .default: break
+        }
+        index += 1
+      } while index < cases.count && cases[index].body == group.body
+      try need(index < cases.count || !group.fallThrough, .invalidControlFlow,
+               "The final switch case cannot fall through", location)
+      let nested = try mergeUniformity(entryControl, fallthroughControl)
+      var caseLocals = try joinLocalUniformity(fallthroughLocals, locals)
+      let branch = try block(
+        group.body, f: f, available: available, uniform: &uniform, locals: &caseLocals,
+        controlUniform: nested, active: active, seen: &seen, statements: &statements,
+        callResults: &callResults, loopDepth: loopDepth, inContinuing: inContinuing, switchDepth: switchDepth + 1)
+      if branch.flow.contains(.exit) || branch.flow.contains(.continueTarget) {
+        trailing = try mergeUniformity(trailing, branch.trailingUniformity)
+      }
+      if group.fallThrough && branch.flow.contains(.next) {
+        branches.formUnion(branch.flow.subtracting(.next))
+        fallthroughLocals = caseLocals
+        fallthroughControl = try mergeUniformity(fallthroughControl, branch.trailingUniformity)
+      } else {
+        branches.formUnion(branch.flow)
+        fallthroughLocals = nil
+        fallthroughControl = .uniform
+        if branch.flow.contains(.next) { nextLocals = try joinLocalUniformity(nextLocals, caseLocals) }
+      }
+    }
+    if case .selection(let breakLocals) = uniformity.breakTargets.removeLast(), let breakLocals {
+      nextLocals = try joinLocalUniformity(nextLocals, breakLocals)
+    }
+    if let nextLocals { locals = nextLocals }
+    try need(labels.contains(.default), .invalidControlFlow, "Switch requires default", location)
+    if branches.remove(.breakTarget) != nil { branches.insert(.next) }
+    return (branches, branches == .next ? .uniform : trailing)
+  }
+
   mutating func block(
     _ handle: IRHandle<IRBlock>, f: IRFunction, available initial: Set<IRHandle<IRExpression>>,
-    uniform: [Bool], controlUniform: Bool, active: Set<IRHandle<IRBlock>>,
+    uniform: inout [UniformValue], locals: inout [UniformValue], controlUniform: UniformValue, active: Set<IRHandle<IRBlock>>,
     seen: inout Set<IRHandle<IRBlock>>, statements: inout Set<IRHandle<IRStatement>>,
-    callResults: inout Set<IRHandle<IRExpression>>, divergentExit: inout Bool, loopDepth: Int,
-    inContinuing: Bool, breakIf: IRHandle<IRExpression>? = nil, switchDepth: Int = 0
-  ) throws -> (flow: StatementFlow, uniformAfter: Bool) {
+    callResults: inout Set<IRHandle<IRExpression>>, loopDepth: Int,
+    inContinuing: Bool, breakIf: IRHandle<IRExpression>? = nil, switchDepth: Int = 0,
+    reachableFromEntry: Bool = true
+  ) throws -> (flow: StatementFlow, trailingUniformity: UniformValue, available: Set<IRHandle<IRExpression>>) {
     try budget.enterDepth()
     defer { try? budget.leaveDepth() }
     try budget.consume(.work)
@@ -1383,7 +2581,12 @@ private struct SemanticChecker {
     let b = try f.blocks.value(for: handle)
     var available = initial
     var flow: StatementFlow = .next
-    var ctrl = controlUniform
+    // Keep local control dependencies separate so a branch can drop its condition at reconvergence.
+    var trailingUniformity = UniformValue.uniform
+    let parentReachable = reachable
+    reachable = reachable && reachableFromEntry
+    defer { reachable = parentReachable }
+    var lastReachableState: (locals: [UniformValue], trailing: UniformValue)?
     func use(_ h: IRHandle<IRExpression>, _ loc: ShaderLocation?) throws -> IRExpression {
       try need(
         available.contains(h), .invalidReference, "Expression is outside evaluation scope", loc)
@@ -1396,229 +2599,110 @@ private struct SemanticChecker {
       let loc = s.location
       try need(
         statements.insert(sh).inserted, .invalidReference, "Statement occurs more than once", loc)
-      try need(flow.contains(.next), .invalidControlFlow, "Statement after unconditional terminator", loc)
+      if reachable && !flow.contains(.next) {
+        // Keep validating lexical scope and types without changing the live path.
+        try budget.consume(.work, amount: locals.count)
+        lastReachableState = (locals, trailingUniformity)
+        reachable = false
+      }
+      let ctrl = try mergeUniformity(controlUniform, trailingUniformity)
       var step: StatementFlow = .next
       switch s.kind {
-      case .emit(let xs):
-        for x in xs {
-          try budget.consume(.work)
-          let e = try f.expressions.value(for: x)
-          try need(!available.contains(x), .invalidReference, "Duplicate or invalid emit", loc)
-          switch e.kind {
-          case .callResult, .atomicResult, .workgroupUniformLoadResult:
-            try fail(.invalidReference, "Statement result cannot be produced by emit", loc)
-          default: break
-          }
-          for dep in dependencies(e.kind) { _ = try use(dep, loc) }
-          if requiresImplicitDerivatives(e.kind) {
-            try need(
-              ctrl && !divergentExit, .nonUniformControlFlow,
-              "Operation requiring derivatives in non-uniform control flow", e.location ?? loc)
-          }
-          available.insert(x)
-        }
-      case .returnValue(let x):
-        try need(!inContinuing, .invalidControlFlow, "Return forbidden in continuing", loc)
-        if let r = f.result, let x {
-          try need(try same(use(x, loc).type, r.type), .typeMismatch, "Return type mismatch", loc)
-        } else {
-          try need(f.result == nil && x == nil, .typeMismatch, "Return value mismatch", loc)
-        }
-        if !ctrl { divergentExit = true }
-        step = .exit
-      case .imageStore(let image, let coordinate, let arrayIndex, let value):
-        let coordinateType = try type(use(coordinate, loc).type)
-        let imageType = try type(use(image, loc).type)
-        guard let storage = imageType.storageTexture2D, storage.access.contains(.store),
-              imageType.isArrayedTexture == (arrayIndex != nil),
-              [.vector(size: .two, scalar: .i32), .vector(size: .two, scalar: .u32)].contains(coordinateType),
-              try type(use(value, loc).type) == .vector(size: .four, scalar: storage.scalar) else {
-          try fail(.typeMismatch, "Invalid storage texture store", loc)
-        }
-        if let arrayIndex {
-          try need(try [.scalar(.i32), .scalar(.u32)].contains(type(use(arrayIndex, loc).type)),
-                   .typeMismatch, "Texture array index must be i32 or u32", loc)
-        }
-      case .store(let pointer, let value):
-        let p = try use(pointer, loc)
-        let v = try use(value, loc)
-        guard case .pointer(let base, let space) = try type(p.type) else {
-          try fail(.typeMismatch, "Store requires pointer", loc)
-        }
-        switch space {
-        case .function, .private, .workgroup: break
-        case .storage(let access):
-          try need(access.contains(.store), .invalidAddressSpace, "Read-only store", loc)
-        default: try fail(.invalidAddressSpace, "Read-only address space", loc)
-        }
-        if let atomic = try atomicPointee(p.type) {
-          try need(try type(v.type) == .scalar(atomic), .typeMismatch, "Atomic store value type mismatch", loc)
-        } else {
-          try need(
-            try layout(base).constructible, .typeMismatch,
-            "Ordinary store requires constructible type", loc)
-          try need(try same(base, v.type), .typeMismatch, "Store value type mismatch", loc)
-        }
-      case .atomic(let pointer, let operation, let value, let result):
-        let p = try use(pointer, loc)
-        let v = try use(value, loc)
-        guard let atomic = try atomicPointee(p.type) else {
-          try fail(.typeMismatch, "Atomic operation requires a pointer to an atomic integer", loc)
-        }
-        try need(try type(v.type) == .scalar(atomic), .typeMismatch, "Atomic operand type mismatch", loc)
-        let compares: Bool
-        if case .exchange(let compare?) = operation {
-          let expected = try use(compare, loc)
-          try need(try type(expected.type) == .scalar(atomic), .typeMismatch, "Atomic comparison type mismatch", loc)
-          compares = true
-        } else { compares = false }
-        if let result {
-          let e = try f.expressions.value(for: result)
-          let matches = try compares ? atomicCompareResults[e.type] == atomic : type(e.type) == .scalar(atomic)
-          guard case .atomicResult(_, let comparison) = e.kind, comparison == compares, matches,
-                callResults.insert(result).inserted else {
-            try fail(.invalidReference, "Incorrect or duplicate atomic result", loc)
-          }
-          available.insert(result)
-        }
-      case .workgroupUniformLoad(let pointer, let result):
-        let p = try use(pointer, loc)
-        guard case .pointer(let base, .workgroup) = try type(p.type) else {
-          try fail(.typeMismatch, "Uniform load requires a workgroup pointer", loc)
-        }
-        try need(ctrl && !divergentExit && uniform[pointer.index], .nonUniformControlFlow,
-                 "Workgroup uniform load requires uniform control flow and address", loc)
-        let e = try f.expressions.value(for: result)
-        guard case .workgroupUniformLoadResult = e.kind, callResults.insert(result).inserted else {
-          try fail(.invalidReference, "Incorrect or duplicate workgroup uniform load result", loc)
-        }
-        if let atomic = try atomicPointee(p.type) {
-          try need(try type(e.type) == .scalar(atomic), .typeMismatch, "Atomic uniform load result type mismatch", loc)
-        } else {
-          try need(try layout(base).constructible && same(base, e.type), .typeMismatch,
-                   "Uniform load requires a constructible pointee and matching result", loc)
-        }
-        available.insert(result)
       case .block(let child):
         let result = try block(
-          child, f: f, available: available, uniform: uniform, controlUniform: ctrl, active: active,
+          child, f: f, available: available, uniform: &uniform, locals: &locals, controlUniform: ctrl, active: active,
           seen: &seen, statements: &statements, callResults: &callResults,
-          divergentExit: &divergentExit, loopDepth: loopDepth, inContinuing: inContinuing, switchDepth: switchDepth)
+          loopDepth: loopDepth, inContinuing: inContinuing, switchDepth: switchDepth)
         step = result.flow
-        ctrl = result.uniformAfter
+        trailingUniformity = try mergeUniformity(trailingUniformity, result.trailingUniformity)
       case .ifCondition(let condition, let yes, let no):
         let c = try use(condition, loc)
         try need(try boolean(c.type), .typeMismatch, "If requires bool condition", loc)
-        let nested = ctrl && uniform[condition.index]
+        let nested = try mergeUniformity(ctrl, uniform[condition.index])
+        var yesLocals = locals
+        var noLocals = locals
         let a = try block(
-          yes, f: f, available: available, uniform: uniform, controlUniform: nested, active: active,
+          yes, f: f, available: available, uniform: &uniform, locals: &yesLocals, controlUniform: nested, active: active,
           seen: &seen, statements: &statements, callResults: &callResults,
-          divergentExit: &divergentExit, loopDepth: loopDepth, inContinuing: inContinuing, switchDepth: switchDepth)
+          loopDepth: loopDepth, inContinuing: inContinuing, switchDepth: switchDepth)
         let b = try block(
-          no, f: f, available: available, uniform: uniform, controlUniform: nested, active: active,
+          no, f: f, available: available, uniform: &uniform, locals: &noLocals, controlUniform: nested, active: active,
           seen: &seen, statements: &statements, callResults: &callResults,
-          divergentExit: &divergentExit, loopDepth: loopDepth, inContinuing: inContinuing, switchDepth: switchDepth)
+          loopDepth: loopDepth, inContinuing: inContinuing, switchDepth: switchDepth)
         step = a.flow.union(b.flow)
-        if !uniform[condition.index] && step != .next { ctrl = false }
-        if nested && (!a.uniformAfter || !b.uniformAfter) { ctrl = false }
+        if a.flow.contains(.next) {
+          locals = b.flow.contains(.next) ? try joinLocalUniformity(yesLocals, noLocals) : yesLocals
+        } else if b.flow.contains(.next) {
+          locals = noLocals
+        }
+        if step != .next {
+          trailingUniformity = try mergeUniformity(trailingUniformity, uniform[condition.index])
+          trailingUniformity = try mergeUniformity(trailingUniformity, a.trailingUniformity)
+          trailingUniformity = try mergeUniformity(trailingUniformity, b.trailingUniformity)
+        }
       case .switchValue(let selector, let cases):
         let selection = try use(selector, loc)
-        let selectionType = try type(selection.type)
-        try need(selectionType == .scalar(.i32) || selectionType == .scalar(.u32),
-                 .typeMismatch, "Switch selector must be i32 or u32", loc)
-        var labels = Set<IRSwitchValue>()
-        var branches: StatementFlow = []
-        var previous: IRHandle<IRBlock>?
-        for entry in cases {
-          try budget.consume(.work)
-          try need(!entry.fallThrough, .unsupportedConstruct, "Switch case fall-through is unsupported", loc)
-          try need(labels.insert(entry.value).inserted, .duplicateName, "Duplicate switch selector", loc)
-          switch entry.value {
-          case .i32: try need(selectionType == .scalar(.i32), .typeMismatch, "Switch case type mismatch", loc)
-          case .u32: try need(selectionType == .scalar(.u32), .typeMismatch, "Switch case type mismatch", loc)
-          case .default: break
-          }
-          if previous != entry.body {
-            let branch = try block(
-              entry.body, f: f, available: available, uniform: uniform,
-              controlUniform: ctrl && uniform[selector.index], active: active,
-              seen: &seen, statements: &statements, callResults: &callResults,
-              divergentExit: &divergentExit, loopDepth: loopDepth, inContinuing: inContinuing,
-              switchDepth: switchDepth + 1)
-            branches.formUnion(branch.flow)
-            previous = entry.body
-          }
-        }
-        try need(labels.contains(.default), .invalidControlFlow, "Switch requires default", loc)
-        if branches.remove(.breakTarget) != nil { branches.insert(.next) }
-        step = branches
-        if !uniform[selector.index] && step != .next { ctrl = false }
-      case .call(let target, let args, let result):
-        let callee = try module.functions.value(for: target)
-        try need(
-          args.count == callee.arguments.count, .typeMismatch, "Call argument count mismatch", loc)
-        for (value, param) in zip(args, callee.arguments) {
-          try budget.consume(.work)
-          try need(
-            try same(use(value, loc).type, param.type), .typeMismatch,
-            "Call argument type mismatch", loc)
-        }
-        if functionUniform[target.index] {
-          try need(
-            ctrl && !divergentExit, .nonUniformControlFlow,
-            "Uniformity-requiring call in divergent control flow", loc)
-        }
-        if let result, callee.result != nil {
-          let e = try f.expressions.value(for: result)
-          try need(
-            e.kind == .callResult(target) && callResults.insert(result).inserted, .invalidReference,
-            "Incorrect/duplicate call result", loc)
-          available.insert(result)
-        } else {
-          try need(
-            callee.result == nil && result == nil, .typeMismatch, "Missing/unexpected call result",
-            loc)
-        }
-      case .controlBarrier(let barrier), .memoryBarrier(let barrier):
-        try need(
-          barrier.rawValue > 0 && barrier.rawValue & ~UInt8(15) == 0, .invalidType,
-          "Invalid barrier flags", loc)
-        if barrier.contains(.subgroup) { try cap([.subgroup, .subgroupBarrier], loc) }
-        try need(
-          ctrl && !divergentExit, .nonUniformControlFlow, "Barrier in divergent control flow", loc)
-      case .loop(let body, let continuing, let breakIf):
-        // No uniformity proof is inferred from iteration count or mutable conditions.
-        _ = try block(
-          body, f: f, available: available, uniform: uniform, controlUniform: false, active: active,
+        let result = try validateSwitch(
+          cases, selector: uniform[selector.index], type: type(selection.type), f: f, available: available,
+          uniform: &uniform, locals: &locals, control: ctrl, active: active,
           seen: &seen, statements: &statements, callResults: &callResults,
-          divergentExit: &divergentExit, loopDepth: loopDepth + 1, inContinuing: false, switchDepth: switchDepth)
-        _ = try block(
-          continuing, f: f, available: available, uniform: uniform, controlUniform: false,
-          active: active, seen: &seen, statements: &statements, callResults: &callResults,
-          divergentExit: &divergentExit, loopDepth: loopDepth + 1, inContinuing: true,
-          breakIf: breakIf, switchDepth: switchDepth)
-      case .kill:
-        try need(!inContinuing, .invalidControlFlow, "Discard forbidden in continuing", loc)
-        if !ctrl { divergentExit = true }
-        step = .exit
-      case .break:
-        try need((loopDepth > 0 || switchDepth > 0) && !inContinuing, .invalidControlFlow, "Invalid break target", loc)
-        step = .breakTarget
-      case .continue:
-        try need(loopDepth > 0 && !inContinuing, .invalidControlFlow, "Invalid loop jump", loc)
-        step = .continueTarget
-      default: try unsupported("Statement rule family not implemented", loc)
+          loopDepth: loopDepth, inContinuing: inContinuing, switchDepth: switchDepth, location: loc)
+        step = result.flow
+        trailingUniformity = try mergeUniformity(trailingUniformity, result.trailing)
+      case .loop(let body, let continuing, let breakIf):
+        step = try validateLoop(body, continuing: continuing, breakIf: breakIf, f: f, available: available,
+                                uniform: &uniform, locals: &locals, control: ctrl, active: active,
+                                seen: &seen, statements: &statements, callResults: &callResults,
+                                loopDepth: loopDepth + 1, switchDepth: switchDepth)
+      default:
+        step = try validateLeafStatement(s, f: f, available: &available, uniform: &uniform, locals: &locals, ctrl: ctrl,
+                                         callResults: &callResults, loopDepth: loopDepth, inContinuing: inContinuing,
+                                         switchDepth: switchDepth)
       }
-      flow.remove(.next)
-      flow.formUnion(step)
+      if flow.contains(.next) {
+        flow.remove(.next)
+        flow.formUnion(step)
+      }
     }
     if let breakIf {
       try need(
         try boolean(use(breakIf, b.location).type), .typeMismatch,
         "Loop break-if must be available bool", b.location)
+      trailingUniformity = try mergeUniformity(trailingUniformity, uniform[breakIf.index])
     }
-    return (flow, ctrl)
+    if let lastReachableState {
+      locals = lastReachableState.locals
+      trailingUniformity = lastReachableState.trailing
+    }
+    return (flow, trailingUniformity, available)
   }
+  private mutating func validateDualSourceMembers(_ members: [IRStructMember], at location: ShaderLocation?) throws {
+    try budget.consume(.work, amount: members.count)
+    guard members.contains(where: {
+      if case .location(_, _, _, .some, _) = $0.binding { return true }
+      return false
+    }) else { return }
+    try cap(.dualSourceBlending, location)
+    var colorTypes: [UInt32: IRHandle<IRType>] = [:]
+    for member in members {
+      try budget.consume(.work)
+      guard case .location(let locationIndex, _, _, let blend, let perPrimitive) = member.binding else { continue }
+      guard locationIndex == 0, let blend, blend <= 1, !perPrimitive,
+            colorTypes.updateValue(member.type, forKey: blend) == nil else {
+        try fail(.invalidBinding, "Dual-source outputs require distinct sources 0 and 1 at location 0", member.location)
+      }
+    }
+    guard let first = colorTypes[0], let second = colorTypes[1], try type(first) == type(second) else {
+      try fail(.invalidBinding, "Dual-source outputs require two sources with the same type", location)
+    }
+    switch try type(first) {
+    case .scalar(let value), .vector(_, let value):
+      try need(value.kind != .bool, .typeMismatch, "Dual-source outputs require numeric scalar or vector types", location)
+    default:
+      try fail(.typeMismatch, "Dual-source outputs require numeric scalar or vector types", location)
+    }
+  }
+
   mutating func interface(
     _ t: IRHandle<IRType>, binding: IRBinding?, stage: IRStage, output: Bool,
     locations: inout Set<UInt32>, builtins: inout Set<String>, location: ShaderLocation? = nil,
@@ -1645,12 +2729,13 @@ private struct SemanticChecker {
     do {
       switch binding {
       case .location(let n, let interp, let sampling, let blend, let primitive):
-        try need(
-          stage != .compute && locations.insert(n).inserted, .invalidBinding,
-          "Invalid/duplicate location")
-        try need(
-          !primitive && blend == nil, .unsupportedConstruct,
-          "Per-primitive/dual-source interface rules not implemented")
+        try need(!primitive, .unsupportedConstruct, "Per-primitive interface rules not implemented")
+        if let blend {
+          try need(stage == .fragment && output && member && n == 0 && blend <= 1,
+                   .invalidBinding, "Blend source must be a fragment output member at location 0")
+        } else {
+          try need(stage != .compute && locations.insert(n).inserted, .invalidBinding, "Invalid/duplicate location")
+        }
         let varying = (stage == .vertex && output) || (stage == .fragment && !output)
         try need(varying || (interp == nil && sampling == nil), .invalidBinding,
                  "Interpolation is restricted to vertex outputs and fragment inputs")
@@ -1668,13 +2753,17 @@ private struct SemanticChecker {
         if interp == .linear { try cap(.linearInterpolation) }
       case .builtIn(let b):
         let key: String
-        if case .position = b { key = "position" } else { key = String(describing: b) }
+        switch b {
+        case .position: key = "position"
+        case .barycentric: key = "barycentric"
+        default: key = String(describing: b)
+        }
         try need(builtins.insert(key).inserted, .invalidBinding, "Duplicate builtin")
         let expected: IRTypeKind
         let stages: Set<IRStage>
         let isOutput: Bool
         switch b {
-        case .localInvocationIndex:
+        case .localInvocationIndex, .globalInvocationIndex, .workgroupIndex:
           expected = .scalar(.u32)
           stages = [.compute]
           isOutput = false
@@ -1690,10 +2779,38 @@ private struct SemanticChecker {
           expected = .scalar(.bool)
           stages = [.fragment]
           isOutput = false
+        case .primitiveIndex:
+          try cap(.primitiveIndex)
+          expected = .scalar(.u32)
+          stages = [.fragment]
+          isOutput = false
+        case .barycentric:
+          try cap(.shaderBarycentrics)
+          expected = .vector(size: .three, scalar: .f32)
+          stages = [.fragment]
+          isOutput = false
+        case .subgroupSize, .subgroupInvocationId:
+          try cap(.subgroup)
+          expected = .scalar(.u32)
+          stages = [.compute, .fragment]
+          isOutput = false
+        case .subgroupId, .numSubgroups:
+          try cap(.subgroup)
+          expected = .scalar(.u32)
+          stages = [.compute]
+          isOutput = false
         case .position:
           expected = .vector(size: .four, scalar: .f32)
           stages = output ? [.vertex] : [.fragment]
           isOutput = output
+        case .clipDistances:
+          try cap(.clipDistances)
+          try need(stage == .vertex && output, .invalidBinding, "Clip distances require a vertex output")
+          guard case .array(let base, .constant(let count), _) = try type(t),
+                (1...8).contains(count), try type(base) == .scalar(.f32) else {
+            try fail(.typeMismatch, "Clip distances require array<f32, N> with 1 to 8 elements")
+          }
+          return
         case .fragDepth:
           expected = .scalar(.f32)
           stages = [.fragment]

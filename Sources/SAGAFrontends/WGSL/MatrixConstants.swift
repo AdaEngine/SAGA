@@ -17,6 +17,41 @@ extension WGSLScalarEvaluator {
     "mat2x2": (2, 2), "mat2x3": (2, 3), "mat2x4": (2, 4), "mat3x2": (3, 2), "mat3x3": (3, 3),
     "mat3x4": (3, 4), "mat4x2": (4, 2), "mat4x3": (4, 3), "mat4x4": (4, 4),
   ]
+
+  func matrixBuiltinConstant(_ function: IRMathFunction, matrix: WGSLMatrixConstant, at name: WGSLToken) throws
+    -> WGSLScalarConstant
+  {
+    if function == .transpose {
+      let columns = try (0..<matrix.rows).map { row in
+        try parser.budget.consume(.work, amount: matrix.columns.count)
+        return WGSLVectorConstant(elements: matrix.columns.map { $0.elements[row] }, element: matrix.element)
+      }
+      return .matrix(.init(columns: columns, rows: matrix.columns.count, element: matrix.element))
+    }
+    guard function == .determinant, matrix.columns.count == matrix.rows,
+          case .floating(let kind) = matrix.element else { throw ShaderFailure.invalidHandle }
+    let values = try matrix.columns.map { column in
+      try column.elements.map { element -> Double in
+        guard case .floating(let scalar) = element else { throw ShaderFailure.invalidHandle }
+        return scalar.value
+      }
+    }
+    // At most four columns. Expanding along a column also handles singular matrices without division.
+    func minor(column: Int, rows: [Int]) throws -> Double {
+      try parser.budget.consume(.work)
+      if rows.count == 1 { return values[column][rows[0]] }
+      var sum = 0.0
+      for (index, row) in rows.enumerated() {
+        var remaining = rows
+        remaining.remove(at: index)
+        let term = try values[column][row] * minor(column: column + 1, rows: remaining)
+        sum += index.isMultiple(of: 2) ? term : -term
+      }
+      return sum
+    }
+    return try floating(minor(column: 0, rows: Array(0..<matrix.rows)), kind: kind, at: name)
+  }
+
   mutating func matrixConstructor(_ t: WGSLToken, columns: Int, rows: Int, target: WGSLConstKind?)
     throws -> Int
   {
@@ -58,7 +93,7 @@ extension WGSLScalarEvaluator {
         }
         if leaf == .integer(.abstract) { leaf = .floating(.abstract) }
       }
-      guard leaf == .floating(.abstract) || leaf == .floating(.f32) else {
+      guard case .floating = leaf else {
         throw wgslError(.typeMismatch, "Matrix components must be floating point", t)
       }
       for a in args {
@@ -70,7 +105,7 @@ extension WGSLScalarEvaluator {
         if expected != nodes[a].kind { conversions.append((a, expected, t)) }
       }
     }
-    guard leaf == .floating(.abstract) || leaf == .floating(.f32) else {
+    guard case .floating = leaf else {
       throw wgslError(.typeMismatch, "Matrix scalar must be floating", t)
     }
     return try append(

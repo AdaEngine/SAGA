@@ -49,6 +49,8 @@ public enum ShaderDiagnosticCode: String, Sendable, CaseIterable {
     case nonUniformControlFlow = "SAGA5003"
     case invalidBinding = "SAGA5004"
     case invalidReference = "SAGA5005"
+    case unknownDiagnosticRule = "SAGA5006"
+    case unusedResult = "SAGA5007"
     case unsupportedCapability = "SAGA6001"
     case unsupportedConstruct = "SAGA6002"
     case invalidBinary = "SAGA7001"
@@ -60,7 +62,8 @@ public enum ShaderDiagnosticCode: String, Sendable, CaseIterable {
         case .unexpectedToken: .syntax
         case .unresolvedName, .duplicateName: .nameResolution
         case .typeMismatch, .invalidType: .type
-        case .invalidControlFlow, .invalidAddressSpace, .nonUniformControlFlow, .invalidBinding, .invalidReference: .semantic
+        case .invalidControlFlow, .invalidAddressSpace, .nonUniformControlFlow, .invalidBinding, .invalidReference,
+             .unknownDiagnosticRule, .unusedResult: .semantic
         case .unsupportedCapability, .unsupportedConstruct: .capability
         case .invalidBinary: .binary
         case .budgetExceeded: .resourceLimit
