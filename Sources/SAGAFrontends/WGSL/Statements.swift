@@ -211,6 +211,7 @@ extension WGSLParser {
                 return
             }
             if declarationNames[key] == nil {
+                if Self.rayQueryStatementBuiltins.contains(start.text) { try rayQueryStatement(at: start, end: end); return }
                 if Self.cooperativeStores.contains(start.text) { try cooperativeStore(at: start, end: end); return }
                 if start.text == "debugPrintf" { try debugPrintfStatement(at: start, end: end); return }
                 if start.text == "atomicMin" || start.text == "atomicMax" {
@@ -321,6 +322,8 @@ extension WGSLParser {
                 return
             case .load where start.text == "atomicLoad" && declarationNames[key] == nil:
                 return
+            case .rayQueryProceedResult, .rayQueryGetIntersection, .rayQueryVertexPositions:
+                if declarationNames[key] == nil && Self.rayQueryValueBuiltins.contains(start.text) { return }
             default:
                 break
             }
@@ -439,8 +442,15 @@ extension WGSLParser {
             body.locals.append(IRLocalVariable(name:n.text,type:ty,location:n.location))
             let ptr = try expressionNode(.localVariable(local),type:intern(.pointer(base:ty,space:.function)),at:n,emit:false)
             try define(n,WGSLValue(handle:ptr.handle,type:ty,pointer:true,writable:true))
-            let value = try v ?? expressionNode(.zeroValue(ty),type:ty,at:n,emit:false)
-            try statement(.store(pointer:ptr.handle,value:value.handle),at:n)
+            if case .rayQuery = types[ty.index].kind {
+                guard v == nil else { throw wgslError(.invalidType, "ray_query cannot have an initializer", n) }
+                if body.loopDepth > 0 {
+                    try statement(.rayQuery(query: ptr.handle, function: .begin), at: n)
+                }
+            } else {
+                let value = try v ?? expressionNode(.zeroValue(ty),type:ty,at:n,emit:false)
+                try statement(.store(pointer:ptr.handle,value:value.handle),at:n)
+            }
         } else if let v {
             let scalar: Bool
             if case .scalar = types[ty.index].kind { scalar = true } else { scalar = false }

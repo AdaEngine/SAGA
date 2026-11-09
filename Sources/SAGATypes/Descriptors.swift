@@ -26,7 +26,30 @@ public enum GPUFeature: String, Sendable, Hashable, CaseIterable {
     case indirectFirstInstance, clipDistances, primitiveIndex, depthClipControl, subgroups, subgroupID, dualSourceBlending
     case subgroupSizeControl, subgroupUniformity, shaderBarycentrics, shaderPerVertex, vertexFormatSnorm1010102
     case multiview, selectiveMultiview, multisampleArray, vertexWritableStorage
-    case memoryDecorationCoherent, shaderDebugPrintf, cooperativeMatrix
+    case memoryDecorationCoherent, shaderDebugPrintf, cooperativeMatrix, rayQuery
+}
+
+public enum CooperativeMatrixScalar: String, Sendable, Hashable {
+    case float16, float32
+}
+
+public struct CooperativeMatrixProperties: Sendable, Hashable {
+    public let mSize: UInt32
+    public let nSize: UInt32
+    public let kSize: UInt32
+    public let inputType: CooperativeMatrixScalar
+    public let accumulatorType: CooperativeMatrixScalar
+    public let saturatingAccumulation: Bool
+
+    public init(mSize: UInt32, nSize: UInt32, kSize: UInt32, inputType: CooperativeMatrixScalar,
+                accumulatorType: CooperativeMatrixScalar, saturatingAccumulation: Bool = false) {
+        self.mSize = mSize
+        self.nSize = nSize
+        self.kSize = kSize
+        self.inputType = inputType
+        self.accumulatorType = accumulatorType
+        self.saturatingAccumulation = saturatingAccumulation
+    }
 }
 
 public struct DeviceCapabilities: Sendable, Equatable {
@@ -48,6 +71,7 @@ public struct DeviceCapabilities: Sendable, Equatable {
     /// Advertised subgroup-size limits when the backend provides them.
     public let subgroupSizeRange: ClosedRange<UInt32>?
     public let features: Set<GPUFeature>
+    public let cooperativeMatrixProperties: [CooperativeMatrixProperties]
     /// Float32 formats that the backend supports as 4× color attachments.
     public let multisampledFloat32Formats: Set<TextureFormat>
     /// Multiply a difference between two timestamp query results by this value to obtain nanoseconds.
@@ -62,7 +86,8 @@ public struct DeviceCapabilities: Sendable, Equatable {
                 maxComputeWorkgroupsPerDimension: UInt32 = 65_535, maxVertexAttributes: UInt32 = 16,
                 maxVertexBuffers: UInt32 = 8, maxVertexBufferArrayStride: UInt32 = 2048,
                 maxInterStageShaderVariables: UInt32 = 16, maxColorAttachments: UInt32 = 8,
-                maxColorAttachmentBytesPerSample: UInt32 = 32, maxMultiviewViewCount: UInt32 = 0) throws {
+                maxColorAttachmentBytesPerSample: UInt32 = 32, maxMultiviewViewCount: UInt32 = 0,
+                cooperativeMatrixProperties: [CooperativeMatrixProperties] = []) throws {
         guard maxBufferSize > 0 else { throw GPUError.validation("maxBufferSize must be positive") }
         guard maxTextureDimension2D > 0 else { throw GPUError.validation("maxTextureDimension2D must be positive") }
         guard maxImmediateSize.isMultiple(of: 4) else { throw GPUError.validation("maxImmediateSize must be word-aligned") }
@@ -73,6 +98,11 @@ public struct DeviceCapabilities: Sendable, Equatable {
             throw GPUError.validation("Maximum vertex buffer stride must be word-aligned")
         }
         guard maxMultiviewViewCount <= 32 else { throw GPUError.validation("Multiview view count exceeds the mask width") }
+        guard cooperativeMatrixProperties.isEmpty || features.contains(.cooperativeMatrix),
+              Set(cooperativeMatrixProperties).count == cooperativeMatrixProperties.count,
+              cooperativeMatrixProperties.allSatisfy({ $0.mSize > 0 && $0.nSize > 0 && $0.kSize > 0 }) else {
+            throw GPUError.validation("Invalid cooperative matrix properties")
+        }
         if let subgroupSizeRange, subgroupSizeRange.lowerBound == 0 {
             throw GPUError.validation("Subgroup sizes must be positive")
         }
@@ -83,6 +113,7 @@ public struct DeviceCapabilities: Sendable, Equatable {
             throw GPUError.validation("Float32 multisampling capabilities require float32 color formats")
         }
         self.maxBufferSize = maxBufferSize
+        self.cooperativeMatrixProperties = cooperativeMatrixProperties
         self.maxTextureDimension2D = maxTextureDimension2D
         self.maxImmediateSize = maxImmediateSize
         self.maxComputeWorkgroupStorageSize = maxComputeWorkgroupStorageSize

@@ -16,12 +16,26 @@ runtime uses to create a pipeline.
 
 Native compute shaders can use the `wgpu_cooperative_matrix` WGSL extension.
 For Metal execution, request the `cooperativeMatrix` device feature and use
-complete 32-lane subgroups. Metal supports 8×8 tiles and rectangular 8×16,
+complete 32-lane subgroups. Inspect `device.capabilities.cooperativeMatrixProperties`
+for the supported input, accumulator and matrix dimensions. Metal supports 8×8 tiles and rectangular 8×16,
 16×8 and 16×16 matrices made from those tiles, including f16 inputs with an
 f32 accumulator. HLSL supports these shapes using wave operations and supports
 f16 loads and stores with f32 accumulation. The compiler also emits native WGSL, GLSL with KHR
 cooperative matrices, and SPIR-V for supported combinations.
 Browser WebGPU compilation rejects this native extension.
+
+Check `device.capabilities.features` for `rayQuery` before using the native Metal
+ray-query path. On supported devices, `createAccelerationStructure` allocates
+a bottom-level resource and `buildAccelerationStructure` builds it from a
+float32 triangle vertex buffer, optionally indexed by 16- or 32-bit indices.
+Out-of-range indices turn their triangle into a degenerate triangle. A top-level resource holds instances
+of bottom-level structures, with an affine transform, mask and instance ID. Await
+the submission before using the build result, and destroy the resources when
+finished. Native Metal compute pipelines can bind a top-level structure to a WGSL
+`acceleration_structure` for ray queries. This path accepts opacity, face and
+geometry culling, and terminate-on-first-hit flags as literals or dynamic
+values. Invalid flag combinations do not initialize the query. Vertex return is not supported. Browser WebGPU
+does not provide this native API.
 
 ## Topics
 

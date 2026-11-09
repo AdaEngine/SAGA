@@ -408,6 +408,8 @@ struct WebGPUHost: BrowserGPUPresentationHost, SamplerBackendDevice, TextureView
                 packet.add(UInt32(14)); packet.add(occlusion.querySet); packet.add(occlusion.queryIndex)
             }
             switch command {
+            case .buildAccelerationStructure, .buildTopLevelAccelerationStructure:
+                throw GPUError.unsupported("Browser acceleration structures are not supported")
             case .timestamped, .occlusionQueried:
                 throw GPUError.validation("Invalid query pass nesting")
             case .resolveQuerySet(let set, let first, let count, let destination, let offset):
@@ -427,7 +429,7 @@ struct WebGPUHost: BrowserGPUPresentationHost, SamplerBackendDevice, TextureView
                 packet.add(UInt32(size == nil ? 0 : 1))
                 if let size { packet.add(size) }
             case .dispatchCompute, .dispatchComputeRanges, .dispatchComputeIndirect:
-                let (pipeline, bindings, source, textures, samplers, immediates) = command.computeDispatch!
+                let (pipeline, bindings, source, textures, samplers, immediates, _) = command.computeDispatch!
                 switch source {
                 case .direct(let groups):
                     packet.add(UInt32(2)); packet.add(pipeline.id)

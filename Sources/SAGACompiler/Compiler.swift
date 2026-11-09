@@ -258,6 +258,7 @@ public struct IndependentShaderCompiler: Sendable {
         if output != .msl { capabilities.insert(.shaderInt64AtomicAllOps) }
         if [.hlsl, .glsl, .spirv, .dot].contains(output) { capabilities.insert(.float64) }
         if !webGPU { capabilities.insert(.cooperativeMatrix) }
+        if !webGPU && output == .msl { capabilities.insert(.rayQuery) }
         let usesNagaSource = !webGPU && wgslSourceProfile == .nagaNative
         let nativeTarget = switch output {
         case .msl, .hlsl, .glsl, .spirv: true

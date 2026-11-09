@@ -660,7 +660,9 @@ private struct SemanticChecker {
       capabilities.rawValue & ~ShaderCapabilities.allKnown.rawValue == 0, .unsupportedCapability,
       "Unknown capability bits")
     guard module.specialTypes.predeclared.count <= 2 + 4 * (IRVectorSize.allCases.count + 1),
-      module.specialTypes == IRSpecialTypes(predeclared: module.specialTypes.predeclared)
+      module.specialTypes == IRSpecialTypes(rayDescriptor: module.specialTypes.rayDescriptor,
+        rayIntersection: module.specialTypes.rayIntersection, rayVertexReturn: module.specialTypes.rayVertexReturn,
+        predeclared: module.specialTypes.predeclared)
     else {
       try unsupported("Special type handle validation not implemented")
     }
@@ -676,6 +678,7 @@ private struct SemanticChecker {
       }
       layouts.append(checked)
     }
+    try validateRaySpecialTypes()
     try validatePredeclaredTypes()
     try expressions(module.globalExpressions, function: nil, currentFunction: nil)
     for c in module.constants.values {
@@ -704,9 +707,10 @@ private struct SemanticChecker {
         if kind.storageTexture?.format.isNormalized16Bit == true {
           try cap(.storageTexture16BitNormFormats, g.location)
         }
-        try need(
-          kind.isTextureOrSampler && g.binding != nil,
-          .invalidBinding, "Texture or sampler requires a resource binding", g.location)
+        let resource: Bool
+        if case .accelerationStructure = kind { resource = true } else { resource = kind.isTextureOrSampler }
+        try need(resource && g.binding != nil,
+          .invalidBinding, "Handle resource requires a resource binding", g.location)
       case .private, .workgroup:
         try need(
           g.binding == nil && layout.data && (layout.sized || (g.space == .workgroup && layout.pipelineSized)), .invalidAddressSpace,
@@ -874,6 +878,41 @@ private struct SemanticChecker {
       }
     }
   }
+
+  mutating func validateRaySpecialTypes() throws {
+    func check(_ handle: IRHandle<IRType>, _ span: UInt32, _ offsets: [UInt32], _ kinds: [IRTypeKind]) throws {
+      guard case .structure(let members, let actualSpan) = try type(handle),
+            actualSpan == span, members.count == kinds.count else {
+        try fail(.invalidType, "Invalid ray special structure")
+      }
+      for index in kinds.indices {
+        try need(members[index].offset == offsets[index] && members[index].binding == nil &&
+                 (try type(members[index].type)) == kinds[index], .invalidType,
+                 "Invalid ray special structure member", members[index].location)
+      }
+    }
+    if let descriptor = module.specialTypes.rayDescriptor {
+      try cap(.rayQuery)
+      try check(descriptor, 48, [0, 4, 8, 12, 16, 32],
+        [.scalar(.u32), .scalar(.u32), .scalar(.f32), .scalar(.f32),
+         .vector(size: .three, scalar: .f32), .vector(size: .three, scalar: .f32)])
+    }
+    if let intersection = module.specialTypes.rayIntersection {
+      try cap(.rayQuery)
+      try check(intersection, 176, [0, 4, 8, 12, 16, 20, 24, 32, 40, 48, 112],
+        [.scalar(.u32), .scalar(.f32), .scalar(.u32), .scalar(.u32), .scalar(.u32),
+         .scalar(.u32), .scalar(.u32), .vector(size: .two, scalar: .f32), .scalar(.bool),
+         .matrix(columns: .four, rows: .three, scalar: .f32), .matrix(columns: .four, rows: .three, scalar: .f32)])
+    }
+    if let vertexReturn = module.specialTypes.rayVertexReturn {
+      try cap([.rayQuery, .rayHitVertexPosition])
+      guard case .array(let base, .constant(3), 16) = try type(vertexReturn) else {
+        try fail(.invalidType, "Invalid ray vertex return type")
+      }
+      try need(try type(base) == .vector(size: .three, scalar: .f32), .invalidType,
+               "Invalid ray vertex return element")
+    }
+  }
   func layout(_ h: IRHandle<IRType>) throws -> TypeLayout {
     try need(layouts.indices.contains(h.index), .invalidReference, "Invalid type handle")
     return layouts[h.index]
@@ -883,6 +922,10 @@ private struct SemanticChecker {
   {
     try budget.consume(.work)
     let l = try layout(t)
+    if case .rayQuery = try type(t) {
+      try need(space == .function, .invalidAddressSpace, "Ray queries require function storage", location)
+      return
+    }
     if case .cooperativeMatrix = try type(t) {
       try need(space == .function || space == .private, .invalidAddressSpace,
                "Cooperative matrices require function or private memory", location)
@@ -961,6 +1004,12 @@ private struct SemanticChecker {
         loc)
     }
     if t.kind.isExternalTexture { try cap(.textureExternal, loc) }
+    switch t.kind {
+    case .rayQuery(let vertexReturn), .accelerationStructure(let vertexReturn):
+      try cap(.rayQuery, loc)
+      if vertexReturn { try cap(.rayHitVertexPosition, loc) }
+    default: break
+    }
     if let storage = t.kind.storageTexture {
       if storage.scalar == .u64 { try cap(.shaderInt64, loc) }
       if storage.access.contains(.atomic) {
@@ -971,6 +1020,10 @@ private struct SemanticChecker {
       return TypeLayout(alignment: 1, size: 0, sized: false, data: false, constructible: false, host: false)
     }
     switch t.kind {
+    case .rayQuery:
+      return TypeLayout(alignment: 1, size: 0, sized: true, data: false, constructible: false, host: false)
+    case .accelerationStructure:
+      return TypeLayout(alignment: 1, size: 0, sized: false, data: false, constructible: false, host: false)
     case .scalar(let s):
       try scalarCheck(s, loc: loc)
       return TypeLayout(alignment: UInt64(s.width), size: UInt64(s.width), host: s.kind != .bool)
@@ -1007,6 +1060,10 @@ private struct SemanticChecker {
       return TypeLayout(alignment: 4, size: 4, constructible: false, containsAtomic: true)
     case .pointer(let base, let space):
       try prior(base)
+      if case .rayQuery = try type(base) {
+        try need(space == .function, .invalidAddressSpace, "Ray query pointers require function storage", loc)
+        return TypeLayout(alignment: 1, size: 0, data: false, constructible: false, host: false)
+      }
       if case .bindingArray(let element, _) = try type(base) {
         // Indexing the global address produces a regular pointer to the bound buffer.
         switch space {
@@ -1326,6 +1383,26 @@ private struct SemanticChecker {
           try unsupported("Abstract literal concretization not implemented", e.location)
         }
         try match(.scalar(s))
+      case .rayQueryProceedResult:
+        try cap(.rayQuery, e.location)
+        try match(.scalar(.bool))
+      case .rayQueryGetIntersection(let query, _):
+        try cap(.rayQuery, e.location)
+        guard let function, let expected = module.specialTypes.rayIntersection else {
+          try fail(.invalidType, "Ray intersection special type is missing", e.location)
+        }
+        _ = try operand(query)
+        _ = try validateRayQuery(query, in: function, at: e.location)
+        try need(try same(e.type, expected), .typeMismatch, "Ray intersection result type mismatch", e.location)
+      case .rayQueryVertexPositions(let query, _):
+        try cap([.rayQuery, .rayHitVertexPosition], e.location)
+        guard let function, let expected = module.specialTypes.rayVertexReturn else {
+          try fail(.invalidType, "Ray vertex return special type is missing", e.location)
+        }
+        _ = try operand(query)
+        try need(try validateRayQuery(query, in: function, at: e.location), .typeMismatch,
+                 "Ray query lacks vertex return", e.location)
+        try need(try same(e.type, expected), .typeMismatch, "Ray vertex result type mismatch", e.location)
       case .zeroValue(let t):
         try need(try same(e.type, t), .typeMismatch, "Zero value type mismatch", e.location)
         try need(
@@ -1764,77 +1841,7 @@ private struct SemanticChecker {
                  "Boolean reduction requires a bool scalar or vector", e.location)
         try match(.scalar(.bool))
       case .math(let fn, let arg, let arg1, let arg2, let arg3):
-        let a = try operand(arg)
-        if fn == .ldexp {
-          let mantissa = try type(a.type)
-          guard let exponent = arg1, arg2 == nil, arg3 == nil,
-                let expected = mantissa.ldexpExponentType, try type(operand(exponent).type) == expected else {
-            try fail(.typeMismatch, "ldexp needs matching floating mantissa and i32 exponent shapes", e.location)
-          }
-          try match(mantissa)
-          break
-        }
-        if fn.decomposesFloat {
-          try validateDecompositionCall(fn, operand: a.type, result: e.type,
-                                        hasExtraArguments: arg1 != nil || arg2 != nil || arg3 != nil, at: e.location)
-          break
-        }
-        if let packing = fn.packingBuiltin {
-          try need(try type(a.type) == packing.argumentType && arg1 == nil && arg2 == nil && arg3 == nil,
-                   .typeMismatch, "Packing builtin argument type or arity mismatch", e.location)
-          try match(packing.resultType)
-          break
-        }
-        if let arity = fn.geometricArity {
-          let supplied = [arg1, arg2, arg3]
-          guard let signature = fn.geometricSignature(for: try type(a.type)),
-                supplied.enumerated().allSatisfy({ ($0.offset < arity - 1) == ($0.element != nil) }) else {
-            try fail(.typeMismatch, "Invalid geometric builtin operand or arity", e.location)
-          }
-          for (extra, expected) in zip(supplied.compactMap({ $0 }), signature.arguments.dropFirst()) {
-            try need(try type(operand(extra).type) == expected, .typeMismatch, "Geometric builtin argument type mismatch", e.location)
-          }
-          try match(signature.result)
-          break
-        }
-        guard let scalar = try scalar(a.type) else {
-          try fail(.typeMismatch, "Math needs numeric scalar/vector", e.location)
-        }
-        if case .matrix = try type(a.type) {
-          try unsupported("Matrix builtin overload not implemented", e.location)
-        }
-        if let arity = fn.integerBitArity {
-          let arguments = [arg1, arg2, arg3]
-          try need([.i16, .u16, .i32, .u32, .i64, .u64].contains(scalar) &&
-                   arguments.enumerated().allSatisfy { ($0.offset < arity - 1) == ($0.element != nil) },
-                   .typeMismatch, "Invalid integer bit builtin type or arity", e.location)
-          if arity == 4, let inserted = arg1 {
-            try need(try same(operand(inserted).type, a.type), .typeMismatch, "Bit insertion value type mismatch", e.location)
-          }
-          if arity > 1 {
-            for bound in arguments[(arity - 3)..<(arity - 1)].compactMap({ $0 }) {
-              try need(try type(operand(bound).type) == .scalar(.u32), .typeMismatch, "Bit range must be u32", e.location)
-            }
-          }
-          try need(try same(e.type, a.type), .typeMismatch, "Bit builtin result type mismatch", e.location)
-          break
-        }
-        if let numeric = fn.numericBuiltin {
-          let operands = [arg1, arg2, arg3]
-          try need(numeric.accepts(scalar) &&
-                   operands.enumerated().allSatisfy({ ($0.offset < numeric.arity - 1) == ($0.element != nil) }),
-                   .typeMismatch, "Numeric builtin scalar type or arity mismatch", e.location)
-          for (index, operandHandle) in operands.compactMap({ $0 }).enumerated() {
-            let operandType = try operand(operandHandle).type
-            if numeric.scalarLastArgument, index == numeric.arity - 2, try type(operandType) == .scalar(scalar) {
-              continue
-            }
-            try need(try same(operandType, a.type), .typeMismatch, "Numeric builtin operand type mismatch", e.location)
-          }
-          try need(try same(e.type, a.type), .typeMismatch, "Numeric builtin result type mismatch", e.location)
-          break
-        }
-        try unsupported("Math builtin overload rules not implemented", e.location)
+        try validateMathExpression(fn, arg, arg1, arg2, arg3, expression: e, table: table, index: i)
       case .callResult(let target):
         guard let currentFunction, target.index < currentFunction else {
           try fail(.invalidReference, "Calls must target earlier functions", e.location)
@@ -1934,6 +1941,91 @@ private struct SemanticChecker {
     default: return nil
     }
   }
+  private mutating func validateMathExpression(
+    _ fn: IRMathFunction, _ arg: IRHandle<IRExpression>, _ arg1: IRHandle<IRExpression>?,
+    _ arg2: IRHandle<IRExpression>?, _ arg3: IRHandle<IRExpression>?,
+    expression e: IRExpression, table: IRTable<IRExpression>, index: Int
+  ) throws {
+    func operand(_ h: IRHandle<IRExpression>) throws -> IRExpression {
+      try need(h.index < index, .invalidReference, "Expression references must precede use", e.location)
+      return try table.value(for: h)
+    }
+    let declared = try type(e.type)
+    func match(_ expected: IRTypeKind) throws {
+      try need(declared == expected, .typeMismatch, "Expression result type mismatch", e.location)
+    }
+      let a = try operand(arg)
+      if fn == .ldexp {
+        let mantissa = try type(a.type)
+        guard let exponent = arg1, arg2 == nil, arg3 == nil,
+              let expected = mantissa.ldexpExponentType, try type(operand(exponent).type) == expected else {
+          try fail(.typeMismatch, "ldexp needs matching floating mantissa and i32 exponent shapes", e.location)
+        }
+        try match(mantissa)
+        return
+      }
+      if fn.decomposesFloat {
+        try validateDecompositionCall(fn, operand: a.type, result: e.type,
+                                      hasExtraArguments: arg1 != nil || arg2 != nil || arg3 != nil, at: e.location)
+        return
+      }
+      if let packing = fn.packingBuiltin {
+        try need(try type(a.type) == packing.argumentType && arg1 == nil && arg2 == nil && arg3 == nil,
+                 .typeMismatch, "Packing builtin argument type or arity mismatch", e.location)
+        try match(packing.resultType)
+        return
+      }
+      if let arity = fn.geometricArity {
+        let supplied = [arg1, arg2, arg3]
+        guard let signature = fn.geometricSignature(for: try type(a.type)),
+              supplied.enumerated().allSatisfy({ ($0.offset < arity - 1) == ($0.element != nil) }) else {
+          try fail(.typeMismatch, "Invalid geometric builtin operand or arity", e.location)
+        }
+        for (extra, expected) in zip(supplied.compactMap({ $0 }), signature.arguments.dropFirst()) {
+          try need(try type(operand(extra).type) == expected, .typeMismatch, "Geometric builtin argument type mismatch", e.location)
+        }
+        try match(signature.result)
+        return
+      }
+      guard let scalar = try scalar(a.type) else {
+        try fail(.typeMismatch, "Math needs numeric scalar/vector", e.location)
+      }
+      if case .matrix = try type(a.type) {
+        try unsupported("Matrix builtin overload not implemented", e.location)
+      }
+      if let arity = fn.integerBitArity {
+        let arguments = [arg1, arg2, arg3]
+        try need([.i16, .u16, .i32, .u32, .i64, .u64].contains(scalar) &&
+                 arguments.enumerated().allSatisfy { ($0.offset < arity - 1) == ($0.element != nil) },
+                 .typeMismatch, "Invalid integer bit builtin type or arity", e.location)
+        if arity == 4, let inserted = arg1 {
+          try need(try same(operand(inserted).type, a.type), .typeMismatch, "Bit insertion value type mismatch", e.location)
+        }
+        if arity > 1 {
+          for bound in arguments[(arity - 3)..<(arity - 1)].compactMap({ $0 }) {
+            try need(try type(operand(bound).type) == .scalar(.u32), .typeMismatch, "Bit range must be u32", e.location)
+          }
+        }
+        try need(try same(e.type, a.type), .typeMismatch, "Bit builtin result type mismatch", e.location)
+        return
+      }
+      if let numeric = fn.numericBuiltin {
+        let operands = [arg1, arg2, arg3]
+        try need(numeric.accepts(scalar) &&
+                 operands.enumerated().allSatisfy({ ($0.offset < numeric.arity - 1) == ($0.element != nil) }),
+                 .typeMismatch, "Numeric builtin scalar type or arity mismatch", e.location)
+        for (index, operandHandle) in operands.compactMap({ $0 }).enumerated() {
+          let operandType = try operand(operandHandle).type
+          if numeric.scalarLastArgument, index == numeric.arity - 2, try type(operandType) == .scalar(scalar) {
+            continue
+          }
+          try need(try same(operandType, a.type), .typeMismatch, "Numeric builtin operand type mismatch", e.location)
+        }
+        try need(try same(e.type, a.type), .typeMismatch, "Numeric builtin result type mismatch", e.location)
+        return
+      }
+      try unsupported("Math builtin overload rules not implemented", e.location)
+  }
   mutating func accessResult(
     baseType: IRHandle<IRType>, index: UInt32?, result: IRHandle<IRType>, loc: ShaderLocation?
   ) throws {
@@ -2023,7 +2115,7 @@ private struct SemanticChecker {
         }
         try need(!entryIndices.contains(index) && (module.allowsPointerSubviews || space == .function || space == .private),
                  .invalidAddressSpace, "Shared pointer parameters require unrestricted_pointer_parameters", a.location)
-      } else if kind.isTextureOrSampler {
+      } else if kind.isTextureOrSampler || { if case .accelerationStructure = kind { return true }; return false }() {
         try need(!entryIndices.contains(index), .invalidType, "Entry points cannot take texture or sampler parameters", a.location)
       } else {
         try need(
@@ -2040,6 +2132,10 @@ private struct SemanticChecker {
       try text(v.name)
       try budget.consume(.nodes)
       try storeType(v.type, space: .function, location: v.location)
+      if case .rayQuery = try type(v.type) {
+        try need(v.initializer == nil, .invalidType, "Ray query local cannot have an initializer", v.location)
+        continue
+      }
       try need(
         try layout(v.type).data && layout(v.type).sized, .invalidType, "Local must be sized data",
         v.location)
@@ -2471,6 +2567,16 @@ private struct SemanticChecker {
     }
   }
 
+  func validateRayQuery(_ handle: IRHandle<IRExpression>, in function: IRFunction,
+                        at location: ShaderLocation?) throws -> Bool {
+    let expression = try function.expressions.value(for: handle)
+    guard case .localVariable(let local) = expression.kind,
+          case .rayQuery(let vertexReturn) = try type(function.localVariables.value(for: local).type) else {
+      try fail(.typeMismatch, "Ray query must reference a local query variable", location)
+    }
+    return vertexReturn
+  }
+
   // Keep leaf validation out of the recursive block frame.
   mutating func validateLeafStatement(
     _ s: IRStatement, f: IRFunction, available: inout Set<IRHandle<IRExpression>>,
@@ -2492,7 +2598,7 @@ private struct SemanticChecker {
         let e = try f.expressions.value(for: x)
         try need(!available.contains(x), .invalidReference, "Duplicate or invalid emit", loc)
         switch e.kind {
-        case .callResult, .atomicResult, .workgroupUniformLoadResult, .subgroupOperationResult, .subgroupBallotResult:
+        case .callResult, .atomicResult, .workgroupUniformLoadResult, .subgroupOperationResult, .subgroupBallotResult, .rayQueryProceedResult:
           try fail(.invalidReference, "Statement result cannot be produced by emit", loc)
         default: break
         }
@@ -2699,6 +2805,32 @@ private struct SemanticChecker {
       }
       uniform[result.index] = .uniform
       available.insert(result)
+    case .rayQuery(let query, let operation):
+      try cap(.rayQuery, loc)
+      _ = try use(query, loc)
+      let vertexReturn = try validateRayQuery(query, in: f, at: loc)
+      switch operation {
+      case .initialize(let acceleration, let descriptor):
+        let accelerationType = try type(use(acceleration, loc).type)
+        guard case .accelerationStructure(let providesVertices) = accelerationType else {
+          try fail(.typeMismatch, "Ray initialization requires an acceleration structure", loc)
+        }
+        try need(!vertexReturn || providesVertices, .typeMismatch, "Acceleration structure lacks vertex return", loc)
+        guard let expected = module.specialTypes.rayDescriptor else {
+          try fail(.invalidType, "Ray descriptor special type is missing", loc)
+        }
+        try need(try same(use(descriptor, loc).type, expected), .typeMismatch, "Ray descriptor type mismatch", loc)
+      case .proceed(let result):
+        let expression = try f.expressions.value(for: result)
+        try need(expression.kind == .rayQueryProceedResult && callResults.insert(result).inserted,
+                 .invalidReference, "Incorrect or duplicate ray proceed result", loc)
+        uniform[result.index] = .varying
+        available.insert(result)
+      case .generateIntersection(let hitT):
+        try need(try type(use(hitT, loc).type) == .scalar(.f32), .typeMismatch,
+                 "Ray hit distance must be f32", loc)
+      case .confirmIntersection, .terminate, .begin: break
+      }
     case .call(let target, let args, let result):
       try validateCall(target, arguments: args, result: result, function: f, available: &available,
                        producedResults: &callResults, uniform: &uniform, locals: &locals, uniformControl: ctrl, at: loc)

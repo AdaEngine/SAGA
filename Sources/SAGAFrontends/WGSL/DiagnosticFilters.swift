@@ -35,6 +35,17 @@ extension WGSLParser {
               throw wgslError(.unsupportedCapability, "f16 requires shaderFloat16", extensionName)
             }
             float16Enabled = true
+          case "wgpu_ray_query":
+            guard options.capabilities.contains(.rayQuery) else {
+              throw wgslError(.unsupportedCapability, "wgpu_ray_query requires rayQuery", extensionName)
+            }
+            rayQueryEnabled = true
+            try installRayQueryTypes(at: extensionName)
+          case "wgpu_ray_query_vertex_return":
+            guard options.capabilities.contains(.rayHitVertexPosition) else {
+              throw wgslError(.unsupportedCapability, "wgpu_ray_query_vertex_return requires rayHitVertexPosition", extensionName)
+            }
+            rayQueryVertexReturnEnabled = true
           case "wgpu_int16":
             guard options.capabilities.contains(.shaderInt16) else {
               throw wgslError(.unsupportedCapability, "wgpu_int16 requires shaderInt16", extensionName)

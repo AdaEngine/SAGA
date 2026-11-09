@@ -100,6 +100,11 @@ final class WGSLParser {
     var linearIndexingEnabled = false
     var dualSourceBlendingEnabled = false
     var bindingArraysEnabled = false
+    var rayQueryEnabled = false
+    var rayQueryVertexReturnEnabled = false
+    var rayDescriptorType: WType?
+    var rayIntersectionType: WType?
+    var rayVertexReturnType: WType?
     // Record whether the module needs pointer parameter lowering with subview bounds checks.
     var allowsPointerSubviews = false
     var uniformBufferStandardLayout = false
@@ -187,7 +192,7 @@ final class WGSLParser {
         }
         try budget.checkCancellation()
         try compactAbstractIntermediates()
-        return IRModule(types:IRTable(types),specialTypes:.init(predeclared:predeclaredTypes),constants:IRTable(constants), overrides:IRTable(overrides),
+        return IRModule(types:IRTable(types),specialTypes:.init(rayDescriptor: rayDescriptorType, rayIntersection: rayIntersectionType, rayVertexReturn: rayVertexReturnType, predeclared:predeclaredTypes),constants:IRTable(constants), overrides:IRTable(overrides),
                         globalVariables:IRTable(globals),globalExpressions:IRTable(globalExpressions),
                         functions:IRTable(functions),entryPoints:entries,
                         diagnosticFilters:IRTable(diagnosticFilters),diagnosticFilter:moduleDiagnosticFilter,
@@ -392,6 +397,20 @@ final class WGSLParser {
         default: scalar = nil
         }
         if let scalar { return try intern(.scalar(scalar)) }
+        if t.text == "ray_query" || t.text == "acceleration_structure" {
+            guard rayQueryEnabled else { throw wgslError(.unsupportedCapability, "Ray query types require enable wgpu_ray_query", t) }
+            var vertexReturn = false
+            if try eat("<") {
+                let flag = try take()
+                guard flag.text == "vertex_return", rayQueryVertexReturnEnabled else {
+                    throw wgslError(.unsupportedCapability, "vertex_return requires enable wgpu_ray_query_vertex_return", flag)
+                }
+                _ = try eat(",")
+                try expect(">")
+                vertexReturn = true
+            }
+            return try intern(t.text == "ray_query" ? .rayQuery(vertexReturn: vertexReturn) : .accelerationStructure(vertexReturn: vertexReturn))
+        }
         if let shape = Self.cooperativeMatrixShape(t.text) { return try cooperativeMatrixType(shape.0, shape.1, at: t) }
         if t.text == "ptr" { return try pointerType(at: t) }
         if t.text == "texture_external" {
@@ -683,7 +702,7 @@ final class WGSLParser {
         } else {
             resourceKind = kind
         }
-        if resourceKind.isTextureOrSampler {
+        if resourceKind.isTextureOrSampler || { if case .accelerationStructure = resourceKind { return true }; return false }() {
             guard !explicitSpace else {
                 throw wgslError(.invalidAddressSpace, "Texture and sampler address space is implicit", n)
             }

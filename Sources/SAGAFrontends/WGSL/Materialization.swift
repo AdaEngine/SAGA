@@ -50,7 +50,7 @@ extension WGSLParser {
               name: m.name, type: try ty(m.type), binding: m.binding, offset: m.offset,
               location: m.location)
           }, span: span)
-      case .scalar, .vector, .matrix, .cooperativeMatrix, .atomic, .image, .sampler: kind = t.kind
+      case .scalar, .vector, .matrix, .cooperativeMatrix, .atomic, .image, .sampler, .rayQuery, .accelerationStructure: kind = t.kind
       default:
         throw ShaderFailure.unsupported(
           "WGSL materialization type remapping family not implemented")
@@ -122,7 +122,7 @@ extension WGSLParser {
         let e = kept[j]
         let k: IRExpressionKind
         switch e.kind {
-        case .literal, .constant, .override, .functionArgument, .globalVariable, .localVariable, .callResult, .subgroupBallotResult:
+        case .literal, .constant, .override, .functionArgument, .globalVariable, .localVariable, .callResult, .subgroupBallotResult, .rayQueryProceedResult:
           k = e.kind
         case .zeroValue(let t): k = .zeroValue(try ty(t))
         case .runtimeValue(let value): k = .runtimeValue(try ex(value))
@@ -135,6 +135,8 @@ extension WGSLParser {
         case .atomicResult(let t, let comparison): k = .atomicResult(type: try ty(t), comparison: comparison)
         case .workgroupUniformLoadResult(let t): k = .workgroupUniformLoadResult(type: try ty(t))
         case .subgroupOperationResult(let t): k = .subgroupOperationResult(type: try ty(t))
+        case .rayQueryGetIntersection(let query, let committed): k = .rayQueryGetIntersection(query: try ex(query), committed: committed)
+        case .rayQueryVertexPositions(let query, let committed): k = .rayQueryVertexPositions(query: try ex(query), committed: committed)
         case .arrayLength(let p): k = .arrayLength(try ex(p))
         case .imageSample(let sample):
           let level: IRSampleLevel
@@ -176,7 +178,6 @@ extension WGSLParser {
           k = .cooperativeLoad(columns: columns, rows: rows, role: role, data: try cooperativeData(data))
         case .cooperativeMultiplyAdd(let a, let b, let c):
           k = .cooperativeMultiplyAdd(a: try ex(a), b: try ex(b), c: try ex(c))
-        default: throw ShaderFailure.unsupported("WGSL expression remapping family not implemented")
         }
         kept[j] = .init(type: try ty(e.type), kind: k, location: e.location)
       }
@@ -201,6 +202,15 @@ extension WGSLParser {
         case .loop(let b, let c, let x): k = .loop(body: b, continuing: c, breakIf: try optional(x))
         case .returnValue(let x): k = .returnValue(try optional(x))
         case .store(let p, let v): k = .store(pointer: try ex(p), value: try ex(v))
+        case .rayQuery(let query, let function):
+          let mapped: IRRayQueryFunction
+          switch function {
+          case .initialize(let acceleration, let descriptor): mapped = .initialize(accelerationStructure: try ex(acceleration), descriptor: try ex(descriptor))
+          case .proceed(let result): mapped = .proceed(result: try ex(result))
+          case .generateIntersection(let hit): mapped = .generateIntersection(hitT: try ex(hit))
+          case .confirmIntersection, .terminate, .begin: mapped = function
+          }
+          k = .rayQuery(query: try ex(query), function: mapped)
         case .cooperativeStore(let target, let data):
           k = .cooperativeStore(target: try ex(target), data: try cooperativeData(data))
         case .imageStore(let image, let coordinate, let arrayIndex, let value):
@@ -249,6 +259,9 @@ extension WGSLParser {
         }, statements: IRTable(statements), blocks: f.blocks, body: f.body,
         diagnosticFilter: f.diagnosticFilter, location: f.location)
     }
+    rayDescriptorType = try rayDescriptorType.map(ty)
+    rayIntersectionType = try rayIntersectionType.map(ty)
+    rayVertexReturnType = try rayVertexReturnType.map(ty)
     predeclaredTypes = try predeclaredTypes.compactMap {
       guard !abstractStructures.contains($0.type.index) else { return nil }
       return .init(kind: $0.kind, type: try ty($0.type))

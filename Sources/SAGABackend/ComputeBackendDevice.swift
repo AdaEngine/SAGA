@@ -32,6 +32,7 @@ extension ComputePipeline {
         layouts += shader.storageBindings.map { ($0.binding, $0.bindingArray) }
         layouts += shader.uniformBindings.map { ($0.binding, $0.bindingArray) }
         layouts += shader.externalTextures.map { ($0, nil) }
+        layouts += shader.accelerationStructures.map { ($0.binding, nil) }
         self.init(id: id, storageBindings: try shader.storageBindings.flatMap { buffer in
             try buffer.binding.computeSlots(array: buffer.bindingArray, limit: ComputeShaderArtifact.storageBindingCapacity).map {
                 .init(slot: $0, minimumByteSize: buffer.minimumByteSize, isReadOnly: buffer.isReadOnly)
@@ -47,6 +48,7 @@ extension ComputePipeline {
         }, samplerBindings: samplers.map {
             .init(slot: $0.slot, isComparison: $0.isComparison, requiresNonFiltering: nonFiltering.contains($0.slot))
         }, externalTextureBindings: shader.externalTextures.map { .init(group: $0.group, binding: $0.binding) },
+        accelerationStructureBindings: shader.accelerationStructures.map { .init(group: $0.binding.group, binding: $0.binding.binding) },
         webBindingIndices: try resolveWebBindingIndices(layouts),
         immediateByteSize: shader.immediateLayout?.wordAlignedByteSize ?? 0,
         maximumLinearWorkgroupCount: maximumLinearWorkgroupCount,

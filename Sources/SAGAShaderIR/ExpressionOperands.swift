@@ -7,6 +7,7 @@ extension IRExpressionKind {
       case .binary(_, let a, let b), .access(let a, let b): return [a, b]
       case .select(let c, let a, let b): return [c, a, b]
       case .accessIndex(let b, _), .splat(_, let b), .swizzle(_, let b, _): return [b]
+      case .rayQueryGetIntersection(let query, _), .rayQueryVertexPositions(let query, _): return [query]
       case .imageSample(let sample):
         return [sample.image, sample.sampler, sample.coordinate] + sample.level.operands +
           [sample.arrayIndex, sample.offset, sample.depthReference].compactMap { $0 }

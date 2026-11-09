@@ -215,6 +215,9 @@ extension WGSLParser {
                 return v
             }
         }
+        if rayQueryEnabled, declarationNames[wgslKey(name.text)] == nil, let value = rayQueryConstant(name.text) {
+            return try expressionNode(.literal(.u32(value)), type: intern(.scalar(.u32)), at: name, emit: false)
+        }
         try resolveValueDeclaration(name)
         if let handle = overrideNames[key] {
             return try expressionNode(.override(handle), type: overrides[handle.index].type, at: name, emit: false)
@@ -587,7 +590,7 @@ extension WGSLParser {
         return WGSLValue(handle: value.handle, type: expression.type, pointer: false, writable: false)
     }
 
-    private func dereference(_ value: WGSLValue, at t: WGSLToken) throws -> WGSLValue {
+    func dereference(_ value: WGSLValue, at t: WGSLToken) throws -> WGSLValue {
         guard !value.pointer, case .pointer(let base, let space) = types[value.type.index].kind else {
             throw wgslError(.typeMismatch, "Indirection requires a pointer", t)
         }
@@ -727,6 +730,9 @@ extension WGSLParser {
     }
     func call(_ name: WGSLToken) throws -> WGSLValue {
         try resolveFunctionDeclaration(name)
+        if declarationNames[wgslKey(name.text)] == nil, Self.rayQueryValueBuiltins.contains(name.text) {
+            return try rayQueryValue(at: name)
+        }
         if declarationNames[wgslKey(name.text)] == nil, Self.subgroupGatherBuiltins.contains(name.text) {
             return try subgroupGather(at: name)
         }

@@ -53,7 +53,7 @@ public enum MetalBackend {
 }
 
 @MainActor
-public final class MetalDevice: ComputeBackendDevice, PresentationBackendDevice, SamplerBackendDevice, TextureViewBackendDevice,
+public final class MetalDevice: ComputeAccelerationStructureBackendDevice, PresentationBackendDevice, SamplerBackendDevice, TextureViewBackendDevice,
                                 QuerySetBackendDevice, BufferMappingBackendDevice, PlanarExternalTextureBackendDevice {
     public nonisolated let capabilities: DeviceCapabilities
     public nonisolated let adapterName: String
@@ -98,6 +98,8 @@ public final class MetalDevice: ComputeBackendDevice, PresentationBackendDevice,
         let renderPipelines: [RenderState]
         let drawable: (any MTLDrawable)?
         var counterSampleBuffers: [any MTLCounterSampleBuffer] = []
+        var accelerationBuilds: [ResourceID: PendingAccelerationBuild] = [:]
+        var retainedAccelerationBuilds: [MetalAccelerationStructureBuild] = []
     }
     private struct RenderState {
         let pipeline: any MTLRenderPipelineState
@@ -140,6 +142,7 @@ public final class MetalDevice: ComputeBackendDevice, PresentationBackendDevice,
         let state: any MTLComputePipelineState
         let threadsPerThreadgroup: MTLSize
         let bufferIndices: [ComputeBindingSlot: Int]
+        let accelerationIndices: [ComputeBindingSlot: Int]
         let textureIndices: [ComputeBindingSlot: Int]
         let samplerIndices: [ComputeBindingSlot: Int]
         let runtimeLengths: [(slot: ComputeBindingSlot, stride: UInt32, offset: UInt32)]
@@ -147,6 +150,16 @@ public final class MetalDevice: ComputeBackendDevice, PresentationBackendDevice,
         let immediateBufferIndex: UInt32?
         let externalTextures: [ComputeShaderArtifact.ExternalTextureLayout]
     }
+    private struct PendingAccelerationBuild {
+        let serial: UInt64
+        let build: MetalAccelerationStructureBuild
+    }
+    private struct AccelerationStructure {
+        let descriptor: AccelerationStructureDescriptor
+        var build: PendingAccelerationBuild?
+    }
+    private var nextAccelerationBuild: UInt64 = 0
+    private var accelerationStructures: [ResourceID: AccelerationStructure] = [:]
     private var buffers: [ResourceID: Buffer] = [:]
     private var querySets: [ResourceID: QuerySet] = [:]
     private var pipelines: [ResourceID: any MTLComputePipelineState] = [:]
@@ -206,6 +219,7 @@ public final class MetalDevice: ComputeBackendDevice, PresentationBackendDevice,
         // MSL short and ushort are available on every Metal device.
         var features: Set<GPUFeature> = [.storageTextureRead, .shaderF16, .shaderInt16, .indirectFirstInstance, .clipDistances,
                                          .shaderEarlyDepthTest, .linearIndexing, .subgroupUniformity]
+        if native.supportsRaytracing { features.insert(.rayQuery) }
         if supportsShaderLogging { features.insert(.shaderDebugPrintf) }
         var maxMultiviewViewCount: UInt32 = 1
         while maxMultiviewViewCount < 32 && native.supportsVertexAmplificationCount(Int(maxMultiviewViewCount * 2)) {
@@ -315,6 +329,21 @@ public final class MetalDevice: ComputeBackendDevice, PresentationBackendDevice,
         #else
         let colorAttachmentSlots = adapter.native.supportsFamily(.apple2) ? RenderStageArtifact.nativeColorAttachmentCapacity : 4
         #endif
+        var cooperativeProperties: [CooperativeMatrixProperties] = []
+        if features.contains(.cooperativeMatrix) {
+            for m: UInt32 in [8, 16] {
+                for n: UInt32 in [8, 16] {
+                    for k: UInt32 in [8, 16] {
+                        cooperativeProperties.append(.init(mSize: m, nSize: n, kSize: k,
+                            inputType: .float32, accumulatorType: .float32))
+                        cooperativeProperties.append(.init(mSize: m, nSize: n, kSize: k,
+                            inputType: .float16, accumulatorType: .float16))
+                        cooperativeProperties.append(.init(mSize: m, nSize: n, kSize: k,
+                            inputType: .float16, accumulatorType: .float32))
+                    }
+                }
+            }
+        }
         capabilities = try DeviceCapabilities(maxBufferSize: UInt64(adapter.native.maxBufferLength), features: features,
                                              timestampPeriodNanoseconds: period, multisampledFloat32Formats: float32MSAA,
                                              maxImmediateSize: 4096,
@@ -325,7 +354,8 @@ public final class MetalDevice: ComputeBackendDevice, PresentationBackendDevice,
                                              maxInterStageShaderVariables: maxInterstageVariables,
                                              maxColorAttachments: colorAttachmentSlots,
                                              maxColorAttachmentBytesPerSample: colorAttachmentBytes,
-                                             maxMultiviewViewCount: maxMultiviewViewCount > 1 ? maxMultiviewViewCount : 0)
+                                             maxMultiviewViewCount: maxMultiviewViewCount > 1 ? maxMultiviewViewCount : 0,
+                                             cooperativeMatrixProperties: cooperativeProperties)
         #else
         throw GPUError.adapterUnavailable
         #endif
@@ -333,6 +363,25 @@ public final class MetalDevice: ComputeBackendDevice, PresentationBackendDevice,
 
     private func requireActive() throws {
         guard !terminal else { throw GPUError.deviceLost("Metal device is terminal after command failure/timeout") }
+    }
+
+    public func allocateAccelerationStructure(id: ResourceID, descriptor: AccelerationStructureDescriptor) throws {
+        try requireActive()
+        #if canImport(Metal)
+        guard native.supportsRaytracing else { throw GPUError.unsupported("Metal ray tracing is unavailable") }
+        guard accelerationStructures[id] == nil else {
+            throw GPUError.validation("Invalid or duplicate Metal acceleration structure")
+        }
+        accelerationStructures[id] = AccelerationStructure(descriptor: descriptor, build: nil)
+        #else
+        throw GPUError.adapterUnavailable
+        #endif
+    }
+
+    public func destroyAccelerationStructure(id: ResourceID) {
+        #if canImport(Metal)
+        accelerationStructures.removeValue(forKey: id)
+        #endif
     }
 
     public func allocateBuffer(id: ResourceID, descriptor: BufferDescriptor) throws {
@@ -450,6 +499,7 @@ public final class MetalDevice: ComputeBackendDevice, PresentationBackendDevice,
 
     public func close(owner: UInt64) {
         #if canImport(Metal)
+        accelerationStructures = accelerationStructures.filter { $0.key.device != owner }
         buffers = buffers.filter { $0.key.device != owner }
         querySets = querySets.filter { $0.key.device != owner }
         textureViews = textureViews.filter { $0.key.device != owner }
@@ -540,6 +590,16 @@ public final class MetalDevice: ComputeBackendDevice, PresentationBackendDevice,
         for binding in shader.uniformBindings {
             try addBuffers(binding.indexedSlots(), range: uniformBase..<uniformLimit)
         }
+        var accelerationIndices: [ComputeBindingSlot: Int] = [:]
+        for binding in shader.accelerationStructures {
+            let slot = ComputeBindingSlot(group: binding.binding.group, binding: binding.binding.binding)
+            guard binding.flatBindingIndex < ComputeShaderArtifact.storageBindingCapacity,
+                  occupied.insert(binding.flatBindingIndex).inserted, bufferIndices[slot] == nil,
+                  accelerationIndices[slot] == nil else {
+                throw GPUError.validation("Invalid Metal acceleration structure binding layout")
+            }
+            accelerationIndices[slot] = Int(binding.flatBindingIndex)
+        }
 
         func addResource(
             _ binding: IRResourceBinding, array: ComputeShaderArtifact.BindingArrayLayout?, index: UInt32?,
@@ -551,7 +611,8 @@ public final class MetalDevice: ComputeBackendDevice, PresentationBackendDevice,
             let elements = try binding.computeSlots(array: array, limit: range.upperBound - range.lowerBound)
             for (offset, element) in elements.enumerated() {
                 let native = index + UInt32(offset)
-                guard occupied.insert(native).inserted, slots[element] == nil, bufferIndices[element] == nil else {
+                guard occupied.insert(native).inserted, slots[element] == nil, bufferIndices[element] == nil,
+                      accelerationIndices[element] == nil else {
                     throw GPUError.validation("Overlapping Metal resource bindings")
                 }
                 slots[element] = Int(native)
@@ -622,7 +683,7 @@ public final class MetalDevice: ComputeBackendDevice, PresentationBackendDevice,
                   shader.metalRuntimeLengthBuffer == ComputeShaderArtifact.storageBindingCapacity
         else { throw GPUError.validation("Invalid Metal runtime array layout") }
         computePipelines[pipeline.id] = Pipeline(state: state, threadsPerThreadgroup: threads,
-                                                bufferIndices: bufferIndices, textureIndices: textureIndices,
+                                                bufferIndices: bufferIndices, accelerationIndices: accelerationIndices, textureIndices: textureIndices,
                                                 samplerIndices: samplerIndices, runtimeLengths: runtimeLengths,
                                                 lengthBufferIndex: shader.metalRuntimeLengthBuffer,
                                                 immediateBufferIndex: shader.immediateLayout?.metalBufferIndex,
@@ -1167,7 +1228,7 @@ public final class MetalDevice: ComputeBackendDevice, PresentationBackendDevice,
         let pinned = Set(submission.resources)
         for id in submission.resources {
             guard buffers[id] != nil || textures[id] != nil || views[id] != nil || samplers[id] != nil ||
-                  querySets[id] != nil || externalPlanes[id] != nil else {
+                  querySets[id] != nil || externalPlanes[id] != nil || accelerationStructures[id] != nil else {
                 throw GPUError.validation("Unknown Metal resource")
             }
             if let view = views[id], !pinned.contains(view.texture) {
@@ -1186,7 +1247,7 @@ public final class MetalDevice: ComputeBackendDevice, PresentationBackendDevice,
                                   maximumViewportDimension: capabilities.maxTextureDimension2D, querySets: queryDescriptors,
                                   maxMultiviewViewCount: capabilities.maxMultiviewViewCount,
                                   features: capabilities.features, externalTextures: Set(externalPlanes.keys),
-                                  externalPlanes: externalPlanes,
+                                  externalPlanes: externalPlanes, accelerationStructures: accelerationStructures.mapValues(\.descriptor),
                                   maxComputeWorkgroupsPerDimension: capabilities.maxComputeWorkgroupsPerDimension)
             let command = recorded.recordedPass.command
             if case .dispatch(let id, _, _, _) = command, pipelines[id] == nil {
@@ -1196,6 +1257,27 @@ public final class MetalDevice: ComputeBackendDevice, PresentationBackendDevice,
                 throw GPUError.validation("Unknown Metal compute pipeline")
             }
             switch command {
+            case .buildAccelerationStructure(let destination, let geometry):
+                guard let target = accelerationStructures[destination], let buffer = buffers[geometry.vertexBuffer],
+                      case .triangles(let maximum) = target.descriptor.capacity, geometry.triangleCount <= maximum,
+                      Int(exactly: geometry.vertexOffset) != nil, Int(exactly: geometry.vertexStride) != nil else {
+                    throw GPUError.validation("Invalid Metal acceleration structure build")
+                }
+                _ = try geometry.vertexRange(bufferSize: buffer.descriptor.size)
+                if let index = geometry.indexBuffer {
+                    guard let source = buffers[index.buffer], Int(exactly: index.offset) != nil else {
+                        throw GPUError.validation("Invalid Metal acceleration structure index buffer")
+                    }
+                    _ = try geometry.indexRange(bufferSize: source.descriptor.size)
+                }
+            case .buildTopLevelAccelerationStructure(let destination, let instances):
+                guard let target = accelerationStructures[destination],
+                      case .instances(let maximum) = target.descriptor.capacity,
+                      instances.count <= Int(maximum), instances.allSatisfy({ instance in
+                          guard let source = accelerationStructures[instance.accelerationStructure],
+                                case .triangles = source.descriptor.capacity else { return false }
+                          return true
+                      }) else { throw GPUError.validation("Invalid Metal top-level acceleration structure build") }
             case .render(let pipeline, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _),
                  .renderIndexed(let pipeline, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _),
                  .renderIndirect(let pipeline, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _):
@@ -1209,9 +1291,12 @@ public final class MetalDevice: ComputeBackendDevice, PresentationBackendDevice,
         var writtenQueries: [ResourceID: Set<UInt32>] = [:]
         var encoded: [(batch: Batch, reads: [(any MTLBuffer, Int)],
                        initialized: [ResourceID: Set<TextureSubresource>], written: [ResourceID: Set<UInt32>])] = []
+        var precedingAccelerationBuilds: [ResourceID: PendingAccelerationBuild] = [:]
         for range in queryCommandRanges(commands) {
             let (batch, reads) = try encodeCommands(commands[range], resources: submission.resources,
-                                                    initialized: &initialized, writtenQueries: &writtenQueries)
+                                                    initialized: &initialized, writtenQueries: &writtenQueries,
+                                                    precedingAccelerationBuilds: precedingAccelerationBuilds)
+            precedingAccelerationBuilds.merge(batch.accelerationBuilds) { _, newer in newer }
             encoded.append((batch, reads, initialized, writtenQueries))
         }
         var snapshots: [[UInt32]] = []
@@ -1266,7 +1351,8 @@ public final class MetalDevice: ComputeBackendDevice, PresentationBackendDevice,
 
     private func encodeCommands(
         _ commands: ArraySlice<BufferCommand>, resources: [ResourceID],
-        initialized: inout [ResourceID: Set<TextureSubresource>], writtenQueries: inout [ResourceID: Set<UInt32>]
+        initialized: inout [ResourceID: Set<TextureSubresource>], writtenQueries: inout [ResourceID: Set<UInt32>],
+        precedingAccelerationBuilds: [ResourceID: PendingAccelerationBuild]
     ) throws -> (Batch, [(any MTLBuffer, Int)]) {
         guard let commandBuffer = queue.makeCommandBuffer() else { throw GPUError.outOfMemory }
         var retained = resources.compactMap { buffers[$0]?.native ?? querySets[$0]?.visibility }
@@ -1274,6 +1360,8 @@ public final class MetalDevice: ComputeBackendDevice, PresentationBackendDevice,
         var retainedPipelines: [any MTLComputePipelineState] = []
         var retainedRenderPipelines: [RenderState] = []
         var reads: [(any MTLBuffer, Int)] = []
+        var accelerationBuilds: [ResourceID: PendingAccelerationBuild] = [:]
+        var retainedAccelerationBuilds: [MetalAccelerationStructureBuild] = []
         func encodeDraw(
             _ pipeline: RenderPipeline, target: ResourceID?, colorLoad: RenderColorLoadAction, colorStore: RenderStoreAction,
             level: UInt32, layer: UInt32?,
@@ -1375,6 +1463,30 @@ public final class MetalDevice: ComputeBackendDevice, PresentationBackendDevice,
             if let timestamps { writtenQueries[timestamps.querySet, default: []].formUnion(timestamps.indices) }
             if let occlusion { writtenQueries[occlusion.querySet, default: []].insert(occlusion.queryIndex) }
             switch command {
+            case .buildAccelerationStructure(let destination, let geometry):
+                let build = try MetalAccelerationStructureBuild.encode(device: native, commandBuffer: commandBuffer,
+                    vertexBuffer: buffers[geometry.vertexBuffer]!.native, vertexOffset: Int(geometry.vertexOffset),
+                    vertexStride: Int(geometry.vertexStride), vertexCount: Int(geometry.vertexCount),
+                    indices: geometry.indexBuffer.map { (buffers[$0.buffer]!.native, $0, geometry.indexCount) })
+                retainedAccelerationBuilds.append(build)
+                guard nextAccelerationBuild < UInt64.max else { throw GPUError.outOfMemory }
+                nextAccelerationBuild += 1
+                accelerationBuilds[destination] = PendingAccelerationBuild(serial: nextAccelerationBuild, build: build.persistent)
+            case .buildTopLevelAccelerationStructure(let destination, let instances):
+                let inputs = try instances.map { instance in
+                    guard let source = accelerationBuilds[instance.accelerationStructure]
+                        ?? precedingAccelerationBuilds[instance.accelerationStructure]
+                        ?? accelerationStructures[instance.accelerationStructure]?.build else {
+                        throw GPUError.validation("Top-level acceleration structure references an unbuilt BLAS")
+                    }
+                    return (instance, source.build)
+                }
+                let build = try MetalAccelerationStructureBuild.encodeTopLevel(device: native,
+                    commandBuffer: commandBuffer, instances: inputs)
+                retainedAccelerationBuilds.append(build)
+                guard nextAccelerationBuild < UInt64.max else { throw GPUError.outOfMemory }
+                nextAccelerationBuild += 1
+                accelerationBuilds[destination] = PendingAccelerationBuild(serial: nextAccelerationBuild, build: build.persistent)
             case .timestamped, .occlusionQueried:
                 throw GPUError.validation("Invalid query pass nesting")
             case .resolveQuerySet(let id, let first, let count, let destination, let offset):
@@ -1415,7 +1527,7 @@ public final class MetalDevice: ComputeBackendDevice, PresentationBackendDevice,
                 encoder.endEncoding()
                 retainedPipelines.append(pipeline)
             case .dispatchCompute, .dispatchComputeRanges, .dispatchComputeIndirect:
-                let (pipeline, bindings, source, boundTextures, samplerBindings, immediates) = command.computeDispatch!
+                let (pipeline, bindings, source, boundTextures, samplerBindings, immediates, boundAccelerationStructures) = command.computeDispatch!
                 if case .direct(let workgroups) = source, workgroups.isEmpty {
                     if let timestamps {
                         retained.append(try encodeTimestampMarker(commandBuffer, writes: timestamps))
@@ -1462,6 +1574,18 @@ public final class MetalDevice: ComputeBackendDevice, PresentationBackendDevice,
                     let binding = bindings[slot]!
                     encoder.setBuffer(buffers[binding.buffer]!.native, offset: Int(binding.offset),
                                       index: index)
+                }
+                for (slot, index) in compute.accelerationIndices {
+                    let id = boundAccelerationStructures[slot]!
+                    guard let build = accelerationBuilds[id] ?? precedingAccelerationBuilds[id]
+                        ?? accelerationStructures[id]?.build else {
+                        throw GPUError.validation("Metal compute dispatch references an unbuilt TLAS")
+                    }
+                    encoder.setAccelerationStructure(build.build.structure, bufferIndex: index)
+                    for dependency in build.build.dependencies {
+                        encoder.useResource(dependency.structure, usage: .read)
+                    }
+                    retainedAccelerationBuilds.append(build.build)
                 }
                 if let index = compute.lengthBufferIndex {
                     lengths.withUnsafeBytes {
@@ -1654,7 +1778,8 @@ public final class MetalDevice: ComputeBackendDevice, PresentationBackendDevice,
             commandBuffer: commandBuffer, buffers: retained, pipelines: retainedPipelines,
             textures: resources.compactMap { textures[$0]?.native ?? textureViews[$0]?.native } + retainedCopyViews,
             samplers: resources.compactMap { samplers[$0]?.native }, renderPipelines: retainedRenderPipelines, drawable: nil,
-            counterSampleBuffers: resources.compactMap { querySets[$0]?.samples })
+            counterSampleBuffers: resources.compactMap { querySets[$0]?.samples },
+            accelerationBuilds: accelerationBuilds, retainedAccelerationBuilds: retainedAccelerationBuilds)
         return (batch, reads)
     }
 
@@ -1917,9 +2042,16 @@ public final class MetalDevice: ComputeBackendDevice, PresentationBackendDevice,
             }
         }
         batch.commandBuffer.commit()
+        for (id, build) in batch.accelerationBuilds {
+            if let current = accelerationStructures[id], (current.build?.serial ?? 0) < build.serial {
+                accelerationStructures[id]?.build = build
+            }
+        }
         for (id, levels) in initialized { textures[id]?.initializedSubresources.formUnion(levels) }
         for (id, indices) in writtenQueries { querySets[id]?.written.formUnion(indices) }
-        do { try await completion.wait(timeout: timeout) }
+        do {
+            try await completion.wait(timeout: timeout)
+        }
         catch { terminal = true; throw error }
     }
 

@@ -1,19 +1,24 @@
 /// Initial queue commands. The diagnostic dispatch has a fixed two-buffer ABI.
 public enum BufferCommand: Sendable, Equatable {
+    case buildTopLevelAccelerationStructure(destination: ResourceID, instances: [AccelerationStructureInstance])
+    case buildAccelerationStructure(destination: ResourceID, geometry: AccelerationStructureTriangleGeometry)
     case write(buffer: ResourceID, offset: UInt64, words: [UInt32])
     case writeBytes(buffer: ResourceID, offset: UInt64, bytes: [UInt8], dataOffset: UInt64 = 0, byteCount: UInt64? = nil)
     case dispatch(pipeline: ResourceID, input: ResourceID, output: ResourceID, count: UInt32)
     case dispatchCompute(pipeline: ComputePipeline, bindings: [ComputeBindingSlot: ResourceID],
                          workgroups: DispatchWorkgroups, textures: [ComputeBindingSlot: ResourceID] = [:],
-                         samplers: [ComputeBindingSlot: ResourceID] = [:], immediates: [UInt32] = [])
+                         samplers: [ComputeBindingSlot: ResourceID] = [:], immediates: [UInt32] = [],
+                         accelerationStructures: [ComputeBindingSlot: ResourceID] = [:])
     case dispatchComputeRanges(pipeline: ComputePipeline, bindings: [ComputeBindingSlot: StorageBufferBinding],
                                workgroups: DispatchWorkgroups, textures: [ComputeBindingSlot: ResourceID] = [:],
-                               samplers: [ComputeBindingSlot: ResourceID] = [:], immediates: [UInt32] = [])
+                               samplers: [ComputeBindingSlot: ResourceID] = [:], immediates: [UInt32] = [],
+                         accelerationStructures: [ComputeBindingSlot: ResourceID] = [:])
     /// Reads three packed UInt32 workgroup counts (X, Y, Z) from the buffer at execution time.
     case dispatchComputeIndirect(pipeline: ComputePipeline, bindings: [ComputeBindingSlot: StorageBufferBinding],
                                  indirectBuffer: ResourceID, indirectOffset: UInt64 = 0,
                                  textures: [ComputeBindingSlot: ResourceID] = [:],
-                                 samplers: [ComputeBindingSlot: ResourceID] = [:], immediates: [UInt32] = [])
+                                 samplers: [ComputeBindingSlot: ResourceID] = [:], immediates: [UInt32] = [],
+                         accelerationStructures: [ComputeBindingSlot: ResourceID] = [:])
     case render(pipeline: RenderPipeline, target: ResourceID?, colorLoad: RenderColorLoadAction,
                 vertexCount: UInt32, vertexBuffers: [VertexBufferBinding] = [],
                 firstVertex: UInt32 = 0, instances: DrawInstances = .init(),
@@ -107,6 +112,8 @@ public enum BufferCommand: Sendable, Equatable {
 
     public var resources: [ResourceID] {
         switch self {
+        case .buildAccelerationStructure(let destination, let geometry): [destination, geometry.vertexBuffer] + (geometry.indexBuffer.map { [$0.buffer] } ?? [])
+        case .buildTopLevelAccelerationStructure(let destination, let instances): [destination] + instances.map(\.accelerationStructure)
         case .write(let id, _, _), .writeBytes(let id, _, _, _, _), .clearBuffer(let id, _, _), .read(let id, _): [id]
         case .render(_, let target, _, _, let bindings, _, _, let uniforms, let textures, let samplers, _, _, let depth, let resolve, _, let additionalColors, _, let storageBuffers, _, _):
             (target.map { [$0] } ?? []) + bindings.map(\.buffer) + uniforms.values.map(\.buffer) + storageBuffers.values.map(\.buffer) + textures.values + samplers.values +
@@ -124,12 +131,12 @@ public enum BufferCommand: Sendable, Equatable {
                     [attachment.texture, attachment.resolve?.texture].compactMap { $0 }
                 }
         case .dispatch(_, let input, let output, _): [input, output]
-        case .dispatchCompute(_, let bindings, _, let textures, let samplers, _):
-            Array(bindings.values) + textures.values + samplers.values
-        case .dispatchComputeRanges(_, let bindings, _, let textures, let samplers, _):
-            bindings.values.map(\.buffer) + textures.values + samplers.values
-        case .dispatchComputeIndirect(_, let bindings, let arguments, _, let textures, let samplers, _):
-            [arguments] + bindings.values.map(\.buffer) + textures.values + samplers.values
+        case .dispatchCompute(_, let bindings, _, let textures, let samplers, _, let structures):
+            Array(bindings.values) + textures.values + samplers.values + structures.values
+        case .dispatchComputeRanges(_, let bindings, _, let textures, let samplers, _, let structures):
+            bindings.values.map(\.buffer) + textures.values + samplers.values + structures.values
+        case .dispatchComputeIndirect(_, let bindings, let arguments, _, let textures, let samplers, _, let structures):
+            [arguments] + bindings.values.map(\.buffer) + textures.values + samplers.values + structures.values
         case .timestamped, .occlusionQueried:
             measuredPassResources
         case .resolveQuerySet(let set, _, _, let destination, _):
@@ -196,14 +203,15 @@ public enum BufferCommand: Sendable, Equatable {
 
     package var computeDispatch: (pipeline: ComputePipeline, bindings: [ComputeBindingSlot: StorageBufferBinding],
                                   source: DispatchSource, textures: [ComputeBindingSlot: ResourceID],
-                                  samplers: [ComputeBindingSlot: ResourceID], immediates: [UInt32])? {
+                                  samplers: [ComputeBindingSlot: ResourceID], immediates: [UInt32],
+                                  accelerationStructures: [ComputeBindingSlot: ResourceID])? {
         switch self {
-        case .dispatchCompute(let pipeline, let buffers, let groups, let textures, let samplers, let immediates):
-            (pipeline, buffers.mapValues { StorageBufferBinding(buffer: $0) }, .direct(groups), textures, samplers, immediates)
-        case .dispatchComputeRanges(let pipeline, let bindings, let groups, let textures, let samplers, let immediates):
-            (pipeline, bindings, .direct(groups), textures, samplers, immediates)
-        case .dispatchComputeIndirect(let pipeline, let bindings, let buffer, let offset, let textures, let samplers, let immediates):
-            (pipeline, bindings, .indirect(buffer: buffer, offset: offset), textures, samplers, immediates)
+        case .dispatchCompute(let pipeline, let buffers, let groups, let textures, let samplers, let immediates, let structures):
+            (pipeline, buffers.mapValues { StorageBufferBinding(buffer: $0) }, .direct(groups), textures, samplers, immediates, structures)
+        case .dispatchComputeRanges(let pipeline, let bindings, let groups, let textures, let samplers, let immediates, let structures):
+            (pipeline, bindings, .direct(groups), textures, samplers, immediates, structures)
+        case .dispatchComputeIndirect(let pipeline, let bindings, let buffer, let offset, let textures, let samplers, let immediates, let structures):
+            (pipeline, bindings, .indirect(buffer: buffer, offset: offset), textures, samplers, immediates, structures)
         default: nil
         }
     }
@@ -212,14 +220,15 @@ public enum BufferCommand: Sendable, Equatable {
         device: UInt64, descriptors: [ResourceID: BufferDescriptor],
         textures: [ResourceID: TextureDescriptor] = [:], samplers: Set<ResourceID> = [],
         comparisonSamplers: Set<ResourceID> = [], querySets: [ResourceID: QuerySetDescriptor] = [:],
-        features: Set<GPUFeature> = [], maxComputeWorkgroupsPerDimension: UInt32 = 65_535
+        features: Set<GPUFeature> = [], maxComputeWorkgroupsPerDimension: UInt32 = 65_535,
+        accelerationStructures: [ResourceID: AccelerationStructureDescriptor] = [:]
     ) throws {
         let samplerDescriptors = Dictionary(uniqueKeysWithValues: samplers.union(comparisonSamplers).map {
             ($0, SamplerDescriptor(compare: comparisonSamplers.contains($0) ? .never : nil))
         })
         try validate(device: device, descriptors: descriptors, textures: textures,
                      samplerDescriptors: samplerDescriptors, textureViews: [:], querySets: querySets, features: features,
-                     maxComputeWorkgroupsPerDimension: maxComputeWorkgroupsPerDimension)
+                     accelerationStructures: accelerationStructures, maxComputeWorkgroupsPerDimension: maxComputeWorkgroupsPerDimension)
     }
 
     package func validate(
@@ -229,6 +238,7 @@ public enum BufferCommand: Sendable, Equatable {
         maxMultiviewViewCount: UInt32 = 0,
         features: Set<GPUFeature> = [], externalTextures: Set<ResourceID> = [],
         externalPlanes: [ResourceID: [ResourceID]] = [:],
+        accelerationStructures: [ResourceID: AccelerationStructureDescriptor] = [:],
         maxComputeWorkgroupsPerDimension: UInt32 = DispatchWorkgroups.defaultMaximumDimension
     ) throws {
         @discardableResult
@@ -606,13 +616,28 @@ public enum BufferCommand: Sendable, Equatable {
                               maximumViewportDimension: maximumViewportDimension, querySets: querySets,
                               maxMultiviewViewCount: maxMultiviewViewCount,
                               features: features, externalTextures: externalTextures, externalPlanes: externalPlanes,
-                              maxComputeWorkgroupsPerDimension: maxComputeWorkgroupsPerDimension)
+                              accelerationStructures: accelerationStructures, maxComputeWorkgroupsPerDimension: maxComputeWorkgroupsPerDimension)
         case .resolveQuerySet(let set, let first, let count, let destination, let offset):
             guard set.device == device, let query = querySets[set], first < query.count, count <= query.count - first,
                   destination.device == device, let buffer = descriptors[destination],
                   buffer.usage.contains(.queryResolve), offset % 256 == 0,
                   offset <= buffer.size, UInt64(count) * 8 <= buffer.size - offset else {
                 throw GPUError.validation("Invalid query resolve range, destination or alignment")
+            }
+        case .buildTopLevelAccelerationStructure(_, let instances):
+            guard instances.allSatisfy({ $0.transform.count == 12 && $0.transform.allSatisfy(\.isFinite) && $0.instanceID <= 0x00ff_ffff }) else {
+                throw GPUError.validation("Invalid acceleration structure instance")
+            }
+        case .buildAccelerationStructure(_, let geometry):
+            guard let descriptor = descriptors[geometry.vertexBuffer], descriptor.usage.contains(.vertex) else {
+                throw GPUError.validation("Acceleration structure geometry requires a vertex buffer")
+            }
+            _ = try geometry.vertexRange(bufferSize: descriptor.size)
+            if let index = geometry.indexBuffer {
+                guard let buffer = descriptors[index.buffer], buffer.usage.contains(.index) else {
+                    throw GPUError.validation("Acceleration structure geometry requires an index buffer")
+                }
+                _ = try geometry.indexRange(bufferSize: buffer.size)
             }
         case .write(let id, let offset, let words):
             try require(id, .copyDestination, UInt64(words.count) * 4, offset: offset)
@@ -628,7 +653,7 @@ public enum BufferCommand: Sendable, Equatable {
             try require(input, .storage, UInt64(count) * 4)
             try require(output, .storage, UInt64(count) * 4)
         case .dispatchCompute, .dispatchComputeRanges, .dispatchComputeIndirect:
-            let (pipeline, bindings, source, boundTextures, samplerBindings, immediates) = computeDispatch!
+            let (pipeline, bindings, source, boundTextures, samplerBindings, immediates, structures) = computeDispatch!
             guard pipeline.id.device == device else { throw GPUError.validation("Foreign compute pipeline") }
             guard UInt64(immediates.count) == pipeline.immediateByteSize / 4 else {
                 throw GPUError.validation("Compute immediate data size does not match the pipeline layout")
@@ -651,8 +676,15 @@ public enum BufferCommand: Sendable, Equatable {
             }
             guard bindings.count == pipeline.bufferBindings.count,
                   boundTextures.count == pipeline.textureBindings.count + pipeline.storageTextureBindings.count + pipeline.externalTextureBindings.count,
-                  samplerBindings.count == pipeline.samplerBindings.count else {
+                  samplerBindings.count == pipeline.samplerBindings.count,
+                  structures.count == pipeline.accelerationStructureBindings.count else {
                 throw GPUError.validation("Compute bindings do not match the pipeline layout")
+            }
+            for slot in pipeline.accelerationStructureBindings {
+                guard let id = structures[slot], id.device == device,
+                      let descriptor = accelerationStructures[id], case .instances = descriptor.capacity else {
+                    throw GPUError.validation("Invalid compute acceleration structure binding")
+                }
             }
             var usedTextures = try pipeline.textureBindings.map {
                 (try requireSampledTexture(boundTextures[$0.slot], $0), false)

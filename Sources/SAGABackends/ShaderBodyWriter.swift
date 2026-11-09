@@ -338,6 +338,17 @@ struct ShaderBodyWriter {
     mutating func write() throws -> [String] {
         var lines: [String] = []
         for (index, local) in function.localVariables.values.enumerated() {
+            if case .rayQuery(let vertexReturn) = try module.types.value(for: local.type).kind {
+                guard (outputFormat == .msl || outputFormat == .hlsl || outputFormat == .glsl), !vertexReturn, local.initializer == nil else {
+                    throw unsupported("ray query local target")
+                }
+                let name = localName(index)
+                let queryType = outputFormat == .msl ? "metal::raytracing::intersection_query<metal::raytracing::instancing, metal::raytracing::triangle_data>" : outputFormat == .glsl ? "rayQueryEXT" : "RayQuery<RAY_FLAG_NONE>"
+                try append("\(queryType) \(name);", to: &lines)
+                try append("uint \(name)_state = 0u;", to: &lines)
+                try append("float \(name)_tmax = 0.0f;", to: &lines)
+                continue
+            }
             let type = try typeName(local.type)
             let initial = try local.initializer.map { try value($0) } ?? zeroValue(local.type)
             try append("\(declaration(type, named: localName(index))) = \(initial);", to: &lines)
@@ -400,6 +411,10 @@ struct ShaderBodyWriter {
             let beforeStatement = temporaryOrder.count
             let statement = try function.statements.value(for: handle).kind
             switch statement {
+            case .rayQuery(let query, let operation):
+                if outputFormat == .glsl { try writeGLSLRayQuery(query, operation: operation, to: &lines) }
+                else if outputFormat == .hlsl { try writeHLSLRayQuery(query, operation: operation, to: &lines) }
+                else { try writeMetalRayQuery(query, operation: operation, to: &lines) }
             case .emit(let handles):
                 for expression in handles { try emit(expression, to: &lines) }
             case .call(let callee, let args, let result):
@@ -1273,6 +1288,58 @@ struct ShaderBodyWriter {
                     }
                 }
             }
+            remember(handle)
+        case .rayQueryGetIntersection(let query, let committed):
+            if outputFormat == .glsl {
+                guard case .localVariable(let local) = try function.expressions.value(for: query).kind,
+                      let layout = structures[expression.type] else { throw unsupported("GLSL ray query intersection") }
+                let name = "saga_ray_intersection_\(handle.index)"
+                for line in glslRayIntersectionLines(query: localName(local.index), name: name,
+                                                      type: try typeName(expression.type),
+                                                      fields: (0..<11).map { layout.memberName($0) },
+                                                      committed: committed) {
+                    try append(line, to: &lines)
+                }
+                remember(handle)
+                break
+            }
+            if outputFormat == .hlsl {
+                guard case .localVariable(let local) = try function.expressions.value(for: query).kind,
+                      let layout = structures[expression.type] else { throw unsupported("HLSL ray query intersection") }
+                let name = "saga_ray_intersection_\(handle.index)"
+                for line in hlslRayIntersectionLines(query: localName(local.index), name: name,
+                                                      type: try typeName(expression.type), layout: layout,
+                                                      committed: committed) {
+                    try append(line, to: &lines)
+                }
+                remember(handle)
+                break
+            }
+            guard outputFormat == .msl,
+                  case .localVariable(let local) = try function.expressions.value(for: query).kind,
+                  let layout = structures[expression.type]
+            else { throw unsupported("Metal ray query intersection") }
+            let queryName = localName(local.index), state = "\(queryName)_state"
+            let name = "saga_ray_intersection_\(handle.index)", type = try typeName(expression.type)
+            let flavor = committed ? "committed" : "candidate"
+            let condition = committed ? "(\(state) & 4u) != 0u" : "(\(state) & 2u) != 0u && (\(state) & 4u) == 0u"
+            func field(_ index: Int) -> String { "\(name).\(layout.memberName(index))" }
+            try append("\(type) \(name){};", to: &lines)
+            try append("if (\(condition)) {", to: &lines)
+            try append("    auto saga_type = \(queryName).get_\(flavor)_intersection_type();", to: &lines)
+            try append("    if (saga_type == metal::raytracing::intersection_type::triangle) {", to: &lines)
+            try append("        \(field(0)) = 1u;", to: &lines)
+            if !committed { try append("        \(field(1)) = \(queryName).get_candidate_triangle_distance();", to: &lines) }
+            try append("        \(field(7)) = \(queryName).get_\(flavor)_triangle_barycentric_coord();", to: &lines)
+            try append("        \(field(8)) = \(queryName).is_\(flavor)_triangle_front_facing();", to: &lines)
+            try append("    } else if (saga_type == metal::raytracing::intersection_type::bounding_box) { \(field(0)) = \(committed ? 2 : 3)u; }", to: &lines)
+            try append("    if (saga_type != metal::raytracing::intersection_type::none) {", to: &lines)
+            if committed { try append("        \(field(1)) = \(queryName).get_committed_distance();", to: &lines) }
+            for (index, method) in [(2, "user_instance_id"), (3, "instance_id"), (5, "geometry_id"), (6, "primitive_id"), (9, "object_to_world_transform"), (10, "world_to_object_transform")] {
+                try append("        \(field(index)) = \(queryName).get_\(flavor)_\(method)();", to: &lines)
+            }
+            try append("    }", to: &lines)
+            try append("}", to: &lines)
             remember(handle)
         case .runtimeValue(let operand):
             let name = "saga_value_\(handle.index)"
@@ -3023,6 +3090,157 @@ struct ShaderBodyWriter {
         }
     }
 
+    private mutating func writeGLSLRayQuery(
+        _ query: IRHandle<IRExpression>, operation: IRRayQueryFunction, to lines: inout [String]
+    ) throws {
+        guard case .localVariable(let local) = try function.expressions.value(for: query).kind,
+              case .rayQuery(false) = try module.types.value(for: function.localVariables.value(for: local).type).kind
+        else { throw unsupported("GLSL ray query must be a local without vertex return") }
+        let name = localName(local.index), state = "\(name)_state"
+        switch operation {
+        case .begin: try append("\(state) = 0u;", to: &lines)
+        case .initialize(let acceleration, let descriptor):
+            guard let descriptorType = module.specialTypes.rayDescriptor, let layout = structures[descriptorType] else {
+                throw unsupported("GLSL ray query descriptor layout")
+            }
+            let desc = "saga_ray_desc_\(query.index)"
+            let fields = (0..<6).map { "\(desc).\(layout.memberName($0))" }
+            let source = try value(descriptor), type = try typeName(descriptorType), accel = try value(acceleration)
+            try append("{", to: &lines)
+            try append("    \(state) = 0u;", to: &lines)
+            try append("    \(type) \(desc) = \(source);", to: &lines)
+            try append("    if (!any(isnan(\(fields[4]))) && !any(isinf(\(fields[4]))) && !any(isnan(\(fields[5]))) && !any(isinf(\(fields[5]))) && !isnan(\(fields[2])) && !isinf(\(fields[2])) && !isnan(\(fields[3])) && \(fields[2]) >= 0.0 && \(fields[2]) <= \(fields[3]) && \(glslRayFlagsValid(fields[0]))) {", to: &lines)
+            try append("        rayQueryInitializeEXT(\(name), \(accel), \(fields[0]), \(fields[1]), \(fields[4]), \(fields[2]), \(fields[5]), \(fields[3]));", to: &lines)
+            try append("        \(name)_tmax = \(fields[3]);", to: &lines)
+            try append("        \(state) = 1u;", to: &lines)
+            try append("    }", to: &lines)
+            try append("}", to: &lines)
+        case .proceed(let result):
+            for line in glslRayQueryProceed(query: name, state: state, result: "saga_ray_proceed_\(result.index)") { try append(line, to: &lines) }
+            remember(result)
+        case .terminate: try append(glslRayQueryTerminate(query: name, state: state), to: &lines)
+        case .confirmIntersection: try append(glslRayQueryConfirm(query: name, state: state), to: &lines)
+        case .generateIntersection(let hit):
+            let distance = try value(hit)
+            try append("if ((\(state) & 2u) != 0u && (\(state) & 4u) == 0u && rayQueryGetIntersectionTypeEXT(\(name), false) == gl_RayQueryCandidateIntersectionAABBEXT) {", to: &lines)
+            try append("    float saga_hit_t = \(distance);", to: &lines)
+            try append("    float saga_hit_limit = rayQueryGetIntersectionTypeEXT(\(name), true) == gl_RayQueryCommittedIntersectionNoneEXT ? \(name)_tmax : rayQueryGetIntersectionTEXT(\(name), true);", to: &lines)
+            try append("    if (rayQueryGetRayTMinEXT(\(name)) <= saga_hit_t && saga_hit_t <= saga_hit_limit) { rayQueryGenerateIntersectionEXT(\(name), saga_hit_t); }", to: &lines)
+            try append("}", to: &lines)
+        }
+    }
+
+    private mutating func writeHLSLRayQuery(
+        _ query: IRHandle<IRExpression>, operation: IRRayQueryFunction, to lines: inout [String]
+    ) throws {
+        guard case .localVariable(let local) = try function.expressions.value(for: query).kind,
+              case .rayQuery(false) = try module.types.value(for: function.localVariables.value(for: local).type).kind
+        else { throw unsupported("HLSL ray query must be a local without vertex return") }
+        let name = localName(local.index), state = "\(name)_state"
+        switch operation {
+        case .begin:
+            try append("\(state) = 0u;", to: &lines)
+        case .initialize(let acceleration, let descriptor):
+            guard let descriptorType = module.specialTypes.rayDescriptor,
+                  let layout = structures[descriptorType]
+            else { throw unsupported("HLSL ray query requires a ray descriptor") }
+            let desc = "saga_ray_desc_\(query.index)"
+            let fields = (0..<6).map { "\(desc).\(layout.memberName($0))" }
+            let source = try value(descriptor), structure = try typeName(descriptorType)
+            let accel = try value(acceleration)
+            try append("{", to: &lines)
+            try append("    \(state) = 0u;", to: &lines)
+            try append("    \(structure) \(desc) = \(source);", to: &lines)
+            try append("    uint saga_ray_flags = \(fields[0]);", to: &lines)
+            try append("    bool saga_ray_flags_valid = \(hlslRayFlagsValidation("saga_ray_flags"));", to: &lines)
+            try append("    if (saga_ray_flags_valid && \(hlslRayDescriptorValidation(fields: fields))) {", to: &lines)
+            try append("        RayDesc saga_ray;", to: &lines)
+            try append("        saga_ray.Origin = \(fields[4]); saga_ray.Direction = \(fields[5]); saga_ray.TMin = \(fields[2]); saga_ray.TMax = \(fields[3]);", to: &lines)
+            try append("        \(name).TraceRayInline(\(accel), saga_ray_flags, \(fields[1]), saga_ray);", to: &lines)
+            try append("        \(state) = 1u;", to: &lines)
+            try append("    }", to: &lines)
+            try append("}", to: &lines)
+        case .proceed(let result):
+            let temporary = "saga_ray_proceed_\(result.index)"
+            try append("bool \(temporary) = false;", to: &lines)
+            try append("if ((\(state) & 1u) != 0u && (\(state) & 4u) == 0u) {", to: &lines)
+            try append("    \(temporary) = \(name).Proceed();", to: &lines)
+            try append("    \(state) |= \(temporary) ? 2u : 4u;", to: &lines)
+            try append("}", to: &lines)
+            remember(result)
+        case .terminate:
+            try append(hlslRayTerminate(query: name, state: state), to: &lines)
+        case .confirmIntersection:
+            try append("if ((\(state) & 2u) != 0u && (\(state) & 4u) == 0u && \(name).CandidateType() == CANDIDATE_NON_OPAQUE_TRIANGLE) { \(name).CommitNonOpaqueTriangleHit(); }", to: &lines)
+        case .generateIntersection(let hit):
+            let distance = try value(hit)
+            try append("if ((\(state) & 2u) != 0u && (\(state) & 4u) == 0u) {", to: &lines)
+            try append("    float saga_hit_t = \(distance);", to: &lines)
+            try append("    if (\(name).CandidateType() == CANDIDATE_PROCEDURAL_PRIMITIVE && \(name).RayTMin() <= saga_hit_t && saga_hit_t <= \(name).CommittedRayT()) { \(name).CommitProceduralPrimitiveHit(saga_hit_t); }", to: &lines)
+            try append("}", to: &lines)
+        }
+    }
+
+    private mutating func writeMetalRayQuery(
+        _ query: IRHandle<IRExpression>, operation: IRRayQueryFunction, to lines: inout [String]
+    ) throws {
+        guard outputFormat == .msl,
+              case .localVariable(let local) = try function.expressions.value(for: query).kind,
+              case .rayQuery(false) = try module.types.value(for: function.localVariables.value(for: local).type).kind
+        else { throw unsupported("Metal ray query must be a local without vertex return") }
+        let name = localName(local.index), state = "\(name)_state"
+        switch operation {
+        case .begin:
+            try append("\(state) = 0u;", to: &lines)
+        case .proceed(let result):
+            let temporary = "saga_ray_proceed_\(result.index)"
+            try append("bool \(temporary) = false;", to: &lines)
+            try append("if ((\(state) & 1u) != 0u && (\(state) & 4u) == 0u) {", to: &lines)
+            try append("    \(temporary) = \(name).next();", to: &lines)
+            try append("    \(state) |= \(temporary) ? 2u : 6u;", to: &lines)
+            try append("}", to: &lines)
+            remember(result)
+        case .initialize(let acceleration, let descriptor):
+            guard let descriptorType = module.specialTypes.rayDescriptor,
+                  let layout = structures[descriptorType]
+            else { throw unsupported("Metal ray query descriptor layout") }
+            let desc = "saga_ray_desc_\(query.index)"
+            let fields = (0..<6).map { "\(desc).\(layout.memberName($0))" }
+            let source = try value(descriptor)
+            let structure = try typeName(descriptorType)
+            let accel = try value(acceleration)
+            try append("{", to: &lines)
+            try append("    \(state) = 0u;", to: &lines)
+            try append("    \(structure) \(desc) = \(source);", to: &lines)
+            try append("    if (all(isfinite(\(fields[4]))) && all(isfinite(\(fields[5]))) && isfinite(\(fields[2])) && !isnan(\(fields[3])) && \(fields[2]) >= 0.0f && \(fields[2]) <= \(fields[3]) && any(\(fields[5]) != 0.0f) && (\(fields[0]) & ~1023u) == 0u && popcount(\(fields[0]) & 195u) < 2 && popcount(\(fields[0]) & 304u) < 2 && popcount(\(fields[0]) & 768u) < 2) {", to: &lines)
+            try append("        metal::raytracing::intersection_params saga_params;", to: &lines)
+            try append("        saga_params.set_triangle_front_facing_winding(metal::winding::clockwise);", to: &lines)
+            try append("        saga_params.set_triangle_cull_mode((\(fields[0]) & 16u) != 0u ? metal::raytracing::triangle_cull_mode::back : ((\(fields[0]) & 32u) != 0u ? metal::raytracing::triangle_cull_mode::front : metal::raytracing::triangle_cull_mode::none));", to: &lines)
+            try append("        saga_params.set_geometry_cull_mode((\(fields[0]) & 256u) != 0u ? metal::raytracing::geometry_cull_mode::triangle : ((\(fields[0]) & 512u) != 0u ? metal::raytracing::geometry_cull_mode::bounding_box : metal::raytracing::geometry_cull_mode::none));", to: &lines)
+            try append("        metal::raytracing::opacity_cull_mode saga_cull = (\(fields[0]) & 64u) != 0u ? metal::raytracing::opacity_cull_mode::opaque : ((\(fields[0]) & 128u) != 0u ? metal::raytracing::opacity_cull_mode::non_opaque : metal::raytracing::opacity_cull_mode::none);", to: &lines)
+            try append("        saga_params.set_opacity_cull_mode(saga_cull);", to: &lines)
+            try append("        if (saga_cull == metal::raytracing::opacity_cull_mode::none) { saga_params.force_opacity((\(fields[0]) & 1u) != 0u ? metal::raytracing::forced_opacity::opaque : ((\(fields[0]) & 2u) != 0u ? metal::raytracing::forced_opacity::non_opaque : metal::raytracing::forced_opacity::none)); }", to: &lines)
+            try append("        saga_params.accept_any_intersection((\(fields[0]) & 4u) != 0u);", to: &lines)
+            try append("        metal::raytracing::ray saga_ray(\(fields[4]), \(fields[5]), \(fields[2]), \(fields[3]));", to: &lines)
+            try append("        \(name).reset(saga_ray, \(accel), \(fields[1]), saga_params);", to: &lines)
+            try append("        \(state) = 1u;", to: &lines)
+            try append("        \(name)_tmax = \(fields[3]);", to: &lines)
+            try append("    }", to: &lines)
+            try append("}", to: &lines)
+        case .confirmIntersection:
+            try append("if ((\(state) & 2u) != 0u && (\(state) & 4u) == 0u && \(name).get_candidate_intersection_type() == metal::raytracing::intersection_type::triangle) { \(name).commit_triangle_intersection(); }", to: &lines)
+        case .generateIntersection(let hitT):
+            let hit = try value(hitT)
+            try append("if ((\(state) & 2u) != 0u && (\(state) & 4u) == 0u) {", to: &lines)
+            try append("    float saga_hit_t = \(hit);", to: &lines)
+            try append("    float saga_max_t = \(name).get_committed_intersection_type() == metal::raytracing::intersection_type::none ? \(name)_tmax : \(name).get_committed_distance();", to: &lines)
+            try append("    if (\(name).get_candidate_intersection_type() == metal::raytracing::intersection_type::bounding_box && \(name).get_ray_min_distance() <= saga_hit_t && saga_hit_t <= saga_max_t) { \(name).commit_bounding_box_intersection(saga_hit_t); }", to: &lines)
+            try append("}", to: &lines)
+        case .terminate:
+            try append("if ((\(state) & 2u) != 0u && (\(state) & 4u) == 0u) { \(name).abort(); }", to: &lines)
+        }
+    }
+
     private mutating func writeStatements(
         _ statements: [String], when condition: String?, to lines: inout [String]
     ) throws {
@@ -3913,11 +4131,18 @@ struct ShaderBodyWriter {
         case .binary where temporaries.contains(handle): return "saga_remainder_\(handle.index)"
         case .derivative where temporaries.contains(handle): return "saga_derivative_\(handle.index)"
         case .workgroupUniformLoadResult where temporaries.contains(handle): return "saga_uniform_\(handle.index)"
+        case .rayQueryProceedResult where temporaries.contains(handle): return "saga_ray_proceed_\(handle.index)"
+        case .rayQueryGetIntersection where temporaries.contains(handle): return "saga_ray_intersection_\(handle.index)"
         case .subgroupOperationResult, .subgroupBallotResult:
             guard temporaries.contains(handle) else { throw unsupported("Unavailable subgroup result") }
             return "saga_subgroup_\(handle.index)"
         case .atomicResult where temporaries.contains(handle): return "saga_atomic_\(handle.index)"
         case .callResult where temporaries.contains(handle): return "saga_call_\(handle.index)"
+        case .globalVariable(let global) where outputFormat == .msl || outputFormat == .hlsl || outputFormat == .glsl:
+            guard storage.indices.contains(global.index),
+                  case .accelerationStructure(false) = try module.types.value(for: expression.type).kind
+            else { throw unsupported("global value") }
+            return storage[global.index].reference
         case .functionArgument(let argument):
             guard let index = Int(exactly: argument), arguments.indices.contains(index) else {
                 throw ShaderFailure.invalidHandle
@@ -4096,14 +4321,53 @@ struct ShaderBodyWriter {
         _ op: IRBinaryOperator, left: IRHandle<IRExpression>, right: IRHandle<IRExpression>,
         resultType: IRHandle<IRType>, parenthesized: Bool
     ) throws -> String {
+        // Validate and charge before expanding either child, as in the original traversal.
+        try prepareBinaryValue(op, left: left, right: right)
+        let lhs = try value(left)
+        let rhs = try value(right)
+        return try formatBinaryValue(op, left: left, right: right, lhs: lhs, rhs: rhs,
+                                     resultType: resultType, parenthesized: parenthesized)
+    }
+
+    private mutating func prepareBinaryValue(
+        _ op: IRBinaryOperator, left: IRHandle<IRExpression>, right: IRHandle<IRExpression>
+    ) throws {
         let operandType = try function.expressions.value(for: left).type
         let lhsKind = try module.types.value(for: operandType).kind
         let rhsType = try function.expressions.value(for: right).type
         let rhsKind = try module.types.value(for: rhsType).kind
         if lhsKind.isMatrix || rhsKind.isMatrix {
             try budget.consume(.sourceBytes, amount: 8)
-            let lhs = try value(left)
-            let rhs = try value(right)
+        } else if case .vector(let size, let lane) = lhsKind,
+                  [.i16, .u16, .i32, .u32].contains(lane) || IntegerShaderHelper(operation: op, scalar: lane) != nil {
+            let helper = IntegerVectorHelper(operation: .binary(op), scalar: lane, width: size.rawValue)
+            try budget.consume(.sourceBytes, amount: helper.name.utf8.count + 4)
+        } else if case .vector(_, let lane) = lhsKind, lane == .i64 || lane == .u64 {
+            try budget.consume(.sourceBytes, amount: 8)
+        } else if let shape = IRBitcastShape(lhsKind), [.f16, .f32, .f64].contains(shape.scalar), lhsKind == rhsKind {
+            try budget.consume(.sourceBytes, amount: 8)
+        } else if case .vector(_, .bool) = lhsKind {
+            try budget.consume(.sourceBytes, amount: 64)
+        } else {
+            let type = try scalar(operandType)
+            let shift = op == .shiftLeft || op == .shiftRight
+            let rightType = try scalar(rhsType)
+            guard rightType == (shift ? .u32 : type) else {
+                throw unsupported("binary operand types")
+            }
+            try budget.consume(.sourceBytes, amount: 8)
+        }
+    }
+
+    private mutating func formatBinaryValue(
+        _ op: IRBinaryOperator, left: IRHandle<IRExpression>, right: IRHandle<IRExpression>,
+        lhs: String, rhs: String, resultType: IRHandle<IRType>, parenthesized: Bool
+    ) throws -> String {
+        let operandType = try function.expressions.value(for: left).type
+        let lhsKind = try module.types.value(for: operandType).kind
+        let rhsType = try function.expressions.value(for: right).type
+        let rhsKind = try module.types.value(for: rhsType).kind
+        if lhsKind.isMatrix || rhsKind.isMatrix {
             // HLSL rows represent WGSL columns. The transpose of a product reverses the operands.
             if outputFormat == .hlsl, op == .multiply, !lhsKind.isScalar, !rhsKind.isScalar {
                 return "mul(\(rhs), \(lhs))"
@@ -4115,22 +4379,13 @@ struct ShaderBodyWriter {
         if case .vector(let size, let lane) = lhsKind,
            [.i16, .u16, .i32, .u32].contains(lane) || IntegerShaderHelper(operation: op, scalar: lane) != nil {
             let helper = IntegerVectorHelper(operation: .binary(op), scalar: lane, width: size.rawValue)
-            try budget.consume(.sourceBytes, amount: helper.name.utf8.count + 4)
-            let a = try value(left)
-            let b = try value(right)
             integerVectorHelpers.insert(helper)
-            return "\(helper.name)(\(a), \(b))"
+            return "\(helper.name)(\(lhs), \(rhs))"
         }
         if case .vector(let size, let lane) = lhsKind, lane == .i64 || lane == .u64 {
-            try budget.consume(.sourceBytes, amount: 8)
-            let lhs = try value(left)
-            let rhs = try value(right)
             return try wideIntegerBinary(op, scalar: lane, width: size.rawValue, left: lhs, right: rhs, in: outputFormat)
         }
         if let shape = IRBitcastShape(lhsKind), [.f16, .f32, .f64].contains(shape.scalar), lhsKind == rhsKind {
-            try budget.consume(.sourceBytes, amount: 8)
-            let lhs = try value(left)
-            let rhs = try value(right)
             if op == .modulo {
                 guard shape.scalar != .f64 else { throw unsupported("f64 remainder in a text backend") }
                 let remainder = floatingRemainder(lhs, rhs)
@@ -4156,9 +4411,6 @@ struct ShaderBodyWriter {
             return parenthesized ? "(\(binary))" : binary
         }
         if case .vector(let width, .bool) = lhsKind {
-            try budget.consume(.sourceBytes, amount: 64)
-            let lhs = try value(left)
-            let rhs = try value(right)
             let symbol = try shaderBinarySymbol(op, type: .bool)
             if op == .and || op == .inclusiveOr {
                 return try eagerBooleanBinary(symbol, left: lhs, right: rhs, width: width.rawValue)
@@ -4175,10 +4427,6 @@ struct ShaderBodyWriter {
         guard rightType == (shift ? .u32 : type) else {
             throw unsupported("binary operand types")
         }
-        // Charge each expansion before traversing children so shared IR cannot inflate output unchecked.
-        try budget.consume(.sourceBytes, amount: 8)
-        let lhs = try value(left)
-        let rhs = try value(right)
         if type == .bool, op == .and || op == .inclusiveOr {
             try budget.consume(.sourceBytes, amount: 64)
             return try eagerBooleanBinary(shaderBinarySymbol(op, type: type), left: lhs, right: rhs, width: 1)

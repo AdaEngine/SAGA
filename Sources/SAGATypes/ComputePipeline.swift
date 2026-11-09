@@ -142,6 +142,7 @@ public struct ComputePipeline: Equatable, Sendable {
     package let externalTextureBindings: [ComputeBindingSlot]
     package let storageTextureBindings: [StorageTextureRequirement]
     package let samplerBindings: [SamplerRequirement]
+    package let accelerationStructureBindings: [ComputeBindingSlot]
     package let webBindingIndices: [ComputeBindingSlot: UInt32]
     /// Explicit and shader-inferred nearest-only sampler slots.
     public var nonFilteringSamplers: Set<ComputeBindingSlot> {
@@ -151,6 +152,7 @@ public struct ComputePipeline: Equatable, Sendable {
     package init(id: ResourceID, storageBindings: [BufferBinding], uniformBindings: [BufferBinding] = [],
                  textureBindings: [SampledTextureRequirement] = [], storageTextureBindings: [StorageTextureRequirement] = [],
                  samplerBindings: [SamplerRequirement] = [], externalTextureBindings: [ComputeBindingSlot] = [],
+                 accelerationStructureBindings: [ComputeBindingSlot] = [],
                  webBindingIndices: [ComputeBindingSlot: UInt32] = [:], immediateByteSize: UInt64 = 0,
                  maximumLinearWorkgroupCount: UInt32? = nil, requiredSubgroupSize: UInt32? = nil) {
         self.id = id
@@ -162,6 +164,7 @@ public struct ComputePipeline: Equatable, Sendable {
         self.externalTextureBindings = externalTextureBindings
         self.storageTextureBindings = storageTextureBindings
         self.samplerBindings = samplerBindings
+        self.accelerationStructureBindings = accelerationStructureBindings
         self.webBindingIndices = webBindingIndices
     }
 }

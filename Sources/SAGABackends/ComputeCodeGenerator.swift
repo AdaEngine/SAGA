@@ -24,6 +24,10 @@ package struct ComputeCodeGenerator: ShaderCodeGenerator {
         _ validated: ValidatedModule<IRModule>, onlyReachableBindings: Bool = false
     ) throws -> ComputeShaderArtifact {
         let module = validated.module
+        let usesRayQuery = module.types.values.contains {
+            if case .rayQuery = $0.kind { return true }
+            return false
+        }
         let usesFloat16 = module.types.values.contains { $0.kind.usesFloat16 }
         let usesInt16 = !webGPU && moduleUsesInt16(module)
         let requiresStandardUniformLayout = outputFormat == .wgsl && module.uniformBufferStandardLayout
@@ -96,6 +100,7 @@ package struct ComputeCodeGenerator: ShaderCodeGenerator {
         var storage: [ShaderStorage] = []
         var metalStorage: [[ShaderParameter]] = []
         var layout: [ComputeShaderArtifact.StorageBinding] = []
+        var accelerationStructures: [ComputeShaderArtifact.AccelerationStructureBinding] = []
         var uniformLayout: [ComputeShaderArtifact.UniformBinding] = []
         var sampledTextures: [ComputeShaderArtifact.SampledTextureBinding] = []
         var externalTextures: [IRResourceBinding] = []
@@ -112,7 +117,13 @@ package struct ComputeCodeGenerator: ShaderCodeGenerator {
             return kind.isExternalTexture
         })
         let resources = globals.enumerated().filter { !unusedBindings.contains($0.offset) }.map(\.element)
-        let handles = try handleResourceGlobals(resources, module: module, bindingArrayLengths: bindingArrayLengths)
+        if outputFormat == .glsl && (usesRayQuery || resources.contains(where: { global in
+            if case .accelerationStructure = try? module.types.value(for: global.type).kind { return true }
+            return false
+        })) {
+            throw unsupported("GLSL ray queries require validated traversal semantics and compiler verification")
+        }
+        let handles = try handleResourceGlobals(resources, module: module, bindingArrayLengths: bindingArrayLengths, allowAccelerationStructures: outputFormat == .msl || outputFormat == .hlsl || outputFormat == .glsl)
         if webGPU {
             let active = resources.filter { $0.binding != nil }
             let widths = try helpers.nativeIntegerWidths(in: module, entry: entry.function, resources: active)
@@ -125,7 +136,7 @@ package struct ComputeCodeGenerator: ShaderCodeGenerator {
         let flatBindings = try flatResourceBindingIndices(
             resources.filter { global in
                 if case .storage = global.space { return true }
-                return false
+                return handles.accelerationStructures.contains { $0.binding == global.binding }
             },
             capacity: ComputeShaderArtifact.storageBindingCapacity, arrayCounts: arrayCounts)
         let flatUniforms = try flatResourceBindingIndices(
@@ -229,6 +240,27 @@ package struct ComputeCodeGenerator: ShaderCodeGenerator {
                 usesGLSL16BitStorage = usesGLSL16BitStorage || uniform.usesGLSL16BitStorage
                 continue
             }
+            if global.space == .handle, case .accelerationStructure(let vertexReturn) = try module.types.value(for: global.type).kind {
+                guard (outputFormat == .msl || outputFormat == .hlsl || outputFormat == .glsl), !vertexReturn, let binding = global.binding,
+                      let flat = flatBindings[binding] else {
+                    throw unsupported("Metal acceleration structure binding")
+                }
+                let name = "saga_acceleration_\(index)"
+                let type = outputFormat == .msl ? "metal::raytracing::instance_acceleration_structure" : "RaytracingAccelerationStructure"
+                if outputFormat == .msl {
+                    resourceParameters.append("\(type) \(name) [[buffer(\(flat))]]")
+                    metalStorage.append([.init(type: type, name: name)])
+                } else if outputFormat == .glsl {
+                    declarations.append("layout(binding = \(flat)) uniform accelerationStructureEXT \(name);")
+                    metalStorage.append([])
+                } else {
+                    declarations.append("\(type) \(name) : register(t\(binding.binding), space\(binding.group));")
+                    metalStorage.append([])
+                }
+                storage.append(.init(reference: name, writable: false))
+                accelerationStructures.append(.init(binding: binding, flatBindingIndex: flat))
+                continue
+            }
             if global.space == .handle, let binding = global.binding, let flat = flatSamplers[binding] {
                 let sampler = try SamplerShaderBinding(global: global, index: index, flat: flat, module: module,
                                                       format: outputFormat, requiresNonFiltering: nonFilteringSamplers.contains(index),
@@ -328,6 +360,7 @@ package struct ComputeCodeGenerator: ShaderCodeGenerator {
         switch outputFormat {
         case .msl:
             var prelude = ["#include <metal_stdlib>", "using namespace metal;"]
+            if usesRayQuery || !accelerationStructures.isEmpty { prelude.append("#include <metal_raytracing>") }
             if usesCooperativeMatrix { prelude.append(metalCooperativeMatrixPrelude) }
             declarations.insert(contentsOf: prelude, at: 0)
             attributes = []
@@ -362,8 +395,8 @@ package struct ComputeCodeGenerator: ShaderCodeGenerator {
             signature = "fn \(entryPoint)(\(parameterList))"
         default:
             declarations.insert(contentsOf: [
-                "#version 450 core",
-            ] + glslUnsigned64Extensions(module: module, storageTextures: storageTextures) +
+                usesRayQuery || !accelerationStructures.isEmpty ? "#version 460 core" : "#version 450 core",
+            ] + (usesRayQuery || !accelerationStructures.isEmpty ? ["#extension GL_EXT_ray_query : require"] : []) + glslUnsigned64Extensions(module: module, storageTextures: storageTextures) +
                 (usesFloat16 ? [glslFloat16Extension] : []) +
                 (usesInt16 ? [glslInt16Extension] : []) +
                 (usesGLSL16BitStorage ? [glslStorage16BitExtension] : []) +
@@ -392,14 +425,17 @@ package struct ComputeCodeGenerator: ShaderCodeGenerator {
         let needsHLSL66 = subgroupSize != nil || atomic64 || storageTextures.contains { $0.format == .r64Uint }
         let profile: String
         if helpers.comparisonSampleHLSLMinorVersion > 0 {
-            profile = "cs_6_\(max(helpers.comparisonSampleHLSLMinorVersion, needsHLSL66 ? 6 : 0))"
+            profile = "cs_6_\(max(helpers.comparisonSampleHLSLMinorVersion, needsHLSL66 ? 6 : usesRayQuery ? 5 : 0))"
         } else {
-            profile = needsHLSL66 ? "cs_6_6" : usesFloat16 || usesInt16 ? "cs_6_2" : "cs_6_0"
+            profile = needsHLSL66 ? "cs_6_6" : usesRayQuery ? "cs_6_5" : usesFloat16 || usesInt16 ? "cs_6_2" : "cs_6_0"
+        }
+        guard outputFormat != .hlsl || (accelerationStructures.isEmpty && !usesRayQuery) else {
+            throw unsupported("HLSL ray queries require validated traversal semantics and compiler verification")
         }
         return .init(
             artifact: .text(format: outputFormat, source: source), sourceEntryPoint: entry.name,
             entryPoint: entryPoint, workgroupSize: size, storageBindings: layout, uniformBindings: uniformLayout,
-            sampledTextures: sampledTextures, storageTextures: storageTextures, externalTextures: externalTextures,
+            accelerationStructures: accelerationStructures, sampledTextures: sampledTextures, storageTextures: storageTextures, externalTextures: externalTextures,
             externalTextureLayouts: externalLayouts,
             samplerBindings: samplers,
             glslTextureSamplerBindings: glslBindings.map { $0.reflection },
@@ -667,12 +703,13 @@ func resourceBindingArrayCount(
 
 func handleResourceGlobals(
     _ globals: [IRGlobalVariable], module: IRModule,
-    bindingArrayLengths: [IRResourceBinding: UInt32] = [:]
+    bindingArrayLengths: [IRResourceBinding: UInt32] = [:], allowAccelerationStructures: Bool = false
 ) throws
-    -> (textures: [IRGlobalVariable], samplers: [IRGlobalVariable], storageTextures: [IRGlobalVariable],
+    -> (accelerationStructures: [IRGlobalVariable], textures: [IRGlobalVariable], samplers: [IRGlobalVariable], storageTextures: [IRGlobalVariable],
         externalTextures: [IRGlobalVariable],
         arrayCounts: [IRResourceBinding: UInt32])
 {
+    var accelerationStructures: [IRGlobalVariable] = []
     var textures: [IRGlobalVariable] = []
     var samplers: [IRGlobalVariable] = []
     var storageTextures: [IRGlobalVariable] = []
@@ -695,10 +732,12 @@ func handleResourceGlobals(
         case let kind where kind.isExternalTexture: externalTextures.append(global)
         case let kind where kind.storageTexture != nil: storageTextures.append(global)
         case .sampler: samplers.append(global)
+        case .accelerationStructure(let vertexReturn) where allowAccelerationStructures && !vertexReturn && global.binding.map({ arrayCounts[$0] == nil }) == true:
+            accelerationStructures.append(global)
         default: throw ShaderFailure.unsupported("Unsupported texture or sampler binding")
         }
     }
-    return (textures, samplers, storageTextures, externalTextures, arrayCounts)
+    return (accelerationStructures, textures, samplers, storageTextures, externalTextures, arrayCounts)
 }
 
 func hlslBindingArrayRegisterBase(_ binding: IRResourceBinding) -> UInt32 {

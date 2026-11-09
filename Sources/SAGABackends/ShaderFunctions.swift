@@ -795,6 +795,8 @@ func shaderValueType(
 ) throws -> String {
     if let structure = structures[handle] { return structure.typeName }
     switch try module.types.value(for: handle).kind {
+    case .accelerationStructure(false) where format == .msl:
+        return "metal::raytracing::instance_acceleration_structure"
     case .scalar(.bool): return "bool"
     case .scalar(.i16): return integer16Type(signed: true, in: format)
     case .scalar(.u16): return integer16Type(signed: false, in: format)

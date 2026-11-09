@@ -37,6 +37,17 @@ public struct ComputeShaderArtifact: Sendable, Equatable {
         }
     }
 
+    public struct AccelerationStructureBinding: Sendable, Equatable {
+        public let binding: IRResourceBinding
+        /// Metal buffer index, allocated together with storage buffer indices.
+        public let flatBindingIndex: UInt32
+
+        package init(binding: IRResourceBinding, flatBindingIndex: UInt32) {
+            self.binding = binding
+            self.flatBindingIndex = flatBindingIndex
+        }
+    }
+
     public struct StorageBinding: Sendable, Equatable {
         public let binding: IRResourceBinding
         /// Emitted buffer index for Metal or binding point for OpenGL GLSL.
@@ -188,6 +199,7 @@ public struct ComputeShaderArtifact: Sendable, Equatable {
     public let hlslProfile: String?
     /// Total workgroup memory in bytes, with each variable rounded up to 16 bytes.
     public let workgroupStorageByteSize: UInt64
+    public let accelerationStructures: [AccelerationStructureBinding]
     public let storageBindings: [StorageBinding]
     public let uniformBindings: [UniformBinding]
     public let sampledTextures: [SampledTextureBinding]
@@ -224,6 +236,7 @@ public struct ComputeShaderArtifact: Sendable, Equatable {
     package init(
         artifact: ShaderArtifact, sourceEntryPoint: String, entryPoint: String,
         workgroupSize: IRWorkgroupSize, storageBindings: [StorageBinding], uniformBindings: [UniformBinding] = [],
+        accelerationStructures: [AccelerationStructureBinding] = [],
         sampledTextures: [SampledTextureBinding] = [], storageTextures: [StorageTextureBinding] = [],
         externalTextures: [IRResourceBinding] = [],
         externalTextureLayouts: [ExternalTextureLayout] = [],
@@ -245,6 +258,7 @@ public struct ComputeShaderArtifact: Sendable, Equatable {
         self.workgroupSize = workgroupSize
         self.hlslProfile = hlslProfile
         self.workgroupStorageByteSize = workgroupStorageByteSize
+        self.accelerationStructures = accelerationStructures
         self.storageBindings = storageBindings
         self.uniformBindings = uniformBindings
         self.sampledTextures = sampledTextures

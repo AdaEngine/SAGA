@@ -46,7 +46,7 @@ public actor Device {
     public nonisolated let identity: UInt64
     public nonisolated let supportsPresentation: Bool
     private let backend: any BackendDevice
-    private enum ResourceKind: Equatable { case buffer, texture, externalTexture, sampler, textureView, querySet }
+    private enum ResourceKind: Equatable { case buffer, texture, externalTexture, sampler, textureView, querySet, accelerationStructure }
     private enum ResourceDescriptor {
         case buffer(BufferDescriptor)
         case texture(TextureDescriptor)
@@ -55,6 +55,7 @@ public actor Device {
         case sampler(SamplerDescriptor)
         case textureView(TextureViewResource)
         case querySet(QuerySetDescriptor)
+        case accelerationStructure(AccelerationStructureDescriptor)
 
         var kind: ResourceKind {
             switch self {
@@ -64,6 +65,7 @@ public actor Device {
             case .sampler: .sampler
             case .textureView: .textureView
             case .querySet: .querySet
+            case .accelerationStructure: .accelerationStructure
             }
         }
         var buffer: BufferDescriptor? {
@@ -98,6 +100,9 @@ public actor Device {
         var uses = 0
         var mapping: MappingSession?
     }
+    private var accelerationDependencies: [ResourceID: Set<ResourceID>] = [:]
+    private var builtAccelerationStructures: Set<ResourceID> = []
+    private var pendingAccelerationBuilds: [ResourceID: Int] = [:]
     private struct MappingSession {
         enum Phase { case queued, opening, mapped, closing }
         let handle: BufferMapping
@@ -202,6 +207,10 @@ public actor Device {
         try await createResource { .sampler(descriptor) }
     }
 
+    public func createAccelerationStructure(_ descriptor: AccelerationStructureDescriptor) async throws -> ResourceID {
+        try await createResource { .accelerationStructure(descriptor) }
+    }
+
     public func createQuerySet(_ descriptor: QuerySetDescriptor) async throws -> ResourceID {
         try await createResource { .querySet(descriptor) }
     }
@@ -257,6 +266,14 @@ public actor Device {
                     throw GPUError.unsupported("Backend does not implement texture views")
                 }
                 allocate = { try await renderer.allocateTextureView(id: $0, texture: view.texture, descriptor: view.descriptor) }
+            case .accelerationStructure(let value):
+                guard value.capacity != .triangles(0), value.capacity != .instances(0) else {
+                    throw GPUError.validation("Acceleration structure capacity must be nonzero")
+                }
+                guard let accelerationBackend = backend as? any AccelerationStructureBackendDevice else {
+                    throw GPUError.unsupported("Backend does not implement acceleration structures")
+                }
+                allocate = { try await accelerationBackend.allocateAccelerationStructure(id: $0, descriptor: value) }
             case .querySet(let value):
                 try value.validate(against: capabilities)
                 guard let queryBackend = backend as? any QuerySetBackendDevice else {
@@ -359,6 +376,9 @@ public actor Device {
             if shader.requiresLinearIndexing { try capabilities.require([.linearIndexing]) }
             if shader.requiresUniformBufferStandardLayout {
                 try capabilities.require([.uniformBufferStandardLayout])
+            }
+            if !shader.accelerationStructures.isEmpty, !(backend is any ComputeAccelerationStructureBackendDevice) {
+                throw GPUError.unsupported("Compute acceleration structure bindings are not supported")
             }
             guard let compute = backend as? any ComputeBackendDevice else {
                 throw GPUError.unsupported("Backend does not implement compute pipelines")
@@ -493,6 +513,10 @@ public actor Device {
         try await destroyResource(id, expected: .textureView)
     }
 
+    public func destroyAccelerationStructure(_ id: ResourceID) async throws {
+        try await destroyResource(id, expected: .accelerationStructure)
+    }
+
     public func destroyQuerySet(_ id: ResourceID) async throws {
         try await destroyResource(id, expected: .querySet)
     }
@@ -527,6 +551,9 @@ public actor Device {
     }
 
     private func retire(_ id: ResourceID, kind: ResourceKind) async {
+        builtAccelerationStructures.remove(id)
+        pendingAccelerationBuilds.removeValue(forKey: id)
+        let dependencies = accelerationDependencies.removeValue(forKey: id) ?? []
         switch kind {
         case .buffer: await backend.destroyBuffer(id: id)
         case .texture: await (backend as? any RenderBackendDevice)?.destroyTexture(id: id)
@@ -534,7 +561,9 @@ public actor Device {
         case .sampler: await (backend as? any SamplerBackendDevice)?.destroySampler(id: id)
         case .textureView: await (backend as? any TextureViewBackendDevice)?.destroyTextureView(id: id)
         case .querySet: await (backend as? any QuerySetBackendDevice)?.destroyQuerySet(id: id)
+        case .accelerationStructure: await (backend as? any AccelerationStructureBackendDevice)?.destroyAccelerationStructure(id: id)
         }
+        if !dependencies.isEmpty { await finish(Array(dependencies)) }
     }
 
     private func externalTextureBackend() throws -> any ExternalTextureBackendDevice {
@@ -616,14 +645,51 @@ public actor Device {
             }
             let samplerDescriptors = resources.compactMapValues { $0.descriptor.sampler }
             let querySets = resources.compactMapValues { $0.descriptor.querySet }
+            let accelerationStructures = resources.compactMapValues { resource -> AccelerationStructureDescriptor? in
+                guard case .accelerationStructure(let descriptor) = resource.descriptor else { return nil }
+                return descriptor
+            }
+            var availableBuilds = builtAccelerationStructures.union(pendingAccelerationBuilds.keys)
             for command in commands {
                 for id in command.resources { try requireGPUResource(id) }
+                let pass = command.recordedPass.command
+                if let dispatch = pass.computeDispatch {
+                    guard Set(dispatch.accelerationStructures.values).isSubset(of: availableBuilds) else {
+                        throw GPUError.validation("Compute acceleration structure has not been built")
+                    }
+                }
+                switch pass {
+                case .buildAccelerationStructure(let destination, _), .buildTopLevelAccelerationStructure(let destination, _):
+                    availableBuilds.insert(destination)
+                default: break
+                }
+                if case .buildAccelerationStructure(let destination, let geometry) = command {
+                    guard case .accelerationStructure(let descriptor) = resources[destination]?.descriptor,
+                          case .triangles(let capacity) = descriptor.capacity,
+                          geometry.triangleCount <= capacity else {
+                        throw GPUError.validation("Acceleration structure destination or capacity is invalid")
+                    }
+                }
+                if case .buildTopLevelAccelerationStructure(let destination, let instances) = command {
+                    guard case .accelerationStructure(let descriptor) = resources[destination]?.descriptor,
+                          case .instances(let capacity) = descriptor.capacity,
+                          instances.count <= Int(capacity), instances.allSatisfy({ instance in
+                              guard case .accelerationStructure(let source) = resources[instance.accelerationStructure]?.descriptor,
+                                    case .triangles = source.capacity else { return false }
+                              return true
+                          }) else {
+                        throw GPUError.validation("Invalid top-level acceleration structure or instances")
+                    }
+                    guard Set(instances.map(\.accelerationStructure)).isSubset(of: availableBuilds) else {
+                        throw GPUError.validation("Top-level acceleration structure references an unbuilt BLAS")
+                    }
+                }
                 try command.validate(device: identity, descriptors: descriptors, textures: textures,
                                      samplerDescriptors: samplerDescriptors, textureViews: textureViews,
                                      maximumViewportDimension: capabilities.maxTextureDimension2D, querySets: querySets,
                                      maxMultiviewViewCount: capabilities.maxMultiviewViewCount,
                                      features: capabilities.features, externalTextures: externalTextures,
-                                     externalPlanes: externalPlanes,
+                                     externalPlanes: externalPlanes, accelerationStructures: accelerationStructures,
                                      maxComputeWorkgroupsPerDimension: capabilities.maxComputeWorkgroupsPerDimension)
             }
         } catch is CancellationError {
@@ -631,10 +697,62 @@ public actor Device {
         } catch {
             let error = normalize(error); record(error); throw error
         }
+        let buildDestinations = Set(commands.compactMap { command -> ResourceID? in
+            switch command.recordedPass.command {
+            case .buildAccelerationStructure(let destination, _), .buildTopLevelAccelerationStructure(let destination, _): destination
+            default: nil
+            }
+        })
         let (sequence, completion) = try enqueue(commands.flatMap(\.resources)) { submission in
-            try await commandBackend.submitCommands(submission, commands: commands)
+            try await self.submitAccelerationCommands(submission, commands: commands, builds: buildDestinations, backend: commandBackend)
         }
+        for id in buildDestinations { pendingAccelerationBuilds[id, default: 0] += 1 }
         return CommandTicket(sequence: sequence, completion: completion)
+    }
+
+    private func submitAccelerationCommands(
+        _ submission: Submission, commands: [BufferCommand], builds: Set<ResourceID>, backend: any CommandBackendDevice
+    ) async throws -> [[UInt32]] {
+        defer {
+            for id in builds {
+                if let count = pendingAccelerationBuilds[id], count > 1 { pendingAccelerationBuilds[id] = count - 1 }
+                else { pendingAccelerationBuilds.removeValue(forKey: id) }
+            }
+        }
+        var available = builtAccelerationStructures
+        for command in commands {
+            let pass = command.recordedPass.command
+            if let dispatch = pass.computeDispatch,
+               !Set(dispatch.accelerationStructures.values).isSubset(of: available) {
+                throw GPUError.validation("Compute acceleration structure build did not complete")
+            }
+            if case .buildTopLevelAccelerationStructure(_, let instances) = pass,
+               !Set(instances.map(\.accelerationStructure)).isSubset(of: available) {
+                throw GPUError.validation("Top-level acceleration structure references an unbuilt BLAS")
+            }
+            switch pass {
+            case .buildAccelerationStructure(let destination, _), .buildTopLevelAccelerationStructure(let destination, _):
+                available.insert(destination)
+            default: break
+            }
+        }
+        builtAccelerationStructures.subtract(builds)
+        let result = try await backend.submitCommands(submission, commands: commands)
+        var replacementDependencies: [ResourceID: Set<ResourceID>] = [:]
+        for command in commands {
+            if case .buildTopLevelAccelerationStructure(let destination, let instances) = command.recordedPass.command {
+                replacementDependencies[destination] = Set(instances.map(\.accelerationStructure))
+            }
+        }
+        for (destination, next) in replacementDependencies {
+            let previous = accelerationDependencies[destination, default: []]
+            for id in next.subtracting(previous) { resources[id]!.uses += 1 }
+            accelerationDependencies[destination] = next
+            let removed = previous.subtracting(next)
+            if !removed.isEmpty { await finish(Array(removed)) }
+        }
+        builtAccelerationStructures.formUnion(builds)
+        return result
     }
 
     private func enqueue<Result: Sendable>(
