@@ -3,6 +3,79 @@ import SAGAShaderIR
 import Testing
 
 extension GLSLFrontendTests {
+    @Test func glslStageBlocksAndArraysFlattenToConsecutiveLocations() throws {
+        let source = """
+            #version 450
+            layout(location = 2) in Input { vec2 uv; float factor; } vertex;
+            layout(location = 2) out Output { vec2 uv; float factor; } fragment;
+            layout(location = 6) in vec4 values[2];
+            layout(location = 6) out vec4 colors[2];
+            void main() {
+                fragment.uv = vertex.uv;
+                fragment.factor = vertex.factor;
+                colors[1] = values[0];
+            }
+            """
+        let module = try parse(source, stage: .fragment)
+        let entry = try module.functions.value(for: module.entryPoints[0].function)
+        let result = try #require(entry.result)
+        guard case .structure(let outputs, _) = try module.types.value(for: result.type).kind else {
+            throw ShaderFailure.invalidHandle
+        }
+        let locations: [UInt32] = [2, 3, 6, 7]
+        #expect(entry.arguments.map(\.binding) == locations.map {
+            .location(index: $0, interpolation: .perspective, sampling: .center, blendSource: nil, perPrimitive: false)
+        })
+        #expect(outputs.map(\.binding) == locations.map {
+            .location(index: $0, interpolation: nil, sampling: nil, blendSource: nil, perPrimitive: false)
+        })
+        #expect(entry.statements.values.filter { if case .store = $0.kind { true } else { false } }.count == 4)
+        let input = ShaderInput.glsl(source, stage: .fragment, defines: [:])
+        _ = try IndependentShaderCompiler().compileWebGPURenderStage(input, entryPoint: "main")
+    }
+
+    @Test func glslImplicitStageLocationsReserveLaterExplicitDeclarations() throws {
+        let source = """
+            out vec4 first;
+            in Input { vec2 uv; float weight; };
+            layout(location = 0) out vec4 reserved;
+            layout(location = 1) in vec4 other;
+            in float gap;
+            void main() { first = vec4(uv, weight, gap); reserved = other; }
+            """
+        let module = try parse(source, stage: .fragment)
+        let entry = try module.functions.value(for: module.entryPoints[0].function)
+        let result = try #require(entry.result)
+        guard case .structure(let outputs, _) = try module.types.value(for: result.type).kind else {
+            throw ShaderFailure.invalidHandle
+        }
+        let inputLocations: [UInt32] = [2, 3, 1, 0]
+        let outputLocations: [UInt32] = [1, 0]
+        #expect(entry.arguments.map(\.binding) == inputLocations.map {
+            .location(index: $0, interpolation: .perspective, sampling: .center, blendSource: nil, perPrimitive: false)
+        })
+        #expect(outputs.map(\.binding) == outputLocations.map {
+            .location(index: $0, interpolation: nil, sampling: nil, blendSource: nil, perPrimitive: false)
+        })
+    }
+
+    @Test(arguments: [
+        "layout(location = 3) in vec4 values[2]; layout(location = 4) in vec4 overlap;",
+        "layout(location = 4294967295) out vec4 colors[2];",
+        "layout(location = 0) in Input { ivec2 cell; } data;",
+        "layout(location = 0) in Input { vec2 uv; } data; void mutate() { data.uv = vec2(0); }",
+        "in Input { vec2 uv; }; void mutate() { uv = vec2(0); }",
+    ])
+    func glslRejectsInvalidStageAggregates(declaration: String) {
+        #expect(throws: ShaderFailure.self) { try parse(declaration + " void main() {}", stage: .fragment) }
+    }
+
+    @Test func glslStageAggregatesRemainUnavailableInCompute() {
+        #expect(throws: ShaderFailure.self) {
+            try parse("in Input { vec2 uv; } data; void main() {}")
+        }
+    }
+
     @Test(arguments: [ShaderOutputFormat.wgsl, .msl, .hlsl, .glsl, .spirv, .dot])
     func glslFlatIntegerVaryingReachesCodeGenerators(format: ShaderOutputFormat) throws {
         let source = """

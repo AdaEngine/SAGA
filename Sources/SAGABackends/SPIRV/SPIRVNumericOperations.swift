@@ -9,6 +9,9 @@ extension SPIRVBinaryWriter {
               let shape = IRBitcastShape(try module.types.value(for: type).kind) else {
             throw ShaderFailure.invalidHandle
         }
+        guard shape.scalar != .f64 || builtin.hasGLSLDoubleOverload else {
+            throw unsupported("does not lower this double-precision numeric builtin")
+        }
         var arguments: [UInt32] = []
         for operand in operands { arguments.append(try value(operand, in: &state)) }
         let first = arguments[0]
@@ -36,8 +39,10 @@ extension SPIRVBinaryWriter {
             let span = try rawValueInstruction(131, type: result, operands: [arguments[1], first])
             let ratio = try rawValueInstruction(136, type: result, operands: [shifted, span]) // OpFDiv
             let t = try clampToUnit(ratio, shape: shape, type: result)
-            let two = try splatLiteralID(shape.scalar == .f16 ? .f16Bits(0x4000) : .f32(2), type: result, size: shape.size)
-            let three = try splatLiteralID(shape.scalar == .f16 ? .f16Bits(0x4200) : .f32(3), type: result, size: shape.size)
+            let two = try splatLiteralID(shape.scalar == .f16 ? .f16Bits(0x4000) : shape.scalar == .f64 ? .f64(2) : .f32(2),
+                                         type: result, size: shape.size)
+            let three = try splatLiteralID(shape.scalar == .f16 ? .f16Bits(0x4200) : shape.scalar == .f64 ? .f64(3) : .f32(3),
+                                           type: result, size: shape.size)
             let twice = try rawValueInstruction(133, type: result, operands: [two, t]) // OpFMul
             let factor = try rawValueInstruction(131, type: result, operands: [three, twice])
             let squared = try rawValueInstruction(133, type: result, operands: [t, t])
@@ -163,7 +168,8 @@ extension SPIRVBinaryWriter {
 
     private mutating func clampToUnit(_ value: UInt32, shape: IRBitcastShape, type: UInt32) throws -> UInt32 {
         let zero = try zeroID(typeID: type)
-        let one = try splatLiteralID(shape.scalar == .f16 ? .f16Bits(0x3c00) : .f32(1), type: type, size: shape.size)
+        let one = try splatLiteralID(shape.scalar == .f16 ? .f16Bits(0x3c00) : shape.scalar == .f64 ? .f64(1) : .f32(1),
+                                     type: type, size: shape.size)
         return try glslMathInstruction(43, type: type, operands: [value, zero, one]) // FClamp
     }
 }

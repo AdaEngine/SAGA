@@ -40,13 +40,13 @@ extension IRTypeKind {
     }
 
     package var ldexpExponentType: IRTypeKind? {
-        guard let shape = concreteFloatShape else { return nil }
+        guard let shape = IRBitcastShape(self), [.f16, .f32, .f64].contains(shape.scalar) else { return nil }
         return shape.size.map { .vector(size: $0, scalar: .i32) } ?? .scalar(.i32)
     }
 
     package var usesFloat16: Bool {
         switch self {
-        case .scalar(.f16), .vector(_, .f16), .matrix(_, _, .f16): true
+        case .scalar(.f16), .vector(_, .f16), .matrix(_, _, .f16), .cooperativeMatrix(_, _, .f16, _): true
         default: false
         }
     }

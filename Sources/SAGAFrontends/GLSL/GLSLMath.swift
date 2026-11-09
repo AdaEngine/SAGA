@@ -54,6 +54,9 @@ extension GLSLParser {
             let unsigned = signature.domain == .ordered && function != .abs
             let (type, operands) = try glslNumericMathOperands(arguments, anchor: anchor, scalarGroups: scalarGroups,
                                                                floatOnly: floats, allowsUnsigned: unsigned, at: token)
+            guard scalar(type) != .f64 || function.hasGLSLDoubleOverload else {
+                throw glslError(token, .typeMismatch, "Math builtin has no double-precision overload")
+            }
             return try glslMathExpression(function, type: type, arguments: operands, at: token)
         }
         return try glslGeometricBuiltin(function, arguments: arguments, at: token)
@@ -64,7 +67,7 @@ extension GLSLParser {
         at token: GLSLToken
     ) throws -> (IRHandle<IRType>, [GLSLValue]) {
         let shapes = try arguments.map { argument -> IRBitcastShape in
-            guard let shape = IRBitcastShape(kind(argument.type)), [.i32, .u32, .f32].contains(shape.scalar) else {
+            guard let shape = IRBitcastShape(kind(argument.type)), [.i32, .u32, .f32, .f64].contains(shape.scalar) else {
                 throw glslError(token, .typeMismatch, "Expected numeric scalar or vector math operands")
             }
             return shape
@@ -79,7 +82,8 @@ extension GLSLParser {
         }
         let hasUnsigned = shapes.contains { $0.scalar == .u32 }
         let hasFloat = shapes.contains { $0.scalar == .f32 }
-        let scalar: IRScalar = if floatOnly || hasFloat || (hasUnsigned && !allowsUnsigned) { .f32 }
+        let scalar: IRScalar = if shapes.contains(where: { $0.scalar == .f64 }) { .f64 }
+            else if floatOnly || hasFloat || (hasUnsigned && !allowsUnsigned) { .f32 }
             else if hasUnsigned { .u32 }
             else { .i32 }
         let type = try addType(IRBitcastShape(size: width, scalar: scalar).type)
@@ -146,7 +150,7 @@ extension GLSLParser {
         guard arguments.count == 2, let shape = IRBitcastShape(kind(arguments[0].type)) else {
             throw glslError(token, .typeMismatch, "ldexp requires a mantissa and exponent")
         }
-        let mantissaKind = IRBitcastShape(size: shape.size, scalar: .f32).type
+        let mantissaKind = IRBitcastShape(size: shape.size, scalar: shape.scalar == .f64 ? .f64 : .f32).type
         guard let exponentKind = mantissaKind.ldexpExponentType else { throw ShaderFailure.invalidHandle }
         let mantissa = try glslMathConvert(arguments[0], to: mantissaKind, at: token)
         let exponent = try glslMathConvert(arguments[1], to: exponentKind, at: token)

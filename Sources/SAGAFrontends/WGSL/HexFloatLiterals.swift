@@ -46,7 +46,11 @@ extension WGSLParser {
       let significant = (last - first + 1) * 4 - leading - trailing
       let lowest = exponent - fractional * 4 + (digits.count - 1 - last) * 4 + trailing
       let highest = lowest + significant - 1
-      let limits = kind == .f16 ? (11, -24, 15) : (24, -149, 127)
+      let limits = switch kind {
+      case .f16: (11, -24, 15)
+      case .f32: (24, -149, 127)
+      case .f64, .abstract: (53, -1074, 1023)
+      }
       guard significant <= limits.0, lowest >= limits.1, highest <= limits.2 else {
         throw wgslError(.invalidToken, "Hex literal not exactly representable", t)
       }
@@ -56,6 +60,7 @@ extension WGSLParser {
       throw wgslError(.invalidToken, "Hex floating overflow/invalid syntax", t)
     }
     if kind == .f16 { return (.f16Bits(Binary16.encode(d)), .f16) }
+    if kind == .f64 { return (.f64(d), .f64) }
     if kind == .f32 {
       guard let f = Float(parseText), f.isFinite else {
         throw wgslError(.invalidToken, "Hex f32 literal overflow", t)

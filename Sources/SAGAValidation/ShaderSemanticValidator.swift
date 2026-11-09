@@ -120,7 +120,15 @@ private struct UniformValue {
 }
 
 private enum UniformityRule: Int, Hashable {
-  case barrier, derivative, subgroup
+  case barrier, derivative, subgroup, cooperativeMatrix
+
+  func scope(subgroupScope: UniformScopes) -> UniformScopes {
+    switch self {
+    case .barrier, .derivative: .whole
+    case .subgroup: subgroupScope
+    case .cooperativeMatrix: .subgroup
+    }
+  }
 }
 
 private struct UniformArgument: Hashable {
@@ -230,6 +238,7 @@ private struct UniformityRequirements {
   var barrier = false
   var derivative = UniformityRequirement()
   var subgroup = UniformityRequirement()
+  var cooperativeMatrix = UniformityRequirement()
   var arguments: [UniformArgument: UniformityRequirement] = [:]
   var returns = UniformReturn()
 }
@@ -441,7 +450,7 @@ private struct SemanticChecker {
     message: String, at location: ShaderLocation?
   ) throws {
     guard severity != .off else { return }
-    let scope = rule == .subgroup ? subgroupScope : .whole
+    let scope = rule.scope(subgroupScope: subgroupScope)
     try checkUniformity(value[scope], .rule(rule, severity, message, location))
   }
 
@@ -481,6 +490,7 @@ private struct SemanticChecker {
     case .barrier: uniformity.controlRequirements.barrier = true
     case .derivative: uniformity.controlRequirements.derivative.require(severity, at: location)
     case .subgroup: uniformity.controlRequirements.subgroup.require(severity, at: location)
+    case .cooperativeMatrix: uniformity.controlRequirements.cooperativeMatrix.require(severity, at: location)
     }
     let active = try mergeUniformity(control, uniformity.exits)
     try requireUniformity(active, rule: rule, severity: severity, message: message, at: location)
@@ -574,6 +584,8 @@ private struct SemanticChecker {
       value = try mergeUniformity(value, uniform[operand.index])
     }
     switch expression.kind {
+    case .arrayLength(let pointer):
+      return try cooperativePointerUniformity(pointer, in: function, uniform: uniform)
     case .load(let pointer):
       let pointerType = try type(function.expressions.value(for: pointer).type)
       switch pointerType {
@@ -611,6 +623,24 @@ private struct SemanticChecker {
     default: break
     }
     return requiresImplicitDerivatives(expression.kind) ? .varying : value
+  }
+
+  mutating func cooperativePointerUniformity(
+    _ handle: IRHandle<IRExpression>, in function: IRFunction, uniform: [UniformValue]
+  ) throws -> UniformValue {
+    try budget.enterDepth()
+    defer { try? budget.leaveDepth() }
+    let expression = try function.expressions.value(for: handle)
+    switch expression.kind {
+    case .globalVariable, .localVariable:
+      return .uniform
+    case .access(let base, let index):
+      return try mergeUniformity(cooperativePointerUniformity(base, in: function, uniform: uniform), uniform[index.index])
+    case .accessIndex(let base, _):
+      return try cooperativePointerUniformity(base, in: function, uniform: uniform)
+    default:
+      return uniform[handle.index]
+    }
   }
 
   mutating func subgroupResultUniformity(
@@ -853,6 +883,10 @@ private struct SemanticChecker {
   {
     try budget.consume(.work)
     let l = try layout(t)
+    if case .cooperativeMatrix = try type(t) {
+      try need(space == .function || space == .private, .invalidAddressSpace,
+               "Cooperative matrices require function or private memory", location)
+    }
     try need(
       l.data, .invalidAddressSpace,
       "Store type must be a plain scalar/vector/matrix/array/structure/atomic type", location)
@@ -953,6 +987,12 @@ private struct SemanticChecker {
       let align = (row == 3 ? 4 : row) * UInt64(s.width)
       return TypeLayout(
         alignment: align, size: try round(row * UInt64(s.width), align) * UInt64(cols.rawValue))
+    case .cooperativeMatrix(let columns, let rows, let scalar, _):
+      try cap(.cooperativeMatrix, loc)
+      try need([.f16, .f32].contains(scalar), .invalidType, "Cooperative matrix scalar must be f16 or f32", loc)
+      try scalarCheck(scalar, loc: loc)
+      let width = UInt64(scalar.width)
+      return TypeLayout(alignment: width, size: UInt64(columns.rawValue) * UInt64(rows.rawValue) * width, host: false)
     case .atomic(let s):
       try scalarCheck(s, loc: loc)
       if s == .i64 || s == .u64 {
@@ -990,6 +1030,9 @@ private struct SemanticChecker {
       return TypeLayout(alignment: 1, size: 0, data: false, constructible: false, host: false)
     case .array(let base, let count, let stride):
       try prior(base)
+      if case .cooperativeMatrix = try type(base) {
+        try fail(.invalidType, "Cooperative matrices cannot be array elements", loc)
+      }
       let b = try layout(base)
       try need(
         b.data && b.sized && UInt64(stride) >= b.size && UInt64(stride) % b.alignment == 0,
@@ -1046,6 +1089,9 @@ private struct SemanticChecker {
         try text(m.name)
         try budget.consume(.work)
         try prior(m.type)
+        if case .cooperativeMatrix = try type(m.type) {
+          try fail(.invalidType, "Cooperative matrices cannot be structure members", m.location ?? loc)
+        }
         let b = try layout(m.type)
         try need(
           b.data && UInt64(m.offset) >= end && UInt64(m.offset) % b.alignment == 0, .invalidType,
@@ -1382,9 +1428,8 @@ private struct SemanticChecker {
                    e.location)
         }
         if let reference = sample.depthReference {
-          try need(try type(operand(reference).type) == .scalar(.f32) &&
-                   (sample.level == .auto || sample.level == .zero),
-                   .typeMismatch, "Invalid depth comparison operands or level", e.location)
+          try need(try type(operand(reference).type) == .scalar(.f32),
+                   .typeMismatch, "Depth comparison reference must be f32", e.location)
         }
         if sample.gather != nil {
           try need(!volume && !imageType.isLineTexture && sample.level == .zero,
@@ -1393,28 +1438,22 @@ private struct SemanticChecker {
         if let offset = sample.offset {
           try need(!imageType.isCubeTexture,
                    .typeMismatch, "Texture dimension does not support texel offsets", e.location)
-          if imageType.isLineTexture {
-            switch sample.level {
-            case .exact, .zero: break
-            default: try fail(.typeMismatch, "A 1D texture sample offset requires an explicit mip level", e.location)
-            }
-          }
           try validateTextureSampleOffset(operand(offset), width: imageType.isLineTexture ? nil : width, in: table)
         }
         let levelTypes: [IRTypeKind]
         if imageType.isLineTexture {
           switch sample.level {
-          case .bias, .gradient: try fail(.typeMismatch, "Invalid 1D texture sample level", e.location)
+          case .bias: try fail(.typeMismatch, "Invalid 1D texture sample level", e.location)
           default: break
           }
         }
-        switch (depth, sample.level) {
-        case (true, .gradient), (true, .bias):
+        switch sample.level {
+        case .gradient where depth && !comparison, .bias where depth:
           try fail(.typeMismatch, "Depth sampling does not support gradients or bias", e.location)
-        case (true, .exact):
+        case .exact where depth && !comparison:
           levelTypes = [.scalar(.i32), .scalar(.u32)]
-        case (false, .gradient):
-          levelTypes = [.vector(size: width, scalar: .f32)]
+        case .gradient:
+          levelTypes = [coordinateType]
         default:
           levelTypes = [.scalar(.f32)]
         }
@@ -1702,9 +1741,9 @@ private struct SemanticChecker {
         switch try type(x.type) {
         case .scalar: try match(.scalar(target))
         case .vector(let size, _): try match(.vector(size: size, scalar: target))
-        case .matrix(let columns, let rows, _) where [.f16, .f32].contains(input) && [.f16, .f32].contains(target):
+        case .matrix(let columns, let rows, _) where [.f16, .f32, .f64].contains(input) && [.f16, .f32, .f64].contains(target):
           try match(.matrix(columns: columns, rows: rows, scalar: target))
-        default: try fail(.typeMismatch, "Matrix cast needs an f32 or f16 destination", e.location)
+        default: try fail(.typeMismatch, "Matrix cast needs a floating-point destination", e.location)
         }
       case .bitcast(let source, let target):
         let x = try operand(source)
@@ -1825,6 +1864,37 @@ private struct SemanticChecker {
       case .subgroupBallotResult:
         try need(currentFunction != nil, .invalidReference, "Subgroup ballot requires a function", e.location)
         try match(.vector(size: .four, scalar: .u32))
+      case .cooperativeLoad(let columns, let rows, let role, let data):
+        try cap(.cooperativeMatrix, e.location)
+        guard case .cooperativeMatrix(let tc, let tr, let scalar, let trl) = declared else {
+          try fail(.typeMismatch, "coopLoad result must be a cooperative matrix", e.location)
+        }
+        try need(tc == columns && tr == rows && trl == role, .typeMismatch, "coopLoad result type mismatch", e.location)
+        let pointer = try operand(data.pointer)
+        let stride = try operand(data.stride)
+        guard case .pointer(let pointee, let space) = try type(pointer.type),
+              try type(pointee) == .scalar(scalar) else {
+          try fail(.typeMismatch, "Cooperative matrix memory requires a matching scalar pointer", e.location)
+        }
+        switch space {
+        case .storage(let access): try need(access.contains(.load), .invalidAddressSpace, "Cooperative load requires readable memory", e.location)
+        case .function, .private, .workgroup, .uniform, .immediate: break
+        default: try fail(.invalidAddressSpace, "Invalid cooperative matrix address space", e.location)
+        }
+        try need([.scalar(.i32), .scalar(.u32)].contains(type(stride.type)), .typeMismatch,
+                 "Cooperative matrix stride must be i32 or u32", e.location)
+        try need(scalar == .f16 || scalar == .f32, .typeMismatch, "Cooperative matrices require f16 or f32", e.location)
+      case .cooperativeMultiplyAdd(let a, let b, let c):
+        let aType = try type(operand(a).type), bType = try type(operand(b).type), cType = try type(operand(c).type)
+        guard case .cooperativeMatrix(let ac, let ar, let ascalar, .a) = aType,
+              case .cooperativeMatrix(let bc, let br, let bscalar, .b) = bType,
+              case .cooperativeMatrix(let cc, let cr, let cscalar, .c) = cType else {
+          try fail(.typeMismatch, "coopMultiplyAdd requires A, B, and C cooperative matrix roles", e.location)
+        }
+        try need(ac == br && ar == cr && bc == cc && ascalar == bscalar &&
+                 (cscalar == ascalar || (ascalar == .f16 && cscalar == .f32)), .typeMismatch,
+                 "Incompatible cooperative matrix dimensions or scalar types", e.location)
+        try need(try type(e.type) == cType, .typeMismatch, "coopMultiplyAdd result must match C", e.location)
       case .derivative(_, _, let x):
         let x = try operand(x)
         switch try type(x.type) {
@@ -1992,6 +2062,10 @@ private struct SemanticChecker {
     var resourceAliases: Set<IRHandle<IRGlobalVariable>> = []
     for e in f.expressions.values {
       try budget.consume(.work)
+      switch e.kind {
+      case .cooperativeLoad, .cooperativeMultiplyAdd: stages.formIntersection([.compute])
+      default: break
+      }
       if requiresImplicitDerivatives(e.kind) {
         stages.formIntersection([.fragment])
       }
@@ -2020,6 +2094,8 @@ private struct SemanticChecker {
       case .imageStore, .imageAtomic:
         if !allowsVertexWritableStorage { stages.formIntersection([.compute, .fragment]) }
       case .controlBarrier, .memoryBarrier, .workgroupUniformLoad:
+        stages.formIntersection([.compute])
+      case .cooperativeStore:
         stages.formIntersection([.compute])
       case .call(let target, _, _):
         try need(
@@ -2355,13 +2431,22 @@ private struct SemanticChecker {
                               at: requirements.derivative.location ?? location)
     try requireUniformControl(uniformControl, rule: .subgroup, severity: requirements.subgroup.severity,
                               message: "Subgroup call in divergent control flow", at: requirements.subgroup.location ?? location)
+    try requireUniformControl(uniformControl, rule: .cooperativeMatrix, severity: requirements.cooperativeMatrix.severity,
+                              message: "Cooperative matrix call in divergent control flow",
+                              at: requirements.cooperativeMatrix.location ?? location)
     for (parameter, requirement) in requirements.arguments.sorted(by: {
       ($0.key.index, $0.key.rule.rawValue) < ($1.key.index, $1.key.rule.rawValue)
     }) {
       try budget.consume(.work)
       let argument = arguments[parameter.index]
       let operand = try function.expressions.value(for: argument)
-      try requireUniformity(uniform[argument.index], rule: parameter.rule, severity: requirement.severity,
+      let value: UniformValue
+      if parameter.rule == .cooperativeMatrix, case .pointer = try type(operand.type) {
+        value = try cooperativePointerUniformity(argument, in: function, uniform: uniform)
+      } else {
+        value = uniform[argument.index]
+      }
+      try requireUniformity(value, rule: parameter.rule, severity: requirement.severity,
                             message: "Uniformity-requiring call needs a uniform argument", at: operand.location ?? location)
     }
     if let result, callee.result != nil {
@@ -2412,6 +2497,20 @@ private struct SemanticChecker {
         default: break
         }
         for dep in e.kind.operands { _ = try use(dep, loc) }
+        switch e.kind {
+        case .cooperativeLoad(_, _, _, let data):
+          try requireUniformControl(ctrl, rule: .cooperativeMatrix, severity: .error,
+                                    message: "Cooperative matrices require uniform control flow", at: e.location ?? loc)
+          let address = try cooperativePointerUniformity(data.pointer, in: f, uniform: uniform)
+          for operand in [address, uniform[data.stride.index]] {
+            try requireUniformity(operand, rule: .cooperativeMatrix, severity: .error,
+                                  message: "Cooperative matrix address and stride must be uniform", at: e.location ?? loc)
+          }
+        case .cooperativeMultiplyAdd:
+          try requireUniformControl(ctrl, rule: .cooperativeMatrix, severity: .error,
+                                    message: "Cooperative matrices require uniform control flow", at: e.location ?? loc)
+        default: break
+        }
         if requiresImplicitDerivatives(e.kind) {
           try requireUniformControl(ctrl, rule: .derivative, severity: severities.derivative,
                                     message: "Operation requiring derivatives in non-uniform control flow", at: e.location ?? loc)
@@ -2555,6 +2654,30 @@ private struct SemanticChecker {
                                 message: "Subgroup operations require uniform control flow", at: loc)
       try validateSubgroupStatement(s.kind, function: f, available: &available, uniform: &uniform,
                                     control: ctrl, severity: severities.subgroup, producedResults: &callResults, location: loc)
+    case .cooperativeStore(let target, let data):
+      try requireUniformControl(ctrl, rule: .cooperativeMatrix, severity: .error,
+                                message: "Cooperative matrix operations require subgroup-uniform control flow", at: loc)
+      let targetExpression = try use(target, loc)
+      guard case .cooperativeMatrix(_, _, let scalar, _) = try type(targetExpression.type) else {
+        try fail(.typeMismatch, "coopStore requires a cooperative matrix value", loc)
+      }
+      let pointer = try use(data.pointer, loc), stride = try use(data.stride, loc)
+      let address = try cooperativePointerUniformity(data.pointer, in: f, uniform: uniform)
+      for operand in [address, uniform[data.stride.index]] {
+        try requireUniformity(operand, rule: .cooperativeMatrix, severity: .error,
+                              message: "Cooperative matrix address and stride must be uniform", at: loc)
+      }
+      guard case .pointer(let pointee, let space) = try type(pointer.type),
+            try type(pointee) == .scalar(scalar) else {
+        try fail(.typeMismatch, "Cooperative matrix memory requires a matching scalar pointer", loc)
+      }
+      switch space {
+      case .storage(let access): try need(access.contains(.store), .invalidAddressSpace, "Cooperative store requires writable memory", loc)
+      case .function, .private, .workgroup: break
+      default: try fail(.invalidAddressSpace, "Invalid cooperative matrix address space", loc)
+      }
+      try need([.scalar(.i32), .scalar(.u32)].contains(type(stride.type)), .typeMismatch,
+               "Cooperative matrix stride must be i32 or u32", loc)
     case .workgroupUniformLoad(let pointer, let result):
       let p = try use(pointer, loc)
       guard case .pointer(let base, .workgroup) = try type(p.type) else {

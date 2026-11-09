@@ -1,6 +1,16 @@
 import SAGAShaderIR
 
 extension GLSLParser {
+    func negateMatrix(_ value: GLSLValue, at token: GLSLToken) throws -> GLSLValue? {
+        guard case .matrix(let columns, let rows, let scalar) = kind(value.type) else { return nil }
+        let columnType = try addType(.vector(size: rows, scalar: scalar))
+        let components = try (0..<UInt32(columns.rawValue)).map { index in
+            let column = try expressionNode(columnType, .accessIndex(base: value.expression, index: index), at: token)
+            return try expressionNode(columnType, .unary(op: .negate, expression: column.expression), at: token).expression
+        }
+        return try expressionNode(value.type, .compose(type: value.type, components: components), at: token)
+    }
+
     func glslMatrixBinary(_ left: GLSLValue, _ right: GLSLValue, at token: GLSLToken) throws -> GLSLValue? {
         func isMatrix(_ value: GLSLValue) -> Bool {
             if case .matrix = kind(value.type) { return true }
@@ -17,8 +27,9 @@ extension GLSLParser {
         case "!=": operation = .notEqual
         default: throw glslError(token, .unsupportedConstruct, "GLSL matrix operator not lowered")
         }
-        let lhs = try matrixFloatOperand(left, at: token)
-        let rhs = try matrixFloatOperand(right, at: token)
+        let scalar: IRScalar = self.scalar(left.type) == .f64 || self.scalar(right.type) == .f64 ? .f64 : .f32
+        let lhs = try matrixFloatOperand(left, scalar: scalar, at: token)
+        let rhs = try matrixFloatOperand(right, scalar: scalar, at: token)
         let a = kind(lhs.type)
         let b = kind(rhs.type)
         let result: IRTypeKind
@@ -27,11 +38,11 @@ extension GLSLParser {
             guard a == b else { throw glslError(token, .typeMismatch, "Matrix arithmetic requires equal dimensions") }
             result = a
         case (.multiply, .matrix(let columns, let rows, _), .matrix(let width, let height, _)) where columns == height:
-            result = .matrix(columns: width, rows: rows, scalar: .f32)
+            result = .matrix(columns: width, rows: rows, scalar: scalar)
         case (.multiply, .matrix(let columns, let rows, _), .vector(let size, _)) where columns == size:
-            result = .vector(size: rows, scalar: .f32)
+            result = .vector(size: rows, scalar: scalar)
         case (.multiply, .vector(let size, _), .matrix(let columns, let rows, _)) where size == rows:
-            result = .vector(size: columns, scalar: .f32)
+            result = .vector(size: columns, scalar: scalar)
         case (.multiply, .matrix, .scalar): result = a
         case (.multiply, .scalar, .matrix): result = b
         case (.divide, .matrix, .matrix) where a == b:
@@ -39,7 +50,7 @@ extension GLSLParser {
         case (.equal, .matrix(let columns, let rows, _), .matrix),
              (.notEqual, .matrix(let columns, let rows, _), .matrix):
             guard a == b else { throw glslError(token, .typeMismatch, "Matrix comparison requires equal dimensions") }
-            return try matrixComparison(operation, lhs, rhs, columns: columns, rows: rows, at: token)
+            return try matrixComparison(operation, lhs, rhs, columns: columns, rows: rows, scalar: scalar, at: token)
         case (.add, .matrix, .scalar), (.subtract, .matrix, .scalar), (.divide, .matrix, .scalar):
             return try matrixComponentwise(operation, lhs, rhs, type: lhs.type, at: token)
         case (.add, .scalar, .matrix), (.subtract, .scalar, .matrix), (.divide, .scalar, .matrix):
@@ -51,12 +62,12 @@ extension GLSLParser {
             addType(result), .binary(op: operation, left: lhs.expression, right: rhs.expression), at: token)
     }
 
-    private func matrixFloatOperand(_ value: GLSLValue, at token: GLSLToken) throws -> GLSLValue {
+    private func matrixFloatOperand(_ value: GLSLValue, scalar: IRScalar, at token: GLSLToken) throws -> GLSLValue {
         let target: IRTypeKind
         switch kind(value.type) {
-        case .scalar(.f32), .vector(_, .f32), .matrix(_, _, .f32): return value
-        case .scalar: target = .scalar(.f32)
-        case .vector(let size, _): target = .vector(size: size, scalar: .f32)
+        case .scalar: target = .scalar(scalar)
+        case .vector(let size, _): target = .vector(size: size, scalar: scalar)
+        case .matrix(let columns, let rows, _): target = .matrix(columns: columns, rows: rows, scalar: scalar)
         default: throw glslError(token, .typeMismatch, "Matrix operands must be floating-point numeric values")
         }
         guard let converted = try implicitlyConvert(value, to: addType(target), at: token) else {
@@ -95,13 +106,29 @@ extension GLSLParser {
 
     private func matrixComparison(
         _ operation: IRBinaryOperator, _ left: GLSLValue, _ right: GLSLValue,
-        columns: IRVectorSize, rows: IRVectorSize, at token: GLSLToken
+        columns: IRVectorSize, rows: IRVectorSize, scalar: IRScalar, at token: GLSLToken
     ) throws -> GLSLValue {
-        let column = try addType(.vector(size: rows, scalar: .f32))
-        let word = try addType(.scalar(.u32))
-        let words = try addType(.vector(size: rows, scalar: .u32))
+        let column = try addType(.vector(size: rows, scalar: scalar))
         let predicate = try addType(.vector(size: rows, scalar: .bool))
         let boolean = try addType(.scalar(.bool))
+        if scalar == .f64 {
+            let columns = try (0..<UInt32(columns.rawValue)).map { index in
+                let lhs = try expressionNode(column, .accessIndex(base: left.expression, index: index), at: token)
+                let rhs = try expressionNode(column, .accessIndex(base: right.expression, index: index), at: token)
+                let equal = try expressionNode(predicate, .binary(op: .equal, left: lhs.expression, right: rhs.expression), at: token)
+                return try expressionNode(boolean, .relational(function: .all, argument: equal.expression), at: token)
+            }
+            var equal = columns[0]
+            for next in columns.dropFirst() {
+                equal = try expressionNode(boolean, .binary(op: .logicalAnd, left: equal.expression, right: next.expression), at: token)
+            }
+            if operation == .notEqual {
+                return try expressionNode(boolean, .unary(op: .logicalNot, expression: equal.expression), at: token)
+            }
+            return equal
+        }
+        let word = try addType(.scalar(.u32))
+        let words = try addType(.vector(size: rows, scalar: .u32))
         // Materialize the bit operations so generated expressions do not repeat or nest entire columns.
         func materialize(_ value: GLSLValue) throws -> GLSLValue {
             try expressionNode(value.type, .runtimeValue(value.expression), at: token)

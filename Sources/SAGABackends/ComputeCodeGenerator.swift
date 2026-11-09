@@ -32,6 +32,8 @@ package struct ComputeCodeGenerator: ShaderCodeGenerator {
               module.overrides.count == 0
         else { throw unsupported("expected one compute entry point with no overrides") }
         let function = try module.functions.value(for: entry.function)
+        var helpers = try ShaderFunctions(module: module, entry: entry.function)
+        let usesCooperativeMatrix = helpers.usesCooperativeMatrix
         guard function.result == nil else {
             throw unsupported("compute return values")
         }
@@ -45,7 +47,7 @@ package struct ComputeCodeGenerator: ShaderCodeGenerator {
         if outputFormat == .hlsl, size.z > 64 || threads > 1024 {
             throw unsupported("workgroup size exceeds HLSL numthreads limits")
         }
-        let subgroupSize: UInt32?
+        var subgroupSize: UInt32?
         switch entry.subgroupSize {
         case .fixed(let required):
             guard size.x.isMultiple(of: required) else {
@@ -56,16 +58,22 @@ package struct ComputeCodeGenerator: ShaderCodeGenerator {
         case .overrideExpression: throw unsupported("unspecialized subgroup size")
         case nil: subgroupSize = nil
         }
+        if usesCooperativeMatrix, outputFormat == .msl || outputFormat == .hlsl {
+            guard threads.isMultiple(of: 32), subgroupSize == nil || subgroupSize == 32 else {
+                throw unsupported("cooperative matrices require complete 32-lane subgroups")
+            }
+            subgroupSize = 32
+        }
 
         var inputs = try ComputeInputs(arguments: function.arguments, workgroupSize: size, module: module, format: outputFormat)
-        var helpers = try ShaderFunctions(module: module, entry: entry.function)
         if webGPU && helpers.requiresDebugPrintf { throw unsupported("WebGPU shader debugPrintf") }
         let aggregateBuffers = try helpers.aggregateBufferGlobals(module: module, entry: entry.function)
         let usesSubgroupBarrier = helpers.controlBarriers.contains(.subgroup)
         if webGPU && usesSubgroupBarrier {
             throw unsupported("Subgroup barriers require a native subgroup synchronization target")
         }
-        let requiresSubgroups = subgroupSize != nil || inputs.usesSubgroups || !helpers.subgroupExtensions.isEmpty || usesSubgroupBarrier
+        let requiresSubgroups = usesCooperativeMatrix || subgroupSize != nil || inputs.usesSubgroups ||
+            !helpers.subgroupExtensions.isEmpty || usesSubgroupBarrier
         var declarations = inputs.declarations
         var structures = inputs.structures
         declarations += try decompositionDeclarations(module: module, format: outputFormat, structures: &structures)
@@ -263,7 +271,8 @@ package struct ComputeCodeGenerator: ShaderCodeGenerator {
                 let texture = try SampledTextureShaderBinding(global: global, index: index, flat: flat,
                                                               module: module, format: outputFormat,
                                                               samplingSamplers: helpers.floatTextureSamplers[index] ?? [],
-                                                              arrayCount: arrayCounts[binding], webBindingBase: webBases[binding])
+                                                              arrayCount: arrayCounts[binding], webBindingBase: webBases[binding],
+                                                              glslAlias: helpers.glslTextureAliases[index])
                 declarations += texture.declarations
                 resourceParameters += texture.parameters
                 storage.append(texture.storage)
@@ -318,7 +327,9 @@ package struct ComputeCodeGenerator: ShaderCodeGenerator {
         let attributes: [String]
         switch outputFormat {
         case .msl:
-            declarations.insert(contentsOf: ["#include <metal_stdlib>", "using namespace metal;"], at: 0)
+            var prelude = ["#include <metal_stdlib>", "using namespace metal;"]
+            if usesCooperativeMatrix { prelude.append(metalCooperativeMatrixPrelude) }
+            declarations.insert(contentsOf: prelude, at: 0)
             attributes = []
             signature = "kernel void \(entryPoint)(\(parameterList))"
         case .hlsl:
@@ -336,6 +347,7 @@ package struct ComputeCodeGenerator: ShaderCodeGenerator {
                 (inputs.requiresLinearIndexing, "requires linear_indexing;"),
                 (immediate != nil, "requires immediate_address_space;"),
                 (usesFloat16, "enable f16;"),
+                (usesCooperativeMatrix && !webGPU, "enable wgpu_cooperative_matrix;"),
                 (usesInt16, "enable wgpu_int16;"),
                 (helpers.requiresDebugPrintf, "enable wgpu_debug_printf;"),
                 (requiresSubgroups, "enable subgroups;"),
@@ -354,7 +366,9 @@ package struct ComputeCodeGenerator: ShaderCodeGenerator {
             ] + glslUnsigned64Extensions(module: module, storageTextures: storageTextures) +
                 (usesFloat16 ? [glslFloat16Extension] : []) +
                 (usesInt16 ? [glslInt16Extension] : []) +
-                (usesGLSL16BitStorage ? [glslStorage16BitExtension] : []) + helpers.glslExtensions +
+                (usesGLSL16BitStorage ? [glslStorage16BitExtension] : []) +
+                (usesCooperativeMatrix ? ["#extension GL_KHR_memory_scope_semantics : require",
+                                          "#extension GL_KHR_cooperative_matrix : require"] : []) + helpers.glslExtensions +
                 helpers.glslSubgroupExtensions(requiresSubgroups: requiresSubgroups) + [
                 "layout(local_size_x = \(size.x), local_size_y = \(size.y), local_size_z = \(size.z)) in;",
             ], at: 0)
@@ -370,12 +384,18 @@ package struct ComputeCodeGenerator: ShaderCodeGenerator {
         let numeric = try integerPrelude(helpers.integerHelpers.union(body.integerHelpers),
                                          vectors: helpers.integerVectorHelpers.union(body.integerVectorHelpers),
                                          in: outputFormat)
-        let source = (declarations + numeric + helperDeclarations + attributes + [signature + " {"] +
+        let cooperativePrelude = usesCooperativeMatrix && outputFormat == .hlsl ? [hlslCooperativeMatrixPrelude] : []
+        let source = (declarations + numeric + cooperativePrelude + helperDeclarations + attributes + [signature + " {"] +
                       workgroupSetup + privateBindings.initialization + inputs.initializers + lines + ["}", ""])
             .joined(separator: "\n")
         let atomic64 = !webGPU && usesInt64Atomics(module)
         let needsHLSL66 = subgroupSize != nil || atomic64 || storageTextures.contains { $0.format == .r64Uint }
-        let profile = needsHLSL66 ? "cs_6_6" : usesFloat16 || usesInt16 ? "cs_6_2" : "cs_6_0"
+        let profile: String
+        if helpers.comparisonSampleHLSLMinorVersion > 0 {
+            profile = "cs_6_\(max(helpers.comparisonSampleHLSLMinorVersion, needsHLSL66 ? 6 : 0))"
+        } else {
+            profile = needsHLSL66 ? "cs_6_6" : usesFloat16 || usesInt16 ? "cs_6_2" : "cs_6_0"
+        }
         return .init(
             artifact: .text(format: outputFormat, source: source), sourceEntryPoint: entry.name,
             entryPoint: entryPoint, workgroupSize: size, storageBindings: layout, uniformBindings: uniformLayout,
@@ -394,7 +414,8 @@ package struct ComputeCodeGenerator: ShaderCodeGenerator {
             requiresDebugPrintf: helpers.requiresDebugPrintf,
             immediateLayout: immediate?.layout,
             usesGlobalInvocationIndex: inputs.usesGlobalInvocationIndex, usesWorkgroupIndex: inputs.usesWorkgroupIndex,
-            requiredSubgroupSize: subgroupSize, requiresSubgroupUniformity: module.requiresSubgroupUniformity)
+            requiredSubgroupSize: subgroupSize, requiresSubgroupUniformity: module.requiresSubgroupUniformity,
+            requiresCooperativeMatrix: usesCooperativeMatrix && outputFormat != .hlsl)
     }
 }
 
@@ -783,7 +804,8 @@ struct SampledTextureShaderBinding {
     let reflection: ComputeShaderArtifact.SampledTextureBinding
 
     init(global: IRGlobalVariable, index: Int, flat: UInt32, module: IRModule, format: ShaderOutputFormat,
-         samplingSamplers: Set<IRResourceBinding>, arrayCount: UInt32?, webBindingBase: UInt32?) throws {
+         samplingSamplers: Set<IRResourceBinding>, arrayCount: UInt32?, webBindingBase: UInt32?,
+         glslAlias: (name: String, unit: UInt32)?) throws {
         let resource = try ShaderHandleBinding(global, module: module, arrayCount: arrayCount, webBindingBase: webBindingBase)
         let kind = resource.kind
         guard let scalar = kind.sampledTextureScalar, let binding = global.binding else {
@@ -813,6 +835,7 @@ struct SampledTextureShaderBinding {
                 (multisampled ? "MS" : arrayed ? "Array" : "")
             declarations.append(resource.hlslDeclaration("\(shape)<\(type)>", name: name, register: "t", binding: binding))
         case .glsl:
+            if glslAlias != nil { break }
             let prefix = scalar == .i32 ? "i" : scalar == .u32 ? "u" : ""
             let type = prefix + "sampler" + (cube ? "Cube" : shapeName.uppercased()) +
                 (multisampled ? "MS" : arrayed ? "Array" : "")
@@ -826,8 +849,9 @@ struct SampledTextureShaderBinding {
             declarations += resource.wgslDeclarations(type, name: name, binding: binding)
         default: throw unsupported("sampled texture target")
         }
-        storage = .init(reference: name, writable: false, bindingArrayCount: resource.count, splitBindingArray: resource.splitsArray(in: format))
-        reflection = .init(binding: binding, flatBindingIndex: format == .msl || format == .glsl ? flat : nil,
+        storage = .init(reference: glslAlias?.name ?? name, writable: false, bindingArrayCount: resource.count,
+                        splitBindingArray: resource.splitsArray(in: format))
+        reflection = .init(binding: binding, flatBindingIndex: format == .msl || format == .glsl ? glslAlias?.unit ?? flat : nil,
                            isDepth: depth, isMultisampled: multisampled, isArrayed: arrayed, sampleKind: scalar.kind,
                            dimension: cube ? .cube : volume ? .d3 : line ? .d1 : .d2, samplingSamplers: samplingSamplers,
                            bindingArray: resource.reflection(format: format, binding: binding))
@@ -923,49 +947,8 @@ private func storageTextureScalarName(_ scalar: IRScalar, format: ShaderOutputFo
 }
 
 private func glslStorageTextureLayout(_ format: IRStorageFormat) throws -> String {
-    switch format {
-    case .r8Unorm: "r8"
-    case .r8Snorm: "r8_snorm"
-    case .r8Uint: "r8ui"
-    case .r8Sint: "r8i"
-    case .rg8Unorm: "rg8"
-    case .rg8Snorm: "rg8_snorm"
-    case .rg8Uint: "rg8ui"
-    case .rg8Sint: "rg8i"
-    case .rgba8Unorm: "rgba8"
-    case .bgra8Unorm: throw unsupported("GLSL storage images do not support BGRA8Unorm")
-    case .rgba8Snorm: "rgba8_snorm"
-    case .rgba8Uint: "rgba8ui"
-    case .rgba8Sint: "rgba8i"
-    case .rgba16Uint: "rgba16ui"
-    case .rgba16Sint: "rgba16i"
-    case .rgba16Float: "rgba16f"
-    case .r32Uint: "r32ui"
-    case .r64Uint: "r64ui"
-    case .r32Sint: "r32i"
-    case .rgb10a2Unorm: "rgb10_a2"
-    case .rgb10a2Uint: "rgb10_a2ui"
-    case .rg11b10Ufloat: "r11f_g11f_b10f"
-    case .r16Unorm: "r16"
-    case .r16Snorm: "r16_snorm"
-    case .rg16Unorm: "rg16"
-    case .rg16Snorm: "rg16_snorm"
-    case .rgba16Unorm: "rgba16"
-    case .rgba16Snorm: "rgba16_snorm"
-    case .r16Uint: "r16ui"
-    case .r16Sint: "r16i"
-    case .rg16Uint: "rg16ui"
-    case .rg16Sint: "rg16i"
-    case .r16Float: "r16f"
-    case .r32Float: "r32f"
-    case .rg32Uint: "rg32ui"
-    case .rg32Sint: "rg32i"
-    case .rg16Float: "rg16f"
-    case .rg32Float: "rg32f"
-    case .rgba32Uint: "rgba32ui"
-    case .rgba32Sint: "rgba32i"
-    case .rgba32Float: "rgba32f"
-    }
+    guard let layout = format.glslImageLayout else { throw unsupported("GLSL storage images do not support BGRA8Unorm") }
+    return layout
 }
 
 struct UniformShaderBinding {

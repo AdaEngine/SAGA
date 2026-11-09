@@ -23,6 +23,7 @@ extension WGSLConstKind {
     case .u32: return .integer(.uint)
     case .i64: return .integer(.sint64)
     case .u64: return .integer(.uint64)
+    case .f64: return .floating(.f64)
     case .f32: return .floating(.f32)
     case .f16: return .floating(.f16)
     case .abstractInt: return .integer(.abstract)
@@ -35,6 +36,7 @@ extension WGSLConstKind {
     case .boolean: return .bool
     case .integer(let k): return k.scalar
     case .floating(.abstract): return .abstractFloat
+    case .floating(.f64): return .f64
     case .floating(.f32): return .f32
     case .floating(.f16): return .f16
     case .vector, .matrix, .array, .composite, .decomposition: throw wgslError(.invalidType, "Nested vector elements forbidden", t)
@@ -90,7 +92,7 @@ extension WGSLScalarEvaluator {
       default: return false
       }
     }
-    return from == .floating(.abstract) && (to == .floating(.f32) || to == .floating(.f16))
+    return from == .floating(.abstract) && [.floating(.f64), .floating(.f32), .floating(.f16)].contains(to)
   }
   func zero(_ k: WGSLConstKind, at t: WGSLToken) throws -> WGSLScalarConstant {
     switch k {

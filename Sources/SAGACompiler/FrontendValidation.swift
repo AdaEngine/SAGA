@@ -16,14 +16,15 @@ extension IndependentShaderCompiler {
   func parseAndValidate(
     _ input: ShaderInput, validator: ShaderSemanticValidator,
     allow1DTextureSampleLevelOffset: Bool, allowMixedWorkgroupDimensionTypes: Bool = false,
-    allowLegacyNagaSubgroups: Bool = false
+    allowLegacyNagaSubgroups: Bool = false, useNagaFloatRounding: Bool = false
   ) throws -> ValidatedModule<IRModule> {
     try Task.checkCancellation()
     let module: IRModule
     switch input {
     case .wgsl:
       let options = WGSLFrontendOptions(capabilities: validator.capabilities,
-        allow1DTextureSampleLevelOffset: allow1DTextureSampleLevelOffset, nagaFloatRounding: nagaFloatRounding,
+        allow1DTextureSampleLevelOffset: allow1DTextureSampleLevelOffset,
+        nagaFloatRounding: nagaFloatRounding || useNagaFloatRounding,
         allowMixedWorkgroupDimensionTypes: allowMixedWorkgroupDimensionTypes,
         allowLegacyNagaSubgroups: allowLegacyNagaSubgroups)
       module = try WGSLFrontend(options: options, limits: validator.limits).parse(input)

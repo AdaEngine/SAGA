@@ -10,13 +10,17 @@ enum GLSLBlockLayout {
 }
 
 extension GLSLParser {
-    func isWritable(_ global:IRGlobalVariable) -> Bool {
-        switch global.space { case .uniform, .immediate:return false; case .storage(let access):return access.contains(.store); default:return true }
+    func isWritable(_ handle: IRHandle<IRGlobalVariable>) -> Bool {
+        switch globals[handle.index].space {
+        case .uniform, .immediate: return false
+        case .storage(let access): return access.contains(.store)
+        default: return !stageInputGlobals.contains(handle)
+        }
     }
     func uninstancedBlockMember(_ token: GLSLToken) throws -> GLSLValue? {
         guard let member = uninstancedBlockMembers[token.text] else { return nil }
         let global = globals[member.block.index]
-        let writable = isWritable(global)
+        let writable = isWritable(member.block)
         let root = try expressionNode(addType(.pointer(base: global.type, space: global.space)),
                                       .globalVariable(member.block), at: token, emit: false, pointer: true, writable: writable)
         return try expressionNode(addType(.pointer(base: member.type, space: global.space)),
@@ -56,13 +60,22 @@ extension GLSLParser {
     func arraySuffix(
         _ base:IRHandle<IRType>,runtime:Bool=false, standard: GLSLBlockLayout = .std430, globalLength: Bool = false
     ) throws -> IRHandle<IRType> {
+        try arraySuffix(base, runtime: runtime, standard: standard, globalLength: globalLength, multidimensional: false)
+    }
+
+    private func arraySuffix(
+        _ base: IRHandle<IRType>, runtime: Bool = false, standard: GLSLBlockLayout = .std430,
+        globalLength: Bool = false, multidimensional: Bool
+    ) throws -> IRHandle<IRType> {
         guard try take("[") else { return base }
         let size:IRArraySize
         if try take("]") { guard runtime else { throw glslError(token,.invalidType,"Runtime array only in storage tail") }; size = .dynamic }
         else {
             let length = try advance()
             let count: UInt32?
-            if let literal = UInt32(length.text) {
+            let unsigned = length.text.hasSuffix("u") || length.text.hasSuffix("U")
+            let digits = unsigned ? length.text.dropLast() : length.text[...]
+            if let literal = UInt32(digits) {
                 count = literal
             } else if context == nil || globalLength {
                 // In a global declaration no local can shadow the constant.
@@ -80,8 +93,19 @@ extension GLSLParser {
             size = .constant(count)
             try expect("]")
         }
-        if text=="[" { throw glslError(token,.unsupportedConstruct,"Multidimensional arrays not implemented") }
-        return try layoutArray(base, size: size, standard: standard)
+        let element: IRHandle<IRType>
+        if text == "[" {
+            guard multidimensional else {
+                throw glslError(token, .unsupportedConstruct, "Multidimensional arrays not implemented")
+            }
+            try enter()
+            defer { depth -= 1 }
+            // The first written dimension is outermost. Lay out the inner array first.
+            element = try arraySuffix(base, standard: standard, globalLength: globalLength, multidimensional: true)
+        } else {
+            element = base
+        }
+        return try layoutArray(element, size: size, standard: standard)
     }
 
     private func layoutArray(
@@ -147,24 +171,40 @@ extension GLSLParser {
             guard let parsed=try parseType() else { throw glslError(token,.invalidType,"Void member") }
             let base = try standard == .std140 ? std140MemberType(parsed) : parsed
             let prefix = try explicitOffsets ? arraySuffix(base, runtime: runtime, standard: standard) : base
-            let name=try identifier(); guard names.insert(name.text).inserted else { throw glslError(name,.duplicateName,"Duplicate member") }
-            guard prefix == base || text != "[" else {
-                throw glslError(token, .unsupportedConstruct, "Multidimensional arrays not implemented")
-            }
-            let type = try arraySuffix(prefix, runtime: runtime, standard: standard)
-            let layout = try typeLayout(type, standard: standard); alignment=max(alignment,layout.align)
-            if let explicitOffset {
-                guard explicitOffset >= offset, explicitOffset % layout.align == 0 else {
-                    throw glslError(name,.invalidType,"Overlapping or misaligned member offset")
+            repeat {
+                let name = try identifier()
+                guard names.insert(name.text).inserted else {
+                    throw glslError(name, .duplicateName, "Duplicate member")
                 }
-                offset = explicitOffset
-            } else {
-                offset = try aligned(offset,to:layout.align)
-            }
-            try budget.consume(.nodes)
-            fields.append(.init(name:name.text,type:type,offset:offset,location:try name.location))
-            let (end,overflow)=offset.addingReportingOverflow(layout.size); guard !overflow,end<=UInt32(Int32.max) else { throw glslError(name,.invalidType,"Member layout overflow") }; offset=end
-            if case .array(_, .dynamic, _)=kind(type) { dynamic=true }
+                guard prefix == base || text != "[" else {
+                    throw glslError(token, .unsupportedConstruct, "Multidimensional arrays not implemented")
+                }
+                let type = try arraySuffix(prefix, runtime: runtime, standard: standard)
+                let layout = try typeLayout(type, standard: standard)
+                alignment = max(alignment, layout.align)
+                if let explicitOffset {
+                    guard explicitOffset >= offset, explicitOffset % layout.align == 0 else {
+                        throw glslError(name, .invalidType, "Overlapping or misaligned member offset")
+                    }
+                    guard text != "," else {
+                        throw glslError(token, .unsupportedConstruct, "Explicit offsets require a single member declarator")
+                    }
+                    offset = explicitOffset
+                } else {
+                    offset = try aligned(offset, to: layout.align)
+                }
+                try budget.consume(.nodes)
+                fields.append(.init(name: name.text, type: type, offset: offset, location: try name.location))
+                let (end, overflow) = offset.addingReportingOverflow(layout.size)
+                guard !overflow, end <= UInt32(Int32.max) else {
+                    throw glslError(name, .invalidType, "Member layout overflow")
+                }
+                offset = end
+                if case .array(_, .dynamic, _) = kind(type) {
+                    guard text != "," else { throw glslError(token, .invalidType, "Runtime array must be last") }
+                    dynamic = true
+                }
+            } while try take(",")
             try expect(";")
         }
         try expect("}")
@@ -255,6 +295,11 @@ extension GLSLParser {
             workgroup = .init(x:layout["local_size_x"] ?? 1,y:layout["local_size_y"] ?? 1,z:layout["local_size_z"] ?? 1);hasLocalSize=true;try expect(";");return
         }
         if qualifier=="buffer" || qualifier=="uniform" {
+            if qualifier == "uniform", let shape = glslStorageImageShape(text) {
+                let type = try advance()
+                try declareGLSLStorageImage(shape, layout: layout, flags: flags, memory: memory, at: type)
+                return
+            }
             if qualifier == "uniform", let resource = glslOpaqueResourceKind(text) {
                 let type = try advance()
                 try declareGLSLOpaqueResource(resource, layout: layout, flags: flags, memory: memory, at: type)
@@ -332,52 +377,32 @@ extension GLSLParser {
         }
         guard flags.isEmpty,memory.isEmpty else { throw glslError(token,.unsupportedConstruct,"Unsupported memory/layout qualifier") }
         if try take("const") {
-            guard qualifier.isEmpty, layout.isEmpty, let type = try parseType() else {
+            let specializationID = layout["constant_id"]
+            guard qualifier.isEmpty, layout.isEmpty || specializationID != nil && layout.count == 1,
+                  let type = try parseType() else {
                 throw glslError(token, .unsupportedConstruct, "Expected a global constant type")
             }
-            try globalConstant(type)
+            if let specializationID {
+                try specializationConstant(type, id: specializationID)
+            } else {
+                try globalConstant(type)
+            }
+            return
+        }
+        if qualifier == "in" || qualifier == "out" {
+            try stageInterface(input: qualifier == "in", layout: layout, interpolation: interpolation, sampling: sampling)
             return
         }
         let type=try parseType();let name=try identifier()
         if qualifier.isEmpty,text=="(" { guard layout.isEmpty else { throw glslError(name,.unsupportedConstruct,"Function layout") }; try function(name,result:type);return }
         guard let base=type else { throw glslError(name,.invalidType,"Void variable") }
-        let finalType=try arraySuffix(base)
+        let finalType = try arraySuffix(base, multidimensional: qualifier.isEmpty)
         guard !hasGlobalName(name.text), !name.text.hasPrefix("gl_") else { throw glslError(name,.duplicateName,"Duplicate/reserved global") }
         try expect(";")
-        if qualifier=="in" || qualifier=="out" {
-            let input = qualifier == "in"
-            let colorIndex = layout["index"]
-            guard stage != .compute, layout.keys.allSatisfy({ $0 == "location" || $0 == "index" }),
-                  let location = layout["location"], let shape = IRBitcastShape(kind(finalType)),
-                  shape.scalar.kind != .bool else {
-                throw glslError(name,.unsupportedConstruct,"Unsupported explicit location interface type")
-            }
-            guard colorIndex == nil || (stage == .fragment && !input && (colorIndex == 0 || colorIndex == 1)) else {
-                throw glslError(name, .invalidBinding, "Color index must be 0 or 1 on a fragment output")
-            }
-            guard colorIndex != 1 || location == 0 else {
-                throw glslError(name, .unsupportedConstruct, "Dual-source fragment colors are supported only at location 0")
-            }
-            guard !varying || shape.scalar.kind == .float || interpolation == .flat else {
-                throw glslError(name, .invalidBinding, "Integer interstage values require flat interpolation")
-            }
-            let blendSource: UInt32? = colorIndex == 1 ? 1 : nil
-            let binding = IRBinding.location(index: location, interpolation: varying ? interpolation ?? .perspective : nil,
-                                             sampling: varying && interpolation != .flat ? sampling ?? .center : nil,
-                                             blendSource: blendSource, perPrimitive: false)
-            guard try !interfaces.contains(where: { io in
-                try budget.consume(.work)
-                guard io.input == input,
-                      case .location(let previous, _, _, let previousSource, _) = io.binding else { return false }
-                return location == previous && blendSource == previousSource
-            }) else { throw glslError(name,.invalidBinding,"Duplicate stage location") }
-            try registerInterface(name.text, type: finalType, binding: binding, input: input)
-        } else {
-            guard layout.isEmpty,qualifier.isEmpty || qualifier=="shared" else { throw glslError(name,.unsupportedConstruct,"Unsupported global qualifier") }
-            if qualifier=="shared",stage != .compute { throw glslError(name,.invalidAddressSpace,"Shared variable outside compute") }
-            try budget.consume(.nodes);let h=try IRHandle<IRGlobalVariable>(index:globals.count)
-            globals.append(.init(name:name.text,space:qualifier=="shared" ? .workgroup:.private,type:finalType,location:try name.location));globalNames[name.text]=h
-        }
+        guard layout.isEmpty,qualifier.isEmpty || qualifier=="shared" else { throw glslError(name,.unsupportedConstruct,"Unsupported global qualifier") }
+        if qualifier=="shared",stage != .compute { throw glslError(name,.invalidAddressSpace,"Shared variable outside compute") }
+        try budget.consume(.nodes);let h=try IRHandle<IRGlobalVariable>(index:globals.count)
+        globals.append(.init(name:name.text,space:qualifier=="shared" ? .workgroup:.private,type:finalType,location:try name.location));globalNames[name.text]=h
     }
 
     func finalizeGLSLColorBindings() throws {
@@ -406,8 +431,15 @@ extension GLSLParser {
 
     func access(_ input:GLSLValue) throws -> GLSLValue {
         let op = try advance()
-        let base = input.swizzle == nil ? input : try rvalue(input, at: op)
+        let composed: GLSLWritableSwizzle?
+        if op.text == ".", let swizzle = input.swizzle, Set(swizzle.indices).count == swizzle.indices.count {
+            composed = swizzle
+        } else {
+            composed = nil
+        }
+        let base = input.swizzle == nil || composed != nil ? input : try rvalue(input, at: op)
         let type = base.pointer ? try pointee(base.type, at: op) : base.type
+        let addressType = base.pointer ? base.type : composed?.pointerType
         let memberType:IRHandle<IRType>;let operation:IRExpressionKind
         if op.text=="." {
             let name=try identifier()
@@ -437,19 +469,19 @@ extension GLSLParser {
                 guard !chars.isEmpty,chars.count<=4,let group=groups.first(where:{chars.allSatisfy($0.contains)}) else { throw glslError(name,.invalidType,"Invalid swizzle") }
                 let indices=chars.compactMap {group.firstIndex(of:$0)}
                 guard indices.allSatisfy({$0<Int(size.rawValue)}) else { throw glslError(name,.invalidType,"Swizzle out of range") }
-                if indices.count==1 {
+                let lanes = indices.map { composed?.indices[$0] ?? UInt32($0) }
+                if lanes.count==1 {
                     memberType=try addType(.scalar(s))
                     // Preserve lvalue access without emitting a load of the original vector.
-                    operation = .accessIndex(base:base.expression,index:UInt32(indices[0]))
+                    operation = .accessIndex(base:base.expression,index:lanes[0])
                 } else {
-                    guard let size = IRVectorSize(rawValue: UInt8(indices.count)) else {
+                    guard let size = IRVectorSize(rawValue: UInt8(lanes.count)) else {
                         throw glslError(name, .invalidType, "Swizzle size")
                     }
                     let type = try addType(.vector(size: size, scalar: s))
-                    let lanes = indices.map(UInt32.init)
-                    if base.pointer && base.writable {
+                    if let addressType, base.writable {
                         return .init(expression: base.expression, type: type, pointer: false, writable: true,
-                                     swizzle: .init(pointerType: base.type, indices: lanes))
+                                     swizzle: .init(pointerType: addressType, indices: lanes))
                     }
                     return try swizzleValue(rvalue(base, at: op), type: type, indices: lanes, at: name)
                 }
@@ -465,8 +497,8 @@ extension GLSLParser {
             }
             operation = .access(base:base.expression,index:index.expression)
         }
-        if base.pointer {
-            guard case .pointer(_,let space)=kind(base.type) else { throw glslError(op,.invalidType,"Pointer expected") }
+        if let addressType {
+            guard case .pointer(_,let space)=kind(addressType) else { throw glslError(op,.invalidType,"Pointer expected") }
             return try expressionNode(addType(.pointer(base:memberType,space:space)),operation,at:op,pointer:true,writable:base.writable)
         }
         return try expressionNode(memberType,operation,at:op)

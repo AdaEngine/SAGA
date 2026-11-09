@@ -1,0 +1,12 @@
+version: 1
+builder:
+  configs:
+    - documentation_targets:
+        - SAGA
+        - SAGACompiler
+        - SAGAMetal
+        - SAGAWebGPU
+        - SAGACore
+        - SAGATypes
+        - SAGABackend
+        - SAGAShaderIR

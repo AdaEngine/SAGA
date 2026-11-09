@@ -31,7 +31,7 @@ private let matrixOperatorSource = ShaderInput.glsl("""
         result.values[1] = vec4(product[3], 1);
         result.values[2] = vec4(a * vec2(2, 3), 1);
         result.values[3] = vec4(vec3(7, 8, 9) * a, float(leftCalls), float(rightCalls));
-        result.values[4] = vec4((2 * a)[0], 1);
+        result.values[4] = vec4((-(2 * a))[0], 1);
         result.values[5] = vec4((a * 3u)[1], 1);
         result.values[6] = vec4((4u - a)[1], 1);
         mat2x3 component = (a + 2) / mat2x3(1, 2, 5, 2, 7, 4);
@@ -84,7 +84,7 @@ func glslMatrixOperatorsRejectIncompatibleOperands(_ body: String) {
         ]).wait()
         let expected: [Float] = [
             39, 54, 69, 123, 69, 96, 123, 1, 14, 19, 24, 1, 50, 122, 1, 1,
-            2, 4, 6, 1, 12, 15, 18, 1, 0, -1, -2, 1, 3, 2, 1, 1,
+            -2, -4, -6, 1, 12, 15, 18, 1, 0, -1, -2, 1, 3, 2, 1, 1,
             2, 2.5, 3, 1, 6, 4, 1, 2,
         ]
         #expect(words == [expected.map(\.bitPattern)])

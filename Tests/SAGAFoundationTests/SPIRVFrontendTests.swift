@@ -15,8 +15,9 @@ import SAGAFrontends
     func parse(_ words: [UInt32], options: SPIRVFrontendOptions = .init()) throws -> IRModule {
         try SPIRVFrontend(options: options).parse(.spirv(words))
     }
-    func fails(_ words: [UInt32], code: ShaderDiagnosticCode = .invalidBinary) throws {
-        do { _ = try parse(words); Issue.record("accepted malformed words") }
+    func fails(_ words: [UInt32], code: ShaderDiagnosticCode = .invalidBinary,
+               options: SPIRVFrontendOptions = .init()) throws {
+        do { _ = try parse(words, options: options); Issue.record("accepted malformed words") }
         catch ShaderFailure.diagnostics(let ds) {
             #expect(ds.first?.code == code)
             guard case .binary(let span) = ds.first?.location else { Issue.record("missing word span"); return }
@@ -30,6 +31,22 @@ import SAGAFrontends
         #expect(m.entryPoints[0].workgroupSize == IRWorkgroupSize(x: 2, y: 3, z: 4))
         #expect(m.functions.count == 1)
         #expect(try parse(Self.compute.map(\.byteSwapped)) == m)
+    }
+    @Test func arrayStrideOnAnUnusedStoragePointerType() throws {
+        let words = Self.pre + Self.i(15, 5, 10, 0x6e69616d, 0) + Self.i(16, 10, 17, 1, 1, 1)
+          + Self.i(71, 4, 6, 4)
+          + Self.i(19, 1) + Self.i(21, 3, 32, 0) + Self.i(32, 4, 12, 3) + Self.i(33, 2, 1)
+          + Self.i(54, 1, 10, 0, 2) + Self.i(248, 11) + Self.i(253) + Self.i(56)
+        #expect(try parse(words).entryPoints.count == 1)
+        var zeroStride = words
+        let decoration = try #require(words.indices.first { words[$0] == (4 << 16 | 71) && words[$0 + 1] == 4 })
+        zeroStride[decoration + 3] = 0
+        try fails(zeroStride)
+        let blockPointer = Self.pre + Self.i(15, 5, 10, 0x6e69616d, 0) + Self.i(16, 10, 17, 1, 1, 1)
+          + Self.i(71, 4, 6, 4) + Self.i(71, 5, 2) + Self.i(72, 5, 0, 35, 0)
+          + Self.i(19, 1) + Self.i(21, 3, 32, 0) + Self.i(30, 5, 3) + Self.i(32, 4, 12, 5) + Self.i(33, 2, 1)
+          + Self.i(54, 1, 10, 0, 2) + Self.i(248, 11) + Self.i(253) + Self.i(56)
+        try fails(blockPointer)
     }
     @Test func spirvRepeatedDebugNamesKeepTheLastName() throws {
         let instructions = [
@@ -123,11 +140,20 @@ extension SPIRVFrontendTests {
             Issue.record("unimplemented option was ignored")
         } catch ShaderFailure.diagnostics(let ds) { #expect(ds.first?.code == .unsupportedConstruct) }
     }
-    @Test func malformedUTF8NamesAndMissingFragmentOriginAreRejected() throws {
+    @Test func malformedUTF8NamesAreRejected() throws {
         try fails(Self.pre + Self.i(5, 1, 0x000080c0) + Self.i(21, 1, 32, 0))
-        let w = Self.pre + Self.i(15,4,10,0x6e69616d,0) + Self.i(19,1) + Self.i(33,2,1)
-            + Self.i(54,1,10,0,2) + Self.i(248,11) + Self.i(253) + Self.i(56)
-        try fails(w)
+    }
+    @Test(arguments: [false, true])
+    func fragmentOriginRequiresUpperLeft(adjustCoordinateSpace: Bool) throws {
+        let entry = Self.pre + Self.i(15, 4, 10, 0x6e69616d, 0)
+        let function = [Self.i(19, 1), Self.i(33, 2, 1), Self.i(54, 1, 10, 0, 2),
+                        Self.i(248, 11), Self.i(253), Self.i(56)].flatMap { $0 }
+        let options = SPIRVFrontendOptions(adjustCoordinateSpace: adjustCoordinateSpace)
+        let upperLeft = Self.i(16, 10, 7)
+        let lowerLeft = Self.i(16, 10, 8)
+        #expect(try parse(entry + upperLeft + function, options: options).entryPoints.first?.stage == .fragment)
+        try fails(entry + function, options: options)
+        try fails(entry + lowerLeft + function, code: .unsupportedConstruct, options: options)
     }
 }
 

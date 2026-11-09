@@ -11,7 +11,9 @@ extension SPIRVBinaryWriter {
         }
         if scalar.width == 8 { try requireCapability(12) } // Int64Atomics
         switch space {
-        case .storage: return (scalar, 1) // Device under the GLSL450 memory model.
+        case .storage:
+            markStorageDeviceScopeAtomic()
+            return (scalar, 1) // Device scope; VulkanMemoryModelDeviceScope is added if needed.
         case .workgroup: return (scalar, 2)
         default: throw unsupported("requires a storage or workgroup atomic")
         }

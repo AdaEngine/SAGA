@@ -40,6 +40,11 @@ extension WGSLParser {
               throw wgslError(.unsupportedCapability, "wgpu_int16 requires shaderInt16", extensionName)
             }
             int16Enabled = true
+          case "wgpu_cooperative_matrix":
+            guard options.capabilities.contains(.cooperativeMatrix) else {
+              throw wgslError(.unsupportedCapability, "wgpu_cooperative_matrix requires cooperativeMatrix", extensionName)
+            }
+            cooperativeMatrixEnabled = true
           case "wgpu_debug_printf":
             guard options.capabilities.contains(.debugPrintf) else {
               throw wgslError(.unsupportedCapability, "wgpu_debug_printf requires debugPrintf", extensionName)

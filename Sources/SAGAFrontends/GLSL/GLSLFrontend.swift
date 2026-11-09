@@ -56,17 +56,36 @@ struct GLSLWritableSwizzle {
     let pointerType: IRHandle<IRType>
     let indices: [UInt32]
 }
-struct GLSLSymbol { let value:GLSLValue }
 struct GLSLInterface {
     let global:IRHandle<IRGlobalVariable>
     let type:IRHandle<IRType>
     var binding:IRBinding
     let input:Bool
     let name:String
+    var path: [GLSLInterfaceAccess] = []
 }
-struct GLSLScope {
-    var symbols: [String: GLSLSymbol] = [:]
-    var types: [String: IRHandle<IRType>] = [:]
+enum GLSLLocalName {
+    case value(GLSLValue)
+    case type(IRHandle<IRType>)
+}
+
+private enum GLSLParameterMode: String {
+    case input = "in"
+    case output = "out"
+    case inputOutput = "inout"
+
+    var copiesIn: Bool { self != .output }
+    var copiesOut: Bool { self != .input }
+}
+
+private struct GLSLParameter {
+    let type: IRHandle<IRType>
+    let mode: GLSLParameterMode
+}
+
+private struct GLSLCallArgument {
+    let value: GLSLValue
+    let evaluation: Range<Int>
 }
 
 final class GLSLFunctionContext {
@@ -75,7 +94,7 @@ final class GLSLFunctionContext {
     var statements:[IRStatement]=[]
     var blocks:[IRBlock]=[]
     var current:[IRHandle<IRStatement>]=[]
-    var scopes = [GLSLScope()]
+    var scopes: [[String: GLSLLocalName]] = [[:]]
     var loopDepth=0
     var switches: [(loopDepth: Int, hasBreak: Bool)] = []
     let result:IRHandle<IRType>?
@@ -93,14 +112,20 @@ final class GLSLParser {
     var types:[IRType]=[]
     var namedTypes:[String:IRHandle<IRType>]=[:]
     var globals:[IRGlobalVariable]=[]
+    var queryOnlyStorageImages: Set<IRHandle<IRGlobalVariable>> = []
     var interfaces:[GLSLInterface]=[]
+    var stageLocationGroups: [GLSLStageLocationGroup] = []
+    var stageInputGlobals: Set<IRHandle<IRGlobalVariable>> = []
     var functions:[IRFunction]=[]
     var functionNames:[String:[IRHandle<IRFunction>]]=[:]
+    private var functionParameters: [[GLSLParameter]] = []
     var globalNames:[String:IRHandle<IRGlobalVariable>]=[:]
     var uninstancedBlockMembers: [String: (block: IRHandle<IRGlobalVariable>, index: UInt32, type: IRHandle<IRType>)] = [:]
     var textureRoles: [GLSLTextureOrigin: GLSLTextureRole] = [:]
     var constantNames: [String: IRHandle<IRConstant>] = [:]
     var constants: [IRConstant] = []
+    var overrideNames: [String: IRHandle<IROverride>] = [:]
+    var overrides: [IROverride] = []
     var globalExpressions: [IRExpression] = []
     var workgroup=IRWorkgroupSize()
     var hasLocalSize=false
@@ -140,34 +165,38 @@ final class GLSLParser {
     func scalar(_ type:IRHandle<IRType>) -> IRScalar? {
         switch kind(type) { case .scalar(let s), .vector(_,let s), .matrix(_,_,let s): return s; default:return nil }
     }
-    func namedType(_ name: String) throws -> IRHandle<IRType>? {
+    private func localName(_ name: String) throws -> GLSLLocalName? {
         if let context {
             for scope in context.scopes.reversed() {
                 try budget.consume(.work, amount: name.utf8.count)
-                if let type = scope.types[name] { return type }
+                if let declaration = scope[name] { return declaration }
             }
         }
-        return namedTypes[name]
+        return nil
     }
     func resolveType(_ token: GLSLToken) throws -> IRHandle<IRType>? {
-        if let type = try namedType(token.text) { return type }
+        switch try localName(token.text) {
+        case .type(let type): return type
+        case .value: return nil
+        case nil: break
+        }
+        if let type = namedTypes[token.text] { return type }
         return try builtinType(token.text, float16Enabled: token.float16Enabled)
     }
     private func builtinType(_ name:String, float16Enabled: Bool = false) throws -> IRHandle<IRType>? {
         if let resource = glslOpaqueResourceKind(name) { return try addType(resource) }
         if float16Enabled, name == "float16_t" { return try addType(.scalar(.f16)) }
-        let scalars:[String:IRScalar]=["bool":.bool,"int":.i32,"uint":.u32,"float":.f32,"double":.init(kind:.float,width:8)]
+        let scalars:[String:IRScalar]=["bool":.bool,"int":.i32,"uint":.u32,"float":.f32,"double":.f64]
         if let s=scalars[name] { return try addType(.scalar(s)) }
         let prefixes:[(String,IRScalar)]=[("vec",.f32),("ivec",.i32),("uvec",.u32),("bvec",.bool),
-                                        ("dvec",.init(kind:.float,width:8)),("f16vec",.f16)]
+                                        ("dvec",.f64),("f16vec",.f16)]
         for (prefix,s) in prefixes where name.hasPrefix(prefix) {
             guard s != .f16 || float16Enabled else { return nil }
             if let n=UInt8(name.dropFirst(prefix.count)), let size=IRVectorSize(rawValue:n) { return try addType(.vector(size:size,scalar:s)) }
         }
-        let isHalfMatrix = float16Enabled && name.hasPrefix("f16mat")
-        if name.hasPrefix("mat") || isHalfMatrix {
-            let component: IRScalar = isHalfMatrix ? .f16 : .f32
-            let dimensions = Array(name.dropFirst(isHalfMatrix ? 6 : 3).prefix(4))
+        for (prefix, component) in [("mat", IRScalar.f32), ("dmat", .f64), ("f16mat", .f16)]
+            where name.hasPrefix(prefix) && (component != .f16 || float16Enabled) {
+            let dimensions = Array(name.dropFirst(prefix.count).prefix(4))
             guard let first = dimensions.first, let width = UInt8(String(first)),
                   let columns = IRVectorSize(rawValue: width) else { return nil }
             if dimensions.count == 1 {
@@ -188,10 +217,11 @@ final class GLSLParser {
         guard [.compute,.vertex,.fragment].contains(stage) else { throw glslError(token,.unsupportedConstruct,"GLSL stage not implemented") }
         while !text.isEmpty { try externalDeclaration() }
         guard let main=functionNames["main"]?.first, functions[main.index].result==nil, functions[main.index].arguments.isEmpty else { throw glslError(token,.invalidControlFlow,"Expected void main()") }
+        try finalizeGLSLStageLocations()
         try finalizeGLSLColorBindings()
         try finalizeGLSLComparisonTextures()
         let wrapper=try wrap(main)
-        return IRModule(types:.init(types),constants:.init(constants),globalVariables:.init(globals),
+        return IRModule(types:.init(types),constants:.init(constants),overrides:.init(overrides),globalVariables:.init(globals),
                         globalExpressions:.init(globalExpressions),functions:.init(functions),
                         entryPoints:[.init(name:"main",stage:stage,function:wrapper,workgroupSize:stage == .compute ? workgroup : .init(x:0,y:0,z:0))])
     }
@@ -200,6 +230,7 @@ final class GLSLParser {
         let h=try IRHandle<IRGlobalVariable>(index:globals.count)
         globals.append(.init(name:name,space:.private,type:type)); globalNames[name]=h
         interfaces.append(.init(global:h,type:type,binding:binding,input:input,name:name))
+        if input { stageInputGlobals.insert(h) }
     }
     func function(_ name:GLSLToken,result:IRHandle<IRType>?) throws {
         let overloads = functionNames[name.text] ?? []
@@ -209,31 +240,43 @@ final class GLSLParser {
         }
         let c=GLSLFunctionContext(result:result); context=c
         var arguments:[IRFunctionArgument]=[]
+        var parameters: [GLSLParameter] = []
         try expect("(")
         if text=="void" { _ = try advance(); try expect(")") }
         else if !(try take(")")) {
             repeat {
-                _ = try take("in")
-                guard let type=try parseType() else { throw glslError(token,.invalidType,"Void parameter") }; let arg=try identifier()
-                guard c.scopes[0].symbols[arg.text]==nil else { throw glslError(arg,.duplicateName,"Duplicate parameter") }
-                let value=try expressionNode(type,.functionArgument(UInt32(arguments.count)),at:arg,emit:false)
-                if kind(type).isTextureOrSampler {
-                    c.scopes[0].symbols[arg.text] = .init(value: value)
-                    arguments.append(.init(name: arg.text, type: type))
+                let (mode, immutable) = try parameterQualifiers()
+                guard let base = try parseType() else { throw glslError(token, .invalidType, "Void parameter") }
+                let specifiedType = try arraySuffix(base, globalLength: true)
+                let arg = try identifier(allowNamedType: true)
+                guard specifiedType == base || text != "[" else {
+                    throw glslError(token, .unsupportedConstruct, "Multidimensional arrays not implemented")
+                }
+                let type = try arraySuffix(specifiedType, globalLength: true)
+                guard c.scopes[0][arg.text]==nil else { throw glslError(arg,.duplicateName,"Duplicate parameter") }
+                let opaque = kind(type).isTextureOrSampler
+                if opaque && mode.copiesOut {
+                    throw glslError(arg, .invalidType, "Opaque parameters cannot be out or inout")
+                }
+                let argumentType = mode.copiesOut ? try addType(.pointer(base: type, space: .function)) : type
+                let value = try expressionNode(argumentType, .functionArgument(UInt32(arguments.count)), at: arg,
+                                               emit: false, pointer: mode.copiesOut, writable: mode.copiesOut)
+                arguments.append(.init(name: arg.text, type: argumentType))
+                parameters.append(.init(type: type, mode: mode))
+                if opaque || mode.copiesOut || immutable {
+                    c.scopes[0][arg.text] = .value(value)
                     continue
                 }
-                try budget.consume(.nodes); let local=try IRHandle<IRLocalVariable>(index:c.locals.count)
-                c.locals.append(.init(name:arg.text,type:type,location:try arg.location))
-                let pointer=try expressionNode(addType(.pointer(base:type,space:.function)),.localVariable(local),at:arg,emit:false,pointer:true,writable:true)
+                let pointer = try parameterLocal(type, name: arg.text, at: arg)
                 try append(.store(pointer:pointer.expression,value:value.expression),at:arg)
-                c.scopes[0].symbols[arg.text] = .init(value:pointer); arguments.append(.init(name:arg.text,type:type))
+                c.scopes[0][arg.text] = .value(pointer)
             } while try take(",")
             try expect(")")
         }
-        let signature = arguments.map(\.type)
+        let signature = parameters.map(\.type)
         for overload in overloads {
             try budget.consume(.work, amount: signature.count + 1)
-            if functions[overload.index].arguments.map(\.type) == signature {
+            if functionParameters[overload.index].map(\.type) == signature {
                 throw glslError(name, .duplicateName, "Duplicate function signature")
             }
         }
@@ -247,7 +290,37 @@ final class GLSLParser {
         try budget.consume(.nodes)
         let h=try IRHandle<IRFunction>(index:functions.count)
         functions.append(.init(name:name.text,arguments:arguments,result:result.map { .init(type:$0) },localVariables:.init(c.locals),expressions:.init(c.expressions),statements:.init(c.statements),blocks:.init(blocks),body:body,location:try name.location))
+        functionParameters.append(parameters)
         functionNames[name.text, default: []].append(h); context=nil
+    }
+
+    private func parameterQualifiers() throws -> (GLSLParameterMode, Bool) {
+        var mode: GLSLParameterMode?
+        var immutable = false
+        while text == "const" || GLSLParameterMode(rawValue: text) != nil {
+            let qualifier = try advance()
+            if qualifier.text == "const" {
+                guard !immutable else { throw glslError(qualifier, .invalidType, "Duplicate const parameter qualifier") }
+                immutable = true
+            } else {
+                guard mode == nil else { throw glslError(qualifier, .invalidType, "Conflicting parameter directions") }
+                mode = GLSLParameterMode(rawValue: qualifier.text)
+            }
+        }
+        let direction = mode ?? .input
+        guard !immutable || !direction.copiesOut else {
+            throw glslError(token, .invalidType, "Out and inout parameters cannot be const")
+        }
+        return (direction, immutable)
+    }
+
+    private func parameterLocal(_ type: IRHandle<IRType>, name: String? = nil, at token: GLSLToken) throws -> GLSLValue {
+        let c = try requireContext()
+        try budget.consume(.nodes)
+        let local = try IRHandle<IRLocalVariable>(index: c.locals.count)
+        c.locals.append(.init(name: name, type: type, location: try token.location))
+        return try expressionNode(addType(.pointer(base: type, space: .function)), .localVariable(local),
+                                  at: token, emit: false, pointer: true, writable: true)
     }
     func requireContext() throws -> GLSLFunctionContext {
         guard let c=context else { throw ShaderFailure.unsupported("Function context required") }; return c
@@ -269,7 +342,7 @@ final class GLSLParser {
     }
     func compound(pushScope:Bool=true) throws -> (IRHandle<IRBlock>,Bool) {
         try enter(); defer { depth-=1 }; try expect("{"); let c=try requireContext()
-        let saved=c.current; c.current=[]; if pushScope { c.scopes.append(GLSLScope()) }
+        let saved=c.current; c.current=[]; if pushScope { c.scopes.append([:]) }
         defer { c.current=saved; if pushScope { c.scopes.removeLast() } }
         var terminal=false
         while text != "}" {
@@ -281,7 +354,7 @@ final class GLSLParser {
     }
     func childStatement() throws -> (IRHandle<IRBlock>,Bool) {
         if text=="{" { return try compound() }
-        let c=try requireContext(); let saved=c.current; c.current=[]; c.scopes.append(GLSLScope())
+        let c=try requireContext(); let saved=c.current; c.current=[]; c.scopes.append([:])
         defer { c.current=saved; c.scopes.removeLast() }
         let terminal=try statement(); return (try block(c.current),terminal)
     }
@@ -358,26 +431,26 @@ final class GLSLParser {
         if try take("struct") {
             let name = try identifier(allowNamedType: true)
             let scope = c.scopes.count - 1
-            guard c.scopes[scope].types[name.text] == nil, c.scopes[scope].symbols[name.text] == nil,
-                  !name.text.hasPrefix("gl_") else {
+            guard c.scopes[scope][name.text] == nil, !name.text.hasPrefix("gl_") else {
                 throw glslError(name, .duplicateName, "Duplicate/reserved local type")
             }
             let type = try members(runtime: false)
-            c.scopes[scope].types[name.text] = type
+            c.scopes[scope][name.text] = .type(type)
             if !immutable, try take(";") { return false }
             base = type
         } else {
-            base = try resolveType(token)
+            let next = tokens.indices.contains(i + 1) ? tokens[i + 1].text : ""
+            // A type followed by constructor syntax starts an expression statement.
+            base = !immutable && (next == "(" || next == "[") ? nil : try resolveType(token)
             if base != nil { _ = try advance() }
         }
         if let base {
-            let name=try identifier();let type=try arraySuffix(base)
-            guard c.scopes[c.scopes.count-1].symbols[name.text]==nil, !name.text.hasPrefix("gl_") else { throw glslError(name,.duplicateName,"Duplicate/reserved local") }
-            if immutable, kind(type) == .scalar(.i32) || kind(type) == .scalar(.u32) {
-                try expect("=")
-                let constant = try integerConstant(at: name, convertingTo: type)
-                let value = try expressionNode(type, .literal(constant.literal), at: name, emit: false)
-                c.scopes[c.scopes.count - 1].symbols[name.text] = .init(value: value)
+            let name=try identifier(allowNamedType: true);let type=try arraySuffix(base)
+            guard c.scopes[c.scopes.count-1][name.text]==nil, !name.text.hasPrefix("gl_") else { throw glslError(name,.duplicateName,"Duplicate/reserved local") }
+            if immutable, try take("=") {
+                let value = try typedInitializer(type, at: name)
+                // Preserve runtime initializers as immutable values and fold known integer constants.
+                c.scopes[c.scopes.count - 1][name.text] = .value(try foldLocalIntegerConstant(value, at: name))
                 try expect(";")
                 return false
             }
@@ -387,14 +460,10 @@ final class GLSLParser {
             let pointer=try expressionNode(pointerType,.localVariable(local),at:name,emit:false,pointer:true,writable:!immutable)
             // Initializer resolves in enclosing scope, not the new declaration itself.
             if try take("=") {
-                let source = try rvalue(expression(), at: name)
-                guard let value = try implicitlyConvert(source, to: type, at: name) else {
-                    throw glslError(name, .typeMismatch, "Initializer type mismatch")
-                }
-                if immutable, case .literal = c.expressions[source.expression.index].kind {} else if immutable { throw glslError(name,.unsupportedConstruct,"Nonliteral const evaluation not implemented") }
+                let value = try typedInitializer(type, at: name)
                 try append(.store(pointer:pointer.expression,value:value.expression),at:name)
-            } else if immutable { throw glslError(name,.unexpectedToken,"Const requires initializer") }
-            c.scopes[c.scopes.count-1].symbols[name.text] = .init(value:pointer); try expect(";"); return false
+            }
+            c.scopes[c.scopes.count-1][name.text] = .value(pointer); try expect(";"); return false
         }
         if immutable { throw glslError(t,.unsupportedConstruct,"Unsupported const type") }
         try simpleStatement(end:";"); return false
@@ -405,9 +474,14 @@ final class GLSLParser {
     }
     func simpleExpression() throws {
         let t=token
+        if t.text == "imageStore", functionNames[t.text] == nil, tokens.indices.contains(i + 1),
+           tokens[i + 1].text == "(", try localName(t.text) == nil {
+            try glslImageStoreStatement(at: t)
+            return
+        }
         let left: GLSLValue
         if let overloads = functionNames[t.text], t.text != "main",
-           tokens.indices.contains(i + 1), tokens[i + 1].text == "(" {
+           tokens.indices.contains(i + 1), tokens[i + 1].text == "(", try localName(t.text) == nil {
             try enter()
             defer { depth -= 1 }
             _ = try advance()
@@ -495,10 +569,16 @@ final class GLSLParser {
         if name.isViewIndex, !name.multiviewEnabled {
             throw glslError(name, .unsupportedCapability, "gl_ViewIndex requires GL_EXT_multiview")
         }
-        let c=try requireContext()
-        for scope in c.scopes.reversed() { try budget.consume(.work,amount:name.text.utf8.count); if let symbol=scope.symbols[name.text] { return symbol.value } }
+        switch try localName(name.text) {
+        case .value(let value): return value
+        case .type: throw glslError(name, .unresolvedName, "Expected a GLSL value: \(name.text)")
+        case nil: break
+        }
         if let constant = constantNames[name.text] {
             return try expressionNode(constants[constant.index].type, .constant(constant), at: name, emit: false)
+        }
+        if let override = overrideNames[name.text] {
+            return try expressionNode(overrides[override.index].type, .override(override), at: name, emit: false)
         }
         if let member = try uninstancedBlockMember(name) { return member }
         if globalNames[name.text]==nil { try builtin(name) }
@@ -506,14 +586,14 @@ final class GLSLParser {
             let global=globals[h.index]
             if global.space == .handle { return try expressionNode(global.type, .globalVariable(h), at: name, emit: false) }
             let pointer=try addType(.pointer(base:global.type,space:global.space))
-            return try expressionNode(pointer,.globalVariable(h),at:name,emit:false,pointer:true,writable:isWritable(global) && !(interfaces.first(where:{$0.global==h})?.input ?? false))
+            return try expressionNode(pointer,.globalVariable(h),at:name,emit:false,pointer:true,writable:isWritable(h))
         }
         throw glslError(name,.unresolvedName,"Unresolved GLSL name: \(name.text)")
     }
 
     func hasGlobalName(_ name: String) -> Bool {
         globalNames[name] != nil || functionNames[name] != nil || constantNames[name] != nil ||
-            uninstancedBlockMembers[name] != nil
+            overrideNames[name] != nil || uninstancedBlockMembers[name] != nil
     }
     func builtin(_ name:GLSLToken) throws {
         let descriptor:(IRBuiltIn,String,Bool,IRStage)
@@ -560,12 +640,18 @@ final class GLSLParser {
                 if t.text=="!" { guard s.kind == .bool else { throw glslError(t,.typeMismatch,"Logical not requires bool") } }
                 else if t.text=="~" { guard [.sint,.uint].contains(s.kind) else { throw glslError(t,.typeMismatch,"Bitwise not requires integer") } }
                 else { guard [.sint,.float].contains(s.kind) else { throw glslError(t,.typeMismatch,"Negation requires signed number") } }
-                left=try expressionNode(v.type,.unary(op:t.text=="!" ? .logicalNot:t.text=="~" ? .bitwiseNot:.negate,expression:v.expression),at:t)
+                if t.text == "-", let matrix = try negateMatrix(v, at: t) {
+                    left = matrix
+                } else {
+                    left=try expressionNode(v.type,.unary(op:t.text=="!" ? .logicalNot:t.text=="~" ? .bitwiseNot:.negate,expression:v.expression),at:t)
+                }
             }
         } else if t.text=="true" || t.text=="false" { left=try expressionNode(addType(.scalar(.bool)),.literal(.bool(t.text=="true")),at:t,emit:false) }
         else if t.text.first?.isNumber==true || t.text.first=="." { left=try number(t) }
         else if glslIdentifier(t.text) {
-            if try take("(") {
+            if text == "[", let element = try resolveType(t) {
+                left = try arrayConstructor(arraySuffix(element), at: t)
+            } else if try take("(") {
                 left=try call(t,args:callArguments(at:t))
             } else { left=try symbol(t) }
         } else { throw glslError(t,.unexpectedToken,"Expected GLSL expression") }
@@ -588,15 +674,68 @@ final class GLSLParser {
             if op.text=="&&" || op.text=="||" { left=try shortCircuit(left,op:op,precedence:p);continue }
             let l=try rvalue(left,at:op); let r=try rvalue(expression(p+1),at:op); left=try binary(l,r,op:op)
         }
+        if minimum == 0, text == "?" {
+            return try conditionalExpression(left, at: advance())
+        }
         return left
     }
 
-    private func callArguments(at token: GLSLToken) throws -> [GLSLValue] {
-        var arguments: [GLSLValue] = []
+    private func conditionalExpression(_ predicate: GLSLValue, at op: GLSLToken) throws -> GLSLValue {
+        let c = try requireContext()
+        let condition = try rvalue(predicate, at: op)
+        try requireBool(condition, at: op)
+        let outer = c.current
+        c.current = []
+        let yes = try rvalue(expression(), at: op)
+        try expect(":")
+        let yesStatements = c.current
+        c.current = []
+        let no = try rvalue(expression(), at: op)
+        let noStatements = c.current
+
+        let type: IRHandle<IRType>
+        if implicitConversion(from: yes.type, to: no.type) != nil {
+            type = no.type
+        } else if implicitConversion(from: no.type, to: yes.type) != nil {
+            type = yes.type
+        } else {
+            throw glslError(op, .typeMismatch, "Incompatible conditional expression arms")
+        }
+        switch kind(type) {
+        case .image, .sampler:
+            throw glslError(op, .typeMismatch, "Conditional expression arms cannot be opaque")
+        default: break
+        }
+
+        let result = try parameterLocal(type, at: op)
+        // Emit each conversion and result store in the block that evaluated its operand.
+        c.current = yesStatements
+        guard let accept = try implicitlyConvert(yes, to: type, at: op) else { throw ShaderFailure.invalidHandle }
+        try append(.store(pointer: result.expression, value: accept.expression), at: op)
+        let acceptBlock = try block(c.current)
+        c.current = noStatements
+        guard let reject = try implicitlyConvert(no, to: type, at: op) else { throw ShaderFailure.invalidHandle }
+        try append(.store(pointer: result.expression, value: reject.expression), at: op)
+        let rejectBlock = try block(c.current)
+        c.current = outer
+        try append(.ifCondition(condition: condition.expression, accept: acceptBlock, reject: rejectBlock), at: op)
+        return try rvalue(result, at: op)
+    }
+
+    private func callArguments(at token: GLSLToken) throws -> [GLSLCallArgument] {
+        let c = try requireContext()
+        var arguments: [GLSLCallArgument] = []
         if !(try take(")")) {
             let allowCombined = try acceptsGLSLCombinedSamplerArgument(token.text) &&
-                functionNames[token.text] == nil && namedType(token.text) == nil
-            repeat { arguments.append(try rvalue(expression(), at: token, allowCombinedSampler: allowCombined)) } while try take(",")
+                functionNames[token.text] == nil && namedTypes[token.text] == nil && localName(token.text) == nil
+            let userFunction = try token.text != "main" && functionNames[token.text] != nil &&
+                localName(token.text) == nil && resolveType(token) == nil
+            repeat {
+                let start = c.current.count
+                let expression = try expression()
+                let value = userFunction ? expression : try rvalue(expression, at: token, allowCombinedSampler: allowCombined)
+                arguments.append(.init(value: value, evaluation: start..<c.current.count))
+            } while try take(",")
             try expect(")")
         }
         return arguments
@@ -606,6 +745,12 @@ final class GLSLParser {
         if unsigned { raw.removeLast() }
         if !raw.hasPrefix("0x") && !raw.hasPrefix("0X") && (raw.contains(".") || raw.contains("e") || raw.contains("E")) {
             guard !unsigned else { throw glslError(t,.invalidToken,"Unsigned floating literal") }
+            if raw.hasSuffix("lf") || raw.hasSuffix("LF") {
+                guard let value = Double(raw.dropLast(2)), value.isFinite else {
+                    throw glslError(t, .invalidToken, "Invalid or out-of-range double literal")
+                }
+                return try expressionNode(addType(.scalar(.f64)), .literal(.f64(value)), at: t, emit: false)
+            }
             if raw.hasSuffix("hf") || raw.hasSuffix("HF") {
                 guard t.float16Enabled else {
                     throw glslError(t, .unsupportedConstruct, "Half literal requires a GLSL float16 extension")
@@ -686,54 +831,63 @@ final class GLSLParser {
         return try expressionNode(addType(.vector(size: size, scalar: scalar)),
                                   .splat(size: size, value: converted.expression), at: token)
     }
-    func call(_ name:GLSLToken,args:[GLSLValue]) throws -> GLSLValue {
+    private func call(_ name:GLSLToken,args callArguments:[GLSLCallArgument]) throws -> GLSLValue {
+        let args = callArguments.map(\.value)
         if let target=try resolveType(name) {
             guard !args.isEmpty else { throw glslError(name,.typeMismatch,"Constructor requires arguments") }
             if case .scalar(let s)=kind(target) {
-                guard args.count==1,case .scalar=kind(args[0].type) else { throw glslError(name,.typeMismatch,"Scalar constructor arguments") }
-                if target==args[0].type { return args[0] }
-                return try expressionNode(target,.cast(expression:args[0].expression,target:s),at:name)
+                guard args.count == 1 else { throw glslError(name, .typeMismatch, "Scalar constructor arguments") }
+                let value = try firstScalarComponent(args[0], at: name)
+                if target == value.type { return value }
+                return try expressionNode(target, .cast(expression: value.expression, target: s), at: name)
             }
-            if case .vector(let size,let component)=kind(target) {
-                if args.count == 1, case .vector(let width, let source) = kind(args[0].type),
-                   width == size, source != component,
-                   (source == .i32 || source == .u32) && (component == .i32 || component == .u32) {
-                    return try expressionNode(target,.cast(expression:args[0].expression,target:component),at:name)
+            if case .vector(let size, let component) = kind(target) {
+                let components = try args.map { try scalarOrVectorConstructorValue($0, to: component, at: name) }
+                if components.count == 1, case .scalar = kind(components[0].type) {
+                    return try expressionNode(target, .splat(size: size, value: components[0].expression), at: name)
                 }
-                if args.count==1,case .scalar=kind(args[0].type) {
-                    var value=args[0]
-                    if scalar(value.type) != component { value=try expressionNode(addType(.scalar(component)),.cast(expression:value.expression,target:component),at:name) }
-                    return try expressionNode(target,.splat(size:size,value:value.expression),at:name)
+                if components.count == 1, components[0].type == target { return components[0] }
+                var count = 0
+                for value in components {
+                    switch kind(value.type) {
+                    case .scalar: count += 1
+                    case .vector(let width, _): count += Int(width.rawValue)
+                    default: throw ShaderFailure.invalidHandle
+                    }
                 }
-                var count=0
-                let components = component == .f32 || component == .f16
-                    ? try args.map { try floatConstructorValue($0, to: component, at: name) } : args
-                for a in components {
-                    guard scalar(a.type)==component else { throw glslError(name,.typeMismatch,"Vector constructor scalar type mismatch") }
-                    switch kind(a.type) { case .scalar:count+=1; case .vector(let n,_):count+=Int(n.rawValue); default:throw glslError(name,.typeMismatch,"Invalid vector component") }
-                }
-                guard count==Int(size.rawValue) else { throw glslError(name,.typeMismatch,"Vector component count") }
-                return try expressionNode(target,.compose(type:target,components:components.map(\.expression)),at:name)
+                guard count == Int(size.rawValue) else { throw glslError(name, .typeMismatch, "Vector component count") }
+                return try expressionNode(target, .compose(type: target, components: components.map(\.expression)), at: name)
             }
             if case .matrix(let columns, let rows, let component) = kind(target) {
                 return try matrixConstructor(target, columns: columns, rows: rows, component: component,
                                              arguments: args, at: name)
             }
             if case .structure(let members, _) = kind(target) {
-                guard args.count == members.count, zip(args, members).allSatisfy({ $0.type == $1.type }) else {
-                    throw glslError(name,.typeMismatch,"Structure constructor argument types")
+                guard args.count == members.count else {
+                    throw glslError(name, .typeMismatch, "Structure constructor argument count")
                 }
-                return try expressionNode(target,.compose(type:target,components:args.map(\.expression)),at:name)
+                let components = try zip(args, members).map { argument, member in
+                    try budget.consume(.work)
+                    guard let value = try implicitlyConvert(argument, to: member.type, at: name) else {
+                        throw glslError(name, .typeMismatch, "Structure constructor argument types")
+                    }
+                    return value.expression
+                }
+                return try expressionNode(target, .compose(type: target, components: components), at: name)
             }
+        }
+        if case .value = try localName(name.text) {
+            throw glslError(name, .typeMismatch, "Local value is not callable")
         }
         if name.text=="main" { throw glslError(name,.invalidControlFlow,"main cannot be called from shader code") }
         if let overloads = functionNames[name.text] {
-            guard let result = try userCall(overloads, arguments: args, allowingVoid: false, at: name) else {
+            guard let result = try userCall(overloads, arguments: callArguments, allowingVoid: false, at: name) else {
                 throw ShaderFailure.invalidHandle
             }
             return result
         }
         if let texture = try glslTextureCall(name, arguments: args) { return texture }
+        if let image = try glslStorageImageCall(name, arguments: args) { return image }
         let comparison: IRBinaryOperator? = switch name.text {
         case "lessThan": .less
         case "lessThanEqual": .lessEqual
@@ -759,6 +913,23 @@ final class GLSLParser {
         throw glslError(name,.unsupportedConstruct,"Unimplemented function/builtin: \(name.text)")
     }
 
+    private func firstScalarComponent(_ value: GLSLValue, at token: GLSLToken) throws -> GLSLValue {
+        switch kind(value.type) {
+        case .scalar:
+            return value
+        case .vector(_, let scalar):
+            return try expressionNode(addType(.scalar(scalar)), .accessIndex(base: value.expression, index: 0),
+                                      at: token)
+        case .matrix(_, let rows, let scalar):
+            let column = try expressionNode(addType(.vector(size: rows, scalar: scalar)),
+                                            .accessIndex(base: value.expression, index: 0), at: token)
+            return try expressionNode(addType(.scalar(scalar)), .accessIndex(base: column.expression, index: 0),
+                                      at: token)
+        default:
+            throw glslError(token, .typeMismatch, "Scalar constructor requires a scalar, vector, or matrix")
+        }
+    }
+
     private func vectorComparison(
         _ operation: IRBinaryOperator, arguments: [GLSLValue], at token: GLSLToken
     ) throws -> GLSLValue {
@@ -782,15 +953,23 @@ final class GLSLParser {
         if arguments.count == 1, arguments[0].type == target { return arguments[0] }
         let scalar = try addType(.scalar(component))
         let columnType = try addType(.vector(size: rows, scalar: component))
-        let zeroLiteral: IRLiteral = component == .f16 ? .f16Bits(0) : .f32(0)
-        let oneLiteral: IRLiteral = component == .f16 ? .f16Bits(0x3c00) : .f32(1)
+        let zeroLiteral: IRLiteral = switch component {
+        case .f16: .f16Bits(0)
+        case .f64: .f64(0)
+        default: .f32(0)
+        }
+        let oneLiteral: IRLiteral = switch component {
+        case .f16: .f16Bits(0x3c00)
+        case .f64: .f64(1)
+        default: .f32(1)
+        }
         let width = Int(columns.rawValue)
         let height = Int(rows.rawValue)
         let required = width * height
         var components: [IRHandle<IRExpression>] = []
         components.reserveCapacity(required)
         if arguments.count == 1, case .scalar = kind(arguments[0].type) {
-            let diagonal = try floatConstructorValue(arguments[0], to: component, at: token).expression
+            let diagonal = try scalarOrVectorConstructorValue(arguments[0], to: component, at: token).expression
             let zero = try expressionNode(scalar, .literal(zeroLiteral), at: token, emit: false).expression
             for column in 0..<width {
                 for row in 0..<height { components.append(column == row ? diagonal : zero) }
@@ -810,7 +989,7 @@ final class GLSLParser {
                     if let existing, row < Int(sourceHeight.rawValue) {
                         let value = try expressionNode(sourceScalarType,
                                                        .accessIndex(base: existing.expression, index: UInt32(row)), at: token)
-                        components.append(try floatConstructorValue(value, to: component, at: token).expression)
+                        components.append(try scalarOrVectorConstructorValue(value, to: component, at: token).expression)
                     } else {
                         components.append(column == row ? one : zero)
                     }
@@ -822,7 +1001,7 @@ final class GLSLParser {
                 guard components.count < required else {
                     throw glslError(token, .typeMismatch, "Too many matrix constructor arguments")
                 }
-                let value = try floatConstructorValue(argument, to: component, at: token)
+                let value = try scalarOrVectorConstructorValue(argument, to: component, at: token)
                 if case .vector(let size, _) = kind(value.type) {
                     let count = min(Int(size.rawValue), required - components.count)
                     for lane in 0..<count {
@@ -847,7 +1026,7 @@ final class GLSLParser {
         return try expressionNode(target, .compose(type: target, components: values), at: token)
     }
 
-    private func floatConstructorValue(_ value: GLSLValue, to scalar: IRScalar, at token: GLSLToken) throws -> GLSLValue {
+    private func scalarOrVectorConstructorValue(_ value: GLSLValue, to scalar: IRScalar, at token: GLSLToken) throws -> GLSLValue {
         guard let shape = IRBitcastShape(kind(value.type)) else {
             throw glslError(token, .typeMismatch, "Expected a scalar or vector constructor component")
         }
@@ -857,21 +1036,59 @@ final class GLSLParser {
     }
 
     private func userCall(
-        _ overloads: [IRHandle<IRFunction>], arguments: [GLSLValue], allowingVoid: Bool, at name: GLSLToken
+        _ overloads: [IRHandle<IRFunction>], arguments: [GLSLCallArgument], allowingVoid: Bool, at name: GLSLToken
     ) throws -> GLSLValue? {
-        let handle = try resolveFunction(overloads, argumentTypes: arguments.map(\.type), at: name)
+        let argumentTypes = try arguments.map { argument in
+            let value = argument.value
+            return value.pointer ? try pointee(value.type, at: name) : value.type
+        }
+        let handle = try resolveFunction(overloads, argumentTypes: argumentTypes, at: name)
         let function = functions[handle.index]
         if function.result == nil && !allowingVoid { throw glslError(name, .typeMismatch, "Void function used in an expression") }
-        let operands = try zip(arguments, function.arguments).map { value, parameter in
+        let c = try requireContext()
+        // The selected signature determines whether each argument needs a value, an lvalue, or both.
+        // Insert copy-in immediately after each argument's evaluation, before later argument side effects.
+        let evaluationStart = arguments.first?.evaluation.lowerBound ?? c.current.count
+        let evaluation = Array(c.current[evaluationStart...])
+        c.current.removeLast(evaluation.count)
+        var operands: [IRHandle<IRExpression>] = []
+        var copyBack: [(temporary: GLSLValue, target: GLSLValue, type: IRHandle<IRType>)] = []
+        for (index, parameter) in functionParameters[handle.index].enumerated() {
             try budget.consume(.work)
-            guard let converted = try implicitlyConvert(value, to: parameter.type, at: name) else {
-                throw ShaderFailure.invalidHandle
+            let argument = arguments[index]
+            let start = argument.evaluation.lowerBound - evaluationStart
+            let end = argument.evaluation.upperBound - evaluationStart
+            try budget.consume(.work, amount: argument.evaluation.count)
+            c.current.append(contentsOf: evaluation[start..<end])
+            if parameter.mode.copiesOut {
+                try requireWritable(argument.value, operation: "Output argument", at: name)
+                let temporary = try parameterLocal(parameter.type, at: name)
+                operands.append(temporary.expression)
+                if parameter.mode.copiesIn {
+                    let value = try convertedArgument(argument.value, to: parameter.type, at: name)
+                    try storeValue(value, in: temporary, at: name)
+                }
+                copyBack.append((temporary, argument.value, argumentTypes[index]))
+            } else {
+                let value = try convertedArgument(argument.value, to: parameter.type, at: name)
+                operands.append(value.expression)
             }
-            return converted.expression
         }
         let result = try function.result.map { try expressionNode($0.type, .callResult(handle), at: name, emit: false) }
         try append(.call(function: handle, arguments: operands, result: result?.expression), at: name)
+        for (temporary, target, type) in copyBack {
+            let value = try convertedArgument(temporary, to: type, at: name)
+            try storeValue(value, in: target, at: name)
+        }
         return result
+    }
+
+    private func convertedArgument(_ argument: GLSLValue, to type: IRHandle<IRType>, at token: GLSLToken) throws -> GLSLValue {
+        let value = try rvalue(argument, at: token)
+        guard let converted = try implicitlyConvert(value, to: type, at: token) else {
+            throw ShaderFailure.invalidHandle
+        }
+        return converted
     }
 
     private enum ImplicitConversion: Equatable {
@@ -890,6 +1107,10 @@ final class GLSLParser {
 
     private func implicitConversion(from source: IRHandle<IRType>, to target: IRHandle<IRType>) -> ImplicitConversion? {
         if source == target { return .exact }
+        if case .matrix(let columns, let rows, .f32) = kind(source),
+           kind(target) == .matrix(columns: columns, rows: rows, scalar: .f64) {
+            return .floatToDouble
+        }
         guard let input = IRBitcastShape(kind(source)), let output = IRBitcastShape(kind(target)),
               input.size == output.size else { return nil }
         return implicitScalarConversion(from: input.scalar, to: output.scalar)
@@ -897,12 +1118,11 @@ final class GLSLParser {
 
     private func implicitScalarConversion(from source: IRScalar, to target: IRScalar) -> ImplicitConversion? {
         if source == target { return .exact }
-        let double = IRScalar(kind: .float, width: 8)
         switch (source, target) {
         case (.i32, .u32): return .other
         case (.i32, .f32), (.u32, .f32): return .intToFloat
-        case (.i32, double), (.u32, double): return .intToDouble
-        case (.f32, double): return .floatToDouble
+        case (.i32, .f64), (.u32, .f64): return .intToDouble
+        case (.f32, .f64): return .floatToDouble
         default: return nil
         }
     }
@@ -926,13 +1146,23 @@ final class GLSLParser {
         var viable: [(function: IRHandle<IRFunction>, conversions: [ImplicitConversion])] = []
         overload: for handle in overloads {
             try budget.consume(.work)
-            let parameters = functions[handle.index].arguments
+            let parameters = functionParameters[handle.index]
             guard parameters.count == argumentTypes.count else { continue }
             var conversions: [ImplicitConversion] = []
             for (argument, parameter) in zip(argumentTypes, parameters) {
                 try budget.consume(.work)
-                guard let conversion = implicitConversion(from: argument, to: parameter.type) else { continue overload }
-                conversions.append(conversion)
+                switch parameter.mode {
+                case .input:
+                    guard let conversion = implicitConversion(from: argument, to: parameter.type) else { continue overload }
+                    conversions.append(conversion)
+                case .output:
+                    guard let conversion = implicitConversion(from: parameter.type, to: argument) else { continue overload }
+                    conversions.append(conversion)
+                case .inputOutput:
+                    // The supported implicit conversions are all one-way.
+                    guard argument == parameter.type else { continue overload }
+                    conversions.append(.exact)
+                }
             }
             if conversions.allSatisfy({ $0 == .exact }) { return handle }
             viable.append((handle, conversions))
@@ -966,9 +1196,8 @@ final class GLSLParser {
         let t=GLSLToken(text:"main",start:0,end:0); var args:[IRFunctionArgument]=[]
         var outputs:[GLSLInterface]=[]
         for io in interfaces {
-            let pt=try addType(.pointer(base:io.type,space:.private))
-            let pointer=try expressionNode(pt,.globalVariable(io.global),at:t,emit:false,pointer:true,writable:true)
             if io.input {
+                let pointer = try interfacePointer(io, at: t)
                 let signedIndex = io.binding == .builtIn(.vertexIndex) || io.binding == .builtIn(.instanceIndex)
                     || io.binding == .builtIn(.baseInstance) || io.binding == .builtIn(.viewIndex)
                 let argumentType = signedIndex ? try addType(.scalar(.u32)) : io.type
@@ -987,8 +1216,7 @@ final class GLSLParser {
 
     private func wrapOutputs(_ outputs: [GLSLInterface], at token: GLSLToken) throws -> IRFunctionResult? {
         let values = try outputs.map { io in
-            let pointerType = try addType(.pointer(base: io.type, space: .private))
-            let pointer = try expressionNode(pointerType, .globalVariable(io.global), at: token, emit: false, pointer: true)
+            let pointer = try interfacePointer(io, at: token)
             return try rvalue(pointer, at: token).expression
         }
         guard let first = outputs.first else {

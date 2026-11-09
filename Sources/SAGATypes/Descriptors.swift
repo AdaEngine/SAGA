@@ -26,7 +26,7 @@ public enum GPUFeature: String, Sendable, Hashable, CaseIterable {
     case indirectFirstInstance, clipDistances, primitiveIndex, depthClipControl, subgroups, subgroupID, dualSourceBlending
     case subgroupSizeControl, subgroupUniformity, shaderBarycentrics, shaderPerVertex, vertexFormatSnorm1010102
     case multiview, selectiveMultiview, multisampleArray, vertexWritableStorage
-    case memoryDecorationCoherent, shaderDebugPrintf
+    case memoryDecorationCoherent, shaderDebugPrintf, cooperativeMatrix
 }
 
 public struct DeviceCapabilities: Sendable, Equatable {

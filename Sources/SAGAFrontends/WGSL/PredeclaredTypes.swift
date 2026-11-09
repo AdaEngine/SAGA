@@ -1,6 +1,12 @@
 import SAGAShaderIR
 
 extension WGSLParser {
+  func requireFloat64(at token: WGSLToken) throws {
+    guard options.capabilities.contains(.float64) else {
+      throw wgslError(.unsupportedCapability, "f64 requires native float64 capability", token)
+    }
+  }
+
   // WGSL predeclared aliases are fallback names, not reserved user identifiers.
   static let predeclaredTypes: [String: IRTypeKind] = {
     var out: [String: IRTypeKind] = [:]

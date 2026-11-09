@@ -134,7 +134,7 @@ struct WGSLScanner {
                     while digit(char(i)) { try budget.consume(.work); i += 1 }
                     if i == expStart { throw wgslError(.invalidToken,"Missing numeric exponent",token(begin,i,.number)) }
                 }
-                if char(i) == "l" && (char(i + 1) == "u" || char(i + 1) == "i") { i += 2 }
+                if char(i) == "l" && (char(i + 1) == "u" || char(i + 1) == "i" || char(i + 1) == "f") { i += 2 }
                 else if char(i) == "u" || char(i) == "i" || char(i) == "f" || char(i) == "h" { i += 1 }
                 if let next = char(i), next.properties.isXIDContinue { throw wgslError(.invalidToken,"Invalid numeric suffix",token(begin,i+1,.number)) }
                 kind = .number

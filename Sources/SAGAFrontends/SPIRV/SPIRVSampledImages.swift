@@ -107,7 +107,7 @@ extension SPVFunctionLowerer {
             gather = operation.gathering ? .x : nil
         }
         let levelMask: UInt32 = if operation.gathering { 0 }
-            else if operation.explicitLevel { comparison ? 2 : 2 | 4 }
+            else if operation.explicitLevel { 2 | 4 }
             else { comparison ? 0 : 1 }
         let extra = try imageOperands(instruction, at: required, allowed: levelMask | 8)
         let level: IRSampleLevel
@@ -200,9 +200,7 @@ extension SPVFunctionLowerer {
         let level = try floatImageOperand(id, at: instruction, &statements)
         let constant = floatImageConstant(id)
         if constant == 0 { return .zero }
-        guard !comparison else {
-            throw instruction.fail("Explicit depth comparison requires zero LOD", code: .unsupportedConstruct)
-        }
+        if comparison { return .exact(level) }
         if let constant {
             if let signed = Int32(exactly: constant) {
                 return try .exact(expr(internLoweredType(.scalar(.i32)), .literal(.i32(signed)), instruction))

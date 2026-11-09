@@ -34,10 +34,17 @@ extension SPIRVFrontendTests {
         return words + i(224, 4, 5, 6) + i(253) + i(56)
     }
 
-    static func vulkanWorkgroupBarrierOrderingModule() -> [UInt32] {
+    static func vulkanWorkgroupBarrierOrderingModule(
+        version: UInt32 = 0x00010300, includeWorkgroup: Bool = false, includeStorage: Bool = false
+    ) -> [UInt32] {
         var words = barrierMemoryModelHeader(3)
+        words[1] = version
+        var interface: [UInt32] = [10]
+        if includeWorkgroup { interface.append(11) }
+        if includeStorage { interface.append(12) }
+        words += [UInt32(5 + interface.count) << 16 | 15, 5, 13, 0x6e69616d, 0] + interface
         for instruction in [
-            i(15, 5, 13, 0x6e69616d, 0, 10), i(16, 13, 17, 64, 1, 1),
+            i(16, 13, 17, 64, 1, 1),
             i(71, 10, 11, 29), i(71, 5, 6, 4), i(71, 6, 2), i(72, 6, 0, 35, 0),
             i(71, 12, 34, 0), i(71, 12, 33, 0),
             i(19, 1), i(21, 2, 32, 0), i(20, 3), i(43, 2, 4, 128),
@@ -99,6 +106,27 @@ extension SPIRVFrontendTests {
         guard case .text(_, let source) = shader.artifact else { Issue.record("Expected WGSL"); return }
         #expect(source.contains("workgroupBarrier();"))
         _ = try IndependentShaderCompiler().parseAndValidate(.wgsl(source))
+    }
+
+    @Test func spirvEntryInterfaceRequiresUsedStorageAndWorkgroupFromVersion14() throws {
+        let legacy = try parse(Self.vulkanWorkgroupBarrierOrderingModule())
+        let modern = try parse(Self.vulkanWorkgroupBarrierOrderingModule(
+            version: 0x00010400, includeWorkgroup: true, includeStorage: true))
+        #expect(Self.barrierFlags(in: legacy) == Self.barrierFlags(in: modern))
+        try fails(Self.vulkanWorkgroupBarrierOrderingModule(includeWorkgroup: true, includeStorage: true),
+                  code: .unsupportedConstruct)
+
+        for includeWorkgroup in [false, true] {
+            let incomplete = Self.vulkanWorkgroupBarrierOrderingModule(
+                version: 0x00010400, includeWorkgroup: includeWorkgroup, includeStorage: !includeWorkgroup)
+            do {
+                _ = try parse(incomplete)
+                Issue.record("Accepted an incomplete SPIR-V 1.4 interface")
+            } catch ShaderFailure.diagnostics(let diagnostics) {
+                #expect(diagnostics.first?.code == .invalidBinary)
+                #expect(diagnostics.first?.message == "Entry point omits a used interface variable")
+            }
+        }
     }
 
     @Test func spirvVulkanMemoryModelRejectsUnrepresentableBarrierSemantics() throws {

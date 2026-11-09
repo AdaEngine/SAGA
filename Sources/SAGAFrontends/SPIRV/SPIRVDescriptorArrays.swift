@@ -26,6 +26,16 @@ extension SPVDecoder {
     }
 
     func validateArrayStrideDecoration(_ id: UInt32, at instruction: SPVInstruction) throws {
+        // Pointer strides describe OpPtrAccessChain, which this importer rejects.
+        // Keep valid pointer declarations importable while preserving Block restrictions.
+        if let pointer = pointers[id] {
+            guard let stride = decorations[id]?[6]?.first, stride > 0,
+                  decorations[pointer.base]?[SPVLegacyStorage.block] == nil,
+                  decorations[pointer.base]?[SPVLegacyStorage.bufferBlock] == nil else {
+                throw instruction.fail("Invalid pointer ArrayStride")
+            }
+            return
+        }
         guard let type = typeMap[id] else { throw instruction.fail("ArrayStride target must be array") }
         switch types[type.index].kind {
         case .array:

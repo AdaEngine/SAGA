@@ -260,7 +260,8 @@ package struct RenderCodeGenerator {
                   sampledSlots.contains(binding) else { return nil }
             return try SampledTextureShaderBinding(global: global, index: index, flat: slot, module: module, format: format,
                                                    samplingSamplers: helpers.floatTextureSamplers[index] ?? [],
-                                                   arrayCount: arrayCounts[binding], webBindingBase: webBases[binding])
+                                                   arrayCount: arrayCounts[binding], webBindingBase: webBases[binding],
+                                                   glslAlias: helpers.glslTextureAliases[index])
         }
         let imageSlots = Set(activeHandles.storageTextures.compactMap(\.binding))
         let storageTextures = try globals.enumerated().map { index, global -> StorageTextureShaderBinding? in
@@ -438,7 +439,9 @@ package struct RenderCodeGenerator {
         case .hlsl:
             let needsHLSL66 = usesInt64Atomics(module) || usedStorageTextures.contains { $0.reflection.format == .r64Uint }
             let profile: String
-            if needsHLSL66 { profile = "6_6" }
+            if helpers.comparisonSampleHLSLMinorVersion > 0 {
+                profile = "6_\(helpers.comparisonSampleHLSLMinorVersion)"
+            } else if needsHLSL66 { profile = "6_6" }
             else if usesFloat16 || usesInt16 { profile = "6_2" }
             else { profile = requiresBarycentrics || readsViewIndex || !perVertexInputs.isEmpty ? "6_1" : "6_0" }
             let needsHLSL68 = vertexBuiltins.contains(.vertexIndex) || vertexBuiltins.contains(.instanceIndex)

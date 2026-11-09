@@ -87,6 +87,9 @@ public struct BrowserComputeBackend: ComputeBackendDevice, PresentationBackendDe
 
     public func allocateComputePipeline(_ pipeline: ComputePipeline, shader: ComputeShaderArtifact) async throws {
         guard !shader.requiresDebugPrintf else { throw GPUError.unsupported("Browser WebGPU does not support shader debugPrintf") }
+        guard !shader.requiresCooperativeMatrix else {
+            throw GPUError.unsupported("Browser WebGPU does not support cooperative matrices")
+        }
         guard !shader.requiresShaderInt16 else {
             throw GPUError.unsupported("Browser WebGPU does not support native 16-bit shader integers")
         }

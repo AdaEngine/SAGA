@@ -6,15 +6,22 @@ WEB_FILES = {'web/index.html','web/reactor.mjs','web/wasi.mjs','web/webgpu.mjs',
              'scripts/test-web-diagnostic.mjs'}
 WEB_REACTOR = 'Sources/SAGAWebDiagnostic/WebReactor.swift'
 
+def is_docc_markdown(path):
+    parts = path.parts
+    return (len(parts) >= 4 and parts[0] == 'Sources' and parts[1] in POLICY['graph']
+            and parts[2] == parts[1] + '.docc' and path.suffix == '.md')
+
 def unexpected_project_files(paths):
     def allowed(p):
         path=pathlib.PurePosixPath(p)
         if path.name in {'Cargo.toml','Cargo.lock','Package.resolved','package.json'} or path.suffix in {'.rs','.c','.h','.cpp','.m','.mm','.a','.dylib','.so','.wasm','.modulemap'}: return False
-        if p in {'IDEA.md','README.md','Package.swift','.gitignore'} | WEB_FILES: return True
+        if p in {'IDEA.md','README.md','AGENTS.md','Package.swift','.gitignore','.spi.yml'} | WEB_FILES: return True
         if p.startswith(('docs/','.sloppy/plans/')): return True
         if p.startswith('.github/workflows/'): return p.endswith(('.yml','.yaml'))
         if p.startswith('scripts/'): return p.endswith(('.py','.sh','.json'))
-        parts=pathlib.PurePosixPath(p).parts
+        parts=path.parts
+        if len(parts) >= 4 and parts[:2] == ('.agents', 'skills'): return path.suffix == '.md'
+        if is_docc_markdown(path): return True
         return len(parts)>=3 and parts[0] in {'Sources','Tests'} and parts[1] in POLICY['graph'] and p.endswith('.swift')
     return [p for p in paths if p and not allowed(p)]
 
@@ -74,6 +81,7 @@ def audit(root=ROOT):
             if p.is_dir(): continue
             # Finder metadata is never compiled by SwiftPM; do not treat it as a foreign implementation.
             if p.name == '.DS_Store': continue
+            if is_docc_markdown(pathlib.PurePosixPath(relative)): continue
             if p.suffix!='.swift': errors.append('foreign or symlink source '+relative)
             else: errors += audit_source(relative,p.read_text())
     manifest=(root/'Package.swift').read_text()

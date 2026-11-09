@@ -18,9 +18,9 @@ package enum WGSLPipelineValue {
     fileprivate func numericBound() throws -> WGSLScalarConstant {
         switch self {
         case .scalar(let literal):
-            return try pipelineConstant(literal)
+            return pipelineConstant(literal)
         case .vector(let lanes):
-            let elements = try lanes.map(pipelineConstant)
+            let elements = lanes.map(pipelineConstant)
             guard let first = elements.first else { throw ShaderFailure.invalidHandle }
             return .vector(.init(elements: elements, element: first.kind))
         case .matrix, .composite:
@@ -62,7 +62,7 @@ package func evaluateWGSLPipelineValue(
         let operation: WGSLConstNode.Op
         switch expression.kind {
         case .literal(let literal):
-            operation = .value(try pipelineConstant(literal))
+            operation = .value(pipelineConstant(literal))
         case .zeroValue where type.isPipelineComposite:
             operation = .value(try pipelineZero(expression.type, module: module, evaluator: evaluator, at: token))
         case .zeroValue where kind.lanes > 1 || kind.isMatrix:
@@ -87,7 +87,7 @@ package func evaluateWGSLPipelineValue(
             continue
         case .override(let handle):
             guard let value = overrides[handle] else { throw ShaderFailure.invalidHandle }
-            operation = .value(try pipelineConstant(value))
+            operation = .value(pipelineConstant(value))
         case .unary(let op, let operand):
             let symbol: String = switch op {
             case .negate: "-"
@@ -115,6 +115,7 @@ package func evaluateWGSLPipelineValue(
             case .i64: name = "i64"
             case .u64: name = "u64"
             case .f32: name = "f32"
+            case .f64: name = "f64"
             case .f16: name = "f16"
             default: throw ShaderFailure.invalidHandle
             }
@@ -249,7 +250,7 @@ private func pipelineToken(_ location: ShaderLocation?) -> WGSLToken {
     return WGSLToken(kind: .symbol, text: "override", start: 0, end: 0)
 }
 
-private func pipelineConstant(_ literal: IRLiteral) throws -> WGSLScalarConstant {
+private func pipelineConstant(_ literal: IRLiteral) -> WGSLScalarConstant {
     switch literal {
     case .bool(let value): return .boolean(value)
     case .i16(let value): return .integer(.init(value: Int64(value), kind: .sint16))
@@ -259,10 +260,10 @@ private func pipelineConstant(_ literal: IRLiteral) throws -> WGSLScalarConstant
     case .i64(let value): return .integer(.init(value: value, kind: .sint64))
     case .u64(let value): return .integer(.init(value: Int64(bitPattern: value), kind: .uint64))
     case .f32(let value): return .floating(.init(value: Double(value), kind: .f32))
+    case .f64(let value): return .floating(.init(value: value, kind: .f64))
     case .f16Bits(let bits): return .floating(.init(value: Double(Binary16.decode(bits)), kind: .f16))
     case .abstractInt(let value): return .integer(.init(value: value, kind: .abstract))
     case .abstractFloat(let value): return .floating(.init(value: value, kind: .abstract))
-    default: throw ShaderFailure.invalidHandle
     }
 }
 

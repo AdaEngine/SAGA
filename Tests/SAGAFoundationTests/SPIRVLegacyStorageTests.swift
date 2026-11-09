@@ -46,6 +46,21 @@ extension SPIRVFrontendTests {
         try fails(Self.storageBlockModule(legacyWithWrongClass: true))
         try fails(Self.storageBlockModule(includeModernStorage: true))
     }
+
+    @Test func spirvBufferBlockStopsAtVersion13() throws {
+        var words = Self.storageBlockModule()
+        words[1] = 0x00010300
+        #expect(try parse(words).globalVariables.count == 2)
+
+        words[1] = 0x00010400
+        do {
+            _ = try parse(words)
+            Issue.record("Accepted BufferBlock in SPIR-V 1.4")
+        } catch ShaderFailure.diagnostics(let diagnostics) {
+            #expect(diagnostics.first?.code == .invalidBinary)
+            #expect(diagnostics.first?.message == "BufferBlock requires SPIR-V 1.3 or older")
+        }
+    }
 }
 
 @Test(arguments: [ShaderOutputFormat.msl, .hlsl, .glsl, .wgsl])

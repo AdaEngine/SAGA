@@ -50,7 +50,7 @@ extension WGSLParser {
               name: m.name, type: try ty(m.type), binding: m.binding, offset: m.offset,
               location: m.location)
           }, span: span)
-      case .scalar, .vector, .matrix, .atomic, .image, .sampler: kind = t.kind
+      case .scalar, .vector, .matrix, .cooperativeMatrix, .atomic, .image, .sampler: kind = t.kind
       default:
         throw ShaderFailure.unsupported(
           "WGSL materialization type remapping family not implemented")
@@ -114,6 +114,9 @@ extension WGSLParser {
         return new
       }
       func optional(_ h: WExpr?) throws -> WExpr? { try h.map(ex) }
+      func cooperativeData(_ data: IRCooperativeData) throws -> IRCooperativeData {
+        .init(pointer: try ex(data.pointer), stride: try ex(data.stride), rowMajor: data.rowMajor)
+      }
       for j in kept.indices {
         try budget.consume(.work)
         let e = kept[j]
@@ -169,6 +172,10 @@ extension WGSLParser {
             argument2: try optional(c), argument3: try optional(d))
         case .cast(let v, let t): k = .cast(expression: try ex(v), target: t)
         case .bitcast(let v, let t): k = .bitcast(expression: try ex(v), type: try ty(t))
+        case .cooperativeLoad(let columns, let rows, let role, let data):
+          k = .cooperativeLoad(columns: columns, rows: rows, role: role, data: try cooperativeData(data))
+        case .cooperativeMultiplyAdd(let a, let b, let c):
+          k = .cooperativeMultiplyAdd(a: try ex(a), b: try ex(b), c: try ex(c))
         default: throw ShaderFailure.unsupported("WGSL expression remapping family not implemented")
         }
         kept[j] = .init(type: try ty(e.type), kind: k, location: e.location)
@@ -194,6 +201,8 @@ extension WGSLParser {
         case .loop(let b, let c, let x): k = .loop(body: b, continuing: c, breakIf: try optional(x))
         case .returnValue(let x): k = .returnValue(try optional(x))
         case .store(let p, let v): k = .store(pointer: try ex(p), value: try ex(v))
+        case .cooperativeStore(let target, let data):
+          k = .cooperativeStore(target: try ex(target), data: try cooperativeData(data))
         case .imageStore(let image, let coordinate, let arrayIndex, let value):
           k = .imageStore(image: try ex(image), coordinate: try ex(coordinate),
                           arrayIndex: try optional(arrayIndex), value: try ex(value))

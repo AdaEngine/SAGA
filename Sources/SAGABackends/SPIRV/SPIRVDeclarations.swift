@@ -57,6 +57,7 @@ struct SPIRVDeclarationState {
     }
 
     fileprivate var types: [IRHandle<IRType>: UInt32] = [:]
+    fileprivate var cooperativeScalars: [UInt32: IRScalar] = [:]
     fileprivate var scalars: [IRScalar: UInt32] = [:]
     fileprivate var vectors: [VectorKey: UInt32] = [:]
     fileprivate var matrices: [MatrixKey: UInt32] = [:]
@@ -95,6 +96,9 @@ extension SPIRVBinaryWriter {
             try requireCapability(9) // Float16
             try declare(22, [id, 16])
         case .f32: try declare(22, [id, 32])
+        case .f64:
+            try requireCapability(10) // Float64
+            try declare(22, [id, 64])
         default: throw ShaderFailure.unsupported("SPIR-V scalar type \(scalar.kind.rawValue) with width \(Int(scalar.width) * 8)")
         }
         declarationState.scalars[scalar] = id
@@ -149,6 +153,17 @@ extension SPIRVBinaryWriter {
             id = try vectorTypeID(size: size, scalar: scalar)
         case .matrix(let columns, let rows, let scalar):
             id = try matrixTypeID(columns: columns, rows: rows, scalar: scalar)
+        case .cooperativeMatrix(let columns, let rows, let scalar, let role):
+            try requireCooperativeMatrix()
+            let component = try scalarTypeID(scalar)
+            let scope = try unsignedConstantID(3) // Subgroup
+            let rowCount = try unsignedConstantID(UInt32(rows.rawValue))
+            let columnCount = try unsignedConstantID(UInt32(columns.rawValue))
+            let use: UInt32 = switch role { case .a: 0; case .b: 1; case .c: 2 }
+            let useID = try unsignedConstantID(use)
+            id = try allocateID()
+            try declare(4456, [id, component, scope, rowCount, columnCount, useID]) // OpTypeCooperativeMatrixKHR
+            declarationState.cooperativeScalars[id] = scalar
         case .array(let element, let size, let stride):
             let elementID = try typeID(element)
             switch size {
@@ -292,6 +307,7 @@ extension SPIRVBinaryWriter {
         case .u64(let value): key = .init(scalar: .u64, bits: value)
         case .f16Bits(let bits): key = .init(scalar: .f16, bits: UInt64(bits))
         case .f32(let value): key = .init(scalar: .f32, bits: UInt64(value.bitPattern))
+        case .f64(let value): key = .init(scalar: .f64, bits: value.bitPattern)
         default: throw ShaderFailure.unsupported("SPIR-V literal type")
         }
         if let id = declarationState.literals[key] { return id }
@@ -322,6 +338,13 @@ extension SPIRVBinaryWriter {
 
     mutating func zeroID(typeID: UInt32) throws -> UInt32 {
         if let id = declarationState.zeroes[typeID] { return id }
+        if let scalar = declarationState.cooperativeScalars[typeID] {
+            let component = try literalID(scalar == .f16 ? .f16Bits(0) : .f32(0))
+            let id = try allocateID()
+            try declare(44, [typeID, id, component]) // Cooperative matrix constant splat.
+            declarationState.zeroes[typeID] = id
+            return id
+        }
         let id = try allocateID()
         try declare(46, [typeID, id])
         declarationState.zeroes[typeID] = id
@@ -591,6 +614,7 @@ extension SPIRVBinaryWriter {
     }
 
     private mutating func decorateStorageMemory(_ id: UInt32, flags: IRMemoryDecorations) throws {
+        if flags.contains(.coherent) || flags.contains(.volatile) { markCoherentOrVolatileStorage() }
         if flags.contains(.volatile) { try decorate(71, [id, 21]) }
         if flags.contains(.coherent) { try decorate(71, [id, 23]) }
     }

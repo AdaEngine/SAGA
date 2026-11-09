@@ -8,6 +8,22 @@ private enum GLSLTextureOperation: String {
     case textureQueryLevels
     case textureSamples
     case texelFetch
+
+    static func variant(_ name: String) -> (operation: Self, offset: Bool, projected: Bool)? {
+        switch name {
+        case "textureOffset": (.texture, true, false)
+        case "textureLodOffset": (.textureLod, true, false)
+        case "textureGradOffset": (.textureGrad, true, false)
+        case "textureProj": (.texture, false, true)
+        case "textureProjOffset": (.texture, true, true)
+        case "textureProjLod": (.textureLod, false, true)
+        case "textureProjLodOffset": (.textureLod, true, true)
+        case "textureProjGrad": (.textureGrad, false, true)
+        case "textureProjGradOffset": (.textureGrad, true, true)
+        case "texelFetchOffset": (.texelFetch, true, false)
+        default: nil
+        }
+    }
 }
 
 extension GLSLParser {
@@ -52,9 +68,9 @@ extension GLSLParser {
         return .image(dimension: dimension, arrayed: arrayed, class: .sampled(kind: scalar, multisampled: multisampled))
     }
 
-    func declareGLSLOpaqueResource(
+    @discardableResult func declareGLSLOpaqueResource(
         _ kind: IRTypeKind, layout: [String: UInt32], flags: Set<String>, memory: Set<String>, at token: GLSLToken
-    ) throws {
+    ) throws -> IRHandle<IRGlobalVariable> {
         guard flags.isEmpty, memory.isEmpty, layout.keys.allSatisfy({ $0 == "set" || $0 == "binding" }),
               let binding = layout["binding"] else {
             throw glslError(token, .invalidBinding, "Separate GLSL texture or sampler requires an explicit binding")
@@ -74,13 +90,15 @@ extension GLSLParser {
         let global = try IRHandle<IRGlobalVariable>(index: globals.count)
         globals.append(.init(name: name.text, space: .handle, binding: resource, type: type, location: try name.location))
         globalNames[name.text] = global
+        return global
     }
 
     func acceptsGLSLCombinedSamplerArgument(_ name: String) -> Bool {
-        GLSLTextureOperation(rawValue: name) != nil
+        GLSLTextureOperation(rawValue: name) != nil || GLSLTextureOperation.variant(name) != nil
     }
 
-    func glslTextureCall(_ token: GLSLToken, arguments: [GLSLValue]) throws -> GLSLValue? {
+    func glslTextureCall(_ token: GLSLToken, arguments original: [GLSLValue]) throws -> GLSLValue? {
+        var arguments = original
         let shadow = glslShadowImageKind(token.text)
         if let expected = shadow ?? glslSampledImageKind(token.text, prefix: "sampler") {
             guard arguments.count == 2, kind(arguments[0].type) == expected,
@@ -94,7 +112,8 @@ extension GLSLParser {
         if isGLSLCombinedTextureType(token.text) {
             throw glslError(token, .unsupportedConstruct, "Unsupported GLSL comparison texture dimension")
         }
-        guard let operation = GLSLTextureOperation(rawValue: token.text) else { return nil }
+        let variant = GLSLTextureOperation.variant(token.text)
+        guard let operation = variant?.operation ?? GLSLTextureOperation(rawValue: token.text) else { return nil }
         guard let pair = arguments.first, let sampler = pair.combinedSampler,
               let scalar = kind(pair.type).sampledTextureScalar else {
             throw glslError(token, .typeMismatch, "Texture operation requires a combined texture and sampler expression")
@@ -102,6 +121,28 @@ extension GLSLParser {
         let image = kind(pair.type)
         let context = try requireContext()
         let comparison = kind(context.expressions[sampler.index].type) == .sampler(comparison: true)
+        let projected = variant?.projected == true
+        if projected, image.isArrayedTexture || image.isCubeTexture {
+            throw glslError(token, .unsupportedConstruct, "Projective sampling requires a non-array 1D, 2D or 3D texture")
+        }
+        let offset: IRHandle<IRExpression>?
+        if variant?.offset == true {
+            guard !image.isCubeTexture, !image.isMultisampled2D else {
+                throw glslError(token, .unsupportedConstruct, "Texture offsets require a non-cube, non-multisampled texture")
+            }
+            let index = switch operation {
+            case .texture: 2
+            case .textureLod, .texelFetch: 3
+            case .textureGrad: 4
+            default: throw ShaderFailure.invalidHandle
+            }
+            guard arguments.indices.contains(index) else {
+                throw glslError(token, .typeMismatch, "Missing texture offset")
+            }
+            offset = try glslTextureOffset(arguments.remove(at: index), image: image, at: token)
+        } else {
+            offset = nil
+        }
         switch operation {
         case .textureSize, .textureQueryLevels, .textureSamples:
             return try glslTextureQuery(operation, pair: pair, image: image, arguments: arguments, at: token)
@@ -111,14 +152,20 @@ extension GLSLParser {
             }
             try requireGLSLTextureRole(pair, comparison: false, at: token)
             let (position, layer) = try glslTextureCoordinates(arguments[1], image: image, scalar: .i32, at: token)
+            // Apply the offset before the load's bounds checks, keeping the array layer separate.
+            let coordinate = if let offset {
+                try expressionNode(context.expressions[offset.index].type,
+                                   .binary(op: .add, left: position, right: offset), at: token).expression
+            } else { position }
             let index = arguments[2].expression
-            let load = IRImageLoad(image: pair.expression, coordinate: position, arrayIndex: layer,
+            let load = IRImageLoad(image: pair.expression, coordinate: coordinate, arrayIndex: layer,
                                    sample: image.isMultisampled2D ? index : nil,
                                    level: image.isMultisampled2D ? nil : index)
             return try expressionNode(addType(.vector(size: .four, scalar: scalar)), .imageLoad(load), at: token)
         case .texture, .textureLod, .textureGrad:
             if comparison {
-                return try glslShadowSample(operation, pair: pair, sampler: sampler, image: image, arguments: arguments, at: token)
+                return try glslShadowSample(operation, pair: pair, sampler: sampler, image: image, arguments: arguments,
+                                            offset: offset, projected: projected, at: token)
             }
             guard scalar == .f32, !image.isMultisampled2D else {
                 throw glslError(token, .unsupportedConstruct, "Filtered sampling requires a non-multisampled float texture")
@@ -139,17 +186,63 @@ extension GLSLParser {
                 level = .exact(arguments[2].expression)
             case .textureGrad:
                 let gradient = glslSpatialCoordinate(image, scalar: .f32)
-                guard !image.isLineTexture, arguments.count == 4,
+                guard arguments.count == 4,
                       kind(arguments[2].type) == gradient, kind(arguments[3].type) == gradient else {
                     throw glslError(token, .typeMismatch, "Invalid textureGrad dimension or gradient types")
                 }
                 level = .gradient(x: arguments[2].expression, y: arguments[3].expression)
             default: throw ShaderFailure.invalidHandle
             }
-            let (position, layer) = try glslTextureCoordinates(arguments[1], image: image, scalar: .f32, at: token)
+            let coordinates = projected ? try glslProjectedCoordinates(arguments[1],
+                spatial: glslSpatialCoordinate(image, scalar: .f32), at: token) : arguments[1]
+            let (position, layer) = try glslTextureCoordinates(coordinates, image: image, scalar: .f32, at: token)
             let sample = IRImageSample(image: pair.expression, sampler: sampler, coordinate: position,
-                                       arrayIndex: layer, level: level)
+                                       arrayIndex: layer, offset: offset, level: level)
             return try expressionNode(addType(.vector(size: .four, scalar: .f32)), .imageSample(sample), at: token)
+        }
+    }
+
+    private func glslProjectedCoordinates(_ value: GLSLValue, spatial: IRTypeKind, at token: GLSLToken) throws -> GLSLValue {
+        let width: IRVectorSize? = if case .vector(let size, _) = spatial { size } else { nil }
+        let requiredWidth = (width?.rawValue ?? 1) + 1
+        guard case .vector(let packedWidth, .f32) = kind(value.type),
+              packedWidth.rawValue == requiredWidth || packedWidth == .four else {
+            throw glslError(token, .typeMismatch, "Invalid projective texture coordinate type")
+        }
+        let scalar = try addType(.scalar(.f32))
+        let divisor = try expressionNode(scalar, .accessIndex(base: value.expression, index: UInt32(packedWidth.rawValue - 1)),
+                                         at: token)
+        let type = try addType(spatial)
+        let numerator: GLSLValue
+        let denominator: GLSLValue
+        if let width {
+            numerator = try expressionNode(type, .swizzle(size: width, vector: value.expression,
+                                          pattern: .init(x: .x, y: .y, z: .z, w: .w)), at: token)
+            denominator = try expressionNode(type, .splat(size: width, value: divisor.expression), at: token)
+        } else {
+            numerator = try expressionNode(type, .accessIndex(base: value.expression, index: 0), at: token)
+            denominator = divisor
+        }
+        return try expressionNode(type, .binary(op: .divide, left: numerator.expression, right: denominator.expression), at: token)
+    }
+
+    private func glslTextureOffset(_ value: GLSLValue, image: IRTypeKind, at token: GLSLToken) throws -> IRHandle<IRExpression> {
+        guard kind(value.type) == glslSpatialCoordinate(image, scalar: .i32) else {
+            throw glslError(token, .typeMismatch, "Texture offset must match the texture dimension and use int components")
+        }
+        let constant = try evaluateGlobalConstant(value, at: token)
+        let component = try addType(.scalar(.i32))
+        let lanes = try constant.lanes.map { lane -> IRHandle<IRExpression> in
+            guard case .i32(let integer) = lane, (-8...7).contains(integer) else {
+                throw glslError(token, .invalidType, "Texture offset components must be between -8 and 7")
+            }
+            return try expressionNode(component, .literal(lane), at: token, emit: false).expression
+        }
+        switch kind(value.type) {
+        case .scalar where lanes.count == 1: return lanes[0]
+        case .vector(let width, _) where lanes.count == Int(width.rawValue):
+            return try expressionNode(value.type, .compose(type: value.type, components: lanes), at: token).expression
+        default: throw ShaderFailure.invalidHandle
         }
     }
 
@@ -163,7 +256,7 @@ extension GLSLParser {
 
     private func glslShadowSample(
         _ operation: GLSLTextureOperation, pair: GLSLValue, sampler: IRHandle<IRExpression>,
-        image: IRTypeKind, arguments: [GLSLValue], at token: GLSLToken
+        image: IRTypeKind, arguments: [GLSLValue], offset: IRHandle<IRExpression>?, projected: Bool, at token: GLSLToken
     ) throws -> GLSLValue {
         let separateReference = image.isCubeTexture && image.isArrayedTexture
         let level: IRSampleLevel
@@ -176,12 +269,23 @@ extension GLSLParser {
         case .textureLod:
             let context = try requireContext()
             guard arguments.count == 3, !image.isCubeTexture, !image.isArrayedTexture,
-                  case .literal(.f32(let lod)) = context.expressions[arguments[2].expression.index].kind, lod == 0 else {
-                throw glslError(token, .unsupportedConstruct, "Comparison textureLod requires a 2D texture and literal zero LOD")
+                  kind(arguments[2].type) == .scalar(.f32) else {
+                throw glslError(token, .typeMismatch, "Comparison textureLod requires a 2D texture and a float level")
             }
-            level = .zero
+            if case .literal(.f32(0)) = context.expressions[arguments[2].expression.index].kind {
+                level = .zero
+            } else {
+                level = .exact(arguments[2].expression)
+            }
+        case .textureGrad:
+            let gradient = glslSpatialCoordinate(image, scalar: .f32)
+            guard !separateReference, arguments.count == 4,
+                  kind(arguments[2].type) == gradient, kind(arguments[3].type) == gradient else {
+                throw glslError(token, .typeMismatch, "Invalid comparison textureGrad dimension or gradient types")
+            }
+            level = .gradient(x: arguments[2].expression, y: arguments[3].expression)
         default:
-            throw glslError(token, .unsupportedConstruct, "Comparison sampling does not support explicit gradients")
+            throw ShaderFailure.invalidHandle
         }
         let coordinate: GLSLValue
         let reference: GLSLValue
@@ -192,7 +296,9 @@ extension GLSLParser {
                 throw glslError(token, .typeMismatch, "Comparison reference must be a float")
             }
         } else {
-            let packed = arguments[1]
+            // Project the comparison reference together with the spatial coordinates.
+            let packed = projected ? try glslProjectedCoordinates(arguments[1],
+                spatial: .vector(size: .three, scalar: .f32), at: token) : arguments[1]
             let width: IRVectorSize = image.isCubeTexture || image.isArrayedTexture ? .three : .two
             guard let full = IRVectorSize(rawValue: width.rawValue + 1),
                   kind(packed.type) == .vector(size: full, scalar: .f32) else {
@@ -205,7 +311,7 @@ extension GLSLParser {
         }
         let (position, layer) = try glslTextureCoordinates(coordinate, image: image, scalar: .f32, at: token)
         let sample = IRImageSample(image: pair.expression, sampler: sampler, coordinate: position,
-                                   arrayIndex: layer, level: level, depthReference: reference.expression)
+                                   arrayIndex: layer, offset: offset, level: level, depthReference: reference.expression)
         return try expressionNode(addType(.scalar(.f32)), .imageSample(sample), at: token)
     }
 
@@ -213,7 +319,7 @@ extension GLSLParser {
         image.isCubeTexture ? .vector(size: .three, scalar: scalar) : image.texelCoordinateType(scalar)
     }
 
-    private func glslTextureCoordinates(
+    func glslTextureCoordinates(
         _ value: GLSLValue, image: IRTypeKind, scalar: IRScalar, at token: GLSLToken
     ) throws -> (IRHandle<IRExpression>, IRHandle<IRExpression>?) {
         let spatial = glslSpatialCoordinate(image, scalar: scalar)

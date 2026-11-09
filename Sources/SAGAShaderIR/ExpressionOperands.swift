@@ -16,6 +16,8 @@ extension IRExpressionKind {
       case .imageQuery(let image, _): return [image]
       case .compose(_, let xs): return xs
       case .math(_, let a, let b, let c, let d): return [a] + [b, c, d].compactMap({ $0 })
+      case .cooperativeLoad(_, _, _, let data): return [data.pointer, data.stride]
+      case .cooperativeMultiplyAdd(let a, let b, let c): return [a, b, c]
       default: return []
       }
     }

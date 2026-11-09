@@ -53,6 +53,16 @@ private func explicitLineOffsetShader(_ offset: String) -> ShaderInput {
         """)
 }
 
+@Test func nativeWGSLLineTextureOffsetsSurviveSPIRVInterchange() throws {
+    let compiler = IndependentShaderCompiler()
+    guard case .spirv(let words) = try compiler.compile(explicitLineOffsetShader("-1"), to: .spirv) else {
+        throw ShaderFailure.incompatibleArtifact
+    }
+    let shader = try compiler.compileRenderStage(.spirv(words), entryPoint: "draw", to: .hlsl)
+    guard case .text(.hlsl, let text) = shader.artifact else { throw ShaderFailure.incompatibleArtifact }
+    #expect(text.contains(".SampleLevel("))
+}
+
 @Test(arguments: [ShaderOutputFormat.hlsl, .glsl])
 func translatesNativeLineTextureSampleOffsets(_ format: ShaderOutputFormat) throws {
     let compiler = IndependentShaderCompiler()

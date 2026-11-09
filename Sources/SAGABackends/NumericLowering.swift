@@ -11,6 +11,11 @@ func numericBuiltinStatements(
     case .vector(let size, let lane): outputScalar = lane; width = size.rawValue
     default: throw ShaderFailure.unsupported("Numeric builtin result shape")
     }
+    if outputScalar == .f64 {
+        guard format == .glsl, function.hasGLSLDoubleOverload else {
+            throw ShaderFailure.unsupported("Double-precision numeric builtin target")
+        }
+    }
     let promote = format != .wgsl && outputScalar == .f16
     let scalar = promote ? IRScalar.f32 : outputScalar
     let resultType = promote ? floatType(width ?? 1, in: format) : outputType
@@ -49,7 +54,7 @@ func numericBuiltinStatements(
     } else if format != .wgsl, function == .mix {
         let factor = "\(name)_factor"
         let factorType: String
-        if case .scalar = argumentTypes[2] { factorType = "float" }
+        if case .scalar = argumentTypes[2] { factorType = scalar == .f64 ? "double" : "float" }
         else { factorType = resultType }
         statements.append("\(factorType) \(factor) = \(arguments[2]);")
         let one = format == .glsl ? "1.0" : "1.0f"
@@ -58,7 +63,7 @@ func numericBuiltinStatements(
         // GLSL smoothstep leaves reversed edges undefined. WGSL defines the same formula in either order.
         let edge = "\(name)_edge"
         let t = "\(name)_t"
-        let suffix = format == .glsl ? "" : "f"
+        let suffix = scalar == .f64 ? "lf" : format == .glsl ? "" : "f"
         let zero = format == .msl ? "\(resultType)(0.0f)" : "0.0\(suffix)"
         let one = format == .msl ? "\(resultType)(1.0f)" : "1.0\(suffix)"
         statements.append("\(resultType) \(edge) = \(arguments[0]);")

@@ -498,6 +498,60 @@ struct ShaderBodyWriter {
                         try writer.writeStatements(statements, when: target.boundsCheck, to: &lines)
                     }
                 }
+            case .cooperativeStore(let target, let data):
+                let tile = try value(target)
+                let address = try cooperativeAddress(data, tileType: try function.expressions.value(for: target).type, named: "saga_coop_store_\(handle.index)", to: &lines)
+                guard address.writable else { throw unsupported("cooperative store requires writable storage") }
+                if outputFormat == .hlsl {
+                    guard case .cooperativeMatrix(let columns, let rows, let scalar, _) = try module.types.value(for: function.expressions.value(for: target).type).kind,
+                          scalar == .f16 || scalar == .f32 else {
+                        throw unsupported("HLSL cooperative matrix store shape or scalar")
+                    }
+                    let count = Int(columns.rawValue) * Int(rows.rawValue) / 32
+                    let index: (String) -> String = { element in
+                        let row = "((\(element)) / \(columns.rawValue)u)"
+                        let column = "((\(element)) % \(columns.rawValue)u)"
+                        return data.rowMajor ? "\(address.index) + \(row) * \(address.stride) + \(column)" : "\(address.index) + \(column) * \(address.stride) + \(row)"
+                    }
+                    let store: (String, String) -> String = { element, component in
+                        let offset = index(element)
+                        return scalar == .f16
+                            ? "\(address.buffer).Store<float16_t>((\(offset)) * 2u, float16_t(\(tile).\(component)));"
+                            : "\(address.buffer)[\(offset)] = asuint(\(tile).\(component));"
+                    }
+                    let stores = (0..<count).map { component in
+                        let field = component < 4 ? "lo[\(component)]" : "hi[\(component - 4)]"
+                        return store("(WaveGetLaneIndex() * \(count)u + \(component)u)", field)
+                    }
+                    let minimumStride = data.rowMajor ? columns.rawValue : rows.rawValue
+                    try writeStatements(stores, when: "(\(address.bounds)) && (\(address.stride) >= \(minimumStride)u)", to: &lines)
+                    break
+                }
+                if outputFormat == .msl {
+                    let tileType = try function.expressions.value(for: target).type
+                    guard case .cooperativeMatrix(let columns, let rows, _, _) = try module.types.value(for: tileType).kind else {
+                        throw unsupported("cooperative matrix store type")
+                    }
+                    let statements = (0..<Int(rows.rawValue / 8)).flatMap { row in
+                        (0..<Int(columns.rawValue / 8)).map { column in
+                            let part = rows == .eight && columns == .eight ? tile : "\(tile).t\(row)_\(column)"
+                            let offset = data.rowMajor ? "\(row * 8)u * \(address.stride) + \(column * 8)u" : "\(column * 8)u * \(address.stride) + \(row * 8)u"
+                            return "simdgroup_store(\(part), \(address.pointer) + (\(offset)), \(address.stride), ulong2(0), \(!data.rowMajor));"
+                        }
+                    }
+                    let minor = data.rowMajor ? columns.rawValue : rows.rawValue
+                    try writeStatements(statements, when: "(\(address.bounds)) && (\(address.stride) >= \(minor)u)", to: &lines)
+                    break
+                }
+                let statement = outputFormat == .wgsl
+                    ? "\(data.rowMajor ? "coopStoreT" : "coopStore")(\(tile), \(address.pointer), \(address.stride));"
+                    : outputFormat == .glsl
+                        ? "coopMatStore(\(tile), \(address.buffer), \(address.index), \(address.stride), \(data.rowMajor ? "gl_CooperativeMatrixLayoutRowMajor" : "gl_CooperativeMatrixLayoutColumnMajor"));"
+                        : "simdgroup_store(\(tile), \(address.pointer), \(address.stride), ulong2(0), \(!data.rowMajor));"
+                guard case .cooperativeMatrix(let columns, let rows, _, _) = try module.types.value(for: function.expressions.value(for: target).type).kind else { throw unsupported("cooperative matrix store type") }
+                let minor = data.rowMajor ? columns.rawValue : rows.rawValue
+                let storeBounds = "(\(address.bounds)) && (\(address.stride) >= \(minor)u)"
+                try writeStatements([statement], when: storeBounds, to: &lines)
             case .atomic(let pointer, let operation, let operand, let result):
                 let resultType = try result.map { try function.expressions.value(for: $0).type }
                 let resultName = result.map { "saga_atomic_\($0.index)" } ?? "saga_atomic_statement_\(handle.index)"
@@ -1136,6 +1190,90 @@ struct ShaderBodyWriter {
     private mutating func emit(_ handle: IRHandle<IRExpression>, to lines: inout [String]) throws {
         let expression = try function.expressions.value(for: handle)
         switch expression.kind {
+        case .cooperativeLoad(_, _, _, let data):
+            guard outputFormat == .msl || outputFormat == .glsl || outputFormat == .hlsl || outputFormat == .wgsl else { throw unsupported("cooperative matrix target") }
+            let name = "saga_coop_\(handle.index)"
+            let location = try cooperativeAddress(data, tileType: expression.type, named: name, to: &lines)
+            if outputFormat == .wgsl {
+                let load = data.rowMajor ? "coopLoadT" : "coopLoad"
+                let type = try typeName(expression.type)
+                try append("var \(name): \(type) = \(type)();", to: &lines)
+                try writeStatements(["\(name) = \(load)<\(type)>(\(location.pointer), \(location.stride));"],
+                                    when: location.bounds, to: &lines)
+            } else if outputFormat == .hlsl {
+                guard case .cooperativeMatrix(let columns, let rows, let scalar, _) = try module.types.value(for: expression.type).kind else {
+                    throw unsupported("HLSL cooperative matrix shape")
+                }
+                let count = Int(columns.rawValue) * Int(rows.rawValue) / 32
+                let load: (String) -> String = { element in
+                    let row = "((\(element)) / \(columns.rawValue)u)"
+                    let column = "((\(element)) % \(columns.rawValue)u)"
+                    let offset = data.rowMajor ? "\(location.index) + \(row) * \(location.stride) + \(column)" : "\(location.index) + \(column) * \(location.stride) + \(row)"
+                    return scalar == .f16 ? "float(\(location.buffer).Load<float16_t>((\(offset)) * 2u))" : "asfloat(\(location.buffer)[\(offset)])"
+                }
+                try append("saga_coop_tile \(name) = (saga_coop_tile)0;", to: &lines)
+                let loads = (0..<count).map { component in
+                    let field = component < 4 ? "lo[\(component)]" : "hi[\(component - 4)]"
+                    return "\(name).\(field) = \(load("(WaveGetLaneIndex() * \(count)u + \(component)u)"));"
+                }
+                try writeStatements(loads, when: location.bounds, to: &lines)
+            } else if outputFormat == .glsl {
+                guard case .cooperativeMatrix(_, _, let scalar, _) = try module.types.value(for: expression.type).kind else {
+                    throw unsupported("GLSL cooperative matrix load result type")
+                }
+                let zero = scalar == .f16 ? "float16_t(0.0)" : "0.0"
+                try append("\(try typeName(expression.type)) \(name) = \(try typeName(expression.type))(\(zero));", to: &lines)
+                try writeStatements(["coopMatLoad(\(name), \(location.buffer), \(location.index), \(location.stride), \(data.rowMajor ? "gl_CooperativeMatrixLayoutRowMajor" : "gl_CooperativeMatrixLayoutColumnMajor"));"],
+                                    when: location.bounds, to: &lines)
+            } else {
+                try append("\(try typeName(expression.type)) \(name) = \(try zeroValue(expression.type));", to: &lines)
+                guard case .cooperativeMatrix(let columns, let rows, _, _) = try module.types.value(for: expression.type).kind else {
+                    throw unsupported("cooperative matrix load type")
+                }
+                let statements = (0..<Int(rows.rawValue / 8)).flatMap { row in
+                    (0..<Int(columns.rawValue / 8)).map { column in
+                        let part = rows == .eight && columns == .eight ? name : "\(name).t\(row)_\(column)"
+                        let offset = data.rowMajor ? "\(row * 8)u * \(location.stride) + \(column * 8)u" : "\(column * 8)u * \(location.stride) + \(row * 8)u"
+                        return "simdgroup_load(\(part), \(location.pointer) + (\(offset)), \(location.stride), ulong2(0), \(!data.rowMajor));"
+                    }
+                }
+                try writeStatements(statements, when: location.bounds, to: &lines)
+            }
+            remember(handle)
+        case .cooperativeMultiplyAdd(let a, let b, let c):
+            guard outputFormat == .msl || outputFormat == .glsl || outputFormat == .hlsl || outputFormat == .wgsl else { throw unsupported("cooperative matrix target") }
+            let name = "saga_coop_\(handle.index)"
+            if outputFormat == .wgsl {
+                try append("let \(name) = coopMultiplyAdd(\(try value(a)), \(try value(b)), \(try value(c)));", to: &lines)
+            } else if outputFormat == .hlsl {
+                guard case .cooperativeMatrix(let columns, let rows, .f32, _) = try module.types.value(for: expression.type).kind else {
+                    throw unsupported("HLSL cooperative multiply-add requires an f32 accumulator")
+                }
+                guard case .cooperativeMatrix(let inner, _, _, _) = try module.types.value(for: function.expressions.value(for: a).type).kind else { throw unsupported("HLSL cooperative multiply-add operand") }
+                try append("\(try typeName(expression.type)) \(name) = saga_coop_muladd(\(try value(a)), \(try value(b)), \(try value(c)), \(rows.rawValue)u, \(columns.rawValue)u, \(inner.rawValue)u);", to: &lines)
+            } else if outputFormat == .glsl {
+                try append("\(try typeName(expression.type)) \(name) = coopMatMulAdd(\(try value(a)), \(try value(b)), \(try value(c)));", to: &lines)
+            } else {
+                try append("\(try typeName(expression.type)) \(name) = \(try zeroValue(expression.type));", to: &lines)
+                guard case .cooperativeMatrix(let ac, let ar, _, _) = try module.types.value(for: function.expressions.value(for: a).type).kind,
+                      case .cooperativeMatrix(let bc, let br, _, _) = try module.types.value(for: function.expressions.value(for: b).type).kind else {
+                    throw unsupported("cooperative matrix multiply types")
+                }
+                let av = try value(a), bv = try value(b), cv = try value(c)
+                func part(_ value: String, _ columns: IRCooperativeSize, _ rows: IRCooperativeSize, _ row: Int, _ column: Int) -> String {
+                    columns == .eight && rows == .eight ? value : "\(value).t\(row)_\(column)"
+                }
+                for row in 0..<Int(ar.rawValue / 8) {
+                    for column in 0..<Int(bc.rawValue / 8) {
+                        let result = part(name, bc, ar, row, column)
+                        for k in 0..<Int(ac.rawValue / 8) {
+                            let accumulator = k == 0 ? part(cv, bc, ar, row, column) : result
+                            try append("simdgroup_multiply_accumulate(\(result), \(part(av, ac, ar, row, k)), \(part(bv, bc, br, k, column)), \(accumulator));", to: &lines)
+                        }
+                    }
+                }
+            }
+            remember(handle)
         case .runtimeValue(let operand):
             let name = "saga_value_\(handle.index)"
             let binding = outputFormat == .wgsl ? "let \(name)" : "\(try typeName(expression.type)) \(name)"
@@ -1260,6 +1398,15 @@ struct ShaderBodyWriter {
             try append("\(type) \(lhs) = \(try value(left));", to: &lines)
             try append("\(type) \(rhs) = \(try value(right));", to: &lines)
             try append("\(type) \(name) = \(floatingRemainder(lhs, rhs));", to: &lines)
+            remember(handle)
+        case .cast(let operand, let target) where target.kind == .sint || target.kind == .uint:
+            let input = try function.expressions.value(for: operand).type
+            guard let shape = IRBitcastShape(try module.types.value(for: input).kind), shape.scalar == .f64 else {
+                _ = try value(handle)
+                break
+            }
+            try writeFloat64ToIntegerCast(operand, input: input, target: target, size: shape.size,
+                                          result: handle, resultType: expression.type, to: &lines)
             remember(handle)
         case .bitcast(let operand, let target):
             let inputType = try function.expressions.value(for: operand).type
@@ -1555,6 +1702,9 @@ struct ShaderBodyWriter {
         if kind.isLineTexture, sample.offset != nil, outputFormat == .msl || outputFormat == .wgsl {
             throw unsupported("1D texture sample offset requires the HLSL or GLSL target")
         }
+        if kind.isLineTexture, case .gradient = sample.level, outputFormat == .msl || outputFormat == .wgsl {
+            throw unsupported("1D texture gradients require the HLSL or GLSL target")
+        }
         if kind.isExternalTexture && outputFormat != .wgsl {
             let reference = try externalTextureReference(sample.image)
             let arguments: String
@@ -1660,10 +1810,20 @@ struct ShaderBodyWriter {
         let levelZero = sample.level == .zero
         let imageType = try function.expressions.value(for: sample.image).type
         let cube = try module.types.value(for: imageType).kind.isCubeTexture
+        let levelArguments: [String]
+        switch sample.level {
+        case .auto, .zero: levelArguments = []
+        case .exact(let lod): levelArguments = [try value(lod)]
+        case .gradient(let x, let y): levelArguments = try [value(x), value(y)]
+        case .bias: throw unsupported("depth comparison with a LOD bias")
+        }
         if outputFormat == .glsl {
             let pair = try glslPair(sample)
             let layer = try clampedSampleLayer(sample, image: pair.name, named: name, to: &lines)
             if cube, let layer {
+                guard levelArguments.isEmpty else {
+                    throw unsupported("GLSL cube-array shadow sampling with explicit gradients or LOD")
+                }
                 let coord = "vec4(\(uv), float(\(layer)))"
                 return levelZero ? "textureLod(\(pair.name), \(coord), \(reference), 0.0)" :
                     "texture(\(pair.name), \(coord), \(reference))"
@@ -1673,7 +1833,16 @@ struct ShaderBodyWriter {
             // Zero gradients select the base mip for GLSL shadow samplers without a LOD overload.
             let operation: String
             let lod: [String]
-            if levelZero && (cube || layer != nil) {
+            if case .gradient = sample.level {
+                operation = "textureGrad"
+                lod = levelArguments
+            } else if case .exact = sample.level {
+                guard !cube, layer == nil else {
+                    throw unsupported("GLSL shadow sampling with explicit LOD requires a non-array 2D texture")
+                }
+                operation = "textureLod"
+                lod = levelArguments
+            } else if levelZero && (cube || layer != nil) {
                 operation = "textureGrad"
                 let gradient = cube ? "vec3(0.0)" : "vec2(0.0)"
                 lod = [gradient, gradient]
@@ -1690,15 +1859,36 @@ struct ShaderBodyWriter {
         let base = [sampler, uv] + [layer].compactMap { $0 } + [reference]
         switch outputFormat {
         case .msl:
-            let level = levelZero ? ["level(0.0f)"] : []
+            let level: [String]
+            switch sample.level {
+            case .gradient:
+                let modifier = cube ? "gradientcube" : "gradient2d"
+                level = ["\(modifier)(\(levelArguments.joined(separator: ", ")))"]
+            case .exact:
+                level = ["level(\(levelArguments.joined()))"]
+            default:
+                level = levelZero ? ["level(0.0f)"] : []
+            }
             let args = (base + level + trailing).joined(separator: ", ")
             return "\(texture).sample_compare(\(args))"
         case .hlsl:
-            let operation = levelZero ? "SampleCmpLevelZero" : "SampleCmp"
+            if cube, layer != nil, case .gradient = sample.level {
+                throw unsupported("HLSL cube-array shadow sampling with explicit gradients")
+            }
+            let operation = switch sample.level {
+            case .auto: "SampleCmp"
+            case .zero: "SampleCmpLevelZero"
+            case .exact: "SampleCmpLevel"
+            case .gradient: "SampleCmpGrad"
+            case .bias: throw unsupported("depth comparison with a LOD bias")
+            }
             let coord = layer.map { "\(cube ? "float4" : "float3")(\(uv), float(\($0)))" } ?? uv
-            let args = ([sampler, coord, reference] + trailing).joined(separator: ", ")
+            let args = ([sampler, coord, reference] + levelArguments + trailing).joined(separator: ", ")
             return "\(texture).\(operation)(\(args))"
         case .wgsl:
+            guard levelArguments.isEmpty else {
+                throw unsupported("WGSL depth comparison with explicit gradients or nonzero LOD")
+            }
             let operation = levelZero ? "textureSampleCompareLevel" : "textureSampleCompare"
             let args = ([texture] + base + trailing).joined(separator: ", ")
             return "\(operation)(\(args))"
@@ -2935,6 +3125,101 @@ struct ShaderBodyWriter {
         return .init(memory: binding.memory(at: safeIndex), boundsCheck: bounds, writable: binding.writable)
     }
 
+    private mutating func cooperativeAddress(
+        _ data: IRCooperativeData, tileType: IRHandle<IRType>, named name: String, to lines: inout [String]
+    ) throws -> (pointer: String, stride: String, bounds: String, writable: Bool, buffer: String, index: String) {
+        guard outputFormat == .msl || outputFormat == .glsl || outputFormat == .hlsl || outputFormat == .wgsl else { throw unsupported("cooperative matrix target") }
+        guard case .cooperativeMatrix(let columns, let rows, _, _) = try module.types.value(for: tileType).kind else { throw unsupported("cooperative matrix type") }
+        let minor = data.rowMajor ? columns.rawValue : rows.rawValue
+        let major = data.rowMajor ? rows.rawValue : columns.rawValue
+        let pointer = try function.expressions.value(for: data.pointer)
+        let base: IRHandle<IRExpression>
+        switch pointer.kind {
+        case .access(let source, _), .accessIndex(let source, _): base = source
+        default: throw unsupported("cooperative matrix requires an indexed storage array")
+        }
+        let source = try function.expressions.value(for: base)
+        guard case .globalVariable(let global) = source.kind,
+              try module.globalVariables.value(for: global).memoryDecorations.isEmpty else {
+            throw unsupported("cooperative matrix requires an undecorated storage binding")
+        }
+        guard let binding = try storageLocation(source.kind), let bound = binding.bound else {
+            throw unsupported("cooperative matrix requires a bounded storage array")
+        }
+        let target = try address(data.pointer)
+        let (stride, nonnegative) = try indexedValue(data.stride)
+        let indexName = name + "_index"
+        let strideName = name + "_stride"
+        if outputFormat == .wgsl {
+            guard binding.members.isEmpty,
+                  case .pointer(let pointee, _) = try module.types.value(for: pointer.type).kind,
+                  case .scalar(let scalar) = try module.types.value(for: pointee).kind,
+                  scalar == .f32 || scalar == .f16 else {
+                throw unsupported("WGSL cooperative matrix requires scalar f16/f32 storage")
+            }
+            let elementIndex: String
+            let nonnegativeIndex: String?
+            switch pointer.kind {
+            case .access(_, let index): (elementIndex, nonnegativeIndex) = try indexedValue(index)
+            case .accessIndex(_, let index): (elementIndex, nonnegativeIndex) = ("\(index)u", nil)
+            default: throw unsupported("WGSL cooperative matrix requires indexed scalar storage")
+            }
+            try append("let \(indexName): u32 = \(elementIndex);", to: &lines)
+            try append("let \(strideName): u32 = \(stride);", to: &lines)
+            let pointerName = "&\(binding.reference)[\(indexName)]"
+            let remaining = "(\(bound) - \(indexName))"
+            let footprint = "(\(indexName) <= \(bound) && \(remaining) >= \(minor)u && \(strideName) <= (\(remaining) - \(minor)u) / \(major - 1)u)"
+            let bounds = [target.boundsCheck, nonnegativeIndex, nonnegative, footprint].compactMap { $0 }
+                .map { "(\($0))" }.joined(separator: " && ")
+            return (pointerName, strideName, bounds, target.writable, "", indexName)
+        }
+        if outputFormat == .glsl {
+            guard binding.members.isEmpty,
+                  case .pointer(let pointee, _) = try module.types.value(for: pointer.type).kind,
+                  case .scalar(let scalar) = try module.types.value(for: pointee).kind,
+                  scalar == .f32 || scalar == .f16 else {
+                throw unsupported("GLSL cooperative matrix requires contiguous f16 or f32 scalar storage")
+            }
+            let arrayIndex: String
+            let nonnegativeIndex: String?
+            switch pointer.kind {
+            case .access(_, let index): (arrayIndex, nonnegativeIndex) = try indexedValue(index)
+            case .accessIndex(_, let index): (arrayIndex, nonnegativeIndex) = ("\(index)u", nil)
+            default: throw unsupported("cooperative matrix requires an indexed storage array")
+            }
+            try append("uint \(indexName) = \(arrayIndex);", to: &lines)
+            try append("uint \(strideName) = \(stride);", to: &lines)
+            let footprint = "(\(indexName) <= \(bound) && \(bound) - \(indexName) >= \(minor)u && \(strideName) <= (\(bound) - \(indexName) - \(minor)u) / \(major - 1)u)"
+            let bounds = [target.boundsCheck, nonnegativeIndex, nonnegative, footprint].compactMap { $0 }
+                .map { "(\($0))" }.joined(separator: " && ")
+            return ("", strideName, bounds, target.writable, binding.reference, indexName)
+        }
+        guard let words = binding.words, words.offset == 0, words.stride == 1, words.width == 1,
+              words.columns == nil,
+              (words.addressing == .structured || (outputFormat == .hlsl && words.addressing == .byteAddressed && words.scalar == .f16)),
+              words.scalar == .f32 || words.scalar == .f16 else {
+            throw unsupported("cooperative matrix storage requires contiguous scalar layout")
+        }
+        guard case .words(let buffer, let first, _, let scalar, _, _) = target.memory else {
+            throw unsupported("cooperative matrix storage address")
+        }
+        try append("uint \(indexName) = \(first);", to: &lines)
+        try append("uint \(strideName) = \(stride);", to: &lines)
+        if outputFormat == .glsl || outputFormat == .hlsl {
+            guard scalar == .f32 || scalar == .f16 else { throw unsupported("GLSL cooperative matrix scalar storage") }
+            let footprint = "(\(indexName) <= \(bound) && \(bound) - \(indexName) >= \(minor)u && \(strideName) <= (\(bound) - \(indexName) - \(minor)u) / \(major - 1)u)"
+            let bounds = [target.boundsCheck, nonnegative, footprint].compactMap { $0 }
+                .map { "(\($0))" }.joined(separator: " && ")
+            return ("", strideName, bounds, target.writable, buffer, indexName)
+        }
+        let qualifier = target.writable ? "device" : "device const"
+        let lane = scalar == .f32 ? "float" : "half"
+        let address = "(reinterpret_cast<\(qualifier) \(lane)*>(\(buffer)) + \(indexName))"
+        let footprint = "ulong(\(indexName)) + \(major - 1)ul * ulong(\(strideName)) + \(minor)ul <= ulong(\(bound))"
+        return (address, strideName, [target.boundsCheck, nonnegative, footprint]
+            .compactMap { $0 }.map { "(\($0))" }.joined(separator: " && "), target.writable, buffer, indexName)
+    }
+
     private mutating func nestedAccess(_ handle: IRHandle<IRExpression>) throws
         -> (access: NestedBufferAccess, bounds: String?)? {
         guard hasNestedBuffers else { return nil }
@@ -3168,7 +3453,7 @@ struct ShaderBodyWriter {
 
     private func scalar(_ handle: IRHandle<IRType>) throws -> IRScalar {
         guard case .scalar(let type) = try module.types.value(for: handle).kind,
-              [.u16, .i16, .u32, .i32, .u64, .i64, .bool, .f32, .f16].contains(type)
+              [.u16, .i16, .u32, .i32, .u64, .i64, .bool, .f64, .f32, .f16].contains(type)
         else { throw unsupported("expected a numeric or boolean scalar") }
         return type
     }
@@ -3264,6 +3549,7 @@ struct ShaderBodyWriter {
 
     private func scalarZero(_ type: IRScalar) -> String {
         if type == .bool { return "false" }
+        if type == .f64 { return doubleLiteral(0) }
         if type == .f32 { return floatLiteral(0) }
         if type == .f16 { return halfLiteral(0) }
         if type == .i16 || type == .u16 {
@@ -3281,9 +3567,21 @@ struct ShaderBodyWriter {
         defer { try? budget.leaveDepth() }
         switch try module.types.value(for: type).kind {
         case .scalar: return try scalarZero(scalar(type))
-        case .vector(let size, let scalar) where [.f32, .f16, .i16, .u16, .i32, .u32, .i64, .u64, .bool].contains(scalar):
+        case .cooperativeMatrix(_, _, let scalar, _) where outputFormat == .hlsl && (scalar == .f32 || scalar == .f16):
+            return "(saga_coop_tile)0"
+        case .cooperativeMatrix(_, _, _, _) where outputFormat == .wgsl:
+            return "\(try typeName(type))()"
+        case .cooperativeMatrix(let columns, let rows, let scalar, _) where outputFormat == .msl:
+            let zero = "make_filled_simdgroup_matrix<\(scalar == .f16 ? "half" : "float"), 8, 8>(0)"
+            if columns == .eight && rows == .eight { return zero }
+            let count = Int(columns.rawValue / 8) * Int(rows.rawValue / 8)
+            return "\(try typeName(type)){\(Array(repeating: zero, count: count).joined(separator: ", "))}"
+        case .cooperativeMatrix(_, _, let scalar, _) where outputFormat == .glsl:
+            let zero = scalar == .f16 ? "float16_t(0.0)" : "0.0"
+            return "\(try typeName(type))(\(zero))"
+        case .vector(let size, let scalar) where scalar.isWGSLConversionScalar:
             return try construct(type, components: Array(repeating: scalarZero(scalar), count: Int(size.rawValue)))
-        case .matrix(let columns, let rows, let scalar) where [.f16, .f32].contains(scalar):
+        case .matrix(let columns, let rows, let scalar) where [.f16, .f32, .f64].contains(scalar):
             let zero = scalarZero(scalar)
             let columnType = try shaderVectorType(rows.rawValue, scalar: scalar, in: outputFormat)
             let column = "\(columnType)(\(Array(repeating: zero, count: Int(rows.rawValue)).joined(separator: ", ")))"
@@ -3318,9 +3616,50 @@ struct ShaderBodyWriter {
         return numericCast(halfType(1, in: outputFormat), floatLiteral(value))
     }
 
+    private func doubleLiteral(_ value: Double) -> String {
+        "\(value)\(outputFormat == .glsl ? "lf" : "L")"
+    }
+
     private func numericCast(_ type: String, _ value: String) -> String {
         // Parenthesize C-style casts so a following swizzle applies to the converted vector.
         outputFormat == .hlsl ? "((\(type))(\(value)))" : "\(type)(\(value))"
+    }
+
+    private mutating func writeFloat64ToIntegerCast(
+        _ operand: IRHandle<IRExpression>, input: IRHandle<IRType>, target: IRScalar, size: IRVectorSize?,
+        result: IRHandle<IRExpression>, resultType: IRHandle<IRType>, to lines: inout [String]
+    ) throws {
+        let name = "saga_float64_cast_\(result.index)"
+        let source = "\(name)_operand"
+        try append("\(try typeName(input)) \(source) = \(try value(operand));", to: &lines)
+        let bounds = try Float64IntegerBounds(target: target)
+        let lower = doubleLiteral(bounds.lower)
+        let upper = doubleLiteral(bounds.upper)
+        let zero = doubleLiteral(0)
+        let scalarType = try shaderVectorType(1, scalar: target, in: outputFormat)
+        let sourceLanes = size.map { "xyzw".prefix(Int($0.rawValue)).map { "\(source).\($0)" } } ?? [source]
+        var lanes: [String] = []
+        for (index, lane) in sourceLanes.enumerated() {
+            let words = "\(name)_words_\(index)"
+            let magnitude = "\(name)_magnitude_\(index)"
+            let finite = "\(name)_finite_\(index)"
+            if outputFormat == .hlsl {
+                try append("uint2 \(words);", to: &lines)
+                try append("asuint(\(lane), \(words).x, \(words).y);", to: &lines)
+            } else {
+                try append("uvec2 \(words) = unpackDouble2x32(\(lane));", to: &lines)
+            }
+            // Keep NaN and infinities away from comparisons on targets with finite-math assumptions.
+            try append("uint \(magnitude) = \(words).y & 0x7fffffffu;", to: &lines)
+            try append("double \(finite) = \(magnitude) < 0x7ff00000u ? \(lane) : \(zero);", to: &lines)
+            let infinity = "\(magnitude) == 0x7ff00000u && \(words).x == 0u"
+            let saturation = "\(words).y > 0x7fffffffu ? \(lower) : \(upper)"
+            let bounded = "\(finite) < \(lower) ? \(lower) : (\(finite) > \(upper) ? \(upper) : \(finite))"
+            lanes.append(numericCast(scalarType, "\(infinity) ? (\(saturation)) : (\(bounded))"))
+        }
+        let type = try typeName(resultType)
+        let converted = size == nil ? lanes[0] : "\(type)(\(lanes.joined(separator: ", ")))"
+        try append("\(type) \(name) = \(converted);", to: &lines)
     }
 
     private func floatToIntegerCast(
@@ -3366,6 +3705,8 @@ struct ShaderBodyWriter {
             let value = outputFormat == .wgsl ? "\(number)i" : String(number)
             return number < 0 ? "(\(value))" : value
         case .f32(let number) where number.isFinite: return floatLiteral(number)
+        case .f64(let number) where number.isFinite && (outputFormat == .glsl || outputFormat == .hlsl):
+            return doubleLiteral(number)
         case .f16Bits(let bits) where bits & 0x7c00 != 0x7c00: return halfLiteral(Binary16.decode(bits))
         case .bool(let flag): return flag ? "true" : "false"
         case .u64(let value): return unsigned64Literal(value, in: outputFormat)
@@ -3402,7 +3743,7 @@ struct ShaderBodyWriter {
         let y = try value(exponent)
         let resultType = try typeName(type)
         let binding = outputFormat == .wgsl ? "let \(name)" : "\(resultType) \(name)"
-        guard let shape = try module.types.value(for: type).kind.concreteFloatShape else {
+        guard let shape = try IRBitcastShape(module.types.value(for: type).kind), [.f16, .f32, .f64].contains(shape.scalar) else {
             throw ShaderFailure.invalidHandle
         }
         let widen = shape.scalar == .f16 && outputFormat != .wgsl
@@ -3410,6 +3751,7 @@ struct ShaderBodyWriter {
         let input = widen ? numericCast(nativeType, x) : x
         let call: String
         if outputFormat == .hlsl {
+            guard shape.scalar != .f64 else { throw unsupported("double-precision ldexp in HLSL") }
             let exponentType = try typeName(function.expressions.value(for: exponent).type)
             let power = "\(name)_exponent"
             try append("\(exponentType) \(power) = \(y);", to: &lines)
@@ -3516,11 +3858,11 @@ struct ShaderBodyWriter {
 
     private func member(_ index: UInt32, of type: IRHandle<IRType>) throws -> String {
         if case .matrix(let columns, _, let scalar) = try module.types.value(for: type).kind,
-           [.f16, .f32].contains(scalar), index < UInt32(columns.rawValue) {
+           [.f16, .f32, .f64].contains(scalar), index < UInt32(columns.rawValue) {
             return "[\(index)u]"
         }
         if case .vector(let width, let scalar) = try module.types.value(for: type).kind,
-           [.f32, .f16, .u16, .i16, .u32, .i32, .u64, .i64, .bool].contains(scalar), index < UInt32(width.rawValue) {
+           scalar.isWGSLConversionScalar, index < UInt32(width.rawValue) {
             return [".x", ".y", ".z", ".w"][Int(index)]
         }
         if case .array(_, .constant(let count), _) = try module.types.value(for: type).kind, index < count {
@@ -3542,6 +3884,9 @@ struct ShaderBodyWriter {
         }
         let expression = try function.expressions.value(for: handle)
         switch expression.kind {
+        case .cooperativeLoad where temporaries.contains(handle),
+             .cooperativeMultiplyAdd where temporaries.contains(handle):
+            return "saga_coop_\(handle.index)"
         case .literal(let literal): return try literalValue(literal)
         case .constant(let handle):
             let initializer = try module.constants.value(for: handle).initializer
@@ -3563,6 +3908,7 @@ struct ShaderBodyWriter {
         case .access where temporaries.contains(handle): return "saga_index_\(handle.index)"
         case .select where temporaries.contains(handle): return "saga_select_\(handle.index)"
         case .math where temporaries.contains(handle): return "saga_math_\(handle.index)"
+        case .cast where temporaries.contains(handle): return "saga_float64_cast_\(handle.index)"
         case .bitcast where temporaries.contains(handle): return "saga_bitcast_\(handle.index)"
         case .binary where temporaries.contains(handle): return "saga_remainder_\(handle.index)"
         case .derivative where temporaries.contains(handle): return "saga_derivative_\(handle.index)"
@@ -3631,7 +3977,7 @@ struct ShaderBodyWriter {
         case .scalar(let scalar):
             input = scalar
             width = nil
-        case .matrix(_, _, let scalar) where [.f16, .f32].contains(scalar) && [.f16, .f32].contains(target):
+        case .matrix(_, _, let scalar) where [.f16, .f32, .f64].contains(scalar) && [.f16, .f32, .f64].contains(target):
             return try numericCast(typeName(resultType), value(operand))
         default: throw unsupported("cast operand type")
         }
@@ -3639,6 +3985,10 @@ struct ShaderBodyWriter {
             let source = try value(operand)
             let type = try typeName(resultType)
             return booleanCast(type, source)
+        }
+        if input == .f64 || target == .f64 {
+            guard target.kind == .float else { throw unsupported("f64 to integer conversion") }
+            return try numericCast(typeName(resultType), value(operand))
         }
         if input == .i16 || input == .u16 || target == .i16 || target == .u16 {
             let source = try value(operand)
@@ -3665,6 +4015,8 @@ struct ShaderBodyWriter {
             return numericCast(type, source)
         }
         if [.f32, .f16].contains(input), [.i32, .u32].contains(target) {
+            // WGSL conversions already clamp to the destination range and round toward zero.
+            if outputFormat == .wgsl { return try numericCast(typeName(resultType), value(operand)) }
             return try floatToIntegerCast(value(operand), input: input, target: target,
                                           width: width, resultType: typeName(resultType))
         }
@@ -3732,7 +4084,7 @@ struct ShaderBodyWriter {
         switch op {
         case .logicalNot where type == .bool: symbol = "!"
         case .bitwiseNot where type.kind == .uint || type.kind == .sint: symbol = "~"
-        case .negate where [.f16, .f32].contains(type): symbol = "-"
+        case .negate where type.kind == .float: symbol = "-"
         default: throw unsupported("unary operation \(op.rawValue)")
         }
         try budget.consume(.sourceBytes, amount: 3)
@@ -3775,11 +4127,12 @@ struct ShaderBodyWriter {
             let rhs = try value(right)
             return try wideIntegerBinary(op, scalar: lane, width: size.rawValue, left: lhs, right: rhs, in: outputFormat)
         }
-        if let shape = lhsKind.concreteFloatShape, lhsKind == rhsKind {
+        if let shape = IRBitcastShape(lhsKind), [.f16, .f32, .f64].contains(shape.scalar), lhsKind == rhsKind {
             try budget.consume(.sourceBytes, amount: 8)
             let lhs = try value(left)
             let rhs = try value(right)
             if op == .modulo {
+                guard shape.scalar != .f64 else { throw unsupported("f64 remainder in a text backend") }
                 let remainder = floatingRemainder(lhs, rhs)
                 if outputFormat == .hlsl && shape.scalar == .f16 {
                     return try numericCast(typeName(resultType), remainder)
@@ -3847,7 +4200,7 @@ private extension IRTypeKind {
     var componentCount: UInt8? {
         switch self {
         case .vector(let size, _): size.rawValue
-        case .matrix(let size, _, let scalar) where [.f16, .f32].contains(scalar): size.rawValue
+        case .matrix(let size, _, let scalar) where [.f16, .f32, .f64].contains(scalar): size.rawValue
         default: nil
         }
     }
@@ -3865,7 +4218,7 @@ private extension IRTypeKind {
 
 func shaderBinarySymbol(_ op: IRBinaryOperator, type: IRScalar) throws -> String {
     let lane: IRScalar = switch type {
-    case .f16: .f32
+    case .f16, .f64: .f32
     case .i16, .i64: .i32
     case .u16, .u64: .u32
     default: type

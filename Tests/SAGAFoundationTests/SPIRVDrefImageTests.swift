@@ -9,21 +9,23 @@ import SAGAMetal
 
 extension SPIRVFrontendTests {
     enum DrefImageFailure: CaseIterable, Sendable {
-        case mixedSampler, nonDepthImage, integerReference, integerLod, nonzeroLod
+        case mixedSampler, nonDepthImage, integerReference, integerLod
     }
 
     enum DrefImageEncoding: CaseIterable, Sendable {
         case declaredDepth, unknownDepth, depthInPair
     }
 
-    static func drefImageModule(encoding: DrefImageEncoding = .declaredDepth, failure: DrefImageFailure? = nil) -> [UInt32] {
+    static func drefImageModule(
+        encoding: DrefImageEncoding = .declaredDepth, failure: DrefImageFailure? = nil, comparisonLOD: Float = 0
+    ) -> [UInt32] {
         var words = pre + i(15, 5, 40, 0x6e69616d, 0) + i(16, 40, 17, 1, 1, 1)
         words += i(71, 14, 2) + i(72, 14, 0, 35, 0)
         for binding: UInt32 in 0..<5 {
             words += i(71, 30 + binding, 34, 0) + i(71, 30 + binding, 33, binding)
         }
         let dref: UInt32 = failure == .integerReference ? 20 : 22
-        let lod: UInt32 = failure == .integerLod ? 20 : failure == .nonzeroLod ? 22 : 21
+        let lod: UInt32 = failure == .integerLod ? 20 : 25
         let depthType: UInt32 = encoding == .declaredDepth ? 7 : 6
         let depthPair: UInt32 = encoding == .unknownDepth || failure == .nonDepthImage ? 8 : 9
         let depthPointer: UInt32 = encoding == .declaredDepth ? 12 : 11
@@ -37,6 +39,7 @@ extension SPIRVFrontendTests {
         for instruction in [
             i(30, 14, 5), i(32, 15, 12, 14), i(32, 16, 12, 5), i(33, 17, 1),
             i(43, 2, 20, 0), i(43, 3, 21, 0), i(43, 3, 22, 0x3f000000), i(43, 3, 23, 0x3f600000), i(44, 4, 24, 22, 22),
+            i(43, 3, 25, comparisonLOD.bitPattern),
             i(59, 11, 30, 0), i(59, 13, 31, 0), i(59, depthPointer, 32, 0), i(59, 13, 33, 0), i(59, 15, 34, 12),
             i(54, 1, 40, 0, 17), i(248, 41),
             i(61, 6, 42, 30), i(61, 10, 43, 31), i(61, depthType, 44, 32), i(61, 10, 45, 33),
@@ -96,8 +99,21 @@ func spirvDrefImagesRejectInvalidComparisonOperands(_ failure: SPIRVFrontendTest
             #expect(words[span.startWord] & 0xffff == 90)
         }
         if failure == .integerReference { #expect(diagnostic.code == .typeMismatch) }
-        if failure == .nonzeroLod { #expect(diagnostic.code == .unsupportedConstruct) }
     }
+}
+
+@Test func spirvDrefImagesPreserveNonzeroComparisonLODForNativeTargets() throws {
+    let input = ShaderInput.spirv(SPIRVFrontendTests.drefImageModule(comparisonLOD: 0.5))
+    let compiler = IndependentShaderCompiler()
+    let metal = try compiler.compileCompute(input, to: .msl)
+    let directX = try compiler.compileCompute(input, to: .hlsl)
+    guard case .text(.msl, let msl) = metal.artifact, case .text(.hlsl, let hlsl) = directX.artifact else {
+        throw ShaderFailure.incompatibleArtifact
+    }
+    #expect(msl.contains("level(0.5f)"))
+    #expect(directX.hlslProfile == "cs_6_7")
+    #expect(hlsl.contains(".SampleCmpLevel("))
+    #expect(throws: ShaderFailure.self) { try compiler.compileWebGPUCompute(input) }
 }
 
 #if canImport(Metal)

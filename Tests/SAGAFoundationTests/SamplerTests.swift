@@ -39,7 +39,7 @@ func emitsExplicitTextureSamplingWithIndependentSamplerBindings(format: ShaderOu
         #expect(source.contains("textureLod(saga_pair_1_3"))
         #expect(source.contains("textureGradOffset(saga_pair_1_2"))
         #expect(source.contains("textureLodOffset(saga_pair_1_2"))
-        #expect(source.contains("texelFetch(saga_texture_1"))
+        #expect(source.contains("texelFetch(saga_pair_1_2"))
         #expect(shader.glslTextureSamplerBindings.map(\.flatBindingIndex) == [1, 2])
         #expect(shader.glslTextureSamplerBindings.map(\.sampler) == [.init(group: 2, binding: 6), .init(group: 2, binding: 7)])
     case .wgsl:

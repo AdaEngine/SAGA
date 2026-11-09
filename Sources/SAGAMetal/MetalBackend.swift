@@ -269,6 +269,9 @@ public final class MetalDevice: ComputeBackendDevice, PresentationBackendDevice,
             features.insert(.subgroupSizeControl)
             features.insert(.subgroupID)
         }
+        if adapter.native.supportsFamily(.apple7) || adapter.native.supportsFamily(.mac2) {
+            features.insert(.cooperativeMatrix)
+        }
         if adapter.native.supportsShaderBarycentricCoordinates { features.insert(.shaderBarycentrics) }
         if #available(macOS 26, iOS 26, tvOS 26, visionOS 26, *), adapter.native.supportsFamily(.apple10) {
             features.insert(.shaderPerVertex)
@@ -503,6 +506,7 @@ public final class MetalDevice: ComputeBackendDevice, PresentationBackendDevice,
         try capabilities.requireShaderInt64Atomics(minMax: shader.requiresShaderInt64AtomicMinMax,
                                                   allOps: shader.requiresShaderInt64AtomicAllOps)
         if shader.requiresSubgroups { try capabilities.require([.subgroups]) }
+        if shader.requiresCooperativeMatrix { try capabilities.require([.cooperativeMatrix]) }
         if shader.requiresSubgroupUniformity { try capabilities.require([.subgroupUniformity]) }
         try capabilities.requireSubgroupSize(shader.requiredSubgroupSize)
         if shader.requiresSubgroupID { try capabilities.require([.subgroupID]) }

@@ -74,7 +74,10 @@ extension SPIRVFrontendTests {
     @Test func spirvVulkanAtomicsDoNotDiscardOrderingOrMemoryFlags() throws {
         try fails(Self.vulkanBufferAtomicModule(semantics: 0x42), code: .unsupportedConstruct) // Acquire | UniformMemory
         try fails(Self.vulkanBufferAtomicModule(equal: 0x2044), code: .unsupportedConstruct) // MakeAvailable | Release | UniformMemory
-        try fails(Self.vulkanBufferAtomicModule(equal: 256, unequal: 256), code: .unsupportedConstruct)
+        // The pinned Naga fixture uses Workgroup scope and WorkgroupMemory with no order.
+        // Vulkan requires a non-relaxed order when a storage class semantics bit is set.
+        try fails(Self.vulkanBufferAtomicModule(scope: 2, equal: 0x100, unequal: 0x100), code: .unsupportedConstruct)
+        try fails(Self.vulkanBufferAtomicModule(scope: 2, unequal: 0x100), code: .unsupportedConstruct)
         try fails(Self.vulkanBufferAtomicModule(unequal: 0x42), code: .unsupportedConstruct)
     }
 

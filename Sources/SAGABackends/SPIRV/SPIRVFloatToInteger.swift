@@ -30,6 +30,27 @@ private struct SPIRVFloatIntegerBounds {
 }
 
 extension SPIRVBinaryWriter {
+    mutating func writeSaturatingFloat64Conversion(
+        _ operand: UInt32, source: IRBitcastShape, target: IRScalar, type: IRHandle<IRType>
+    ) throws -> UInt32 {
+        let bounds = try Float64IntegerBounds(target: target)
+        let float = try scalarOrVectorTypeID(.f64, size: source.size)
+        let predicate = try scalarOrVectorTypeID(.bool, size: source.size)
+        let lower = try splatLiteralID(.f64(bounds.lower), type: float, size: source.size)
+        let upper = try splatLiteralID(.f64(bounds.upper), type: float, size: source.size)
+        let zero = try zeroID(typeID: float)
+
+        // Ordered comparisons reject NaN without requiring any integer bitcasts.
+        let below = try rawValueInstruction(184, type: predicate, operands: [operand, lower]) // OpFOrdLessThan
+        let above = try rawValueInstruction(186, type: predicate, operands: [operand, upper]) // OpFOrdGreaterThan
+        let atMost = try rawValueInstruction(188, type: predicate, operands: [operand, upper]) // OpFOrdLessThanEqual
+        let excess = try rawValueInstruction(169, type: float, operands: [above, upper, zero]) // OpSelect
+        let capped = try rawValueInstruction(169, type: float, operands: [atMost, operand, excess])
+        let safe = try rawValueInstruction(169, type: float, operands: [below, lower, capped])
+        let opcode: UInt32 = target.kind == .sint ? 110 : 109 // OpConvertFToS / OpConvertFToU
+        return try valueInstruction(opcode, type: type, operands: [safe])
+    }
+
     mutating func writeSaturatingFloatConversion(
         _ operand: UInt32, source: IRBitcastShape, target: IRScalar, type: IRHandle<IRType>
     ) throws -> UInt32 {

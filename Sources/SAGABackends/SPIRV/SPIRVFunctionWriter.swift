@@ -137,6 +137,29 @@ extension SPIRVBinaryWriter {
                         try writer.emit(62, [pointer, data]) // OpStore
                     }
                 }
+            case .cooperativeStore(let target, let data):
+                let object = try value(target, in: &state)
+                let resultType = try state.function.expressions.value(for: target).type
+                guard case .cooperativeMatrix(let columns, let rows, _, _) = try module.types.value(for: resultType).kind else {
+                    throw unsupported("requires a cooperative matrix store value")
+                }
+                let address = try value(data.pointer, in: &state)
+                let stride = try value(data.stride, in: &state)
+                let (positiveStride, safeStride) = try cooperativeStoreStride(stride, handle: data.stride, in: state)
+                let layout = try unsignedConstantID(data.rowMajor ? 0 : 1)
+                let fullBounds = try cooperativeFootprintCondition(pointer: data.pointer, address: address,
+                    strideHandle: data.stride, stride: stride, majorCount: data.rowMajor ? UInt32(rows.rawValue) : UInt32(columns.rawValue),
+                    minorCount: data.rowMajor ? UInt32(columns.rawValue) : UInt32(rows.rawValue), in: &state)
+                let storeCondition: UInt32
+                if let fullBounds {
+                    storeCondition = try rawValueInstruction(167, type: scalarTypeID(.bool),
+                                                              operands: [fullBounds, positiveStride])
+                } else { storeCondition = positiveStride }
+                try effectWhen(storeCondition) { writer in
+                        let pointer = try writer.materializeBufferPointer(address, in: state)
+                        try writer.requireCooperativeMatrix()
+                        try writer.emit(4458, [pointer, object, layout, safeStride])
+                }
             case .atomic(let pointer, let operation, let operand, let result):
                 try writeAtomic(pointer: pointer, operation: operation, operand: operand, result: result, in: &state)
             case .controlBarrier(let flags):
@@ -347,6 +370,33 @@ extension SPIRVBinaryWriter {
     ) throws -> UInt32 {
         let type = expression.type
         switch expression.kind {
+        case .cooperativeLoad(let columns, let rows, _, let data):
+            let address = try value(data.pointer, in: &state)
+            let stride = try value(data.stride, in: &state)
+            let layout = try unsignedConstantID(data.rowMajor ? 0 : 1)
+            let resultType = try typeID(type)
+            let fullBounds = try cooperativeFootprintCondition(pointer: data.pointer, address: address,
+                strideHandle: data.stride, stride: stride,
+                majorCount: data.rowMajor ? UInt32(rows.rawValue) : UInt32(columns.rawValue),
+                minorCount: data.rowMajor ? UInt32(columns.rawValue) : UInt32(rows.rawValue), in: &state)
+            if let fullBounds {
+                return try valueWhen(fullBounds, type: resultType) { writer in
+                    let pointer = try writer.materializeBufferPointer(address, in: state)
+                    try writer.requireCooperativeMatrix()
+                    let memory = try writer.cooperativeMemoryOperand(pointer: data.pointer, layout: layout, stride: stride, in: state)
+                    return try writer.rawValueInstruction(4457, type: resultType,
+                        operands: [pointer] + memory) // OpCooperativeMatrixLoadKHR
+                }
+            }
+            return try guardedBufferRead(address: address, type: resultType, in: state) { writer, pointer in
+                try writer.requireCooperativeMatrix()
+                let memory = try writer.cooperativeMemoryOperand(pointer: data.pointer, layout: layout, stride: stride, in: state)
+                return try writer.rawValueInstruction(4457, type: resultType, operands: [pointer] + memory)
+            }
+        case .cooperativeMultiplyAdd(let a, let b, let c):
+            let aID = try value(a, in: &state), bID = try value(b, in: &state), cID = try value(c, in: &state)
+            try requireCooperativeMatrix()
+            return try rawValueInstruction(4459, type: typeID(type), operands: [aID, bID, cID])
         case .imageSample(let sample):
             return try writeImageSample(sample, type: type, in: &state)
         case .imageLoad(let load):
@@ -485,6 +535,7 @@ extension SPIRVBinaryWriter {
                 case .u64: .u64(1)
                 case .f16: .f16Bits(0x3c00)
                 case .f32: .f32(1)
+                case .f64: .f64(1)
                 default: throw unsupported("does not lower this boolean conversion")
                 }
                 let result = try typeID(type)
@@ -496,6 +547,10 @@ extension SPIRVBinaryWriter {
                 let zero = try zeroID(typeID: typeID(operandType))
                 let opcode: UInt32 = source.kind == .float ? 183 : 171 // OpFUnordNotEqual or OpINotEqual
                 return try valueInstruction(opcode, type: type, operands: [id, zero])
+            }
+            if source == .f64, target.kind == .sint || target.kind == .uint,
+               let shape = IRBitcastShape(try valueKind(operand, in: state)) {
+                return try writeSaturatingFloat64Conversion(id, source: shape, target: target, type: type)
             }
             if [.f16, .f32].contains(source), [.i32, .u32, .i64, .u64].contains(target),
                let shape = IRBitcastShape(try valueKind(operand, in: state)) {
@@ -517,8 +572,10 @@ extension SPIRVBinaryWriter {
             }
             let opcode: UInt32 = switch (source, target) {
             case (.i16, .f32), (.i32, .f32), (.i32, .f16), (.i64, .f32): 111
+            case (.i16, .f64), (.i32, .f64), (.i64, .f64): 111
             case (.u16, .f32), (.u32, .f32), (.u32, .f16), (.u64, .f32): 112
-            case (.f16, .f32), (.f32, .f16): 115 // OpFConvert
+            case (.u16, .f64), (.u32, .f64), (.u64, .f64): 112
+            case (.f16, .f32), (.f32, .f16), (.f64, .f32), (.f32, .f64), (.f64, .f16), (.f16, .f64): 115 // OpFConvert
             default: throw unsupported("does not lower this numeric conversion")
             }
             return try valueInstruction(opcode, type: type, operands: [id])
@@ -678,6 +735,141 @@ extension SPIRVBinaryWriter {
         let unsigned = try unsignedAccessIndex(index, signed: signed)
         let limit = try unsignedConstantID(count)
         return try .check(rawValueInstruction(176, type: scalarTypeID(.bool), operands: [unsigned, limit]))
+    }
+
+    private mutating func cooperativeFootprintCondition(
+        pointer: IRHandle<IRExpression>, address: UInt32, strideHandle: IRHandle<IRExpression>, stride: UInt32,
+        majorCount: UInt32, minorCount: UInt32, in state: inout SPIRVFunctionState
+    ) throws -> UInt32? {
+        let base: IRHandle<IRExpression>
+        let indexExpression: IRHandle<IRExpression>?
+        let fixedIndex: UInt32?
+        switch try state.function.expressions.value(for: pointer).kind {
+        case .access(let array, let index):
+            base = array
+            indexExpression = index
+            fixedIndex = nil
+        case .accessIndex(let array, let index):
+            base = array
+            indexExpression = nil
+            fixedIndex = index
+        default:
+            throw unsupported("cooperative matrix footprint requires an indexed array")
+        }
+        guard case .pointer(let arrayType, _) = try module.types.value(for: state.function.expressions.value(for: base).type).kind,
+              case .array(_, let arraySize, _) = try module.types.value(for: arrayType).kind else {
+            throw unsupported("cooperative matrix footprint requires an indexed array")
+        }
+        let length: UInt32
+        switch arraySize {
+        case .constant(let count): length = try unsignedConstantID(count)
+        case .dynamic: length = try writeRuntimeArrayLength(base, resultType: scalarTypeID(.u32), in: &state)
+        case .override: throw unsupported("cooperative matrix footprint with unspecialized array size")
+        }
+
+        let zero = try unsignedConstantID(0), one = try unsignedConstantID(1)
+        let bool = try scalarTypeID(.bool)
+        let rawIndex: UInt32
+        let signedIndex: Bool
+        if let indexExpression {
+            rawIndex = try value(indexExpression, in: &state)
+            signedIndex = try module.types.value(for: state.function.expressions.value(for: indexExpression).type).kind == .scalar(.i32)
+        } else if let fixedIndex {
+            rawIndex = try unsignedConstantID(fixedIndex)
+            signedIndex = false
+        } else { throw ShaderFailure.invalidHandle }
+        let index = try state.bufferProjections[address]?.index ?? unsignedAccessIndex(rawIndex, signed: signedIndex)
+        let indexNonNegative: UInt32
+        if signedIndex {
+            indexNonNegative = try rawValueInstruction(175, type: bool,
+                operands: [rawIndex, literalID(.i32(0))]) // OpSGreaterThanEqual
+        } else { indexNonNegative = try literalID(.bool(true)) }
+        let indexBeforeEnd = try rawValueInstruction(176, type: bool, operands: [index, length])
+        let safeIndex = try rawValueInstruction(169, type: scalarTypeID(.u32), operands: [indexBeforeEnd, index, length])
+        let remaining = try rawValueInstruction(130, type: scalarTypeID(.u32), operands: [length, safeIndex])
+        let strideType = try module.types.value(for: state.function.expressions.value(for: strideHandle).type).kind
+        let signedStride: Bool
+        if case .scalar(.i32) = strideType { signedStride = true } else { signedStride = false }
+        let strideNonNegative: UInt32
+        let unsignedStride: UInt32
+        if signedStride {
+            let signedZero = try literalID(.i32(0))
+            strideNonNegative = try rawValueInstruction(175, type: bool, operands: [stride, signedZero]) // OpSGreaterThanEqual
+            unsignedStride = try rawValueInstruction(124, type: scalarTypeID(.u32), operands: [stride]) // OpBitcast
+        } else {
+            strideNonNegative = try literalID(.bool(true))
+            unsignedStride = stride
+        }
+        let strideIsZero = try rawValueInstruction(170, type: bool, operands: [unsignedStride, zero])
+        let positiveStride = try rawValueInstruction(172, type: bool, operands: [unsignedStride, zero])
+        let safeStride = try rawValueInstruction(169, type: scalarTypeID(.u32), operands: [positiveStride, unsignedStride, one])
+        let minor = try unsignedConstantID(minorCount)
+        let hasFirstRow = try rawValueInstruction(174, type: bool, operands: [remaining, minor]) // UGreaterThanEqual
+        let safeTail = try rawValueInstruction(130, type: scalarTypeID(.u32),
+            operands: [remaining, try rawValueInstruction(169, type: scalarTypeID(.u32), operands: [hasFirstRow, minor, zero])])
+        let quotient = try rawValueInstruction(134, type: scalarTypeID(.u32), operands: [safeTail, safeStride]) // OpUDiv
+        let lastMajor = try unsignedConstantID(majorCount - 1)
+        let rowsFit = try rawValueInstruction(174, type: bool, operands: [quotient, lastMajor])
+        let zeroStrideFits = try rawValueInstruction(166, type: bool, operands: [strideIsZero, hasFirstRow])
+        let positiveStrideFits = try rawValueInstruction(166, type: bool, operands: [positiveStride, rowsFit])
+        let extentFits = try rawValueInstruction(166, type: bool, operands: [zeroStrideFits, positiveStrideFits])
+        var valid = try rawValueInstruction(167, type: bool, operands: [indexBeforeEnd, extentFits])
+        valid = try rawValueInstruction(167, type: bool, operands: [valid, indexNonNegative])
+        valid = try rawValueInstruction(167, type: bool, operands: [valid, strideNonNegative])
+        valid = try rawValueInstruction(167, type: bool, operands: [valid, hasFirstRow])
+        switch state.bufferProjections[address]?.bounds {
+        case .outside?: return try literalID(.bool(false))
+        case .check(let inherited)?: valid = try rawValueInstruction(167, type: bool, operands: [valid, inherited])
+        case nil: break
+        }
+        return valid
+    }
+
+    private func cooperativeMemoryOperand(
+        pointer: IRHandle<IRExpression>, layout: UInt32, stride: UInt32, in state: SPIRVFunctionState
+    ) throws -> [UInt32] {
+        guard case .pointer(_, let space) = try module.types.value(for: state.function.expressions.value(for: pointer).type).kind else {
+            return [layout, stride]
+        }
+        switch space {
+        case .storage, .workgroup, .uniform:
+            return [layout, stride, 0x20] // NonPrivatePointerKHR
+        default:
+            return [layout, stride]
+        }
+    }
+
+    private mutating func cooperativeStoreStride(
+        _ stride: UInt32, handle: IRHandle<IRExpression>, in state: SPIRVFunctionState
+    ) throws -> (condition: UInt32, safe: UInt32) {
+        let bool = try scalarTypeID(.bool), uint = try scalarTypeID(.u32), one = try unsignedConstantID(1)
+        let kind = try module.types.value(for: state.function.expressions.value(for: handle).type).kind
+        if let bits = constantWords[stride] {
+            let positive: Bool
+            switch kind {
+            case .scalar(.i32): positive = Int32(bitPattern: bits) > 0
+            case .scalar(.u32): positive = bits > 0
+            default: throw unsupported("requires a 32-bit integer cooperative store stride")
+            }
+            let safe: UInt32
+            if positive { safe = try unsignedConstantID(bits) } else { safe = one }
+            return (try literalID(.bool(positive)), safe)
+        }
+        let zero: UInt32, condition: UInt32, unsignedStride: UInt32
+        switch kind {
+        case .scalar(.i32):
+            zero = try literalID(.i32(0))
+            condition = try rawValueInstruction(173, type: bool, operands: [stride, zero]) // OpSGreaterThan
+            unsignedStride = try rawValueInstruction(124, type: uint, operands: [stride]) // OpBitcast
+        case .scalar(.u32):
+            zero = try unsignedConstantID(0)
+            condition = try rawValueInstruction(172, type: bool, operands: [stride, zero]) // OpUGreaterThan
+            unsignedStride = stride
+        default:
+            throw unsupported("requires a 32-bit integer cooperative store stride")
+        }
+        let safe = try rawValueInstruction(169, type: uint, operands: [condition, unsignedStride, one]) // OpSelect
+        return (condition, safe)
     }
 
     private mutating func unsignedAccessIndex(_ index: UInt32, signed: Bool) throws -> UInt32 {

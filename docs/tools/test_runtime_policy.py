@@ -61,6 +61,16 @@ class RuntimePolicyTests(unittest.TestCase):
         for path in ['Cargo.toml','Package.resolved','Sources/SAGATypes/bridge.c','Sources/SAGATypes/module.modulemap','Sources/Evil/a.swift','.sloppy/runtime.swift','libNaga.dylib','scripts/naga.wasm','docs/hidden/Cargo.toml','docs/foreign.c']:
             self.assertEqual(unexpected_project_files([path]),[path])
         self.assertEqual(unexpected_project_files(['Package.swift','README.md','Sources/SAGATypes/Types.swift']),[])
+    def test_documentation_scope(self):
+        self.assertEqual(unexpected_project_files([
+            'AGENTS.md', '.spi.yml', '.agents/skills/saga-development/SKILL.md',
+            'Sources/SAGA/SAGA.docc/SAGA.md',
+        ]), [])
+        unexpected = [
+            '.agents/skills/saga-development/tool.sh', 'Sources/SAGA/Notes.md',
+            'Sources/SAGA/SAGA.docc/foreign.js', 'Sources/Unknown/Unknown.docc/Unknown.md',
+        ]
+        self.assertEqual(unexpected_project_files(unexpected), unexpected)
     def test_historical_fixture_hashes_and_original_guard(self):
         baseline=ROOT/'docs/baseline/saga-2'
         for path,digest in json.loads((baseline/'hashes.json').read_text()).items():

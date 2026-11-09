@@ -10,10 +10,10 @@ private let writableSwizzleFragment = ShaderInput.glsl("""
     layout(location = 0) out vec4 color;
     void main() {
         color = vec4(0.0, 0.5, 1.0, 1.0);
-        color.rgb = color.bgr;
+        color.bgra.zyx = color.bgr;
         color.xy += color.yy;
         color.xy *= 0.5;
-        color.z = 1.0;
+        color.zy.x = 1.0;
     }
     """, stage: .fragment, defines: [:])
 
@@ -29,7 +29,10 @@ func glslWritableSwizzlesReachTextTargets(_ format: ShaderOutputFormat) throws {
 
 @Test(arguments: [
     ("color.xx = vec2(1.0);", ShaderDiagnosticCode.invalidAddressSpace),
+    ("color.xxy.yz = vec2(1.0);", .invalidAddressSpace),
+    ("color.yx.xx = vec2(1.0);", .invalidAddressSpace),
     ("value.xy = vec2(1.0);", .invalidAddressSpace),
+    ("value.yx.yx = vec2(1.0);", .invalidAddressSpace),
     ("value.x = 1.0;", .invalidAddressSpace),
     ("color.xy = 1.0;", .typeMismatch),
 ])

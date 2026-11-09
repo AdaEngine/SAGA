@@ -288,21 +288,25 @@ func runWebDiagnostic(
 }
 
 private func computeImmediateDiagnostic(_ device: Device) async throws -> [UInt32] {
-    let source = ShaderInput.wgsl("""
-        requires immediate_address_space;
-        struct Pair { first: u32, second: u32, }
-        struct Settings { axis: vec3u, pair: Pair, last: u32, }
-        var<immediate> settings: Settings;
-        @group(0) @binding(0) var<storage, read_write> output: array<u32, 4>;
-        fn second() -> u32 { return settings.pair.second; }
-        @compute @workgroup_size(1) fn run() {
-            output[0] = settings.axis.z;
-            output[1] = settings.pair.first;
-            output[2] = second();
-            output[3] = settings.last;
+    let source = ShaderInput.glsl("""
+        #version 450
+        layout(local_size_x=1) in;
+        struct Pair { uint first; uint second; };
+        layout(push_constant) uniform Settings { uvec3 axis; Pair pair; uint last; } settings;
+        layout(binding=0) buffer Output { uint words[4]; } outputData;
+        uint second() { return settings.pair.second; }
+        void main() {
+            outputData.words[0] = settings.axis.z;
+            outputData.words[1] = settings.pair.first;
+            outputData.words[2] = second();
+            outputData.words[3] = settings.last;
         }
-        """)
-    let shader = try IndependentShaderCompiler().compileWebGPUCompute(source)
+        """, stage: .compute, defines: [:])
+    let compiler = IndependentShaderCompiler()
+    guard case .spirv(let binary) = try compiler.compile(source, to: .spirv) else {
+        throw GPUError.backendFailure("Expected binary SPIR-V for GLSL push constants")
+    }
+    let shader = try compiler.compileWebGPUCompute(.spirv(binary))
     let pipeline = try await device.createComputePipeline(shader)
     let output = try await device.createBuffer(.init(size: 16, usage: [.storage, .copySource]))
     let readback = try await device.createBuffer(.init(size: 16, usage: [.copyDestination, .mapRead]))
@@ -2441,6 +2445,7 @@ private func matrixBufferDiagnostic(_ device: Device) async throws -> [Float] {
 private func switchDiagnostic(_ device: Device) async throws -> [UInt32] {
     let source = ShaderInput.glsl("""
         precision highp float;
+        layout(constant_id=5) const uint adjustment = 4u;
         layout(local_size_x=1) in;
         layout(set=0,binding=0) buffer Data { uint words[8]; } data;
         uint mapped(int i) {
@@ -2451,7 +2456,11 @@ private func switchDiagnostic(_ device: Device) async throws -> [UInt32] {
                 case 9: case (-2147483647 - 1): default: return 19u;
             }
         }
-        uint mapped(uint i) { return mapped(int(i)) + 6u; }
+        uint mapped(uint i) { return mapped(int(i)) + adjustment; }
+        void advanceValue(inout uint value, out uint previous) {
+            previous = value;
+            value += 1u;
+        }
         uint choose() { data.words[7] += 1u; return 2u; }
         void main() {
             uint total = 0u;
@@ -2471,15 +2480,19 @@ private func switchDiagnostic(_ device: Device) async throws -> [UInt32] {
             endpoints.yx = endpoints.xy;
             mat2 reciprocal = inverse(mat2(4, 2, 2, 2));
             uint math = uint(4.0 * mod(-2.5, 2.0) + roundEven(1.5) + length(vec2(3, 4)) + reciprocal[1].y);
+            uint selected = mapped(5u);
+            uint previous;
+            advanceValue(selected, previous);
+            uint variants[2] = uint[2](previous, selected);
             data.words[0] = endpoints.y; data.words[1] = mapped(-1); data.words[2] = endpoints.x;
-            data.words[3] = mapped(9); data.words[4] = mapped(5u) + math; data.words[5] = total;
+            data.words[3] = mapped(9); data.words[4] = variants[0] + variants[1] + math - 26u; data.words[5] = total;
             switch (choose()) {
                 case 2u: data.words[6] = 23u; break;
                 default: data.words[6] = 99u;
             }
         }
         """, stage: .compute, defines: [:])
-    let shader = try IndependentShaderCompiler().compileWebGPUCompute(source)
+    let shader = try IndependentShaderCompiler().compileWebGPUCompute(source, constants: ["5": 6])
     let pipeline = try await device.createComputePipeline(shader)
     let spirvShader = try IndependentShaderCompiler().compileWebGPUCompute(.spirv(switchPhiSPIRV()))
     let spirvPipeline = try await device.createComputePipeline(spirvShader)
@@ -2985,15 +2998,15 @@ private func mipTextureDiagnostic(_ device: Device) async throws -> [UInt32] {
         layout(binding=2) uniform sampler filterState;
         void main() {
             outputData.values[0] = texelFetch(sampler2D(sourceImage, filterState), ivec2(4, 2), 0);
-            outputData.values[1] = texelFetch(sampler2D(sourceImage, filterState), ivec2(1, 0), 1);
+            outputData.values[1] = texelFetchOffset(sampler2D(sourceImage, filterState), ivec2(-1, 0), 1, ivec2(2, 0));
             outputData.values[2] = texelFetch(sampler2D(sourceImage, filterState), ivec2(0), 2);
-            outputData.values[3] = textureLod(sampler2D(sourceImage, filterState), vec2(0.75, 0.5), 0.5);
+            outputData.values[3] = textureProjLodOffset(sampler2D(sourceImage, filterState), vec3(-0.5, -1.0, -2.0), 0.5, ivec2(1, 0));
             outputData.values[4] = texelFetch(sampler2D(sourceImage, filterState), ivec2(0), 1);
             ivec2 size = textureSize(sampler2D(sourceImage, filterState), 1);
             int levels = textureQueryLevels(sampler2D(sourceImage, filterState));
             int lastWidth = textureSize(sampler2D(sourceImage, filterState), 2).x;
             outputData.values[5] = vec4(levels, size.x, size.y, lastWidth);
-            outputData.values[6] = texelFetch(sampler2D(sourceImage, filterState), ivec2(2, 0), 1);
+            outputData.values[6] = texelFetchOffset(sampler2D(sourceImage, filterState), ivec2(1, 0), 1, ivec2(1, 0));
         }
         """, stage: .compute, defines: [:])
     let compiler = IndependentShaderCompiler()
@@ -3440,25 +3453,28 @@ private func fragmentStorageTextureDiagnostic(_ device: Device) async throws -> 
 }
 
 private func readWriteStorageDiagnostic(_ device: Device) async throws -> [UInt32] {
-    let source = ShaderInput.wgsl("""
-        @group(0) @binding(0) var mask: texture_storage_2d<rgba8unorm, read>;
-        @group(0) @binding(1) var image: texture_storage_2d<r32uint, read_write>;
-        @group(0) @binding(2) var<storage, read_write> before: array<vec4u, 4>;
-        @compute @workgroup_size(4) fn run(@builtin(global_invocation_id) id: vec3u) {
-            if id.x == 3u {
-                before[3u] = textureLoad(image, vec2u(0xffffffffu, 0u));
+    let source = ShaderInput.glsl("""
+        #version 450
+        layout(local_size_x=4) in;
+        layout(rgba8, binding=0) readonly uniform image2D mask;
+        layout(r32ui, binding=1) uniform uimage2D image;
+        layout(binding=2) buffer Output { uvec4 before[4]; } outputData;
+        void main() {
+            uint lane = gl_GlobalInvocationID.x;
+            if (lane == 3u) {
+                outputData.before[3] = imageLoad(image, ivec2(-1, 0));
             } else {
-                let coords = vec2i(i32(id.x) - 1i, 0i);
-                let old = textureLoad(image, coords);
-                before[id.x] = old;
-                if textureLoad(mask, coords).g > 0.5 {
-                    textureStore(image, coords, old + vec4u(5u, 99u, 99u, 99u));
+                ivec2 coords = ivec2(int(lane) - 1, 0);
+                uvec4 old = imageLoad(image, coords);
+                outputData.before[lane] = old;
+                if (imageLoad(mask, coords).g > 0.5) {
+                    imageStore(image, coords, old + uvec4(5u, 99u, 99u, 99u));
                 }
             }
         }
-        """)
+        """, stage: .compute, defines: [:])
     let compiler = IndependentShaderCompiler()
-    let shader = try compiler.compileCompute(source, to: .wgsl)
+    let shader = try compiler.compileWebGPUCompute(source)
     let pipeline = try await device.createComputePipeline(shader)
     let spirvShader = try compiler.compileWebGPUCompute(.spirv(readWriteStorageSPIRV()))
     guard spirvShader.storageTextures.count == 1, let binding = spirvShader.storageTextures.first,
@@ -7953,13 +7969,15 @@ private func halfBitcastDiagnostic(_ device: Device) async throws -> [UInt32] {
         }
         """), to: .wgsl)
     let pipeline = try await device.createComputePipeline(shader)
-    let boundaryShader = try IndependentShaderCompiler(nagaFloatRounding: true).compileWebGPUCompute(.wgsl("""
+    let normalizedBoundary = try IndependentShaderCompiler(wgslSourceProfile: .nagaNative).compile(.wgsl("""
         enable f16;
         const positive: f32 = 3.40282347e38;
         const halfMaximum: f16 = 65519.0;
+        const width: u32 = 1u;
+        const height: i32 = 1i;
         @group(0) @binding(0) var<storage, read_write> output: array<u32, 4>;
 
-        @compute @workgroup_size(1)
+        @compute @workgroup_size(width, height)
         fn run() {
             let negative: f32 = -3.40282347e38;
             let halfMinimum: f16 = -65519;
@@ -7969,7 +7987,11 @@ private func halfBitcastDiagnostic(_ device: Device) async throws -> [UInt32] {
             let consistent = (1.5 + 2) == (2 + 1.5);
             output[3] = select(0u, bitcast<u32>(f32(3.40282347e38)), consistent);
         }
-        """))
+        """), to: .wgsl)
+    guard case .text(.wgsl, let boundarySource) = normalizedBoundary else {
+        throw GPUError.backendFailure("Expected normalized WGSL for the float boundary diagnostic")
+    }
+    let boundaryShader = try IndependentShaderCompiler().compileWebGPUCompute(.wgsl(boundarySource))
     let boundaryPipeline = try await device.createComputePipeline(boundaryShader)
     let input = try await device.createBuffer(.init(size: 16, usage: [.storage, .copyDestination]))
     let output = try await device.createBuffer(.init(size: 80, usage: [.storage, .copySource]))
@@ -11263,7 +11285,15 @@ private func dualSourceDiagnostic(_ device: Device) async throws -> [UInt32] {
     let compiler = IndependentShaderCompiler()
     let source = ShaderInput.wgsl(dualSourceShader)
     let vertex = try compiler.compileRenderStage(source, entryPoint: "vs", to: .wgsl)
-    let fragment = try compiler.compileRenderStage(source, entryPoint: "fs", to: .wgsl)
+    let fragment = try compiler.compileWebGPURenderStage(.glsl("""
+        #version 450
+        layout(location=0, index=1) out vec4 weight;
+        layout(location=0, index=0) out vec4 color;
+        void main() {
+            weight = vec4(0.5, 0.25, 0.75, 0.25);
+            color = vec4(1.0, 0.5, 0.25, 1.0);
+        }
+        """, stage: .fragment, defines: [:]), entryPoint: "main")
     let layout = VertexBufferLayout(stride: 8, attributes: [.init(location: 0, offset: 0, format: .float32x2)])
     let blend = RenderBlendState(
         color: .init(sourceFactor: .source1Color, destinationFactor: .oneMinusSource1Color),
@@ -11318,7 +11348,7 @@ private func dualSourceDiagnostic(_ device: Device) async throws -> [UInt32] {
     let pixels = try await device.submitCommands(commands).wait().flatMap { $0 }
     let direct = Array(pixels.prefix(blendStates.count))
     guard pixels.count == pipelines.count, pixels.suffix(blendStates.count).elementsEqual(direct) else {
-        throw GPUError.backendFailure("SPIR-V dual-source blending differed from direct WGSL: \(pixels)")
+        throw GPUError.backendFailure("SPIR-V dual-source blending differed from GLSL import: \(pixels)")
     }
     return direct
 }

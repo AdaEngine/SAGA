@@ -87,6 +87,7 @@ final class WGSLParser {
     var diagnosticFilters: [IRDiagnosticFilter] = []
     var float16Enabled = false
     var int16Enabled = false
+    var cooperativeMatrixEnabled = false
     var clipDistancesEnabled = false
     var primitiveIndexEnabled = false
     var debugPrintfEnabled = false
@@ -384,12 +385,14 @@ final class WGSLParser {
         case "i16": try requireInt16(at: t); scalar = .i16
         case "i32": scalar = .i32
         case "i64": scalar = .i64
+        case "f64": try requireFloat64(at: t); scalar = .f64
         case "f32": scalar = .f32
         case "f16": try requireFloat16(at: t); scalar = .f16
         case "bool": scalar = .bool
         default: scalar = nil
         }
         if let scalar { return try intern(.scalar(scalar)) }
+        if let shape = Self.cooperativeMatrixShape(t.text) { return try cooperativeMatrixType(shape.0, shape.1, at: t) }
         if t.text == "ptr" { return try pointerType(at: t) }
         if t.text == "texture_external" {
             return try intern(.image(dimension: .d2, arrayed: false, class: .external))

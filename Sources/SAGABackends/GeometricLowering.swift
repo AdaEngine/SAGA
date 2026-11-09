@@ -4,6 +4,16 @@ func geometricStatements(
     _ function: IRMathFunction, arguments: [String], operand: IRTypeKind, resultType: String,
     named name: String, format: ShaderOutputFormat
 ) throws -> [String] {
+    let isDouble: Bool = switch operand {
+    case .scalar(.f64), .vector(_, .f64), .matrix(_, _, .f64): true
+    default: false
+    }
+    if isDouble {
+        guard format == .glsl else { throw ShaderFailure.unsupported("Double-precision geometric builtin target") }
+        let scalar = operand == .scalar(.f64)
+        let expression = floatingGeometryCall(function, arguments: arguments, scalar: scalar, format: format)
+        return ["\(resultType) \(name) = \(expression);"]
+    }
     if function == .inverse, case .matrix(let columns, let rows, let scalar) = operand, columns == rows {
         return try inverseMatrixStatements(arguments[0], size: columns, scalar: scalar,
                                            resultType: resultType, named: name, format: format)

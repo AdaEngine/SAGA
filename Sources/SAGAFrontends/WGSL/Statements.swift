@@ -211,6 +211,7 @@ extension WGSLParser {
                 return
             }
             if declarationNames[key] == nil {
+                if Self.cooperativeStores.contains(start.text) { try cooperativeStore(at: start, end: end); return }
                 if start.text == "debugPrintf" { try debugPrintfStatement(at: start, end: end); return }
                 if start.text == "atomicMin" || start.text == "atomicMax" {
                     _ = try take()
@@ -372,7 +373,7 @@ extension WGSLParser {
                 if depth == 0 {
                     if index == start + 1 { return true }
                     return tokens[start + 1].kind == .templateStart && tokens[index - 1].kind == .templateEnd &&
-                        (isTypeName(tokens[start].text) || tokens[start].text == "bitcast")
+                        (isTypeName(tokens[start].text) || tokens[start].text == "bitcast" || Self.cooperativeLoads.contains(tokens[start].text))
                 }
             default: break
             }

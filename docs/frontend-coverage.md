@@ -150,9 +150,53 @@ This run is separate from the coverage manifest's evidence importer.
 The default assembler invocation may produce a newer SPIR-V header than the version
 recorded in a fixture's leading comments. Keep that result in the configured corpus.
 For version diagnostics, assemble a separate binary with `spirv-as --target-env` and
-validate it under the corresponding universal and client profiles. For example,
-`8151-barrier-reorder.spvasm` validates and imports at SPIR-V 1.3. The default 1.6
-assembly requires its storage and workgroup variables in the entry interface.
+validate it under the corresponding universal and client profiles.
+
+SPIRV-Tools v2026.4.rc2-0-gef96ed76 produced and validated the following
+separate assemblies of the unchanged pinned fixtures. The SAGA results
+use each fixture's configured frontend options and capabilities.
+
+| Input | Target environment | Khronos validation | SAGA |
+| --- | --- | --- | --- |
+| `8151-barrier-reorder.spvasm` | SPIR-V 1.3 | Universal 1.3 and Vulkan 1.1 pass | Import and semantic validation pass |
+| `bitcast-f16.spvasm`, `spec-constants.spvasm`, `f16-spv.spvasm` | SPIR-V 1.0 | Universal 1.0 and Vulkan 1.0 pass | Import and semantic validation pass |
+| `sign-adjusted-ops.spvasm` | SPIR-V 1.0, selected for the version probe | Universal 1.0 and Vulkan 1.0 pass | Import and semantic validation pass |
+| `shadow.spvasm` | SPIR-V 1.0 | Universal 1.0 passes. Vulkan 1.0 requires `Block` on the `StorageBuffer` runtime-array struct (`VUID-StandaloneSpirv-OpTypeRuntimeArray-04680`). | Import rejects the block decoration |
+| `subgroup-operations-s.spvasm` | SPIR-V 1.3 | Universal 1.3 passes. Vulkan 1.1 requires a memory class bit with acquire-release ordering (`VUID-StandaloneSpirv-MemorySemantics-10870`). | Import rejects the barrier's empty memory class mask |
+| `atomic_compare_exchange.spvasm` | SPIR-V 1.5 and 1.6 | Universal 1.5 and 1.6 and Vulkan 1.3 reject the compare-exchange instruction. Both masks set `WorkgroupMemory` with relaxed order (`VUID-StandaloneSpirv-MemorySemantics-10871` under Vulkan). | Import rejects the atomic instruction (`SAGA6002`) |
+| `degrees.spvasm`, `inv-hyperbolic-trig-functions.spvasm` | SPIR-V 1.0 and 1.6 | Universal 1.0 and 1.6, Vulkan 1.0 and 1.3 reject the fragment entry point because it declares neither origin mode | Import rejects the missing `OriginUpperLeft` (`SAGA7001`) |
+
+Under universal SPIR-V 1.6, validation rejects `8151-barrier-reorder`,
+`bitcast-f16` and `spec-constants` for omitted entry interface variables.
+It rejects `f16-spv`, `shadow` and `sign-adjusted-ops` because `BufferBlock`
+is available through SPIR-V 1.3. The subgroup barrier has subgroup execution
+scope, workgroup memory scope and no memory class bits. SAGA's subgroup barrier
+IR couples subgroup execution with memory synchronization.
+
+The compare-exchange source SHA-256 is
+`6bcb1dce8db05a387b37281aaf5a4da04a44347a219f263af5d7f95f3a4e4b79`.
+The SPIR-V 1.5 and 1.6 binary hashes are
+`9e9ffd0ded3262d9ad98d8ddbd12bed845ba3d9d4539c0a5f5808246c5d07ebe` and
+`784451c6a823cde3d430afbd399c46818ec3c4179b74952ae7dd589d2792fa50`.
+A scratch control set both semantics operands to zero and kept Workgroup scope.
+It passed universal and Vulkan validation. SAGA generated WGSL, MSL, HLSL and GLSL
+and built a WebGPU compute artifact from the control.
+[Vulkan memory semantics rule](https://docs.vulkan.org/spec/latest/appendices/spirvenv.html#VUID-StandaloneSpirv-MemorySemantics-10871).
+
+The fragment origin results apply to these source and binary SHA-256 hashes at the pinned revision.
+
+| Input under `naga/tests/in/spv/` | Pinned source | SPIR-V 1.0 binary | SPIR-V 1.6 binary |
+| --- | --- | --- | --- |
+| `degrees.spvasm` | `5676d4bef44bebba2da8cffb29b32fd3c969d9b69e6d4106fcd96fff77fc3df7` | `5f8ab641f6ecf7b4a035bba8efd19b523f87cba02547ad796fe5e230d0fa0c17` | `f11574154ea225ea86aa27b163b2e7ed172da9a0caea936a1d12971d650559b5` |
+| `inv-hyperbolic-trig-functions.spvasm` | `7041107675db9130f565336d822a1f5e2cbc1697279055984f0be8ee41c29e62` | `8e81bcb1cfc7cc5de2149da0c8bfffce036d3ae71a7a9b2aa61039aba58df1aa` | `3bd8e1f09b87e95da8dcb4aef60fbc9ff5fb8b7e18dd06a397362f68c00c899a` |
+
+In scratch SPIR-V 1.0 controls, adding only `OriginUpperLeft` let both shaders pass
+Universal and Vulkan validation, SAGA import, and SAGA semantic validation. Controls
+with only `OriginLowerLeft` passed Universal validation and were rejected by Vulkan
+(`VUID-StandaloneSpirv-OriginLowerLeft-04653`) and SAGA (`SAGA6002`).
+The configured corpus retains the original inputs and their pinned acceptance expectations.
+[SPIR-V 1.0 validation rules](https://registry.khronos.org/SPIR-V/specs/1.0/SPIRV.html),
+[Vulkan SPIR-V environment](https://docs.vulkan.org/spec/latest/appendices/spirvenv.html).
 
 No board/workflow edits, dependencies, commits, publication or Rust writes. The full
 SAGA-5 frontend/semantic DoD remains OPEN. This documentation/audit-only child adds no

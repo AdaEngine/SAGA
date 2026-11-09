@@ -64,6 +64,60 @@ func translatesImplicitNagaSubgroupBuiltinsOnNativeTargets(_ format: ShaderOutpu
     _ = try compiler.parseAndValidate(.wgsl(text), capabilities: [.subgroup])
 }
 
+@Test func nagaWGSLSourceProfileNormalizesPortableSourceForWebGPU() throws {
+    let source = ShaderInput.wgsl("""
+        const maximum: f32 = 3.40282347e38;
+        @group(0) @binding(0) var<storage, read_write> output: u32;
+        @compute @workgroup_size(32u, 2i)
+        fn main(@builtin(subgroup_invocation_id) lane: u32) {
+            let ballot = subgroupBallot();
+            output = bitcast<u32>(maximum) ^ quadBroadcast(ballot.x + lane, 4u);
+        }
+        """)
+    let compiler = IndependentShaderCompiler(wgslSourceProfile: .nagaNative)
+    let output = try compiler.compileCompute(source, entryPoint: "main", to: .wgsl)
+    #expect(output.workgroupSize == .init(x: 32, y: 2))
+    #expect(output.requiresSubgroups)
+    guard case .text(.wgsl, let text) = output.artifact else { throw ShaderFailure.incompatibleArtifact }
+    #expect(try compiler.compile(source, to: .wgsl) == output.artifact)
+    #expect(text.contains("enable subgroups;"))
+    #expect(text.contains("subgroupBallot(true)"))
+    #expect(text.contains("quadBroadcast(") && !text.contains(", 4u)"))
+    let browser = try compiler.compileWebGPUCompute(.wgsl(text))
+    #expect(browser.workgroupSize == output.workgroupSize)
+    #expect(browser.requiresSubgroups)
+    #expect(throws: ShaderFailure.self) { try compiler.compileWebGPUCompute(source) }
+    #expect(throws: ShaderFailure.self) { try compiler.parseAndValidate(source, capabilities: [.subgroup]) }
+    #expect(throws: ShaderFailure.self) { try IndependentShaderCompiler().compile(source, to: .wgsl) }
+    let dot = try compiler.compileDOT(source)
+    #expect(try compiler.compile(source, to: .dot) == dot)
+}
+
+@Test func nagaWGSLSourceProfileEmitsNativeNarrowWGSL() throws {
+    let compiler = IndependentShaderCompiler(wgslSourceProfile: .nagaNative)
+    let output = try compiler.compileCompute(narrowSubgroupSource, entryPoint: "main", to: .wgsl)
+    #expect(output.requiresShaderInt16 && output.requiresSubgroups)
+    guard case .text(.wgsl, let text) = output.artifact else { throw ShaderFailure.incompatibleArtifact }
+    #expect(text.contains("enable wgpu_int16;"))
+    let msl = try IndependentShaderCompiler().compileCompute(.wgsl(text), to: .msl)
+    #expect(msl.requiresShaderInt16 && msl.requiresSubgroups)
+    #expect(throws: ShaderFailure.unsupported("16-bit integer types require native shader output")) {
+        try compiler.compileWebGPUCompute(.wgsl(text))
+    }
+}
+
+@Test func nagaWGSLSourceProfileKeepsBrowserRenderRoundingStrict() throws {
+    let source = ShaderInput.wgsl("""
+        const maximum: f32 = 3.40282347e38;
+        @fragment fn main() -> @location(0) vec4f { return vec4f(maximum); }
+        """)
+    let compiler = IndependentShaderCompiler(wgslSourceProfile: .nagaNative)
+    let output = try compiler.compileRenderStage(source, entryPoint: "main", to: .wgsl)
+    guard case .text(.wgsl, let text) = output.artifact else { throw ShaderFailure.incompatibleArtifact }
+    _ = try compiler.compileWebGPURenderStage(.wgsl(text), entryPoint: output.entryPoint)
+    #expect(throws: ShaderFailure.self) { try compiler.compileWebGPURenderStage(source, entryPoint: "main") }
+}
+
 @Test func keepsExplicitWGSLSubgroupRequirementsForWebGPUAndDefaultParser() {
     let compiler = IndependentShaderCompiler()
     #expect(throws: ShaderFailure.self) {

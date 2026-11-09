@@ -352,6 +352,7 @@ public actor Device {
             try capabilities.requireShaderInt64Atomics(minMax: shader.requiresShaderInt64AtomicMinMax,
                                                       allOps: shader.requiresShaderInt64AtomicAllOps)
             if shader.requiresSubgroups { try capabilities.require([.subgroups]) }
+            if shader.requiresCooperativeMatrix { try capabilities.require([.cooperativeMatrix]) }
             if shader.requiresSubgroupUniformity { try capabilities.require([.subgroupUniformity]) }
             try capabilities.requireSubgroupSize(shader.requiredSubgroupSize)
             if shader.requiresSubgroupID { try capabilities.require([.subgroupID]) }

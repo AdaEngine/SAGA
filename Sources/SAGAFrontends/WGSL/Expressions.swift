@@ -21,11 +21,22 @@ extension WGSLParser {
             }
         }
         // In hexadecimal integers 'f' is a digit, not a suffix.
-        let explicitFloat = text.hasSuffix("f") && (!isHex || text.lowercased().contains("p"))
-        if floating || explicitFloat || explicitHalf {
-            if explicitFloat || explicitHalf { text.removeLast() }
-            if isHex { return try hexFloat(text, kind: explicitHalf ? .f16 : explicitFloat ? .f32 : .abstract, at: t) }
+        let explicitDouble = text.hasSuffix("lf")
+        let explicitFloat = !explicitDouble && text.hasSuffix("f") && (!isHex || text.lowercased().contains("p"))
+        if floating || explicitFloat || explicitHalf || explicitDouble {
+            if explicitDouble {
+                try requireFloat64(at: t)
+                guard !isHex || text.lowercased().contains("p") else {
+                    throw wgslError(.invalidToken, "Hex f64 literal requires a binary exponent", t)
+                }
+                text.removeLast(2)
+            } else if explicitFloat || explicitHalf {
+                text.removeLast()
+            }
+            let kind: WGSLFloatKind = explicitDouble ? .f64 : explicitHalf ? .f16 : explicitFloat ? .f32 : .abstract
+            if isHex { return try hexFloat(text, kind: kind, at: t) }
             guard !text.hasSuffix("u"), !text.hasSuffix("i"), let d = Double(text), d.isFinite else { throw wgslError(.invalidToken,"Invalid float literal",t) }
+            if explicitDouble { return (.f64(d), .f64) }
             if explicitFloat {
                 guard let f = Float(text), f.isFinite else { throw wgslError(.invalidToken,"f32 literal overflow",t) }; return (.f32(f),.f32)
             }
@@ -68,12 +79,14 @@ extension WGSLParser {
             if s == .u32, let v = UInt32(exactly:n) { return .u32(v) }
             if s == .i32, let v = Int32(exactly:n) { return .i32(v) }
             if s == .f32 { let v = Float(n); if v.isFinite { return .f32(v) } }
+            if s == .f64 { return .f64(Double(n)) }
             if s == .f16,
                let converted = WGSLFloatingConstant.rounded(Double(n), to: .f16, nagaFloatRounding: options.nagaFloatRounding) {
                 return converted.literal
             }
             if s == .abstractFloat { return .abstractFloat(Double(n)) }
         case .abstractFloat(let n):
+            if s == .f64 { return .f64(n) }
             if s == .f32 || s == .f16,
                let converted = WGSLFloatingConstant.rounded(n, to: s == .f32 ? .f32 : .f16,
                                                             nagaFloatRounding: options.nagaFloatRounding) {
@@ -261,7 +274,10 @@ extension WGSLParser {
                 numericOperator = op.text
             }
             if op.text == "&&" || op.text == "||" {
-                _ = try take(); left = try shortCircuit(left, op:op, precedence:precedence); continue
+                _ = try take()
+                left = try shortCircuit(left, op: op, precedence: precedence,
+                                        expressionStart: leftStart, minimum: minimum)
+                continue
             }
             _ = try take()
             if shift { _ = try take() }
@@ -407,6 +423,9 @@ extension WGSLParser {
                 if n.text == "bitcast", isNext("<"), declarationNames[wgslKey(n.text)] == nil,
                    !(try localConstantNameExists(n)) {
                     value = try bitcastExpression(at: n, start: start)
+                } else if Self.cooperativeLoads.contains(n.text), isNext("<"), declarationNames[wgslKey(n.text)] == nil,
+                          !(try localConstantNameExists(n)) {
+                    value = try cooperativeLoad(at: n)
                 } else if try eat("(") { value = try call(n) }
                 else { value = try lookup(n) }
             }
@@ -585,7 +604,7 @@ extension WGSLParser {
         guard case .pointer(_,let space) = types[body.expressions[value.handle.index].type.index].kind else { throw wgslError(.invalidType,"Expected pointer",token) }; return space
     }
     func isTypeName(_ name: String) -> Bool {
-        predeclaredType(name) != nil || typeNames[wgslKey(name)] != nil || declarationNames[wgslKey(name)].map { ["alias","struct"].contains(declarations[$0].kind) } == true || ["u16","u32","u64","i16","i32","i64","f32","f16","bool","vec2","vec3","vec4","array","mat2x2","mat2x3","mat2x4","mat3x2","mat3x3","mat3x4","mat4x2","mat4x3","mat4x4"].contains(name)
+        predeclaredType(name) != nil || Self.isCooperativeMatrixName(name) || typeNames[wgslKey(name)] != nil || declarationNames[wgslKey(name)].map { ["alias","struct"].contains(declarations[$0].kind) } == true || ["u16","u32","u64","i16","i32","i64","f64","f32","f16","bool","vec2","vec3","vec4","array","mat2x2","mat2x3","mat2x4","mat3x2","mat3x3","mat3x4","mat4x2","mat4x3","mat4x4"].contains(name)
     }
     func arguments() throws -> [WGSLValue] {
         var args: [WGSLValue] = []
@@ -614,7 +633,7 @@ extension WGSLParser {
         var args = try supplied ?? arguments()
         if args.isEmpty {
             switch types[target.index].kind {
-            case .scalar, .vector, .matrix, .array(_, .constant, _), .structure: break
+            case .scalar, .vector, .matrix, .cooperativeMatrix, .array(_, .constant, _), .structure: break
             default:throw unsupported("zero composite constructor",at:t)
             }
             return try expressionNode(.zeroValue(target),type:target,at:t,emit:false)
@@ -712,6 +731,7 @@ extension WGSLParser {
             return try subgroupGather(at: name)
         }
         if declarationNames[wgslKey(name.text)] == nil {
+            if name.text == "coopMultiplyAdd" { return try cooperativeMultiplyAdd(at: name) }
             if name.text == "subgroupBallot" { return try subgroupBallot(at: name) }
             if name.text == "subgroupElect" { return try subgroupElect(at: name) }
             if let (operation, collective) = IRSubgroupOperation.wgslBuiltins[name.text] {

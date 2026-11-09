@@ -57,7 +57,8 @@ func nagaAbstractFloatBoundariesRejectOverflowAndKeepPackingChecks(_ declaration
 
 #if canImport(Metal)
 @Test func nagaAbstractFloatBoundariesPreserveFiniteBitsOnMetal() async throws {
-    let shader = try IndependentShaderCompiler(nagaFloatRounding: true).compileCompute(.wgsl(boundaryShader), to: .msl)
+    let shader = try IndependentShaderCompiler(wgslSourceProfile: .nagaNative)
+        .compileCompute(.wgsl(boundaryShader), to: .msl)
     let device = try await Device.make(backend: MetalBackend.makeDevice())
     do {
         let pipeline = try await device.createComputePipeline(shader)

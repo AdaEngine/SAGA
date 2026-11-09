@@ -26,6 +26,13 @@ where Frontend.Module == Validator.Module, Validator.Module == Generator.Module 
     }
 }
 
+public enum WGSLSourceProfile: Sendable, Equatable {
+    /// Enables native WGSL syntax for MSL, HLSL, GLSL, and SPIR-V translation.
+    case targetDefault
+    /// Accepts Naga's mixed workgroup dimensions, implicit subgroups, and abstract float rounding.
+    case nagaNative
+}
+
 public struct IndependentShaderCompiler: Sendable {
     private static let compilationCapabilities = ShaderCapabilities.referenceDefault.union([
         .storageTexture16BitNormFormats, .linearInterpolation, .shaderFloat16, .clipDistances, .primitiveIndex, .subgroup, .dualSourceBlending, .earlyDepthTest, .immediates,
@@ -35,14 +42,22 @@ public struct IndependentShaderCompiler: Sendable {
     ])
 
     let nagaFloatRounding: Bool
+    private let wgslSourceProfile: WGSLSourceProfile
 
     public init() {
-        self.init(nagaFloatRounding: false)
+        self.init(wgslSourceProfile: .targetDefault)
     }
 
     /// Allows abstract values just outside a float's finite range when Naga rounds them to finite values.
     public init(nagaFloatRounding: Bool) {
         self.nagaFloatRounding = nagaFloatRounding
+        self.wgslSourceProfile = .targetDefault
+    }
+
+    /// Selects a WGSL source dialect for compilation. WebGPU compilation and standalone validation use their default rules.
+    public init(wgslSourceProfile: WGSLSourceProfile) {
+        self.nagaFloatRounding = false
+        self.wgslSourceProfile = wgslSourceProfile
     }
 
     public func compile(_ input: ShaderInput, to output: ShaderOutputFormat) throws -> ShaderArtifact {
@@ -128,7 +143,8 @@ public struct IndependentShaderCompiler: Sendable {
         bindingArrayLengths: [IRResourceBinding: UInt32], webGPU: Bool
     ) throws -> ComputeShaderArtifact {
         let generator = try generator(for: input, output: output, bindingArrayLengths: bindingArrayLengths, webGPU: webGPU)
-        let (validated, validator) = try validatePipelineInput(input, output: output, bindingArrayLengths: bindingArrayLengths)
+        let (validated, validator) = try validatePipelineInput(input, output: output,
+            bindingArrayLengths: bindingArrayLengths, webGPU: webGPU)
         let entries = validated.module.entryPoints
         let entry = try selectComputeEntryPoint(entries, named: entryPoint)
         let specialized = try specializeOverrides(validated, entry: entry, constants: constants,
@@ -179,7 +195,7 @@ public struct IndependentShaderCompiler: Sendable {
     ) throws -> RenderStageArtifact {
         try Task.checkCancellation()
         let module = try pipelineModule(input, output: output, entryPoint: entryPoint, constants: constants,
-                                        bindingArrayLengths: bindingArrayLengths)
+                                        bindingArrayLengths: bindingArrayLengths, webGPU: webGPU)
         let compiled = try RenderCodeGenerator(output, bindingArrayLengths: bindingArrayLengths, webGPU: webGPU,
                                                metalVertexBuffers: metalVertexBuffers)
             .generate(module, entryPoint: entryPoint)
@@ -219,9 +235,10 @@ public struct IndependentShaderCompiler: Sendable {
 
     private func pipelineModule(
         _ input: ShaderInput, output: ShaderOutputFormat, entryPoint: String? = nil, constants: [String: Double],
-        bindingArrayLengths: [IRResourceBinding: UInt32]
+        bindingArrayLengths: [IRResourceBinding: UInt32], webGPU: Bool = false
     ) throws -> ValidatedModule<IRModule> {
-        let (module, validator) = try validatePipelineInput(input, output: output, bindingArrayLengths: bindingArrayLengths)
+        let (module, validator) = try validatePipelineInput(input, output: output,
+            bindingArrayLengths: bindingArrayLengths, webGPU: webGPU)
         let entries = module.module.entryPoints
         let entry = if let entryPoint {
             entries.first { $0.name.utf8.elementsEqual(entryPoint.utf8) }
@@ -234,19 +251,24 @@ public struct IndependentShaderCompiler: Sendable {
     }
 
     private func validatePipelineInput(
-        _ input: ShaderInput, output: ShaderOutputFormat, bindingArrayLengths: [IRResourceBinding: UInt32]
+        _ input: ShaderInput, output: ShaderOutputFormat, bindingArrayLengths: [IRResourceBinding: UInt32],
+        webGPU: Bool = false
     ) throws -> (ValidatedModule<IRModule>, ShaderSemanticValidator) {
         var capabilities = Self.compilationCapabilities
         if output != .msl { capabilities.insert(.shaderInt64AtomicAllOps) }
-        let usesNativeWGSLProfile = switch output {
+        if [.hlsl, .glsl, .spirv, .dot].contains(output) { capabilities.insert(.float64) }
+        if !webGPU { capabilities.insert(.cooperativeMatrix) }
+        let usesNagaSource = !webGPU && wgslSourceProfile == .nagaNative
+        let nativeTarget = switch output {
         case .msl, .hlsl, .glsl, .spirv: true
         case .wgsl, .dot: false
         }
         let validator = ShaderSemanticValidator(capabilities: capabilities, allowsVertexWritableStorage: true)
         let module = try parseAndValidate(input, validator: validator,
-                                          allow1DTextureSampleLevelOffset: output == .hlsl || output == .glsl || output == .dot,
-                                          allowMixedWorkgroupDimensionTypes: usesNativeWGSLProfile,
-                                          allowLegacyNagaSubgroups: usesNativeWGSLProfile)
+                                          allow1DTextureSampleLevelOffset: output == .hlsl || output == .glsl || output == .spirv || output == .dot,
+                                          allowMixedWorkgroupDimensionTypes: nativeTarget || usesNagaSource,
+                                          allowLegacyNagaSubgroups: nativeTarget || usesNagaSource,
+                                          useNagaFloatRounding: usesNagaSource)
         if !bindingArrayLengths.isEmpty {
             try validateBindingArrayLengths(bindingArrayLengths, in: module.module)
         }

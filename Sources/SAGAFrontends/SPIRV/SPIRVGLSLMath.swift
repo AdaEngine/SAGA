@@ -154,11 +154,10 @@ extension SPVFunctionLowerer {
                 try result(instruction, glslMathExpression(function, handles), &statements)
             }
         } else if function == .ldexp {
-            guard let shape = resultType.concreteFloatShape, resultType == operandTypes[0] else {
+            guard let shape = resultType.ldexpExponentType.flatMap(SPVGLSLShape.init), resultType == operandTypes[0] else {
                 throw instruction.fail("Invalid GLSL Ldexp mantissa or result")
             }
-            let exponent = SPVGLSLShape(size: shape.size, scalar: .i32)
-            handles[1] = try glslIntegerBits(handles[1], operandTypes[1], as: exponent, &statements, instruction)
+            handles[1] = try glslIntegerBits(handles[1], operandTypes[1], as: shape, &statements, instruction)
             try result(instruction, glslMathExpression(function, handles), &statements)
         } else if (69...72).contains(opcode), case .scalar(let scalar) = operandTypes[0],
                   scalar == .f32 || scalar == .f16 {
@@ -170,7 +169,7 @@ extension SPVFunctionLowerer {
             try result(instruction, glslMathExpression(function, handles), &statements)
         } else {
             guard function.numericBuiltin != nil, let shape = SPVGLSLShape(resultType), shape.scalar.kind == .float,
-                  !(11...32).contains(opcode) || shape.scalar.width <= 4,
+                  shape.scalar != .f64 || function.hasGLSLDoubleOverload,
                   operandTypes.allSatisfy({ $0 == resultType }) else {
                 throw instruction.fail("Invalid GLSL floating builtin operands or result")
             }

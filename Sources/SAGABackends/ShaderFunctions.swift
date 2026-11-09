@@ -162,6 +162,8 @@ struct ShaderFunctions {
     let requiresShaderInt64AtomicAllOps: Bool
     let demotesToHelperInvocation: Bool
     let requiresDebugPrintf: Bool
+    let comparisonSampleHLSLMinorVersion: Int
+    let usesCooperativeMatrix: Bool
     let subgroupExtensions: Set<String>
     let subgroupUsesFloat16: Bool
     let floatTextureSamplers: [Int: Set<IRResourceBinding>]
@@ -170,6 +172,7 @@ struct ShaderFunctions {
     private(set) var integerHelpers: Set<IntegerShaderHelper> = []
     private(set) var integerVectorHelpers: Set<IntegerVectorHelper> = []
     private(set) var glslExtensions: [String] = []
+    private(set) var glslTextureAliases: [Int: (name: String, unit: UInt32)] = [:]
 
     init(module: IRModule, entry: IRHandle<IRFunction>) throws {
         var budget = ShaderBudget()
@@ -181,6 +184,8 @@ struct ShaderFunctions {
         var needsFullInt64Atomics = false
         var demotes = false
         var prints = false
+        var comparisonSampleHLSLMinorVersion = 0
+        var usesCooperativeMatrix = false
         var subgroupExtensions: Set<String> = []
         var subgroupFloat16 = false
         var floatTextureSamplers: [Int: Set<IRResourceBinding>] = [:]
@@ -194,6 +199,11 @@ struct ShaderFunctions {
         while let handle = pending.popLast() {
             try budget.consume(.work)
             let function = try module.functions.value(for: handle)
+            for local in function.localVariables.values {
+                if case .cooperativeMatrix = try module.types.value(for: local.type).kind {
+                    usesCooperativeMatrix = true
+                }
+            }
             for statement in function.statements.values {
                 try budget.consume(.work)
                 var subgroupOperand: IRHandle<IRExpression>?
@@ -240,12 +250,24 @@ struct ShaderFunctions {
                 try budget.consume(.work)
                 if case .globalVariable(let global) = expression.kind {
                     captures[handle.index, default: []].insert(global.index)
+                    if case .cooperativeMatrix = try module.types.value(for: module.globalVariables.values[global.index].type).kind {
+                        usesCooperativeMatrix = true
+                    }
                 }
+                if case .cooperativeLoad = expression.kind { usesCooperativeMatrix = true }
+                if case .cooperativeMultiplyAdd = expression.kind { usesCooperativeMatrix = true }
                 if !needsFullInt64Atomics, case .load(let pointer) = expression.kind,
                    try wideAtomicSpace(pointer, in: function) != nil {
                     needsFullInt64Atomics = true
                 }
                 if case .imageSample(let sample) = expression.kind {
+                    if sample.depthReference != nil {
+                        switch sample.level {
+                        case .gradient: comparisonSampleHLSLMinorVersion = 8
+                        case .exact: comparisonSampleHLSLMinorVersion = max(comparisonSampleHLSLMinorVersion, 7)
+                        default: break
+                        }
+                    }
                     let image = try function.expressions.value(for: sample.image)
                     let kind = try module.types.value(for: image.type).kind
                     if !kind.isDepthTexture, kind.sampledTextureScalar == .f32,
@@ -296,6 +318,8 @@ struct ShaderFunctions {
         self.requiresShaderInt64AtomicAllOps = needsFullInt64Atomics
         self.demotesToHelperInvocation = demotes
         self.requiresDebugPrintf = prints
+        self.comparisonSampleHLSLMinorVersion = comparisonSampleHLSLMinorVersion
+        self.usesCooperativeMatrix = usesCooperativeMatrix
         self.subgroupExtensions = subgroupExtensions
         self.subgroupUsesFloat16 = subgroupFloat16
         self.floatTextureSamplers = floatTextureSamplers
@@ -342,14 +366,10 @@ struct ShaderFunctions {
         sharedEntries: [IRHandle<IRFunction>] = []
     ) throws -> [(declaration: String, reflection: ComputeShaderArtifact.GLSLTextureSamplerBinding)] {
         let stageFunctions = order + [entry.index]
-        let (stagePairs, standalone, needsShadowLod) = try glslTextureUses(
+        let (stagePairs, standalone, fetches, needsShadowLod) = try glslTextureUses(
             module: module, functions: stageFunctions, bindingArrayLengths: bindingArrayLengths)
         if needsShadowLod { glslExtensions = ["#extension GL_EXT_texture_shadow_lod : require"] }
         let limit = ComputeShaderArtifact.sampledTextureBindingCapacity
-        guard stagePairs.count + standalone <= Int(limit) else {
-            throw ShaderFailure.unsupported("GLSL combined texture units exceed the per-stage limit")
-        }
-        guard !stagePairs.isEmpty else { return [] }
 
         // Stages compiled from the same render module must agree on each combined unit.
         let additional = try additionalFunctions(module: module, entries: sharedEntries, excluding: Set(stageFunctions))
@@ -361,6 +381,19 @@ struct ShaderFunctions {
         }
         let capacity = sharedEntries.isEmpty ? limit : 2 * limit
         let units = (0..<(2 * capacity)).filter { !textureSlots.contains($0) }
+        var independent = standalone
+        for (pair, unit) in zip(pairs, units) {
+            // Fetches need a regular sampler. Size and level queries accept either sampler type.
+            if pair.externalPlane == nil, pair.texture.element == nil, stagePairs.contains(pair),
+               !pair.isComparison || !fetches.contains(pair.texture),
+               independent.remove(pair.texture) != nil {
+                glslTextureAliases[pair.texture.global] = (pair.name, unit)
+            }
+        }
+        guard stagePairs.count + independent.count <= Int(limit) else {
+            throw ShaderFailure.unsupported("GLSL combined texture units exceed the per-stage limit")
+        }
+        guard !stagePairs.isEmpty else { return [] }
         guard pairs.count <= Int(capacity), pairs.count <= units.count else {
             throw ShaderFailure.unsupported("GLSL combined texture units exceed the linked-stage limit")
         }
@@ -457,9 +490,11 @@ struct ShaderFunctions {
 
     private mutating func glslTextureUses(
         module: IRModule, functions: [Int], bindingArrayLengths: [IRResourceBinding: UInt32]
-    ) throws -> (pairs: Set<ShaderTextureSamplerPair>, standaloneCount: Int, needsShadowLod: Bool) {
+    ) throws -> (pairs: Set<ShaderTextureSamplerPair>, standalone: Set<GLSLResourceElement>,
+                 fetches: Set<GLSLResourceElement>, needsShadowLod: Bool) {
         var pairs = Set<ShaderTextureSamplerPair>()
         var standalone = Set<GLSLResourceElement>()
+        var fetches = Set<GLSLResourceElement>()
         var needsShadowLod = false
         for index in functions {
             let function = module.functions.values[index]
@@ -493,7 +528,7 @@ struct ShaderFunctions {
                     let expression = try function.expressions.value(for: load.image)
                     let kind = try module.types.value(for: expression.type).kind
                     if kind.isSampledTexture {
-                        standalone.formUnion(try GLSLResourceElement.choices(
+                        fetches.formUnion(try GLSLResourceElement.choices(
                             load.image, in: function, module: module, bindingArrayLengths: bindingArrayLengths))
                     } else if kind.isExternalTexture,
                               let global = try ShaderTextureSamplerPair.resourceGlobal(load.image, in: function) {
@@ -513,7 +548,7 @@ struct ShaderFunctions {
                 }
             }
         }
-        return (pairs, standalone.count, needsShadowLod)
+        return (pairs, standalone.union(fetches), fetches, needsShadowLod)
     }
 
     mutating func bindMetalStorage(_ storage: [[ShaderParameter]]) throws {
@@ -768,9 +803,25 @@ func shaderValueType(
     case .scalar(.i64): return signed64Type(in: format)
     case .scalar(.i32): return format == .wgsl ? "i32" : "int"
     case .scalar(.f32): return floatType(1, in: format)
+    case .scalar(.f64): return try shaderVectorType(1, scalar: .f64, in: format)
     case .scalar(.f16): return halfType(1, in: format)
+    case .cooperativeMatrix(_, _, let scalar, _) where format == .hlsl && (scalar == .f32 || scalar == .f16):
+        return "saga_coop_tile"
+    case .cooperativeMatrix(let columns, let rows, let scalar, _) where format == .msl && (scalar == .f32 || scalar == .f16):
+        let element = scalar == .f32 ? "float" : "half"
+        if columns == .eight && rows == .eight { return "simdgroup_\(element)8x8" }
+        return "saga_coop_\(element)_\(columns.rawValue)x\(rows.rawValue)"
+    case .cooperativeMatrix(let columns, let rows, let scalar, let role) where format == .glsl && (scalar == .f32 || scalar == .f16):
+        let use = switch role { case .a: "gl_MatrixUseA"; case .b: "gl_MatrixUseB"; case .c: "gl_MatrixUseAccumulator" }
+        return "coopmat<\(scalar == .f32 ? "float" : "float16_t"), gl_ScopeSubgroup, \(rows.rawValue), \(columns.rawValue), \(use)>"
+    case .cooperativeMatrix(let columns, let rows, let scalar, let role) where format == .wgsl && (scalar == .f32 || scalar == .f16):
+        let roleName = switch role { case .a: "A"; case .b: "B"; case .c: "C" }
+        return "coop_mat\(columns.rawValue)x\(rows.rawValue)<\(scalar == .f32 ? "f32" : "f16"), \(roleName)>"
     case .vector(let size, let scalar): return try shaderVectorType(size.rawValue, scalar: scalar, in: format)
-    case .matrix(let columns, let rows, let scalar) where [.f16, .f32].contains(scalar):
+    case .matrix(let columns, let rows, let scalar) where [.f16, .f32, .f64].contains(scalar):
+        if scalar == .f64, format != .glsl && format != .hlsl {
+            throw ShaderFailure.unsupported("f64 matrices require a double-precision shader target")
+        }
         return shaderMatrixType(columns.rawValue, rows.rawValue, scalar: scalar, in: format)
     default: throw ShaderFailure.unsupported("Shader value type")
     }
@@ -820,14 +871,21 @@ func shaderMatrixType(_ columns: UInt8, _ rows: UInt8, scalar: IRScalar, in form
     let half = scalar == .f16
     switch format {
     case .wgsl: return "mat\(shape)<\(half ? "f16" : "f32")>"
-    case .glsl: return "\(half ? "f16mat" : "mat")\(shape)"
-    default: return "\(half ? "half" : "float")\(shape)"
+    case .glsl: return "\(half ? "f16mat" : scalar == .f64 ? "dmat" : "mat")\(shape)"
+    default: return "\(half ? "half" : scalar == .f64 ? "double" : "float")\(shape)"
     }
 }
 
 func shaderVectorType(_ width: UInt8, scalar: IRScalar, in format: ShaderOutputFormat) throws -> String {
     if scalar == .f32 { return floatType(width, in: format) }
     if scalar == .f16 { return halfType(width, in: format) }
+    if scalar == .f64 {
+        switch format {
+        case .glsl: return width == 1 ? "double" : "dvec\(width)"
+        case .hlsl: return width == 1 ? "double" : "double\(width)"
+        default: throw ShaderFailure.unsupported("f64 requires a double-precision shader target")
+        }
+    }
     if scalar == .i16 || scalar == .u16 {
         let signed = scalar == .i16
         let lane = integer16Type(signed: signed, in: format)

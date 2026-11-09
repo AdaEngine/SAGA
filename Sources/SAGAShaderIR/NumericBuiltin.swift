@@ -23,6 +23,16 @@ package struct IRNumericBuiltin: Sendable {
 }
 
 extension IRMathFunction {
+    package var hasGLSLDoubleOverload: Bool {
+        switch self {
+        case .abs, .sign, .min, .max, .clamp, .ceil, .floor, .round, .fract, .trunc, .sqrt, .inverseSqrt,
+             .step, .fma, .smoothStep, .mix:
+            return true
+        default:
+            return false
+        }
+    }
+
     package init?(wgslName: String) {
         if wgslName == "smoothstep" { self = .smoothStep }
         else if wgslName == Self.smoothStep.rawValue || wgslName == Self.inverse.rawValue { return nil }

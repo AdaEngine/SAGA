@@ -81,6 +81,9 @@ struct SPIRVBinaryWriter {
     private var debugStrings: [UInt32] = []
     private var debugFormatIDs: [String: UInt32] = [:]
     private var debugPrintfInstructions: UInt32?
+    private var usesCooperativeMatrix = false
+    private var usesStorageDeviceScopeAtomics = false
+    private var usesCoherentOrVolatileStorage = false
     private var annotations: [UInt32] = []
     private var declarations: [UInt32] = []
     private var functions: [UInt32] = []
@@ -149,6 +152,12 @@ struct SPIRVBinaryWriter {
             try writeFunction(function, id: functionIDs[index], entryPlan: entryPlans[index]?.plan,
                               nonUniformDescriptors: nonUniformDescriptors[index] ?? [])
         }
+        if usesCooperativeMatrix && usesStorageDeviceScopeAtomics {
+            try requireCapability(5346) // VulkanMemoryModelDeviceScope
+        }
+        if usesCooperativeMatrix && usesCoherentOrVolatileStorage {
+            throw unsupported("does not support coherent or volatile storage decorations with the Vulkan memory model")
+        }
         try budget.consume(.words, amount: 5)
         var words: [UInt32] = [0x07230203, 0x00010300, 0, nextID, 0]
         for capability in capabilities.sorted() { words += try instruction(17, [capability]) }
@@ -159,7 +168,7 @@ struct SPIRVBinaryWriter {
         if let debugPrintfInstructions {
             words += try instruction(11, [debugPrintfInstructions] + stringWords("NonSemantic.DebugPrintf"))
         }
-        words += try instruction(14, [0, 1]) // OpMemoryModel Logical GLSL450
+        words += try instruction(14, usesCooperativeMatrix ? [0, 3] : [0, 1]) // Logical VulkanKHR / GLSL450
         for section in [entryPoints, executionModes, debugStrings, debug, annotations, declarations, functions] { words += section }
         return words
     }
@@ -208,6 +217,22 @@ struct SPIRVBinaryWriter {
     mutating func requireCapability(_ value: UInt32) throws {
         try charge()
         capabilities.insert(value)
+    }
+
+    mutating func requireCooperativeMatrix() throws {
+        usesCooperativeMatrix = true
+        try requireCapability(6022) // CooperativeMatrixKHR
+        try requireCapability(5345) // VulkanMemoryModel
+        extensions.insert("SPV_KHR_cooperative_matrix")
+        extensions.insert("SPV_KHR_vulkan_memory_model")
+    }
+
+    mutating func markStorageDeviceScopeAtomic() {
+        usesStorageDeviceScopeAtomics = true
+    }
+
+    mutating func markCoherentOrVolatileStorage() {
+        usesCoherentOrVolatileStorage = true
     }
 
     mutating func glslInstructionSetID() throws -> UInt32 {

@@ -3,7 +3,7 @@ import SAGAShaderIR
 extension GLSLParser {
     func forLoop(at start: GLSLToken) throws {
         let context = try requireContext()
-        context.scopes.append(GLSLScope())
+        context.scopes.append([:])
         defer { context.scopes.removeLast() }
         try expect("(")
         if !(try take(";")) {
@@ -88,7 +88,7 @@ extension GLSLParser {
         let c = try requireContext()
         var outer = c.current
         c.current = []
-        c.scopes.append(GLSLScope())
+        c.scopes.append([:])
         c.switches.append((c.loopDepth, false))
         defer {
             c.switches.removeLast()
@@ -165,19 +165,25 @@ extension GLSLParser {
             }
             value = converted
         }
-        let bits = try integerConstantBits(value.expression, at: start)
+        guard let bits = try integerConstantBits(value.expression, at: start) else {
+            throw glslError(start, .invalidType, "Switch label or const initializer requires a constant expression")
+        }
         let literal: IRLiteral = kind(value.type) == .scalar(.i32) ? .i32(Int32(bitPattern: bits)) : .u32(bits)
         return (value.type, bits, literal)
     }
 
-    private func integerConstantBits(_ handle: IRHandle<IRExpression>, at start: GLSLToken) throws -> UInt32 {
+    func foldLocalIntegerConstant(_ value: GLSLValue, at start: GLSLToken) throws -> GLSLValue {
+        guard let bits = try integerConstantBits(value.expression, at: start) else { return value }
+        let literal: IRLiteral = kind(value.type) == .scalar(.i32) ? .i32(Int32(bitPattern: bits)) : .u32(bits)
+        return try expressionNode(value.type, .literal(literal), at: start, emit: false)
+    }
+
+    private func integerConstantBits(_ handle: IRHandle<IRExpression>, at start: GLSLToken) throws -> UInt32? {
         try enter()
         defer { depth -= 1 }
         let expression = try requireContext().expressions[handle.index]
         let type = kind(expression.type)
-        guard type == .scalar(.i32) || type == .scalar(.u32) else {
-            throw glslError(start, .typeMismatch, "Expected a scalar integer constant")
-        }
+        guard type == .scalar(.i32) || type == .scalar(.u32) else { return nil }
         switch expression.kind {
         case .literal(.i32(let value)): return UInt32(bitPattern: value)
         case .literal(.u32(let value)): return value
@@ -188,11 +194,11 @@ extension GLSLParser {
             default: throw ShaderFailure.invalidHandle
             }
         case .cast(let operand, _): return try integerConstantBits(operand, at: start)
-        case .unary(.negate, let operand): return try 0 &- integerConstantBits(operand, at: start)
-        case .unary(.bitwiseNot, let operand): return try ~integerConstantBits(operand, at: start)
+        case .unary(.negate, let operand): return try integerConstantBits(operand, at: start).map { 0 &- $0 }
+        case .unary(.bitwiseNot, let operand): return try integerConstantBits(operand, at: start).map { ~$0 }
         case .binary(let op, let lhs, let rhs):
-            let left = try integerConstantBits(lhs, at: start)
-            let right = try integerConstantBits(rhs, at: start)
+            guard let left = try integerConstantBits(lhs, at: start),
+                  let right = try integerConstantBits(rhs, at: start) else { return nil }
             let signed = type == .scalar(.i32)
             switch op {
             case .add: return left &+ right
@@ -216,7 +222,7 @@ extension GLSLParser {
             }
         default: break
         }
-        throw glslError(start, .invalidType, "Switch label or const initializer requires a constant expression")
+        return nil
     }
 
     /// RHS evaluation and side effects occur only in the selected block, not eagerly.

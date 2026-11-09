@@ -39,10 +39,10 @@ extension SPIRVBinaryWriter {
                 mask = 2 // Lod
                 extras = try [literalID(.f32(0))]
             case .exact(let level):
-                opcode = 88
+                opcode = comparison ? 90 : 88
                 mask = 2
                 let id = try value(level, in: &state)
-                if kind.isDepthTexture {
+                if kind.isDepthTexture && !comparison {
                     extras = try [integerImageValueAsFloat(level, id: id, in: state)]
                 } else {
                     extras = [id]
@@ -52,7 +52,7 @@ extension SPIRVBinaryWriter {
                 mask = 1 // Bias
                 extras = try [value(bias, in: &state)]
             case .gradient(let x, let y):
-                opcode = 88
+                opcode = comparison ? 90 : 88
                 mask = 4 // Grad
                 extras = try [value(x, in: &state), value(y, in: &state)]
             }
@@ -165,6 +165,7 @@ extension SPIRVBinaryWriter {
         let valid = try texelAccessCondition(image: imageID, position: position, level: nil, sample: nil)
         let type = try scalarTypeID(storage.scalar)
         let pointerType = try pointerTypeID(storageClass: 11, pointee: type) // Image
+        markStorageDeviceScopeAtomic()
         let scope = try unsignedConstantID(1) // Device
         let zero = try unsignedConstantID(0) // Sample zero, relaxed memory semantics
         let opcode = try atomicOpcode(operation, signed: storage.scalar == .i32)

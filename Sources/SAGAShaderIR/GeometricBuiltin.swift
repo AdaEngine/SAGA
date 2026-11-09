@@ -11,7 +11,7 @@ extension IRMathFunction {
     package func geometricSignature(for operand: IRTypeKind) -> (arguments: [IRTypeKind], result: IRTypeKind)? {
         guard let arity = geometricArity else { return nil }
         if case .matrix(let columns, let rows, let scalar) = operand {
-            guard [.f16, .f32, .abstractFloat].contains(scalar) else { return nil }
+            guard [.f16, .f32, .f64, .abstractFloat].contains(scalar) else { return nil }
             switch self {
             case .transpose: return ([operand], .matrix(columns: rows, rows: columns, scalar: scalar))
             case .determinant where columns == rows: return ([operand], .scalar(scalar))
@@ -27,7 +27,7 @@ extension IRMathFunction {
         default: return nil
         }
         let scalarType = IRTypeKind.scalar(scalar)
-        let floats = [.f16, .f32, .abstractFloat].contains(scalar)
+        let floats = [.f16, .f32, .f64, .abstractFloat].contains(scalar)
         switch self {
         case .dot4I8Packed, .dot4U8Packed:
             guard operand == .scalar(.u32) else { return nil }

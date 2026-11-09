@@ -2,9 +2,18 @@ import SAGAShaderIR
 
 extension WGSLParser {
     // The RHS is emitted inside a conditional block, never evaluated eagerly.
-    func shortCircuit(_ left: WGSLValue, op: WGSLToken, precedence: Int) throws -> WGSLValue {
+    func shortCircuit(
+        _ left: WGSLValue, op: WGSLToken, precedence: Int, expressionStart: Int, minimum: Int
+    ) throws -> WGSLValue {
         let lhs = try loaded(left,at:op)
         guard types[lhs.type.index].kind == .scalar(.bool) else { throw wgslError(.typeMismatch,"Logical operand must be bool",op) }
+        if body.pipelineStages[lhs.handle.index] == .constant {
+            let end = try logicalExpressionEnd(minimum: minimum)
+            if case .boolean(let result)? = try constantLogicalValue(expressionStart..<end, at: op) {
+                cursor = end
+                return try expressionNode(.literal(.bool(result)), type: lhs.type, at: op, emit: false)
+            }
+        }
         let saved = body.current
         body.current = []
         let rhs = try loaded(expression(precedence + 1), at: op)
@@ -35,6 +44,39 @@ extension WGSLParser {
         try statement(.ifCondition(condition: lhs.handle, accept: op.text == "&&" ? rightBlock : empty,
                                    reject: op.text == "&&" ? empty : rightBlock), at: op)
         return try expressionNode(.load(pointer:ptr.handle),type:lhs.type,at:op)
+    }
+
+    private func logicalExpressionEnd(minimum: Int) throws -> Int {
+        var depth = 0
+        var end = cursor
+        while end != pipelineExpressionEnd {
+            try budget.consume(.work)
+            let next = tokens[end]
+            if next.kind == .end || (depth == 0 && (
+                next.closesGroup || [";", ",", "{", "}", ":"].contains(next.text) ||
+                (Self.binary[next.text]?.0 ?? Int.max) < minimum
+            )) {
+                break
+            }
+            if next.opensGroup { depth += 1 }
+            else if next.closesGroup { depth -= 1 }
+            end += 1
+        }
+        return end
+    }
+
+    private func constantLogicalValue(_ range: Range<Int>, at op: WGSLToken) throws -> WGSLScalarConstant? {
+        // Check the full typed expression before evaluating it. Parsing the RHS as a standalone
+        // expression would fold value-only errors even when the logical operator skips it.
+        do {
+            return try knownConstantValue(range, at: op)
+        } catch ShaderFailure.diagnostics(let diagnostics)
+            where diagnostics.allSatisfy({ $0.code == .unsupportedConstruct }) {
+            return nil
+        } catch ShaderFailure.budgetExceeded(.depth) {
+            // The constant evaluator has a smaller recursion limit than normal expression parsing.
+            return nil
+        }
     }
     // Checked scalar constant folding. No host trap on malformed untrusted literals.
     func fold(_ op: IRBinaryOperator, left: WGSLValue, right: WGSLValue, at t: WGSLToken) throws -> IRLiteral? {

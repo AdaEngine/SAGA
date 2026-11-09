@@ -202,6 +202,7 @@ public struct ComputeShaderArtifact: Sendable, Equatable {
     public let requiresShaderInt64AtomicMinMax: Bool
     public let requiresShaderInt64AtomicAllOps: Bool
     public let requiresSubgroups: Bool
+    public let requiresCooperativeMatrix: Bool
     public let requiresSubgroupUniformity: Bool
     /// The native compute pipeline must run with this subgroup size when present.
     public let requiredSubgroupSize: UInt32?
@@ -236,7 +237,7 @@ public struct ComputeShaderArtifact: Sendable, Equatable {
         requiresDebugPrintf: Bool = false,
         immediateLayout: ShaderImmediateLayout? = nil, usesGlobalInvocationIndex: Bool = false,
         usesWorkgroupIndex: Bool = false, requiredSubgroupSize: UInt32? = nil,
-        requiresSubgroupUniformity: Bool = false
+        requiresSubgroupUniformity: Bool = false, requiresCooperativeMatrix: Bool = false
     ) {
         self.artifact = artifact
         self.sourceEntryPoint = sourceEntryPoint
@@ -259,6 +260,7 @@ public struct ComputeShaderArtifact: Sendable, Equatable {
         self.requiresShaderInt64AtomicAllOps = requiresShaderInt64AtomicAllOps
         self.requiresSubgroups = requiresSubgroups
         self.requiresSubgroupUniformity = requiresSubgroupUniformity
+        self.requiresCooperativeMatrix = requiresCooperativeMatrix
         self.requiredSubgroupSize = requiredSubgroupSize
         self.requiresSubgroupID = requiresSubgroupID
         self.usesGlobalInvocationIndex = usesGlobalInvocationIndex

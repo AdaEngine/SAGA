@@ -1,12 +1,13 @@
 import SAGAShaderIR
 
-enum WGSLFloatKind: Equatable { case abstract, f32, f16 }
+enum WGSLFloatKind: Equatable { case abstract, f64, f32, f16 }
 struct WGSLFloatingConstant {
   let value: Double
   let kind: WGSLFloatKind
   var literal: IRLiteral {
     switch kind {
     case .abstract: .abstractFloat(value)
+    case .f64: .f64(value)
     case .f32: .f32(Float(value))
     case .f16: .f16Bits(Binary16.encode(value))
     }
@@ -16,7 +17,7 @@ struct WGSLFloatingConstant {
     guard value.isFinite else { return nil }
     let result: Double
     switch kind {
-    case .abstract:
+    case .abstract, .f64:
       result = value
     case .f32:
       guard nagaFloatRounding || abs(value) <= Double(Float.greatestFiniteMagnitude) else { return nil }

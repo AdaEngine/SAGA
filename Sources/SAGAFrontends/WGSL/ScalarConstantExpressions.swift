@@ -78,7 +78,7 @@ struct WGSLConstNode {
 
 struct WGSLScalarEvaluator {
   static let constantFunctions = [
-    "bool", "i16", "u16", "i32", "u32", "i64", "u64", "f32", "f16", "all", "any", "select",
+    "bool", "i16", "u16", "i32", "u32", "i64", "u64", "f64", "f32", "f16", "all", "any", "select",
   ]
   let parser: WGSLParser
   let tokens: [WGSLToken]
@@ -416,6 +416,8 @@ struct WGSLScalarEvaluator {
       case .f32(let x):
         return try append(
           .value(.floating(.init(value: Double(x), kind: .f32))), .floating(.f32), t)
+      case .f64(let x):
+        return try append(.value(.floating(.init(value: x, kind: .f64))), .floating(.f64), t)
       case .f16Bits(let bits):
         return try append(.value(.floating(.init(value: Double(Binary16.decode(bits)), kind: .f16))), .floating(.f16), t)
       default: throw wgslError(.unsupportedConstruct, "Numeric constant kind unsupported", t)
@@ -492,6 +494,9 @@ struct WGSLScalarEvaluator {
           scalar = .i64
         } else if name.text == "u64" {
           scalar = .u64
+        } else if name.text == "f64" {
+          try parser.requireFloat64(at: name)
+          scalar = .f64
         } else if name.text == "f32" {
           scalar = .f32
         } else if name.text == "f16" {
@@ -564,6 +569,8 @@ struct WGSLScalarEvaluator {
         callName = "i32"
       } else if scalar == .u32 {
         callName = "u32"
+      } else if scalar == .f64 {
+        callName = "f64"
       } else if scalar == .f32 {
         callName = "f32"
       } else if scalar == .f16 {
@@ -573,6 +580,7 @@ struct WGSLScalarEvaluator {
       }
     }
     if callName == "f16" { try parser.requireFloat16(at: t) }
+    if callName == "f64" { try parser.requireFloat64(at: t) }
     if callName == "i16" || callName == "u16" { try parser.requireInt16(at: t) }
     let function = IRMathFunction(wgslName: callName)
     let bitArity = function?.integerBitArity
@@ -622,10 +630,11 @@ struct WGSLScalarEvaluator {
       return try append(.numeric(function, args), signature.result, t)
     }
     let needed = callName == "select" ? 3 : 1
-    if args.isEmpty && ["bool", "i16", "u16", "i32", "u32", "i64", "u64", "f32", "f16"].contains(callName) {
+    if args.isEmpty && ["bool", "i16", "u16", "i32", "u32", "i64", "u64", "f64", "f32", "f16"].contains(callName) {
       let zero: WGSLScalarConstant
       switch callName {
       case "bool": zero = .boolean(false)
+      case "f64": zero = .floating(.init(value: 0, kind: .f64))
       case "f32": zero = .floating(.init(value: 0, kind: .f32))
       case "f16": zero = .floating(.init(value: 0, kind: .f16))
       case "i16": zero = .integer(.init(value: 0, kind: .sint16))
@@ -652,6 +661,7 @@ struct WGSLScalarEvaluator {
     }
     let kind: WGSLConstKind
     switch callName {
+    case "f64": kind = .floating(.f64)
     case "f32": kind = .floating(.f32)
     case "f16": kind = .floating(.f16)
     case "bool": kind = .boolean
@@ -930,8 +940,8 @@ struct WGSLScalarEvaluator {
       }
       return result
     }
-    if name == "f32" || name == "f16" {
-      result = try floatValue(value(args[0]), kind: name == "f16" ? .f16 : .f32, at: n.token, explicit: true)
+    if case .floating(let kind) = n.kind {
+      result = try floatValue(value(args[0]), kind: kind, at: n.token, explicit: true)
       return result
     }
     guard case .integer = n.kind else {

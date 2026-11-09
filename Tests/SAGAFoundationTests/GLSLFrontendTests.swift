@@ -94,9 +94,60 @@ import SAGAFrontends
         _ = try parse("#version 450\n#if 0 && (1/0)\n#error dead\n#endif\nvoid main(){}")
         _ = try parse("#version 450\n#if 1 || (1/0)\nvoid main(){}\n#endif")
     }
-    @Test func rejectsReadOnlyAndNonconstantConst() throws {
+    @Test func rejectsWritesToReadOnlyStorageAndLocalConst() throws {
         #expect(throws: ShaderFailure.self) { try parse("#version 450\nlayout(set=0,binding=0,std430) readonly buffer Data { uint x; } data; void main(){data.x=1u;}") }
-        #expect(throws: ShaderFailure.self) { try parse("#version 450\nint f(){return 2;} void main(){const int x=f();}") }
+        #expect(throws: ShaderFailure.self) { try parse("#version 450\nint f(){return 2;} void main(){const int x=f();x=3;}") }
+    }
+
+    @Test func acceptsRuntimeInitializersForReadOnlyLocals() throws {
+        let input = ShaderInput.glsl("""
+            #version 450
+            layout(local_size_x = 1) in;
+            layout(std430, binding = 0) buffer Result { int value; };
+            const ivec2 values[2] = ivec2[2](ivec2(1, 2), ivec2(3, 4));
+            int next(inout int index) { return index++; }
+            void main() {
+                int index = 0;
+                const int selected = next(index);
+                const ivec2 pair = values[selected];
+                const int label = 2 + 1;
+                switch (index) {
+                    case label: value = 0; break;
+                    default: value = pair.y + index;
+                }
+            }
+            """, stage: .compute, defines: [:])
+        let compiler = IndependentShaderCompiler()
+        let shader = try compiler.compileCompute(input, to: .wgsl)
+        if case .text(.wgsl, let source) = shader.artifact {
+            _ = try compiler.parseAndValidate(.wgsl(source))
+        }
+    }
+
+    @Test func runtimeConstIsRejectedWhereConstantExpressionIsRequired() {
+        #expect(throws: ShaderFailure.self) {
+            try parse("#version 450\nint f(){return 2;} void main(){const int x=f();switch(1){case x: break;}}")
+        }
+    }
+
+    @Test(arguments: [ShaderOutputFormat.wgsl, .msl, .hlsl, .glsl, .spirv])
+    func globalStructureConstantsWithNestedArraysReachBackends(_ format: ShaderOutputFormat) throws {
+        let input = ShaderInput.glsl("""
+            #version 450
+            layout(location = 0) flat in int index;
+            layout(location = 0) out vec4 color;
+            struct Palette { float opacity; vec3 colors[2]; };
+            const Palette palette = { 1.0, { vec3(1.0), vec3(0.0) } };
+            void main() {
+                const vec3 selected = palette.colors[index];
+                color = vec4(selected, palette.opacity);
+            }
+            """, stage: .fragment, defines: [:])
+        let compiler = IndependentShaderCompiler()
+        let artifact = try compiler.compile(input, to: format)
+        if case .text(.wgsl, let source) = artifact {
+            _ = try compiler.parseAndValidate(.wgsl(source))
+        }
     }
 
 }

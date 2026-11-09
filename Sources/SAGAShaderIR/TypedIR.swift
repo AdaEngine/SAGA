@@ -34,6 +34,7 @@ extension IRScalar {
  public static let u32 = IRScalar(kind: .uint, width: 4)
  public static let u64 = IRScalar(kind: .uint, width: 8)
  public static let i64 = IRScalar(kind: .sint, width: 8)
+ public static let f64 = IRScalar(kind: .float, width: 8)
  public static let i32 = IRScalar(kind: .sint, width: 4)
  public static let i16 = IRScalar(kind: .sint, width: 2)
  public static let f32 = IRScalar(kind: .float, width: 4)
@@ -42,7 +43,7 @@ extension IRScalar {
 
  package var isWGSLConversionScalar: Bool {
   switch self {
-  case .bool, .i16, .u16, .i32, .u32, .i64, .u64, .f32, .f16: return true
+  case .bool, .i16, .u16, .i32, .u32, .i64, .u64, .f64, .f32, .f16: return true
   default: return false
   }
  }
@@ -726,7 +727,9 @@ public struct IRImageLoad: Sendable, Equatable {
 }
 
 public struct IRCooperativeData: Sendable, Equatable {
+    /// Address of the first scalar in a packed array. The entire tile must fit in that array.
     public let pointer: IRHandle<IRExpression>
+    /// Distance between adjacent rows (row major) or columns (column major), in scalar elements.
     public let stride: IRHandle<IRExpression>
     public let rowMajor: Bool
     public init(pointer: IRHandle<IRExpression>, stride: IRHandle<IRExpression>, rowMajor: Bool) {
