@@ -3,18 +3,32 @@ import SAGAShaderIR
 // Typed integer values and audited arithmetic, shared by the scalar constant tree.
 struct WGSLIntegerConstant {
   enum Kind {
-    case abstract, sint, uint, sint64, uint64
+    case abstract, sint16, uint16, sint, uint, sint64, uint64
 
-    var isUnsigned: Bool { self == .uint || self == .uint64 }
+    var isUnsigned: Bool { self == .uint16 || self == .uint || self == .uint64 }
+    var isNarrow: Bool { self == .sint16 || self == .uint16 }
     var isWide: Bool { self == .sint64 || self == .uint64 }
-    var bitWidth: Int64 { self == .abstract || isWide ? 64 : 32 }
+    var bitWidth: Int64 { Int64(scalar.width) * 8 }
+    var signedMinimum: Int64 { Int64.min >> (64 - bitWidth) }
     var scalar: IRScalar {
       switch self {
       case .abstract: .abstractInt
+      case .sint16: .i16
+      case .uint16: .u16
       case .sint: .i32
       case .uint: .u32
       case .sint64: .i64
       case .uint64: .u64
+      }
+    }
+
+    func truncating(_ value: Int64) -> Int64 {
+      switch self {
+      case .sint16: Int64(Int16(truncatingIfNeeded: value))
+      case .uint16: Int64(UInt16(truncatingIfNeeded: value))
+      case .sint: Int64(Int32(truncatingIfNeeded: value))
+      case .uint: Int64(UInt32(truncatingIfNeeded: value))
+      case .abstract, .sint64, .uint64: value
       }
     }
   }
@@ -26,6 +40,8 @@ struct WGSLIntegerConstant {
   var literal: IRLiteral {
     switch kind {
     case .abstract: .abstractInt(value)
+    case .sint16: .i16(Int16(value))
+    case .uint16: .u16(UInt16(value))
     case .sint: .i32(Int32(value))
     case .uint: .u32(UInt32(value))
     case .sint64: .i64(value)
@@ -43,6 +59,8 @@ struct WGSLIntegerEvaluator {
   {
     let valid: Bool = switch kind {
     case .abstract, .sint64: true
+    case .sint16: Int16(exactly: value) != nil
+    case .uint16: UInt16(exactly: value) != nil
     case .sint: Int32(exactly: value) != nil
     case .uint: UInt32(exactly: value) != nil
     case .uint64: value >= 0
@@ -56,6 +74,8 @@ struct WGSLIntegerEvaluator {
     -> WGSLIntegerConstant
   {
     if x.kind == kind { return x }
+    // The native Naga extension materializes abstract integer values by keeping their low 16 bits.
+    if x.kind == .abstract, kind.isNarrow { return .init(value: kind.truncating(x.value), kind: kind) }
     return try checked(x.value, kind, at: t)
   }
   func compare(_ op: String, _ lhs: WGSLIntegerConstant, _ rhs: WGSLIntegerConstant) -> Bool {
@@ -103,9 +123,9 @@ struct WGSLIntegerEvaluator {
     }
     if a.kind != b.kind {
       if a.kind == .abstract {
-        a = try checked(a.value, b.kind, at: t)
+        a = try materialized(a, as: b.kind, at: t)
       } else if b.kind == .abstract {
-        b = try checked(b.value, a.kind, at: t)
+        b = try materialized(b, as: a.kind, at: t)
       } else {
         throw wgslError(.typeMismatch, "Mixed concrete integer types", t)
       }
@@ -133,11 +153,8 @@ struct WGSLIntegerEvaluator {
       return .init(value: value, kind: a.kind)
     }
     if a.kind != .abstract && ["+", "-", "*"].contains(op) {
-      let x = UInt32(truncatingIfNeeded: a.value)
-      let y = UInt32(truncatingIfNeeded: b.value)
-      let bits: UInt32 = op == "+" ? x &+ y : op == "-" ? x &- y : x &* y
-      return .init(
-        value: a.kind == .uint ? Int64(bits) : Int64(Int32(bitPattern: bits)), kind: a.kind)
+      let bits = op == "+" ? a.value &+ b.value : op == "-" ? a.value &- b.value : a.value &* b.value
+      return .init(value: a.kind.truncating(bits), kind: a.kind)
     }
     let n: Int64
     let overflow: Bool
@@ -146,8 +163,7 @@ struct WGSLIntegerEvaluator {
     case "-": (n, overflow) = a.value.subtractingReportingOverflow(b.value)
     case "*": (n, overflow) = a.value.multipliedReportingOverflow(by: b.value)
     case "/", "%":
-      guard b.value != 0, !(a.value == Int64.min && b.value == -1),
-        !(a.kind == .sint && a.value == Int64(Int32.min) && b.value == -1)
+      guard b.value != 0, !(!a.kind.isUnsigned && a.value == a.kind.signedMinimum && b.value == -1)
       else { throw wgslError(.invalidType, "Invalid constant division/remainder", t) }
       n = op == "/" ? a.value / b.value : a.value % b.value
       overflow = false
@@ -190,7 +206,7 @@ extension WGSLParser {
     guard !v.kind.isWide, let value = UInt32(exactly: v.value),
       v.kind != .abstract || Int32(exactly: v.value) != nil
     else {
-      throw wgslError(.invalidType, "Attribute integer must resolve to non-negative i32/u32", t)
+      throw wgslError(.invalidType, "Attribute integer must resolve to a non-negative 16- or 32-bit integer", t)
     }
     return value
   }

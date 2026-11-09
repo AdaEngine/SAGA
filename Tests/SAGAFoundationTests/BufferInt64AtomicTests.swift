@@ -30,10 +30,18 @@ private func bufferInt64AtomicSource(signed: Bool, nested: Bool = false) -> Stri
     """
 }
 
-@Test(arguments: [ShaderOutputFormat.wgsl, .msl, .hlsl, .glsl])
-func bufferInt64AtomicMinMaxPreservesOffsetsAndWidth(format: ShaderOutputFormat) throws {
+@Test(arguments: [ShaderOutputFormat.wgsl, .msl, .hlsl, .glsl], [false, true])
+func bufferInt64AtomicMinMaxPreservesOffsetsAndWidth(format: ShaderOutputFormat, roundTrip: Bool) throws {
     let compiler = IndependentShaderCompiler()
-    let shader = try compiler.compileCompute(.wgsl(bufferInt64AtomicSource(signed: format != .msl)), to: format)
+    var input = ShaderInput.wgsl(bufferInt64AtomicSource(signed: format != .msl))
+    if roundTrip {
+        guard case .spirv(let words) = try compiler.compile(input, to: .spirv) else {
+            throw ShaderFailure.incompatibleArtifact
+        }
+        input = .spirv(words)
+    }
+    let shader = try compiler.compileCompute(input, to: format)
+    #expect(shader.requiresShaderInt64AtomicMinMax && !shader.requiresShaderInt64AtomicAllOps)
     let binding = try #require(shader.storageBindings.first)
     #expect(binding.minimumByteSize == 24)
     #expect(binding.runtimeArrayOffset == 16)

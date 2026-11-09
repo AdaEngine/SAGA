@@ -142,7 +142,7 @@ private extension IRStatementKind {
         case .store(let pointer, let value): return [pointer, value]
         case .ifCondition(let condition, _, _), .switchValue(let condition, _): return [condition]
         case .returnValue(let value?), .loop(_, _, let value?): return [value]
-        case .call(_, let arguments, _): return arguments
+        case .call(_, let arguments, _), .debugPrintf(_, let arguments): return arguments
         case .imageStore(let image, let coordinate, let layer, let value),
              .imageAtomic(let image, let coordinate, let layer, _, let value):
             return [image, coordinate, value] + [layer].compactMap { $0 }

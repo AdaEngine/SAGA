@@ -30,17 +30,19 @@ public struct IRScalar: Sendable, Hashable {
 }
 
 extension IRScalar {
+ public static let u16 = IRScalar(kind: .uint, width: 2)
  public static let u32 = IRScalar(kind: .uint, width: 4)
  public static let u64 = IRScalar(kind: .uint, width: 8)
  public static let i64 = IRScalar(kind: .sint, width: 8)
  public static let i32 = IRScalar(kind: .sint, width: 4)
+ public static let i16 = IRScalar(kind: .sint, width: 2)
  public static let f32 = IRScalar(kind: .float, width: 4)
  public static let f16 = IRScalar(kind: .float, width: 2)
  public static let bool = IRScalar(kind: .bool, width: 1)
 
  package var isWGSLConversionScalar: Bool {
   switch self {
-  case .bool, .i32, .u32, .i64, .u64, .f32, .f16: return true
+  case .bool, .i16, .u16, .i32, .u32, .i64, .u64, .f32, .f16: return true
   default: return false
   }
  }
@@ -473,12 +475,17 @@ public enum IRBinaryOperator: String, Sendable, Hashable, CaseIterable {
 
 public enum IRAtomicFunction: Sendable, Equatable {
     case add
+    // Add the f32 values encoded by an atomic u32 and its operand, returning the old bits.
+    case addFloat32Bits
     case subtract
     case and
     case exclusiveOr
     case inclusiveOr
     case min
     case max
+    // SPIR-V can specify the comparison order independently of the integer storage type.
+    case minWithOppositeSignedness
+    case maxWithOppositeSignedness
     case exchange(compare: IRHandle<IRExpression>?, strong: Bool = false)
 
     package static let integerRMWBuiltins: [String: Self] = [

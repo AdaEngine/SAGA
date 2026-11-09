@@ -5,19 +5,67 @@ public struct ShaderSemanticValidator: IRValidator {
   public typealias Module = IRModule
   public let capabilities: ShaderCapabilities
   public let limits: ShaderLimits
+  private let allowsVertexWritableStorage: Bool
   public init(capabilities: ShaderCapabilities = .referenceDefault, limits: ShaderLimits = .default)
   {
+    self.init(capabilities: capabilities, limits: limits, allowsVertexWritableStorage: false)
+  }
+  package init(capabilities: ShaderCapabilities, limits: ShaderLimits = .default, allowsVertexWritableStorage: Bool) {
     self.capabilities = capabilities
     self.limits = limits
+    self.allowsVertexWritableStorage = allowsVertexWritableStorage
   }
   public func validate(_ module: IRModule) throws {
     _ = try validateReportingDiagnostics(module)
   }
   public func validateReportingDiagnostics(_ module: IRModule) throws -> [ShaderDiagnostic] {
+    try validateAndNormalize(module).diagnostics
+  }
+
+  public func validateAndNormalize(_ module: IRModule) throws -> (module: IRModule, diagnostics: [ShaderDiagnostic]) {
+    let module = try recoverSPIRVWorkgroupLoads(in: module)
     var checker = SemanticChecker(
-      module: module, capabilities: capabilities, budget: ShaderBudget(limits: limits))
+      module: module, capabilities: capabilities, allowsVertexWritableStorage: allowsVertexWritableStorage,
+      budget: ShaderBudget(limits: limits))
     try checker.run()
-    return checker.diagnostics
+    return (module, checker.diagnostics)
+  }
+
+  private func recoverSPIRVWorkgroupLoads(in module: IRModule) throws -> IRModule {
+    var budget = ShaderBudget(limits: limits)
+    var candidates = try SPIRVWorkgroupLoadRecovery.collect(in: module, budget: &budget)
+    while !candidates.isEmpty {
+      var checker = SemanticChecker(module: module, capabilities: capabilities,
+                                    allowsVertexWritableStorage: allowsVertexWritableStorage, budget: budget)
+      checker.synchronizedWorkgroupLoads = candidates.mapValues { Set($0.keys) }
+      try checker.run()
+      let proven = try checker.provenSynchronizedWorkgroupLoads()
+      budget = checker.budget
+      if proven == checker.synchronizedWorkgroupLoads {
+        return try SPIRVWorkgroupLoadRecovery.rewrite(module, candidates: candidates, budget: &budget)
+      }
+      // A load can depend on another candidate that has just lost its proof.
+      // Reanalyze after removing those candidates before changing the IR.
+      for index in Array(candidates.keys) {
+        guard let loads = candidates[index], let retained = proven[index] else {
+          candidates[index] = nil
+          continue
+        }
+        candidates[index] = loads.filter { retained.contains($0.key) }
+      }
+    }
+    return module
+  }
+
+  package func nonUniformDescriptorAccesses(
+    in module: IRModule
+  ) throws -> [Int: Set<IRHandle<IRExpression>>] {
+    var checker = SemanticChecker(
+      module: module, capabilities: capabilities, allowsVertexWritableStorage: allowsVertexWritableStorage,
+      budget: ShaderBudget(limits: limits))
+    checker.collectDescriptorUniformity = true
+    try checker.run()
+    return checker.nonUniformDescriptorAccesses
   }
 }
 
@@ -99,7 +147,7 @@ private struct LoopUniformity {
 
 private enum UniformityCheck {
   case rule(UniformityRule, IRDiagnosticSeverity, String, ShaderLocation?)
-  case bindingIndex(ShaderCapabilities, ShaderLocation?)
+  case bindingIndex(ShaderCapabilities, ShaderLocation?, IRHandle<IRExpression>)
 }
 
 private struct FunctionUniformity {
@@ -112,6 +160,9 @@ private struct FunctionUniformity {
   var loops: [LoopUniformity] = []
   var pendingChecks: [(Int, UniformityCheck)] = []
   var controlRequirements = UniformityRequirements()
+  var nonUniformDescriptorAccesses: Set<IRHandle<IRExpression>> = []
+  var synchronizedLoads: [IRHandle<IRExpression>: Int] = [:]
+  var synchronizedCalls: [(target: Int, arguments: [Int])] = []
 
   mutating func merge(_ left: Int, _ right: Int, budget: inout ShaderBudget) throws -> Int {
     if left == -1 || right == -1 { return -1 }
@@ -157,6 +208,11 @@ private struct FunctionUniformity {
   }
 }
 
+private struct SynchronizedWorkgroupProof {
+  var loads: [IRHandle<IRExpression>: Set<Int>] = [:]
+  var calls: [(target: Int, arguments: [Set<Int>?])] = []
+}
+
 private struct UniformityRequirement {
   var severity: IRDiagnosticSeverity = .off
   var location: ShaderLocation?
@@ -186,6 +242,7 @@ private struct DiagnosticLevels {
 private struct SemanticChecker {
   let module: IRModule
   let capabilities: ShaderCapabilities
+  let allowsVertexWritableStorage: Bool
   var budget: ShaderBudget
   var layouts: [TypeLayout] = []
   var functionStages: [Set<IRStage>] = []
@@ -198,6 +255,11 @@ private struct SemanticChecker {
   var reachable = true
   var diagnosticLevels: [DiagnosticLevels] = []
   var diagnostics: [ShaderDiagnostic] = []
+  var collectDescriptorUniformity = false
+  var nonUniformDescriptorAccesses: [Int: Set<IRHandle<IRExpression>>] = [:]
+  var synchronizedWorkgroupLoads: [Int: Set<IRHandle<IRExpression>>] = [:]
+  var synchronizedWorkgroupProofs: [Int: SynchronizedWorkgroupProof] = [:]
+  var activeSynchronizedLoads: Set<IRHandle<IRExpression>> = []
   var atomicCompareResults: [IRHandle<IRType>: IRScalar] = [:]
   let allStages: Set<IRStage> = [.vertex, .fragment, .compute]
   var subgroupScope: UniformScopes { module.requiresSubgroupUniformity ? .subgroup : .whole }
@@ -271,6 +333,33 @@ private struct SemanticChecker {
     for _ in value.utf8 {
       try budget.consume(.sourceBytes)
       try budget.consume(.work)
+    }
+  }
+  mutating func validateDocumentation() throws {
+    for record in module.documentation {
+      try budget.consume(.nodes)
+      try budget.consume(.work)
+      let validTarget: Bool
+      switch record.target {
+      case .module: validTarget = true
+      case .type(let handle): validTarget = module.types[handle] != nil
+      case .member(let handle, let index):
+        if case .structure(let members, _) = module.types[handle]?.kind {
+          validTarget = UInt64(index) < UInt64(members.count)
+        } else {
+          validTarget = false
+        }
+      case .function(let handle): validTarget = module.functions[handle] != nil
+      case .entryPoint(let index): validTarget = UInt64(index) < UInt64(module.entryPoints.count)
+      case .constant(let handle): validTarget = module.constants[handle] != nil
+      case .globalVariable(let handle): validTarget = module.globalVariables[handle] != nil
+      }
+      try need(validTarget, .invalidReference, "Invalid documentation target")
+      for line in record.lines {
+        try budget.consume(.nodes)
+        try budget.consume(.work)
+        try text(line)
+      }
     }
   }
   mutating func validateDiagnosticFilters() throws {
@@ -375,8 +464,11 @@ private struct SemanticChecker {
         try budget.consume(.work)
         uniformity.arguments[UniformArgument(index: index, rule: rule), default: .init()].require(severity, at: location)
       }
-    case .bindingIndex(let capability, let location):
-      if parameters?.isEmpty != true { try cap(capability, location) }
+    case .bindingIndex(let capability, let location, let access):
+      if parameters?.isEmpty != true {
+        try cap(capability, location)
+        if collectDescriptorUniformity { uniformity.nonUniformDescriptorAccesses.insert(access) }
+      }
     }
   }
 
@@ -473,7 +565,8 @@ private struct SemanticChecker {
   }
 
   mutating func expressionUniformity(
-    _ expression: IRExpression, in function: IRFunction, uniform: [UniformValue], locals: [UniformValue]
+    _ expression: IRExpression, handle: IRHandle<IRExpression>, in function: IRFunction,
+    uniform: [UniformValue], locals: [UniformValue]
   ) throws -> UniformValue {
     var value = UniformValue.uniform
     for operand in expression.kind.operands {
@@ -484,6 +577,9 @@ private struct SemanticChecker {
     case .load(let pointer):
       let pointerType = try type(function.expressions.value(for: pointer).type)
       switch pointerType {
+      case .pointer(_, .workgroup) where reachable && activeSynchronizedLoads.contains(handle):
+        uniformity.synchronizedLoads[handle] = value.whole
+        return value
       case .pointer(_, .function):
         guard let reference = try localReference(pointer, in: function) else { return .varying }
         return try mergeUniformity(value, locals[reference.index])
@@ -494,13 +590,19 @@ private struct SemanticChecker {
     case .access(let base, let index):
       if uniform[index.index].whole != 0,
          let capability = try nonUniformBindingArrayCapability(for: function.expressions.value(for: base).type) {
-        try checkUniformity(uniform[index.index].whole, .bindingIndex(capability, expression.location))
+        try checkUniformity(uniform[index.index].whole, .bindingIndex(capability, expression.location, handle))
       }
-    case .accessIndex(let base, let member) where uniformity.computeEntry:
+    case .accessIndex(let base, let member):
       let argument = try function.expressions.value(for: base)
-      if case .functionArgument = argument.kind,
-         case .structure(let members, _) = try type(argument.type), members.indices.contains(Int(member)) {
-        return uniformComputeBuiltin(members[Int(member)].binding)
+      if case .structure(let members, _) = try type(argument.type), members.indices.contains(Int(member)) {
+        switch argument.kind {
+        case .functionArgument where uniformity.computeEntry:
+          return uniformComputeBuiltin(members[Int(member)].binding)
+        case .compose(_, let components) where components.indices.contains(Int(member)):
+          // An SSA struct can combine uniform builtins and varying lanes.
+          return uniform[components[Int(member)].index]
+        default: break
+        }
       }
     case .imageLoad(let load):
       if try type(function.expressions.value(for: load.image).type).storageTexture?.access.contains(.store) == true {
@@ -528,13 +630,12 @@ private struct SemanticChecker {
       capabilities.rawValue & ~ShaderCapabilities.allKnown.rawValue == 0, .unsupportedCapability,
       "Unknown capability bits")
     guard module.specialTypes.predeclared.count <= 2 + 4 * (IRVectorSize.allCases.count + 1),
-      module.specialTypes == IRSpecialTypes(predeclared: module.specialTypes.predeclared),
-      module.documentation.isEmpty
+      module.specialTypes == IRSpecialTypes(predeclared: module.specialTypes.predeclared)
     else {
-      try unsupported(
-        "Special type and documentation handle validation not implemented")
+      try unsupported("Special type handle validation not implemented")
     }
     try validateDiagnosticFilters()
+    try validateDocumentation()
     for (i, t) in module.types.values.enumerated() {
       try budget.consume(.nodes)
       try budget.consume(.work)
@@ -601,7 +702,7 @@ private struct SemanticChecker {
       }
       let allowedDecorations: IRMemoryDecorations
       if case .storage(let a) = g.space {
-        allowedDecorations = .coherent
+        allowedDecorations = [.coherent, .volatile]
         try need(
           a.rawValue > 0 && a.rawValue & ~UInt8(7) == 0 && a.contains(.load), .invalidAddressSpace,
           "Invalid storage access", g.location)
@@ -695,7 +796,7 @@ private struct SemanticChecker {
         case .fixed(let size):
           try need(size.nonzeroBitCount == 1, .invalidBinding, "Subgroup size must be a power of two", ep.location)
         case .overrideExpression(let handle):
-          _ = try validateIntegerOverride(handle, subject: "Subgroup size")
+          try validateIntegerOverride(handle, subject: "Subgroup size")
         }
       }
       if ep.earlyDepthTest != nil {
@@ -706,8 +807,7 @@ private struct SemanticChecker {
       if ep.stage == .compute {
         let size = ep.workgroupSize
         try need(
-          size.x > 0 && size.x <= 0x4000 && size.y > 0 && size.y <= 0x4000 && size.z > 0
-            && size.z <= 0x4000, .invalidType, "Workgroup dimensions must be positive", ep.location)
+          size.x > 0 && size.y > 0 && size.z > 0, .invalidType, "Workgroup dimensions must be positive", ep.location)
         try need(
           f.result == nil, .invalidType, "Compute entrypoint cannot return a value", ep.location)
       }
@@ -908,8 +1008,7 @@ private struct SemanticChecker {
           containsAtomic: b.containsAtomic, containsWideAtomic: b.containsWideAtomic, containsArray: true, host: b.host)
       case .override(let handle):
         let countType = try type(module.overrides.value(for: handle).type)
-        try need(countType == .scalar(.i32) || countType == .scalar(.u32), .typeMismatch,
-                 "Workgroup array override count must be i32 or u32", loc)
+        try need(isPipelineSizeType(countType), .typeMismatch, "Workgroup array override count must be a supported integer", loc)
         return TypeLayout(alignment: b.alignment, size: UInt64(stride), sized: false, constructible: false,
                           containsAtomic: b.containsAtomic, containsWideAtomic: b.containsWideAtomic,
                           containsArray: true, host: false, pipelineSized: true)
@@ -928,8 +1027,7 @@ private struct SemanticChecker {
         try need(count > 0, .invalidType, "Binding array count must be positive", loc)
       case .override(let handle):
         let countType = try type(module.overrides.value(for: handle).type)
-        try need(countType == .scalar(.i32) || countType == .scalar(.u32), .typeMismatch,
-                 "Binding array override count must be i32 or u32", loc)
+        try need(isPipelineSizeType(countType), .typeMismatch, "Binding array override count must be a supported integer", loc)
       case .dynamic: break
       }
       return TypeLayout(alignment: 1, size: 0, sized: false, data: false, constructible: false, host: false)
@@ -1037,11 +1135,11 @@ private struct SemanticChecker {
       if let name = value.name {
         try need(names.insert(Array(name.utf8)).inserted, .duplicateName, "Duplicate override name", value.location)
       }
-      guard case .scalar(let scalar) = try type(value.type), [.bool, .i32, .u32, .f16, .f32].contains(scalar) else {
+      guard case .scalar(let scalar) = try type(value.type), [.bool, .i16, .u16, .i32, .u32, .f16, .f32].contains(scalar) else {
         try fail(.typeMismatch, "Override must have a concrete WGSL scalar type", value.location)
       }
       if value.name == nil && value.id == nil {
-        try need(value.initializer != nil && (scalar == .i32 || scalar == .u32), .invalidReference,
+        try need(value.initializer != nil && isPipelineSizeType(.scalar(scalar)), .invalidReference,
                  "Anonymous array count override needs an integer initializer", value.location)
       }
       guard let initializer = value.initializer else { continue }
@@ -1060,17 +1158,12 @@ private struct SemanticChecker {
   mutating func validateWorkgroupOverrides(_ overrides: IRWorkgroupOverrides, at location: ShaderLocation?) throws {
     let handles = [overrides.x, overrides.y, overrides.z].compactMap { $0 }
     try need(!handles.isEmpty, .invalidBinding, "Workgroup overrides must specify a dimension", location)
-    var dimensionType: IRTypeKind?
     for handle in handles {
-      let kind = try validateIntegerOverride(handle, subject: "Workgroup")
-      let location = try module.globalExpressions.value(for: handle).location
-      try need(dimensionType == nil || dimensionType == kind, .typeMismatch,
-               "Workgroup override types disagree", location)
-      dimensionType = kind
+      try validateIntegerOverride(handle, subject: "Workgroup")
     }
   }
 
-  mutating func validateIntegerOverride(_ handle: IRHandle<IRExpression>, subject: String) throws -> IRTypeKind {
+  mutating func validateIntegerOverride(_ handle: IRHandle<IRExpression>, subject: String) throws {
     let expression = try module.globalExpressions.value(for: handle)
     let graph = try module.pipelineGraph(handle, budget: &budget)
     var hasOverride = false
@@ -1080,9 +1173,15 @@ private struct SemanticChecker {
     }
     try need(hasOverride, .invalidBinding, "\(subject) override expression must reference an override", expression.location)
     let kind = try type(expression.type)
-    try need(kind == .scalar(.i32) || kind == .scalar(.u32), .typeMismatch,
-             "\(subject) override must be i32 or u32", expression.location)
-    return kind
+    try need(isPipelineSizeType(kind), .typeMismatch,
+             "\(subject) override must be a supported integer", expression.location)
+  }
+
+  private func isPipelineSizeType(_ type: IRTypeKind) -> Bool {
+    switch type {
+    case .scalar(.i16), .scalar(.u16), .scalar(.i32), .scalar(.u32): true
+    default: false
+    }
   }
 
   mutating func constant(_ h: IRHandle<IRExpression>) throws -> Bool {
@@ -1407,9 +1506,9 @@ private struct SemanticChecker {
           let valid: Bool
           switch (leftKind, rightKind) {
           case (.scalar(let scalar), .scalar(.u32)):
-            valid = [.i32, .u32, .i64, .u64].contains(scalar)
+            valid = [.i16, .u16, .i32, .u32, .i64, .u64].contains(scalar)
           case (.vector(let a, let scalar), .vector(let b, .u32)):
-            valid = a == b && [.i32, .u32, .i64, .u64].contains(scalar)
+            valid = a == b && [.i16, .u16, .i32, .u32, .i64, .u64].contains(scalar)
           default: valid = false
           }
           try need(
@@ -1667,7 +1766,7 @@ private struct SemanticChecker {
         }
         if let arity = fn.integerBitArity {
           let arguments = [arg1, arg2, arg3]
-          try need([.i32, .u32, .i64, .u64].contains(scalar) &&
+          try need([.i16, .u16, .i32, .u32, .i64, .u64].contains(scalar) &&
                    arguments.enumerated().allSatisfy { ($0.offset < arity - 1) == ($0.element != nil) },
                    .typeMismatch, "Invalid integer bit builtin type or arity", e.location)
           if arity == 4, let inserted = arg1 {
@@ -1887,6 +1986,7 @@ private struct SemanticChecker {
     }
     try expressions(f.expressions, function: f, currentFunction: index)
     uniformity = FunctionUniformity(computeEntry: computeEntry)
+    activeSynchronizedLoads = synchronizedWorkgroupLoads[index] ?? []
     var stages = allStages
     var immediates: Set<IRHandle<IRGlobalVariable>> = []
     var resourceAliases: Set<IRHandle<IRGlobalVariable>> = []
@@ -1900,11 +2000,13 @@ private struct SemanticChecker {
         if let binding = global.binding, reusedResourceBindings.contains(binding) { resourceAliases.insert(g) }
         if global.space == .immediate, immediates.count < 2 { immediates.insert(g) }
         if global.space == .workgroup { stages.formIntersection([.compute]) }
-        if case .storage(let access) = global.space, access.contains(.store) {
-          stages.formIntersection([.compute, .fragment])
-        }
-        if try type(bindingArrayElement(of: global)).storageTexture?.access.contains(.store) == true {
-          stages.formIntersection([.compute, .fragment])
+        if !allowsVertexWritableStorage {
+          if case .storage(let access) = global.space, access.contains(.store) {
+            stages.formIntersection([.compute, .fragment])
+          }
+          if try type(bindingArrayElement(of: global)).storageTexture?.access.contains(.store) == true {
+            stages.formIntersection([.compute, .fragment])
+          }
         }
       }
     }
@@ -1915,7 +2017,8 @@ private struct SemanticChecker {
       case .subgroupGather, .subgroupBallot, .subgroupCollectiveOperation:
         try cap(.subgroup, s.location)
         stages.formIntersection([.compute, .fragment])
-      case .imageStore, .imageAtomic: stages.formIntersection([.compute, .fragment])
+      case .imageStore, .imageAtomic:
+        if !allowsVertexWritableStorage { stages.formIntersection([.compute, .fragment]) }
       case .controlBarrier, .memoryBarrier, .workgroupUniformLoad:
         stages.formIntersection([.compute])
       case .call(let target, _, _):
@@ -1952,9 +2055,11 @@ private struct SemanticChecker {
         }
       case .globalVariable(let global):
         available.insert(handle)
-        switch try module.globalVariables.value(for: global).space {
+        let variable = try module.globalVariables.value(for: global)
+        switch variable.space {
         case .workgroup, .handle, .uniform, .immediate: uniform.append(.uniform)
-        case .storage(let access): uniform.append(access.contains(.store) ? .varying : .uniform)
+        case .storage(let access):
+          uniform.append(access.contains(.store) || !variable.memoryDecorations.isEmpty ? .varying : .uniform)
         default: uniform.append(.varying)
         }
       default:
@@ -1971,6 +2076,19 @@ private struct SemanticChecker {
       loopDepth: 0, inContinuing: false)
     for (node, check) in uniformity.pendingChecks {
       try checkUniformity(node, check)
+    }
+    if !synchronizedWorkgroupLoads.isEmpty {
+      var proof = SynchronizedWorkgroupProof()
+      for (handle, node) in uniformity.synchronizedLoads {
+        if let parameters = try uniformity.parameters(of: node, budget: &budget) {
+          proof.loads[handle] = parameters
+        }
+      }
+      for call in uniformity.synchronizedCalls {
+        let arguments = try call.arguments.map { try uniformity.parameters(of: $0, budget: &budget) }
+        proof.calls.append((call.target, arguments))
+      }
+      synchronizedWorkgroupProofs[index] = proof
     }
     if f.result != nil {
       try need(!result.flow.contains(.next), .invalidControlFlow, "Not all function paths return a value", f.location)
@@ -2003,6 +2121,9 @@ private struct SemanticChecker {
     functionImmediates.append(immediates)
     functionResourceAliases.append(resourceAliases)
     functionUniform.append(requiresUniform)
+    if collectDescriptorUniformity, !uniformity.nonUniformDescriptorAccesses.isEmpty {
+      nonUniformDescriptorAccesses[index] = uniformity.nonUniformDescriptorAccesses
+    }
   }
 
   func atomicPointee(_ handle: IRHandle<IRType>) throws -> IRScalar? {
@@ -2013,6 +2134,32 @@ private struct SemanticChecker {
     case .storage(let access) where access.contains([.load, .store]): return scalar
     default: try fail(.invalidAddressSpace, "Atomic operation requires workgroup or read-write storage")
     }
+  }
+
+  mutating func provenSynchronizedWorkgroupLoads() throws -> [Int: Set<IRHandle<IRExpression>>] {
+    var uniformArguments: [Int: Set<Int>] = [:]
+    for entry in module.entryPoints { uniformArguments[entry.function.index] = [] }
+    var result: [Int: Set<IRHandle<IRExpression>>] = [:]
+    // Each callee precedes its callers. A formal is uniform only at every reachable call site.
+    for index in module.functions.values.indices.reversed() {
+      try budget.consume(.work)
+      guard let proof = synchronizedWorkgroupProofs[index], let formals = uniformArguments[index] else { continue }
+      for (handle, dependencies) in proof.loads {
+        try budget.consume(.work, amount: dependencies.count + 1)
+        if dependencies.isSubset(of: formals) { result[index, default: []].insert(handle) }
+      }
+      for call in proof.calls {
+        try budget.consume(.work)
+        var incoming: Set<Int> = []
+        for (argument, dependencies) in call.arguments.enumerated() {
+          try budget.consume(.work, amount: (dependencies?.count ?? 0) + 1)
+          if let dependencies, dependencies.isSubset(of: formals) { incoming.insert(argument) }
+        }
+        if let previous = uniformArguments[call.target] { incoming.formIntersection(previous) }
+        uniformArguments[call.target] = incoming
+      }
+    }
+    return result
   }
   mutating func validatePredeclaredTypes() throws {
     var handles: Set<IRHandle<IRType>> = []
@@ -2183,9 +2330,22 @@ private struct SemanticChecker {
       try budget.consume(.work)
       try need(available.contains(value), .invalidReference, "Expression is outside evaluation scope", location)
       let operand = try function.expressions.value(for: value)
-      try need(try same(operand.type, parameter.type), .typeMismatch, "Call argument type mismatch", location)
+      let matches: Bool
+      switch (try type(operand.type), try type(parameter.type)) {
+      case (.image(let dimension, let arrayed, .storage(let format, let access)),
+            .image(let expectedDimension, let expectedArrayed, .storage(let expectedFormat, let expectedAccess))):
+        matches = dimension == expectedDimension && arrayed == expectedArrayed && format == expectedFormat
+          && access.contains(expectedAccess)
+      default:
+        matches = try same(operand.type, parameter.type)
+      }
+      try need(matches, .typeMismatch, "Call argument type mismatch", location)
     }
     let requirements = functionUniform[target.index]
+    if reachable, !synchronizedWorkgroupLoads.isEmpty {
+      try budget.consume(.nodes, amount: arguments.count + 1)
+      uniformity.synchronizedCalls.append((target.index, arguments.map { uniform[$0.index].whole }))
+    }
     if requirements.barrier {
       try requireUniformControl(uniformControl, rule: .barrier, severity: .error,
                                 message: "Uniformity-requiring call in divergent control flow", at: location)
@@ -2256,7 +2416,7 @@ private struct SemanticChecker {
           try requireUniformControl(ctrl, rule: .derivative, severity: severities.derivative,
                                     message: "Operation requiring derivatives in non-uniform control flow", at: e.location ?? loc)
         }
-        uniform[x.index] = try expressionUniformity(e, in: f, uniform: uniform, locals: locals)
+        uniform[x.index] = try expressionUniformity(e, handle: x, in: f, uniform: uniform, locals: locals)
         available.insert(x)
       }
     case .returnValue(let x):
@@ -2298,8 +2458,9 @@ private struct SemanticChecker {
         case .access(let base, _), .accessIndex(let base, _): root = try use(base, loc).kind
         default: root = imageExpression.kind
         }
-        guard case .globalVariable = root else {
-          try fail(.invalidReference, "Texture atomics require a global texture binding", loc)
+        switch (root, imageExpression.kind) {
+        case (.globalVariable, _), (_, .functionArgument): break
+        default: try fail(.invalidReference, "Texture atomics require a texture binding or parameter", loc)
         }
         valueType = .scalar(storage.scalar)
       } else {
@@ -2343,6 +2504,17 @@ private struct SemanticChecker {
         try fail(.typeMismatch, "Atomic operation requires a pointer to an atomic integer", loc)
       }
       try need(try type(v.type) == .scalar(atomic), .typeMismatch, "Atomic operand type mismatch", loc)
+      if operation == .addFloat32Bits {
+        try need(atomic == .u32, .typeMismatch, "Float32 bitwise atomic add requires atomic<u32>", loc)
+        guard case .pointer(_, .storage) = try type(p.type) else {
+          try fail(.invalidAddressSpace, "Float atomic read-modify-write requires storage memory", loc)
+        }
+        try cap(.shaderFloat32Atomic, loc)
+      }
+      if operation == .minWithOppositeSignedness || operation == .maxWithOppositeSignedness {
+        try need(atomic.kind == .sint || atomic.kind == .uint, .typeMismatch,
+                 "An explicit atomic comparison order requires an integer", loc)
+      }
       if atomic == .f32 {
         guard case .pointer(_, .storage) = try type(p.type) else {
           try fail(.invalidAddressSpace, "Float atomic read-modify-write requires storage memory", loc)
@@ -2407,6 +2579,16 @@ private struct SemanticChecker {
     case .call(let target, let args, let result):
       try validateCall(target, arguments: args, result: result, function: f, available: &available,
                        producedResults: &callResults, uniform: &uniform, locals: &locals, uniformControl: ctrl, at: loc)
+    case .debugPrintf(let format, let arguments):
+      try cap(.debugPrintf, loc)
+      try text(format)
+      let expected = try DebugPrintfFormat.arguments(in: format, location: loc, budget: &budget)
+      try need(expected.count == arguments.count, .typeMismatch, "debugPrintf format argument count mismatch", loc)
+      for (specifier, handle) in zip(expected, arguments) {
+        try budget.consume(.work)
+        let argument = try use(handle, loc)
+        try need(try specifier.accepts(type(argument.type)), .typeMismatch, "debugPrintf argument type mismatch", argument.location ?? loc)
+      }
     case .controlBarrier(let barrier), .memoryBarrier(let barrier):
       try need(
         barrier.rawValue > 0 && barrier.rawValue & ~UInt8(15) == 0, .invalidType,
@@ -2736,6 +2918,18 @@ private struct SemanticChecker {
         } else {
           try need(stage != .compute && locations.insert(n).inserted, .invalidBinding, "Invalid/duplicate location")
         }
+        if interp == .perVertex {
+          try need(stage == .fragment && !output, .invalidBinding,
+                   "Per-vertex interpolation requires a fragment input")
+          try cap(.perVertex)
+          try need(sampling == nil || sampling == .center, .invalidBinding,
+                   "Per-vertex interpolation only allows center sampling")
+          guard case .array(let element, .constant(3), _) = try type(t),
+                let shape = IRBitcastShape(try type(element)), shape.scalar.kind != .bool else {
+            try fail(.typeMismatch, "Per-vertex interpolation requires an array of three numeric scalars or vectors")
+          }
+          return
+        }
         let varying = (stage == .vertex && output) || (stage == .fragment && !output)
         try need(varying || (interp == nil && sampling == nil), .invalidBinding,
                  "Interpolation is restricted to vertex outputs and fragment inputs")
@@ -2774,6 +2968,16 @@ private struct SemanticChecker {
         case .vertexIndex, .instanceIndex, .baseInstance:
           expected = .scalar(.u32)
           stages = [.vertex]
+          isOutput = false
+        case .drawIndex:
+          try cap(.drawIndex)
+          expected = .scalar(.u32)
+          stages = [.vertex]
+          isOutput = false
+        case .viewIndex:
+          try cap(.multiview)
+          expected = .scalar(.u32)
+          stages = [.vertex, .fragment]
           isOutput = false
         case .frontFacing:
           expected = .scalar(.bool)

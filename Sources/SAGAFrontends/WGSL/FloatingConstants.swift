@@ -119,6 +119,12 @@ extension WGSLScalarEvaluator {
     guard f.value.isFinite else {
       throw wgslError(.invalidType, "Non-finite integral conversion", t)
     }
+    if target.isNarrow {
+      let lower = target.isUnsigned ? 0.0 : Double(Int16.min)
+      let upper = target.isUnsigned ? Double(UInt16.max) : Double(Int16.max)
+      let value = min(max(f.value, lower), upper).rounded(.towardZero)
+      return .integer(.init(value: Int64(value), kind: target))
+    }
     // Bounds are the greatest integers in range also representable by the SOURCE format.
     if target.isWide {
       let limit = target.isUnsigned ? Double(UInt64.max) : Double(Int64.max)

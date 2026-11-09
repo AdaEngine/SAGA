@@ -72,7 +72,7 @@ private let halfSampleShader = """
         4: .init(format: .r16Float, colorState: .init(writeMask: [])),
     ]
     // The unaligned total is 32. Aligning location one adds two bytes.
-    #expect(throws: GPUError.validation("Color attachments exceed the portable bytes-per-sample limit")) {
+    #expect(throws: GPUError.validation("Color attachments exceed the device bytes-per-sample limit")) {
         try RenderPipeline(id: .init(device: 1, serial: 1), colorFormat: .r16Float, vertexBuffers: [],
                            additionalColorTargets: targets, vertex: vertex, fragment: fragment)
     }

@@ -139,7 +139,12 @@ async function runReactor(module, host) {
             Number(host.supportsTextureFormatsTier1), Number(host.supportsTextureFormatsTier2), Number(host.supportsRG11B10Render), Number(host.supportsDepth32FloatStencil8),
             Number(host.supportsBGRA8UnormStorage), tokens[0] ?? 0n, tokens[1] ?? 0n, tokens[2] ?? 0n, host.maxImmediateSize,
             Number(host.supportsLinearIndexing), Number(host.supportsSubgroupSizeControl), host.subgroupMinSize, host.subgroupMaxSize,
-            Number(host.supportsSubgroupUniformity), host.maxComputeWorkgroupStorageSize);
+            Number(host.supportsSubgroupUniformity), host.maxComputeWorkgroupStorageSize,
+            host.maxComputeInvocationsPerWorkgroup, host.maxComputeWorkgroupSize.x,
+            host.maxComputeWorkgroupSize.y, host.maxComputeWorkgroupSize.z, host.maxComputeWorkgroupsPerDimension,
+            host.maxVertexAttributes, host.maxVertexBuffers, host.maxVertexBufferArrayStride,
+            Number(host.supportsVertexFormatSnorm1010102), host.maxInterStageShaderVariables,
+            host.maxColorAttachments, host.maxColorAttachmentBytesPerSample);
         result = await withDeadline(completion, 30_000, () => { failed = true; });
     } finally {
         for (const token of tokens) host.unregisterVideoFrame(token);
@@ -163,6 +168,16 @@ async function runReactor(module, host) {
         groupedStorage: groupedStorage.split(",").map(Number), builtinInvocations: Number(builtinInvocations),
         workgroupWords: workgroupWords.split(",").map(Number),
         maxComputeWorkgroupStorageSize: host.maxComputeWorkgroupStorageSize,
+        maxComputeInvocationsPerWorkgroup: host.maxComputeInvocationsPerWorkgroup,
+        maxComputeWorkgroupSize: host.maxComputeWorkgroupSize,
+        maxComputeWorkgroupsPerDimension: host.maxComputeWorkgroupsPerDimension,
+        maxVertexAttributes: host.maxVertexAttributes,
+        maxVertexBuffers: host.maxVertexBuffers,
+        maxVertexBufferArrayStride: host.maxVertexBufferArrayStride,
+        maxInterStageShaderVariables: host.maxInterStageShaderVariables,
+        maxColorAttachments: host.maxColorAttachments,
+        maxColorAttachmentBytesPerSample: host.maxColorAttachmentBytesPerSample,
+        supportsVertexFormatSnorm1010102: host.supportsVertexFormatSnorm1010102,
         storageBarrierWords: storageBarrierWords.split(",").map(Number), atomicTickets: Number(atomicTickets),
         atomicRMWWords: Number(atomicRMWWords), atomicCompareWords: Number(atomicCompareWords),
         mixedAtomicWords: Number(mixedAtomicWords),

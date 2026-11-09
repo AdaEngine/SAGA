@@ -27,20 +27,30 @@ extension BoundedShaderFrontend {
 public struct WGSLFrontendOptions: Sendable, Equatable {
     public let parseDocComments: Bool
     public let capabilities: ShaderCapabilities
+    /// Accepts the pinned Naga subgroup syntax for native translation, subject to shader capabilities.
+    public let allowLegacyNagaSubgroups: Bool
     package let allow1DTextureSampleLevelOffset: Bool
     package let nagaFloatRounding: Bool
-    public init(parseDocComments: Bool = false, capabilities: ShaderCapabilities = .allKnown) {
-        self.init(parseDocComments: parseDocComments, capabilities: capabilities, allow1DTextureSampleLevelOffset: false)
+    package let allowMixedWorkgroupDimensionTypes: Bool
+    public init(
+        parseDocComments: Bool = false, capabilities: ShaderCapabilities = .allKnown,
+        allowLegacyNagaSubgroups: Bool = false
+    ) {
+        self.init(parseDocComments: parseDocComments, capabilities: capabilities, allow1DTextureSampleLevelOffset: false,
+                  allowLegacyNagaSubgroups: allowLegacyNagaSubgroups)
     }
 
     package init(
         parseDocComments: Bool = false, capabilities: ShaderCapabilities, allow1DTextureSampleLevelOffset: Bool,
-        nagaFloatRounding: Bool = false
+        nagaFloatRounding: Bool = false, allowMixedWorkgroupDimensionTypes: Bool = false,
+        allowLegacyNagaSubgroups: Bool = false
     ) {
         self.parseDocComments = parseDocComments
         self.capabilities = capabilities
+        self.allowLegacyNagaSubgroups = allowLegacyNagaSubgroups
         self.allow1DTextureSampleLevelOffset = allow1DTextureSampleLevelOffset
         self.nagaFloatRounding = nagaFloatRounding
+        self.allowMixedWorkgroupDimensionTypes = allowMixedWorkgroupDimensionTypes
     }
 }
 

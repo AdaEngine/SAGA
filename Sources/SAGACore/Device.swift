@@ -342,9 +342,12 @@ public actor Device {
         do {
             try Task.checkCancellation()
             try requireActive()
+            let size = shader.workgroupSize
+            try capabilities.requireComputeWorkgroupSize(x: size.x, y: size.y, z: size.z)
             try capabilities.requireWorkgroupStorageSize(shader.workgroupStorageByteSize)
             if !shader.externalTextures.isEmpty { _ = try externalTextureBackend() }
             if shader.requiresShaderF16 { try capabilities.require([.shaderF16]) }
+            if shader.requiresShaderInt16 { try capabilities.require([.shaderInt16]) }
             if shader.requiresShaderInt64 { try capabilities.require([.shaderInt64]) }
             try capabilities.requireShaderInt64Atomics(minMax: shader.requiresShaderInt64AtomicMinMax,
                                                       allOps: shader.requiresShaderInt64AtomicAllOps)
@@ -383,65 +386,57 @@ public actor Device {
         }
     }
 
+    /// Pass nil for the fragment stage to render to a depth or stencil attachment only.
     /// Non-filtering sampler slots apply to both shader stages.
     public func createRenderPipeline(
-        vertex: RenderStageArtifact, fragment: RenderStageArtifact, colorFormat: TextureFormat,
+        vertex: RenderStageArtifact, fragment: RenderStageArtifact?, colorFormat: TextureFormat?,
         vertexBuffers: [VertexBufferLayout] = [], depthState: RenderDepthState? = nil, sampleCount: UInt32 = 1,
         sampleMask: UInt32 = .max, alphaToCoverageEnabled: Bool = false, primitive: RenderPrimitiveState = .init(),
         colorState: RenderColorState = .init(), additionalColorTargets: [UInt32: RenderColorTarget] = [:],
-        nonFilteringSamplers: Set<ComputeBindingSlot> = []
+        nonFilteringSamplers: Set<ComputeBindingSlot> = [], multiviewMask: UInt32? = nil
     ) async throws -> RenderPipeline {
         let operationScopes = beginOperation()
         defer { endOperation(operationScopes) }
         do {
             try Task.checkCancellation()
             try requireActive()
-            if !vertex.externalTextures.isEmpty || !fragment.externalTextures.isEmpty { _ = try externalTextureBackend() }
-            if vertex.requiresShaderF16 || fragment.requiresShaderF16 { try capabilities.require([.shaderF16]) }
-            if vertex.requiresShaderInt64 || fragment.requiresShaderInt64 { try capabilities.require([.shaderInt64]) }
+            if !vertex.externalTextures.isEmpty || fragment?.externalTextures.isEmpty == false { _ = try externalTextureBackend() }
+            if vertex.requiresShaderF16 || fragment?.requiresShaderF16 == true { try capabilities.require([.shaderF16]) }
+            if vertex.requiresShaderInt16 || fragment?.requiresShaderInt16 == true { try capabilities.require([.shaderInt16]) }
+            if vertex.requiresShaderInt64 || fragment?.requiresShaderInt64 == true { try capabilities.require([.shaderInt64]) }
             try capabilities.requireShaderInt64Atomics(
-                minMax: vertex.requiresShaderInt64AtomicMinMax || fragment.requiresShaderInt64AtomicMinMax,
-                allOps: vertex.requiresShaderInt64AtomicAllOps || fragment.requiresShaderInt64AtomicAllOps)
-            if vertex.requiresSubgroups || fragment.requiresSubgroups { try capabilities.require([.subgroups]) }
-            if vertex.requiresSubgroupUniformity || fragment.requiresSubgroupUniformity {
+                minMax: vertex.requiresShaderInt64AtomicMinMax || fragment?.requiresShaderInt64AtomicMinMax == true,
+                allOps: vertex.requiresShaderInt64AtomicAllOps || fragment?.requiresShaderInt64AtomicAllOps == true)
+            if vertex.requiresSubgroups || fragment?.requiresSubgroups == true { try capabilities.require([.subgroups]) }
+            if vertex.requiresSubgroupUniformity || fragment?.requiresSubgroupUniformity == true {
                 try capabilities.require([.subgroupUniformity])
             }
-            if fragment.usesDualSourceBlending || colorState.usesSecondBlendSource ||
+            if fragment?.usesDualSourceBlending == true || (colorFormat != nil && colorState.usesSecondBlendSource) ||
                 additionalColorTargets.values.contains(where: { $0.colorState.usesSecondBlendSource }) {
                 try capabilities.require([.dualSourceBlending])
             }
-            if fragment.readsPrimitiveIndex { try capabilities.require([.primitiveIndex]) }
-            if fragment.requiresBarycentrics { try capabilities.require([.shaderBarycentrics]) }
-            if fragment.earlyDepthTest != nil { try capabilities.require([.shaderEarlyDepthTest]) }
+            if fragment?.readsPrimitiveIndex == true { try capabilities.require([.primitiveIndex]) }
+            if fragment?.requiresBarycentrics == true { try capabilities.require([.shaderBarycentrics]) }
+            if fragment?.earlyDepthTest != nil { try capabilities.require([.shaderEarlyDepthTest]) }
             if primitive.unclippedDepth { try capabilities.require([.depthClipControl]) }
-            guard fragment.varyings.count + fragment.fragmentInputBuiltinSlots <= 16 else {
-                throw GPUError.validation("Fragment inputs exceed the inter-stage limit")
-            }
-            if vertex.clipDistanceCount > 0 {
-                try capabilities.require([.clipDistances])
-                let locationLimit = 16 - (vertex.clipDistanceCount + 3) / 4
-                let variableLimit = locationLimit - (primitive.topology == .pointList ? 1 : 0)
-                guard vertex.varyings.count <= variableLimit,
-                      vertex.varyings.allSatisfy({ Int($0.location) < locationLimit }) else {
-                    throw GPUError.validation("Vertex outputs exceed the inter-stage limit with clip distances")
-                }
-            }
-            if vertex.requiresUniformBufferStandardLayout || fragment.requiresUniformBufferStandardLayout {
+            if vertex.requiresUniformBufferStandardLayout || fragment?.requiresUniformBufferStandardLayout == true {
                 try capabilities.require([.uniformBufferStandardLayout])
             }
-            guard colorFormat.isColorAttachment else {
+            guard colorFormat?.isColorAttachment ?? true else {
                 throw GPUError.validation("Render pipeline requires a supported color attachment format")
             }
             guard depthState?.format.isDepthStencil ?? true else {
                 throw GPUError.validation("Render pipeline requires a supported depth format")
             }
-            guard vertex.stage == .vertex, fragment.stage == .fragment else {
+            guard vertex.stage == .vertex, fragment.map({ $0.stage == .fragment }) ?? true else {
                 throw GPUError.validation("Render pipeline requires vertex and fragment stages")
             }
-            guard fragment.varyings.allSatisfy(vertex.varyings.contains) else {
-                throw GPUError.validation("Fragment inputs do not match vertex outputs")
+            try capabilities.validateInterstageInterfaces(vertex: vertex, fragment: fragment, topology: primitive.topology,
+                                                         multiviewMask: multiviewMask)
+            let formats = try VertexBufferLayout.validate(vertexBuffers, against: capabilities)
+            if let pulling = vertex.metalVertexPullingLayout, pulling != VertexBufferLayout.metalPullingSignature(vertexBuffers) {
+                throw GPUError.validation("Vertex buffers do not match the Metal pulling layout")
             }
-            let formats = try VertexBufferLayout.validate(vertexBuffers)
             guard vertex.vertexInputs.allSatisfy({ input in
                 guard let format = formats[input.location] else { return false }
                 switch (input.scalar, format.dataType) {
@@ -461,7 +456,7 @@ public actor Device {
                                               sampleMask: sampleMask, alphaToCoverageEnabled: alphaToCoverageEnabled,
                                               primitive: primitive, colorState: colorState, additionalColorTargets: additionalColorTargets,
                                               vertex: vertex, fragment: fragment, nonFilteringSamplers: nonFilteringSamplers,
-                                              capabilities: capabilities)
+                                              capabilities: capabilities, multiviewMask: multiviewMask)
             do {
                 try await render.allocateRenderPipeline(pipeline, vertex: vertex, fragment: fragment)
                 try Task.checkCancellation()
@@ -625,8 +620,10 @@ public actor Device {
                 try command.validate(device: identity, descriptors: descriptors, textures: textures,
                                      samplerDescriptors: samplerDescriptors, textureViews: textureViews,
                                      maximumViewportDimension: capabilities.maxTextureDimension2D, querySets: querySets,
+                                     maxMultiviewViewCount: capabilities.maxMultiviewViewCount,
                                      features: capabilities.features, externalTextures: externalTextures,
-                                     externalPlanes: externalPlanes)
+                                     externalPlanes: externalPlanes,
+                                     maxComputeWorkgroupsPerDimension: capabilities.maxComputeWorkgroupsPerDimension)
             }
         } catch is CancellationError {
             throw CancellationError()

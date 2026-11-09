@@ -129,6 +129,31 @@ Wasm/browser/Metal/CTS execution were performed by this child.
 [Initial test-first red](evidence/saga-5/coverage/red.log) is the expected missing-module
 failure before implementation, not an outstanding final failure.
 
+## Configured SPIR-V execution
+
+The [configured corpus runner](tools/verify_configured_frontend_corpus.py) can assemble the
+36 pinned `.spvasm` inputs using a local SPIRV-Tools executable. It runs the same source
+and output arguments as the pinned Naga snapshot test and records the executable version,
+arguments and hashes for the executable, source and assembled binary. The Swift runner
+checks the mapped binary and applies the fixture's frontend options before semantic validation.
+
+```sh
+python3 -B docs/tools/verify_configured_frontend_corpus.py \
+  --reference ../wgpu --output .verification/frontend-configured \
+  --spirv-as "$(command -v spirv-as)"
+```
+
+Without an assembler or when assembly is unavailable, the corresponding rows stay in the
+denominator as unsupported. Read `results.json` for the individual parse and validation outcomes.
+This run is separate from the coverage manifest's evidence importer.
+
+The default assembler invocation may produce a newer SPIR-V header than the version
+recorded in a fixture's leading comments. Keep that result in the configured corpus.
+For version diagnostics, assemble a separate binary with `spirv-as --target-env` and
+validate it under the corresponding universal and client profiles. For example,
+`8151-barrier-reorder.spvasm` validates and imports at SPIR-V 1.3. The default 1.6
+assembly requires its storage and workgroup variables in the entry interface.
+
 No board/workflow edits, dependencies, commits, publication or Rust writes. The full
 SAGA-5 frontend/semantic DoD remains OPEN. This documentation/audit-only child adds no
 application target and needs no Play configuration.

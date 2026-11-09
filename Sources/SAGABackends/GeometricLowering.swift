@@ -29,6 +29,9 @@ func geometricStatements(
         let type = try shaderVectorType(size.rawValue, scalar: wide ? .u64 : .u32, in: format)
         let left = "\(name)_left", right = "\(name)_right"
         func bits(_ argument: String) throws -> String {
+            if scalar.width == 2 {
+                return "\(type)(\(try integer16Bits(argument, signed: false, width: size.rawValue, in: format)))"
+            }
             guard scalar.kind == .sint else { return argument }
             return wide ? try wideIntegerBits(argument, signed: false, width: size.rawValue, in: format) :
                 integerBits(argument, signed: false, width: size.rawValue, in: format)
@@ -39,6 +42,7 @@ func geometricStatements(
         switch scalar {
         case .i64: expression = try wideIntegerBits(sum, signed: true, in: format)
         case .i32: expression = integerBits(sum, signed: true, in: format)
+        case .i16, .u16: expression = try integer16Bits(sum, signed: scalar == .i16, in: format)
         default: expression = sum
         }
     case (.dot4I8Packed, _), (.dot4U8Packed, _):

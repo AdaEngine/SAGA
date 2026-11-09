@@ -8,6 +8,12 @@ public enum RenderColorLoadAction: Sendable, Equatable {
     }
 }
 
+public enum RenderStoreAction: UInt32, Sendable, Equatable {
+    case store
+    /// Discard the attachment after any resolve. Subsequent reads observe zero.
+    case discard
+}
+
 public struct RenderColorWriteMask: OptionSet, Sendable {
     public let rawValue: UInt32
     public init(rawValue: UInt32) { self.rawValue = rawValue }
@@ -124,13 +130,16 @@ public struct RenderColorAttachment: Sendable, Equatable {
     public let resolve: RenderResolveAttachment?
     /// Required for a 3D color attachment and relative to the selected mip.
     public let depthSlice: UInt32?
+    public let storeAction: RenderStoreAction
 
     public init(texture: ResourceID, mipLevel: UInt32 = 0, loadAction: RenderColorLoadAction = .load,
-                resolve: RenderResolveAttachment? = nil, depthSlice: UInt32? = nil) {
+                resolve: RenderResolveAttachment? = nil, depthSlice: UInt32? = nil,
+                storeAction: RenderStoreAction = .store) {
         self.texture = texture
         self.mipLevel = mipLevel
         self.loadAction = loadAction
         self.resolve = resolve
         self.depthSlice = depthSlice
+        self.storeAction = storeAction
     }
 }

@@ -86,7 +86,7 @@ func numericBuiltinStatements(
         let positive = try wideIntegerBinary(.greater, scalar: scalar, width: width ?? 1, left: operand, right: zero, in: format)
         let negative = try wideIntegerBinary(.less, scalar: scalar, width: width ?? 1, left: operand, right: zero, in: format)
         expression = "(\(resultType)(\(positive)) - \(resultType)(\(negative)))"
-    } else if format == .msl, function == .sign, scalar == .i32 {
+    } else if format == .msl, function == .sign, scalar == .i16 || scalar == .i32 {
         let operand = "\(name)_operand"
         statements.append("\(resultType) \(operand) = \(arguments[0]);")
         let zero = "\(resultType)(0)"
@@ -128,7 +128,8 @@ func numericBuiltinStatements(
         default: function.wgslName
         }
         let call = "\(operation)(\(arguments.joined(separator: ", ")))"
-        expression = format == .hlsl && function == .sign && scalar == .f32 ? "\(resultType)(\(call))" : call
+        expression = format == .hlsl && function == .sign && (scalar == .f32 || scalar == .i16)
+            ? "\(resultType)(\(call))" : call
     }
     let binding = format == .wgsl ? "let \(name)" : "\(resultType) \(name)"
     statements.append("\(binding) = \(expression);")

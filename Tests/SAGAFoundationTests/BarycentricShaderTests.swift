@@ -26,29 +26,66 @@ private let barycentricShader = """
     }
     """
 
+private func barycentricBinary(_ compiler: IndependentShaderCompiler) throws -> [UInt32] {
+    guard case .spirv(let words) = try compiler.compile(.wgsl(barycentricShader), to: .spirv) else {
+        throw ShaderFailure.incompatibleArtifact
+    }
+    return words
+}
+
+@Test func barycentricShaderExportsSPIRVBothBuiltinsAndExtension() throws {
+    let words = try barycentricBinary(IndependentShaderCompiler())
+    var capabilities: Set<UInt32> = []
+    var extensions: Set<String> = []
+    var builtins: Set<UInt32> = []
+    var offset = 5
+    while offset < words.count {
+        let count = Int(words[offset] >> 16)
+        try #require(count > 0 && count <= words.count - offset)
+        switch words[offset] & 0xffff {
+        case 10:
+            let bytes = words[(offset + 1)..<(offset + count)].flatMap { word in
+                (0..<4).map { UInt8(truncatingIfNeeded: word >> ($0 * 8)) }
+            }
+            extensions.insert(String(decoding: bytes.prefix { $0 != 0 }, as: UTF8.self))
+        case 17 where count == 2: capabilities.insert(words[offset + 1])
+        case 71 where count == 4 && words[offset + 2] == 11: builtins.insert(words[offset + 3])
+        default: break
+        }
+        offset += count
+    }
+    #expect(capabilities.contains(5284)) // FragmentBarycentricKHR
+    #expect(extensions.contains("SPV_KHR_fragment_shader_barycentric"))
+    #expect(builtins.isSuperset(of: [5286, 5287])) // BaryCoordKHR and BaryCoordNoPerspKHR.
+}
+
 @Test(arguments: [ShaderOutputFormat.wgsl, .msl, .hlsl, .glsl], [false, true])
 func barycentricShaderTranslatesBothInterpolationModes(_ format: ShaderOutputFormat, _ perspective: Bool) throws {
     let compiler = IndependentShaderCompiler()
     let entry = perspective ? "perspective" : "affine"
-    let shader = try compiler.compileRenderStage(.wgsl(barycentricShader), entryPoint: entry, to: format)
-    #expect(shader.requiresBarycentrics)
-    guard case .text(let actual, let text) = shader.artifact else { throw ShaderFailure.invalidHandle }
-    #expect(actual == format)
-    switch format {
-    case .msl:
-        let attribute = perspective ? "[[barycentric_coord]]" : "[[barycentric_coord, center_no_perspective]]"
-        #expect(text.contains(attribute))
-    case .hlsl:
-        #expect(shader.hlslProfile == "ps_6_1")
-        #expect(text.contains("SV_Barycentrics"))
-        #expect(text.contains("noperspective float3") == !perspective)
-    case .glsl:
-        #expect(text.contains("#extension GL_EXT_fragment_shader_barycentric : require"))
-        #expect(text.contains(perspective ? "gl_BaryCoordEXT" : "gl_BaryCoordNoPerspEXT"))
-    case .wgsl:
-        #expect(text.contains(perspective ? "@builtin(barycentric)" : "@builtin(barycentric_no_perspective)"))
-        _ = try compiler.parseAndValidate(.wgsl(text), capabilities: [.shaderBarycentrics])
-    default: Issue.record("Expected a text target")
+    for roundTrip in [false, true] {
+        let input = try roundTrip ? ShaderInput.spirv(barycentricBinary(compiler)) : .wgsl(barycentricShader)
+        let shader = try compiler.compileRenderStage(input, entryPoint: entry, to: format)
+        #expect(shader.requiresBarycentrics)
+        guard case .text(let actual, let text) = shader.artifact else { throw ShaderFailure.invalidHandle }
+        #expect(actual == format)
+        switch format {
+        case .msl:
+            let attribute = perspective ? "[[barycentric_coord]]" : "[[barycentric_coord, center_no_perspective]]"
+            #expect(text.contains(attribute))
+            if !perspective { #expect(text.contains("SagaFragmentInput saga_input [[stage_in]]")) }
+        case .hlsl:
+            #expect(shader.hlslProfile == "ps_6_1")
+            #expect(text.contains("SV_Barycentrics"))
+            #expect(text.contains("noperspective float3") == !perspective)
+        case .glsl:
+            #expect(text.contains("#extension GL_EXT_fragment_shader_barycentric : require"))
+            #expect(text.contains(perspective ? "gl_BaryCoordEXT" : "gl_BaryCoordNoPerspEXT"))
+        case .wgsl:
+            #expect(text.contains(perspective ? "@builtin(barycentric)" : "@builtin(barycentric_no_perspective)"))
+            _ = try compiler.parseAndValidate(.wgsl(text), capabilities: [.shaderBarycentrics])
+        default: Issue.record("Expected a text target")
+        }
     }
 }
 
@@ -187,10 +224,14 @@ func barycentricImportsReachAllTextTargets(_ format: ShaderOutputFormat, _ persp
 }
 
 #if canImport(Metal)
-@Test(arguments: [ShaderInputFormat.wgsl, .glsl, .spirv])
-func barycentricShaderDistinguishesPerspectiveAndAffineWeightsOnMetal(_ inputFormat: ShaderInputFormat) async throws {
+private enum BarycentricFixture: String, CaseIterable, Sendable {
+    case wgsl, glsl, spirv, roundTrip
+}
+
+@Test(arguments: BarycentricFixture.allCases)
+private func barycentricShaderDistinguishesPerspectiveAndAffineWeightsOnMetal(_ fixture: BarycentricFixture) async throws {
     let compiler = IndependentShaderCompiler()
-    let source = ShaderInput.wgsl(barycentricShader)
+    let source = try fixture == .roundTrip ? ShaderInput.spirv(barycentricBinary(compiler)) : .wgsl(barycentricShader)
     let vertex = try compiler.compileRenderStage(source, entryPoint: "vs", to: .msl)
     let device = try await Device.make(backend: MetalBackend.makeDevice(), requiredFeatures: [.shaderBarycentrics])
     do {
@@ -200,8 +241,8 @@ func barycentricShaderDistinguishesPerspectiveAndAffineWeightsOnMetal(_ inputFor
         let perspective: [Float] = [8.0 / 11, 2.0 / 11, 1.0 / 11]
         let affine: [Float] = [0.5, 0.25, 0.25, 1]
         let modes: [(ShaderInput, String, [Float])]
-        switch inputFormat {
-        case .wgsl:
+        switch fixture {
+        case .wgsl, .roundTrip:
             modes = [(source, "affine", affine), (source, "perspective", perspective + [1]),
                      (source, "perspective_with_position", perspective + [11.0 / 16])]
         case .glsl:

@@ -12,7 +12,8 @@ struct SPVSwitchBoundary {
 extension SPVFunctionLowerer {
     func switchSelectorType(_ instruction: SPVInstruction) throws -> IRScalar {
         let id = instruction.a[0]
-        guard let type = module.functionValueTypes[id] ?? module.constantMap[id]?.type ?? module.globalMap[id]?.1 else {
+        guard let type = module.functionValueTypes[id] ?? module.constantMap[id]?.type ?? module.overrideMap[id]?.type
+            ?? module.globalMap[id]?.1 else {
             throw instruction.fail("Undefined OpSwitch selector")
         }
         let scalar = try module.scalar(type, instruction)

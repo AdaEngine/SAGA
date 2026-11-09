@@ -26,19 +26,78 @@ private func earlyDepthSource(_ mode: String) -> ShaderInput {
         fn depthOnly(@builtin(position) p: vec4f) -> @builtin(frag_depth) f32 {
             return p.z;
         }
+        @fragment @early_depth_test(\(mode))
+        fn colorOnly() -> @location(0) vec4f {
+            return vec4f(0, 1, 0, 1);
+        }
         """)
 }
 
-@Test(arguments: ["force", "greater_equal", "less_equal", "unchanged"], [ShaderOutputFormat.msl, .hlsl, .glsl, .wgsl])
-func emitsEarlyDepthModesForDirectAndStructuredOutputs(mode: String, format: ShaderOutputFormat) throws {
+private let earlyDepthModes = ["force", "greater_equal", "less_equal", "unchanged"]
+
+private func earlyDepthBinary(_ mode: String, with compiler: IndependentShaderCompiler) throws -> [UInt32] {
+    guard case .spirv(let words) = try compiler.compile(earlyDepthSource(mode), to: .spirv) else {
+        throw ShaderFailure.incompatibleArtifact
+    }
+    return words
+}
+
+@Test(arguments: earlyDepthModes)
+func spirvEarlyDepthCodeGeneratorDeclaresExecutionModes(_ mode: String) throws {
+    let words = try earlyDepthBinary(mode, with: IndependentShaderCompiler())
+    let expected: UInt32 = switch mode {
+    case "force": 9 // EarlyFragmentTests
+    case "greater_equal": 14 // DepthGreater
+    case "less_equal": 15 // DepthLess
+    default: 16 // DepthUnchanged
+    }
+    var entries: [String: (id: UInt32, interface: Set<UInt32>)] = [:]
+    var modes: [UInt32: Set<UInt32>] = [:]
+    var depthOutputs: Set<UInt32> = []
+    var offset = 5
+    while offset < words.count {
+        let count = Int(words[offset] >> 16)
+        try #require(count > 0 && count <= words.count - offset)
+        switch words[offset] & 0xffff {
+        case 15 where count >= 4 && words[offset + 1] == 4:
+            let bytes = words[(offset + 3)..<(offset + count)].flatMap { word in
+                (0..<4).map { UInt8(truncatingIfNeeded: word >> ($0 * 8)) }
+            }
+            let name = String(decoding: bytes.prefix { $0 != 0 }, as: UTF8.self)
+            let interface = offset + 3 + (name.utf8.count + 4) / 4
+            try #require(interface <= offset + count)
+            entries[name] = (words[offset + 2], Set(words[interface..<(offset + count)]))
+        case 16 where count == 3:
+            modes[words[offset + 1], default: []].insert(words[offset + 2])
+        case 71 where count == 4 && words[offset + 2] == 11 && words[offset + 3] == 22:
+            depthOutputs.insert(words[offset + 1]) // BuiltIn FragDepth
+        default: break
+        }
+        offset += count
+    }
+    for name in ["fs", "depthOnly", "colorOnly"] {
+        let entry = try #require(entries[name])
+        let hasDepth = name != "colorOnly"
+        let expectedModes: Set<UInt32> = hasDepth ? [7, expected, 12] : [7, expected]
+        #expect(modes[entry.id] == expectedModes)
+        #expect(entry.interface.intersection(depthOutputs).count == (hasDepth ? 1 : 0))
+    }
+}
+
+@Test(arguments: earlyDepthModes.flatMap { mode in [false, true].map { (mode, $0) } }, [ShaderOutputFormat.msl, .hlsl, .glsl, .wgsl])
+func emitsEarlyDepthModesForDirectAndStructuredOutputs(configuration: (mode: String, roundTrip: Bool), format: ShaderOutputFormat) throws {
     let compiler = IndependentShaderCompiler()
-    let combined = try compiler.compileRenderStage(earlyDepthSource(mode), entryPoint: "fs", to: format)
-    let direct = try compiler.compileRenderStage(earlyDepthSource(mode), entryPoint: "depthOnly", to: format)
+    let (mode, roundTrip) = configuration
+    let input = try roundTrip ? ShaderInput.spirv(earlyDepthBinary(mode, with: compiler)) : earlyDepthSource(mode)
+    let combined = try compiler.compileRenderStage(input, entryPoint: "fs", to: format)
+    let direct = try compiler.compileRenderStage(input, entryPoint: "depthOnly", to: format)
+    let colorOnly = try compiler.compileRenderStage(input, entryPoint: "colorOnly", to: format)
     let suppressesOutput = (format == .msl && ["force", "unchanged"].contains(mode)) ||
         (format == .hlsl && mode == "unchanged")
     #expect(combined.writesDepth == !suppressesOutput)
     #expect(direct.writesDepth == !suppressesOutput)
     #expect(combined.earlyDepthTest != nil && direct.earlyDepthTest == combined.earlyDepthTest)
+    #expect(!colorOnly.writesDepth && colorOnly.earlyDepthTest == combined.earlyDepthTest)
     #expect(combined.colorOutputKind == .float)
     #expect(direct.colorOutputKind == nil)
     guard case .text(_, let combinedText) = combined.artifact, case .text(_, let directText) = direct.artifact else {
@@ -96,11 +155,11 @@ func emitsEarlyDepthModesForDirectAndStructuredOutputs(mode: String, format: Sha
 }
 
 #if canImport(Metal)
-@Test(arguments: ["force", "greater_equal", "less_equal", "unchanged"])
-func earlyDepthControlsRasterDepthAndFragmentEffectsOnMetal(mode: String) async throws {
+@Test(arguments: earlyDepthModes, [false, true])
+func earlyDepthControlsRasterDepthAndFragmentEffectsOnMetal(mode: String, roundTrip: Bool) async throws {
     let device = try await Device.make(backend: MetalBackend.makeDevice(), requiredFeatures: [.shaderEarlyDepthTest])
     let compiler = IndependentShaderCompiler()
-    let source = earlyDepthSource(mode)
+    let source = try roundTrip ? ShaderInput.spirv(earlyDepthBinary(mode, with: compiler)) : earlyDepthSource(mode)
     let vertex = try compiler.compileRenderStage(source, entryPoint: "vs", to: .msl)
     let fragment = try compiler.compileRenderStage(source, entryPoint: "fs", to: .msl)
     let direct = try compiler.compileRenderStage(source, entryPoint: "depthOnly", to: .msl)

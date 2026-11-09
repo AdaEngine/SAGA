@@ -147,8 +147,9 @@ import SAGAFrontends
         #expect(throws:ShaderFailure.self) { try WGSLFrontend().parse(.spirv([])) }
         let without = WGSLFrontend(options:WGSLFrontendOptions(capabilities:[]))
         #expect(throws:ShaderFailure.self) { try without.parse(.wgsl("@fragment fn f(@builtin(sample_index) i: u32) {}")) }
-        #expect(throws:ShaderFailure.self) { try WGSLFrontend(options:WGSLFrontendOptions(parseDocComments:true)).parse(.wgsl("/// doc\nfn f() {}")) }
-        _ = try WGSLFrontend(options:WGSLFrontendOptions(parseDocComments:true)).parse(.wgsl("// regular\nfn f() {}"))
+        let documenting = WGSLFrontend(options: WGSLFrontendOptions(parseDocComments: true))
+        #expect(try documenting.parse(.wgsl("/// doc\nfn f() {}")).documentation.map(\.lines) == [["/// doc"]])
+        #expect(try documenting.parse(.wgsl("// regular\nfn f() {}")).documentation.isEmpty)
     }
     @Test func boundedAdversarialStructuredInputs() throws {
         let f = WGSLFrontend(limits:try ShaderLimits(sourceBytes:20000,tokens:3000,nodes:5000,depth:24,work:100000))

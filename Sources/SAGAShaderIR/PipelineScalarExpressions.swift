@@ -100,7 +100,7 @@ extension IRTypeKind {
     package var isPipelineValueType: Bool {
         switch self {
         case .scalar(let lane), .vector(_, let lane):
-            return [.bool, .i32, .u32, .i64, .u64, .f32, .f16, .abstractInt, .abstractFloat].contains(lane)
+            return [.bool, .i16, .u16, .i32, .u32, .i64, .u64, .f32, .f16, .abstractInt, .abstractFloat].contains(lane)
         case .matrix(_, _, let lane):
             return [.f32, .f16, .abstractFloat].contains(lane)
         case .array(_, .constant, _), .structure:

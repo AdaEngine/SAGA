@@ -116,8 +116,9 @@ func rejectsInvalidClipDistanceInterfaces(source: String) {
     let device = try await Device.make(backend: MetalBackend.makeDevice())
     let compiler = IndependentShaderCompiler()
     let layout = VertexBufferLayout(stride: 8, attributes: [.init(location: 0, offset: 0, format: .float32x2)])
-    let fits = ShaderInput.wgsl(clipShader(count: 4, varyingLocation: 14))
-    let exceeds = ShaderInput.wgsl(clipShader(count: 5, varyingLocation: 14))
+    let location = Int(device.capabilities.maxInterStageShaderVariables) - 2
+    let fits = ShaderInput.wgsl(clipShader(count: 4, varyingLocation: location))
+    let exceeds = ShaderInput.wgsl(clipShader(count: 5, varyingLocation: location))
     let fragment = try compiler.compileRenderStage(fits, entryPoint: "fs", to: .msl)
     let validVertex = try compiler.compileRenderStage(fits, entryPoint: "vs", to: .msl)
     let invalidVertex = try compiler.compileRenderStage(exceeds, entryPoint: "vs", to: .msl)
@@ -130,13 +131,20 @@ func rejectsInvalidClipDistanceInterfaces(source: String) {
     await device.close()
 }
 
-@Test(arguments: [1, 5, 8])
-func clipsPrimitivesAgainstWGSLPlanesOnMetal(count: Int) async throws {
+@Test(arguments: [1, 5, 8], [false, true])
+func clipsPrimitivesAgainstWGSLPlanesOnMetal(count: Int, roundTrip: Bool) async throws {
     let device = try await Device.make(backend: MetalBackend.makeDevice(), requiredFeatures: [.clipDistances])
     let compiler = IndependentShaderCompiler()
-    let source = ShaderInput.wgsl(clipShader(count: count))
+    var source = ShaderInput.wgsl(clipShader(count: count))
+    if roundTrip {
+        guard case .spirv(let words) = try compiler.compile(source, to: .spirv) else {
+            throw ShaderFailure.incompatibleArtifact
+        }
+        source = .spirv(words)
+    }
     let vertex = try compiler.compileRenderStage(source, entryPoint: "vs", to: .msl)
     let fragment = try compiler.compileRenderStage(source, entryPoint: "fs", to: .msl)
+    #expect(vertex.clipDistanceCount == count)
     let pipeline = try await device.createRenderPipeline(vertex: vertex, fragment: fragment, colorFormat: .rgba8Unorm,
         vertexBuffers: [.init(stride: 8, attributes: [.init(location: 0, offset: 0, format: .float32x2)])])
     let vertices = try await device.createBuffer(.init(size: 24, usage: [.vertex, .copyDestination]))

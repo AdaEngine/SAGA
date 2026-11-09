@@ -9,29 +9,32 @@ extension IndependentShaderCompiler {
     _ input: ShaderInput, capabilities: ShaderCapabilities = .referenceDefault,
     limits: ShaderLimits = .default
   ) throws -> ValidatedModule<IRModule> {
-    try parseAndValidate(input, capabilities: capabilities, limits: limits, allow1DTextureSampleLevelOffset: false)
+    let validator = ShaderSemanticValidator(capabilities: capabilities, limits: limits)
+    return try parseAndValidate(input, validator: validator, allow1DTextureSampleLevelOffset: false)
   }
 
   func parseAndValidate(
-    _ input: ShaderInput, capabilities: ShaderCapabilities, limits: ShaderLimits = .default,
-    allow1DTextureSampleLevelOffset: Bool
+    _ input: ShaderInput, validator: ShaderSemanticValidator,
+    allow1DTextureSampleLevelOffset: Bool, allowMixedWorkgroupDimensionTypes: Bool = false,
+    allowLegacyNagaSubgroups: Bool = false
   ) throws -> ValidatedModule<IRModule> {
     try Task.checkCancellation()
     let module: IRModule
     switch input {
     case .wgsl:
-      let options = WGSLFrontendOptions(capabilities: capabilities,
-        allow1DTextureSampleLevelOffset: allow1DTextureSampleLevelOffset, nagaFloatRounding: nagaFloatRounding)
-      module = try WGSLFrontend(options: options, limits: limits).parse(input)
+      let options = WGSLFrontendOptions(capabilities: validator.capabilities,
+        allow1DTextureSampleLevelOffset: allow1DTextureSampleLevelOffset, nagaFloatRounding: nagaFloatRounding,
+        allowMixedWorkgroupDimensionTypes: allowMixedWorkgroupDimensionTypes,
+        allowLegacyNagaSubgroups: allowLegacyNagaSubgroups)
+      module = try WGSLFrontend(options: options, limits: validator.limits).parse(input)
     case .glsl(_, let stage, let defines):
       module = try GLSLFrontend(
-        options: .init(stage: IRStage(stage), defines: defines), limits: limits
+        options: .init(stage: IRStage(stage), defines: defines), limits: validator.limits
       ).parse(input)
     case .spirv:
-      module = try SPIRVFrontend(limits: limits).parse(input)
+      module = try SPIRVFrontend(limits: validator.limits).parse(input)
     }
-    let checked = try ValidatedModule.checking(
-      module, with: ShaderSemanticValidator(capabilities: capabilities, limits: limits))
+    let checked = try ValidatedModule.checking(module, with: validator)
     try Task.checkCancellation()
     return checked
   }

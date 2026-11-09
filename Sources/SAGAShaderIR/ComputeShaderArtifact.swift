@@ -45,6 +45,7 @@ public struct ComputeShaderArtifact: Sendable, Equatable {
         public let hlslUsesByteAddressBuffer: Bool
         public let minimumByteSize: UInt64
         public let isReadOnly: Bool
+        public let memoryDecorations: IRMemoryDecorations
         public let runtimeArrayStride: UInt32?
         /// Byte offset of the runtime array from the start of the binding.
         public let runtimeArrayOffset: UInt32
@@ -53,13 +54,15 @@ public struct ComputeShaderArtifact: Sendable, Equatable {
         package init(
             binding: IRResourceBinding, flatBindingIndex: UInt32?, minimumByteSize: UInt64, isReadOnly: Bool,
             runtimeArrayStride: UInt32? = nil, runtimeArrayOffset: UInt32 = 0,
-            hlslUsesByteAddressBuffer: Bool = false, bindingArray: BindingArrayLayout? = nil
+            hlslUsesByteAddressBuffer: Bool = false, bindingArray: BindingArrayLayout? = nil,
+            memoryDecorations: IRMemoryDecorations = []
         ) {
             self.binding = binding
             self.flatBindingIndex = flatBindingIndex
             self.hlslUsesByteAddressBuffer = hlslUsesByteAddressBuffer
             self.minimumByteSize = minimumByteSize
             self.isReadOnly = isReadOnly
+            self.memoryDecorations = memoryDecorations
             self.runtimeArrayStride = runtimeArrayStride
             self.runtimeArrayOffset = runtimeArrayOffset
             self.bindingArray = bindingArray
@@ -194,6 +197,8 @@ public struct ComputeShaderArtifact: Sendable, Equatable {
     public let usesTextureBarrier: Bool
     public let requiresShaderF16: Bool
     public let requiresShaderInt64: Bool
+    public let requiresShaderInt16: Bool
+    public let requiresDebugPrintf: Bool
     public let requiresShaderInt64AtomicMinMax: Bool
     public let requiresShaderInt64AtomicAllOps: Bool
     public let requiresSubgroups: Bool
@@ -227,7 +232,8 @@ public struct ComputeShaderArtifact: Sendable, Equatable {
         hlslWorkgroupCountBinding: IRResourceBinding? = nil, usesTextureBarrier: Bool = false, requiresShaderF16: Bool = false,
         requiresUniformBufferStandardLayout: Bool = false, requiresSubgroups: Bool = false, requiresSubgroupID: Bool = false,
         hlslProfile: String? = nil, requiresShaderInt64AtomicMinMax: Bool = false,
-        requiresShaderInt64AtomicAllOps: Bool = false, requiresShaderInt64: Bool = false,
+        requiresShaderInt64AtomicAllOps: Bool = false, requiresShaderInt64: Bool = false, requiresShaderInt16: Bool = false,
+        requiresDebugPrintf: Bool = false,
         immediateLayout: ShaderImmediateLayout? = nil, usesGlobalInvocationIndex: Bool = false,
         usesWorkgroupIndex: Bool = false, requiredSubgroupSize: UInt32? = nil,
         requiresSubgroupUniformity: Bool = false
@@ -247,6 +253,8 @@ public struct ComputeShaderArtifact: Sendable, Equatable {
         self.usesTextureBarrier = usesTextureBarrier
         self.requiresShaderF16 = requiresShaderF16
         self.requiresShaderInt64 = requiresShaderInt64
+        self.requiresShaderInt16 = requiresShaderInt16
+        self.requiresDebugPrintf = requiresDebugPrintf
         self.requiresShaderInt64AtomicMinMax = requiresShaderInt64AtomicMinMax
         self.requiresShaderInt64AtomicAllOps = requiresShaderInt64AtomicAllOps
         self.requiresSubgroups = requiresSubgroups

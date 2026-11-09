@@ -3,8 +3,27 @@ import SAGAShaderIR
 enum SPVBarycentric {
     static let extensionName = "SPV_KHR_fragment_shader_barycentric"
     static let capability: UInt32 = 5284
+    static let perVertex: UInt32 = 5285
     static let perspective: UInt32 = 5286
     static let affine: UInt32 = 5287
+}
+
+enum SPVMultiview {
+    static let extensionName = "SPV_KHR_multiview"
+    static let capability: UInt32 = 4439
+    static let viewIndex: UInt32 = 4440
+}
+
+enum SPVDrawParameters {
+    static let extensionName = "SPV_KHR_shader_draw_parameters"
+    static let capability: UInt32 = 4427
+    static let drawIndex: UInt32 = 4426
+}
+
+enum SPVPrimitiveIndex {
+    static let builtin: UInt32 = 7
+    static let geometryCapability: UInt32 = 2
+    static let tessellationCapability: UInt32 = 3
 }
 
 struct SPVInterfaceField {
@@ -16,11 +35,22 @@ struct SPVInterfaceField {
     let input: Bool
 }
 
+private struct SPVOutputSlot: Hashable {
+    let location: UInt32
+    let index: UInt32
+}
+
 private struct SPVBoundInterface {
     let field: SPVInterfaceField
-    let binding: IRBinding
+    var binding: IRBinding
     let type: IRHandle<IRType>
     let memberPointer: IRHandle<IRType>?
+    let sampleMaskElement: IRHandle<IRType>?
+
+    var locationSlot: SPVOutputSlot? {
+        guard let location = field.attributes[30]?.first else { return nil }
+        return .init(location: location, index: field.attributes[32]?.first ?? 0)
+    }
 }
 
 extension SPVDecoder {
@@ -71,11 +101,16 @@ extension SPVDecoder {
         let kind = types[field.type.index].kind
         let binding: IRBinding
         var type = field.type
+        var sampleMaskElement: IRHandle<IRType>?
         if let builtin = attributes[11]?.first {
             let fragmentSubgroupInput = stage == .fragment && field.input && (builtin == 36 || builtin == 41)
             var allowed: Set<UInt32> = [0, 11, 35]
             if builtin == 0 { allowed.insert(18) }
-            if fragmentSubgroupInput { allowed.insert(14) }
+            let flatFragmentInput = stage == .fragment && field.input &&
+                [18, 20, SPVMultiview.viewIndex].contains(builtin)
+            if fragmentSubgroupInput || flatFragmentInput || builtin == SPVPrimitiveIndex.builtin {
+                allowed.insert(14)
+            }
             guard Set(attributes.keys).isSubset(of: allowed) else {
                 throw instruction.fail("Invalid decorations on BuiltIn")
             }
@@ -103,10 +138,70 @@ extension SPVDecoder {
                 }
                 binding = .builtIn(builtin == 42 ? .vertexIndex : .instanceIndex)
                 type = try internType(.scalar(.u32))
+            case SPVDrawParameters.drawIndex:
+                guard capabilities.contains(SPVDrawParameters.capability) else {
+                    throw instruction.fail("DrawIndex requires DrawParameters", code: .unsupportedCapability)
+                }
+                guard stage == .vertex, field.input, kind == .scalar(.i32) || kind == .scalar(.u32) else {
+                    throw instruction.fail("DrawIndex requires a 32-bit integer vertex input")
+                }
+                binding = .builtIn(.drawIndex)
+                type = try internType(.scalar(.u32))
+            case SPVPrimitiveIndex.builtin:
+                guard stage == .fragment, field.input, kind == .scalar(.i32) || kind == .scalar(.u32) else {
+                    throw instruction.fail("PrimitiveId requires a 32-bit integer fragment input")
+                }
+                guard attributes[14] != nil else {
+                    throw instruction.fail("PrimitiveId requires Flat interpolation")
+                }
+                guard capabilities.contains(SPVPrimitiveIndex.geometryCapability) ||
+                      capabilities.contains(SPVPrimitiveIndex.tessellationCapability) else {
+                    throw instruction.fail("PrimitiveId requires Geometry or Tessellation", code: .unsupportedCapability)
+                }
+                binding = .builtIn(.primitiveIndex)
+                type = try internType(.scalar(.u32))
+            case SPVMultiview.viewIndex:
+                guard capabilities.contains(SPVMultiview.capability) else {
+                    throw instruction.fail("ViewIndex requires the SPIR-V MultiView capability", code: .unsupportedCapability)
+                }
+                guard field.input, stage == .vertex || stage == .fragment,
+                      kind == .scalar(.i32) || kind == .scalar(.u32) else {
+                    throw instruction.fail("ViewIndex requires a 32-bit integer vertex or fragment input")
+                }
+                binding = .builtIn(.viewIndex)
+                type = try internType(.scalar(.u32))
             case 15 where stage == .fragment && field.input && kind == .vector(size: .four, scalar: .f32):
                 binding = .builtIn(.position(invariant: false))
             case 17 where stage == .fragment && field.input && kind == .scalar(.bool):
                 binding = .builtIn(.frontFacing)
+            case 18:
+                guard capabilities.contains(35) else {
+                    throw instruction.fail("SampleId requires SampleRateShading", code: .unsupportedCapability)
+                }
+                guard stage == .fragment, field.input, kind == .scalar(.i32) || kind == .scalar(.u32) else {
+                    throw instruction.fail("SampleId requires a 32-bit integer fragment input")
+                }
+                binding = .builtIn(.sampleIndex)
+                type = try internType(.scalar(.u32))
+            case 20:
+                guard stage == .fragment else {
+                    throw instruction.fail("SampleMask requires a fragment interface")
+                }
+                guard case .array(let element, .constant(let count), _) = kind,
+                      types[element.index].kind == .scalar(.i32) || types[element.index].kind == .scalar(.u32) else {
+                    throw instruction.fail("SampleMask requires a fixed array of 32-bit integers")
+                }
+                guard count == 1 else {
+                    throw instruction.fail("SampleMask supports one 32-bit coverage word", code: .unsupportedConstruct)
+                }
+                binding = .builtIn(.sampleMask)
+                type = try internType(.scalar(.u32))
+                sampleMaskElement = element
+            case 22:
+                guard stage == .fragment, !field.input, kind == .scalar(.f32) else {
+                    throw instruction.fail("FragDepth requires an f32 fragment output")
+                }
+                binding = .builtIn(.fragDepth)
             case SPVBarycentric.perspective, SPVBarycentric.affine:
                 guard capabilities.contains(SPVBarycentric.capability) else {
                     throw instruction.fail("Barycentric input requires FragmentBarycentricKHR", code: .unsupportedCapability)
@@ -135,11 +230,34 @@ extension SPVDecoder {
             default:
                 throw instruction.fail("BuiltIn \(builtin) is not implemented", code: .unsupportedConstruct)
             }
+        } else if attributes[SPVBarycentric.perVertex] != nil {
+            guard capabilities.contains(SPVBarycentric.capability) else {
+                throw instruction.fail("PerVertexKHR requires FragmentBarycentricKHR", code: .unsupportedCapability)
+            }
+            guard stage == .fragment, field.input, field.member == nil, let location = attributes[30]?.first else {
+                throw instruction.fail("PerVertexKHR requires a fragment input variable with Location")
+            }
+            guard Set(attributes.keys).isSubset(of: [0, 30, SPVBarycentric.perVertex]) else {
+                throw instruction.fail("PerVertexKHR cannot be combined with interpolation or sampling decorations")
+            }
+            guard case .array(let element, .constant(3), _) = kind,
+                  let shape = IRBitcastShape(types[element.index].kind),
+                  [.f16, .f32, .i32, .u32].contains(shape.scalar) else {
+                throw instruction.fail("PerVertexKHR requires an array of three supported numeric values")
+            }
+            binding = .location(index: location, interpolation: .perVertex, sampling: nil, blendSource: nil, perPrimitive: false)
         } else {
             guard stage != .compute, let location = attributes[30]?.first,
-                  Set(attributes.keys).isSubset(of: [0,13,14,16,17,30,35]),
-                  let shape = IRBitcastShape(kind), [.f32, .i32, .u32].contains(shape.scalar) else {
-                throw instruction.fail("Location requires a 32-bit scalar or vector", code: .unsupportedConstruct)
+                  Set(attributes.keys).isSubset(of: [0,13,14,16,17,30,32,35]),
+                  let shape = IRBitcastShape(kind), [.f16, .f32, .i32, .u32].contains(shape.scalar) else {
+                throw instruction.fail("Location requires a supported numeric scalar or vector", code: .unsupportedConstruct)
+            }
+            let colorIndex = attributes[32]?.first
+            if colorIndex != nil, stage != .fragment || field.input {
+                throw instruction.fail("Index decoration requires a fragment color output")
+            }
+            if colorIndex == 1, location != 0 {
+                throw instruction.fail("Dual-source fragment colors are supported only at location 0", code: .unsupportedConstruct)
             }
             let varying = (stage == .vertex && !field.input) || (stage == .fragment && field.input)
             let flat = attributes[14] != nil
@@ -148,7 +266,7 @@ extension SPVDecoder {
             let sample = attributes[17] != nil
             guard !(flat && linear), !(centroid && sample), !(flat && (centroid || sample)),
                   varying || !(flat || linear || centroid || sample),
-                  !varying || shape.scalar == .f32 || flat else {
+                  !varying || shape.scalar.kind == .float || flat else {
                 throw instruction.fail("Invalid interpolation decorations")
             }
             if sample && !capabilities.contains(35) {
@@ -157,24 +275,27 @@ extension SPVDecoder {
             let interpolation: IRInterpolation? = varying ? (flat ? .flat : linear ? .linear : .perspective) : nil
             let sampling: IRSampling? = varying && !flat ? (centroid ? .centroid : sample ? .sample : .center) : nil
             binding = .location(index: location, interpolation: interpolation, sampling: sampling,
-                                blendSource: nil, perPrimitive: false)
+                                blendSource: colorIndex == 1 ? 1 : nil, perPrimitive: false)
         }
         let memberPointer = try field.member.map { _ in try internType(.pointer(base: field.type, space: .private)) }
-        return .init(field: field, binding: binding, type: type, memberPointer: memberPointer)
+        return .init(field: field, binding: binding, type: type, memberPointer: memberPointer,
+                     sampleMaskElement: sampleMaskElement)
     }
 
     mutating func lowerStageInterface(
         _ entry: SPVEntry, stage: IRStage, function: IRHandle<IRFunction>, functions: inout [IRFunction]
     ) throws -> IRHandle<IRFunction> {
         let listsAllGlobals = version >= 0x00010400
-        if !listsAllGlobals && entry.interfaces.isEmpty && interfaceGlobals.isEmpty { return function }
+        let replacesDepth = modes[entry.function]?[12] != nil
+        if !listsAllGlobals && !replacesDepth && entry.interfaces.isEmpty && interfaceGlobals.isEmpty { return function }
         var inputs: [SPVBoundInterface] = []
         var outputs: [SPVBoundInterface] = []
         var listed: Set<IRHandle<IRGlobalVariable>> = []
         var inputLocations: Set<UInt32> = []
-        var outputLocations: Set<UInt32> = []
+        var outputLocations: Set<SPVOutputSlot> = []
         var inputBuiltins: Set<UInt32> = []
         var outputBuiltins: Set<UInt32> = []
+        var inactiveDepthOutput: IRHandle<IRGlobalVariable>?
         for id in entry.interfaces {
             try charge()
             guard let global = globalMap[id]?.0 else {
@@ -190,22 +311,47 @@ extension SPVDecoder {
             for field in fields {
                 try charge()
                 let bound = try bindInterface(field, stage: stage, at: entry.inst)
-                if let location = field.attributes[30]?.first {
-                    let inserted = field.input ? inputLocations.insert(location).inserted : outputLocations.insert(location).inserted
+                if let slot = bound.locationSlot {
+                    let inserted = field.input ? inputLocations.insert(slot.location).inserted : outputLocations.insert(slot).inserted
                     guard inserted else { throw entry.inst.fail("Duplicate interface Location") }
                 } else if let builtin = field.attributes[11]?.first {
                     let inserted = field.input ? inputBuiltins.insert(builtin).inserted : outputBuiltins.insert(builtin).inserted
                     guard inserted else { throw entry.inst.fail("Duplicate interface BuiltIn") }
+                    if builtin == 22, !field.input, !replacesDepth, field.member == nil {
+                        // glslang can retain an unused gl_FragDepth declaration
+                        // for a conservative-depth qualifier without DepthReplacing.
+                        inactiveDepthOutput = field.global
+                        continue
+                    }
                 }
                 if field.input { inputs.append(bound) } else { outputs.append(bound) }
             }
+        }
+        let secondarySlot = SPVOutputSlot(location: 0, index: 1)
+        if outputLocations.contains(secondarySlot) {
+            // Vulkan treats a missing Index as zero. Expose source zero only
+            // when a matching secondary output enables dual-source blending.
+            try charge(outputs.count * 2)
+            let primarySlot = SPVOutputSlot(location: 0, index: 0)
+            guard outputLocations.count == 2,
+                  let primary = outputs.firstIndex(where: { $0.locationSlot == primarySlot }),
+                  let secondary = outputs.first(where: { $0.locationSlot == secondarySlot }),
+                  types[outputs[primary].type.index].kind == types[secondary.type.index].kind else {
+                throw entry.inst.fail("Dual-source outputs require two matching color types at location 0",
+                                      code: .unsupportedConstruct)
+            }
+            outputs[primary].binding = .location(index: 0, interpolation: nil, sampling: nil,
+                                                 blendSource: 0, perPrimitive: false)
+        }
+        guard replacesDepth == (outputBuiltins.contains(22) && inactiveDepthOutput == nil) else {
+            throw entry.inst.fail("FragDepth output and DepthReplacing execution mode must be declared together")
         }
         let builtinInputs = builtinFunctionInputs[function.index]
         try charge(builtinInputs.count)
         guard builtinInputs.allSatisfy({ listed.contains($0) }) else {
             throw entry.inst.fail("Entry point omits a used builtin input")
         }
-        try checkInterfaceUses(function, functions: functions, listed: listed, at: entry.inst)
+        try checkInterfaceUses(function, functions: functions, listed: listed, inactiveDepthOutput: inactiveDepthOutput, at: entry.inst)
         if inputs.isEmpty && outputs.isEmpty { return function }
 
         let result: IRFunctionResult?
@@ -226,7 +372,13 @@ extension SPVDecoder {
             try wrapper.node()
             wrapper.parameters.append(.init(type: input.type, binding: input.binding, location: site.location))
             var argument = try wrapper.expr(input.type, .functionArgument(slot), site)
-            if input.type != input.field.type {
+            if let element = input.sampleMaskElement {
+                if element != input.type {
+                    argument = try wrapper.emitValue(element, .bitcast(expression: argument, type: element), &statements, site)
+                }
+                argument = try wrapper.emitValue(input.field.type, .compose(type: input.field.type, components: [argument]),
+                                                  &statements, site)
+            } else if input.type != input.field.type {
                 argument = try wrapper.emitValue(input.field.type, .bitcast(expression: argument, type: input.field.type),
                                                            &statements, site)
             }
@@ -245,7 +397,13 @@ extension SPVDecoder {
         var values: [IRHandle<IRExpression>] = []
         for output in outputs {
             let pointer = try wrapper.interfacePointer(output, &statements, site)
-            var value = try wrapper.emitValue(output.type, .load(pointer: pointer), &statements, site)
+            var value = try wrapper.emitValue(output.field.type, .load(pointer: pointer), &statements, site)
+            if let element = output.sampleMaskElement {
+                value = try wrapper.emitValue(element, .accessIndex(base: value, index: 0), &statements, site)
+                if element != output.type {
+                    value = try wrapper.emitValue(output.type, .bitcast(expression: value, type: output.type), &statements, site)
+                }
+            }
             if let lane = positionLane, case .builtIn(.position) = output.binding {
                 var components: [IRHandle<IRExpression>] = []
                 for index: UInt32 in 0..<4 {
@@ -279,19 +437,33 @@ extension SPVDecoder {
 
     private mutating func checkInterfaceUses(
         _ entry: IRHandle<IRFunction>, functions: [IRFunction],
-        listed: Set<IRHandle<IRGlobalVariable>>, at site: SPVInstruction
+        listed: Set<IRHandle<IRGlobalVariable>>, inactiveDepthOutput: IRHandle<IRGlobalVariable>?, at site: SPVInstruction
     ) throws {
+        let checksAliases = version >= 0x00010400 && !storageAliases.isEmpty
+        if checksAliases { try charge(listed.count) }
+        let effectiveListed = checksAliases ? listed.union(listed.map(canonicalStorageGlobal)) : listed
         var pending = [entry]
         var visited: Set<IRHandle<IRFunction>> = []
         while let function = pending.popLast() {
             try charge()
             if !visited.insert(function).inserted { continue }
             let body = functions[function.index]
+            if checksAliases {
+                let rawStorage = storageAliasInterfaceUses[function.index]
+                try charge(rawStorage.count)
+                guard rawStorage.allSatisfy(listed.contains) else {
+                    throw site.fail("Entry point omits a used storage interface variable")
+                }
+            }
             for expression in body.expressions.values {
                 try charge()
-                if case .globalVariable(let global) = expression.kind,
-                   (version >= 0x00010400 || interfaceGlobals.contains(global)), !listed.contains(global) {
-                    throw site.fail("Entry point omits a used interface variable")
+                if case .globalVariable(let global) = expression.kind {
+                    if global == inactiveDepthOutput {
+                        throw site.fail("Use of FragDepth output requires DepthReplacing execution mode")
+                    }
+                    if (version >= 0x00010400 || interfaceGlobals.contains(global)), !effectiveListed.contains(global) {
+                        throw site.fail("Entry point omits a used interface variable")
+                    }
                 }
             }
             for statement in body.statements.values {

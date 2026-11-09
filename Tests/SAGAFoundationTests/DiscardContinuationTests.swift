@@ -56,8 +56,9 @@ func discardAllowsFollowingStatementsInAReachableHelper(format: ShaderOutputForm
     }
 }
 
-@Test func discardCanAppearInContinuingAndFallsThroughToTheNextStatement() throws {
-    let source = ShaderInput.wgsl("""
+@Test(arguments: [false, true])
+func discardCanAppearInContinuingAndFallsThroughToTheNextStatement(_ roundTrip: Bool) throws {
+    var source = ShaderInput.wgsl("""
         @fragment fn fs() -> @location(0) vec4f {
             var count = 0u;
             loop {
@@ -72,6 +73,12 @@ func discardAllowsFollowingStatementsInAReachableHelper(format: ShaderOutputForm
         }
         """)
     let compiler = IndependentShaderCompiler()
+    if roundTrip {
+        guard case .spirv(let words) = try compiler.compile(source, to: .spirv) else {
+            throw ShaderFailure.incompatibleArtifact
+        }
+        source = .spirv(words)
+    }
     for target in [ShaderOutputFormat.wgsl, .msl, .hlsl, .glsl] {
         let stage = try compiler.compileRenderStage(source, entryPoint: "fs", to: target)
         if target == .wgsl, case .text(_, let text) = stage.artifact {

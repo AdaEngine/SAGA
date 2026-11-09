@@ -5,7 +5,17 @@ public protocol RenderBackendDevice: CommandBackendDevice {
     func allocateTexture(id: ResourceID, descriptor: TextureDescriptor) async throws
     func destroyTexture(id: ResourceID) async
     func allocateRenderPipeline(_ pipeline: RenderPipeline, vertex: RenderStageArtifact, fragment: RenderStageArtifact) async throws
+    func allocateRenderPipeline(_ pipeline: RenderPipeline, vertex: RenderStageArtifact, fragment: RenderStageArtifact?) async throws
     func destroyRenderPipeline(id: ResourceID) async
+}
+
+extension RenderBackendDevice {
+    public func allocateRenderPipeline(
+        _ pipeline: RenderPipeline, vertex: RenderStageArtifact, fragment: RenderStageArtifact?
+    ) async throws {
+        guard let fragment else { throw GPUError.unsupported("Backend does not implement vertex-only pipelines") }
+        try await allocateRenderPipeline(pipeline, vertex: vertex, fragment: fragment)
+    }
 }
 
 public protocol TextureViewBackendDevice: RenderBackendDevice {
@@ -35,15 +45,93 @@ extension TextureViewBackendDevice {
     }
 }
 
+extension DeviceCapabilities {
+    package func validateInterstageInterfaces(
+        vertex: RenderStageArtifact, fragment: RenderStageArtifact?, topology: RenderPrimitiveState.Topology,
+        multiviewMask: UInt32? = nil
+    ) throws {
+        if multiviewMask != nil || vertex.readsViewIndex || fragment?.readsViewIndex == true {
+            try require([.multiview])
+        }
+        if let mask = multiviewMask {
+            let span = 32 - mask.leadingZeroBitCount
+            guard span > 0, span <= maxMultiviewViewCount else {
+                throw GPUError.validation("Multiview mask exceeds the device view limit")
+            }
+            if mask.nonzeroBitCount != span { try require([.selectiveMultiview]) }
+        }
+        let limit = UInt64(maxInterStageShaderVariables)
+        let clipSlots = (UInt64(vertex.clipDistanceCount) + 3) / 4
+        if clipSlots > 0 { try require([.clipDistances]) }
+        let pointSlot: UInt64 = topology == .pointList ? 1 : 0
+        guard clipSlots <= limit,
+              UInt64(vertex.varyings.count) + clipSlots + pointSlot <= limit,
+              vertex.varyings.allSatisfy({ UInt64($0.location) < limit - clipSlots }) else {
+            throw GPUError.validation(clipSlots > 0
+                ? "Vertex outputs exceed the inter-stage limit with clip distances"
+                : "Vertex outputs exceed the inter-stage limit")
+        }
+        guard let fragment else { return }
+        if fragment.requiresPerVertex {
+            try require([.shaderPerVertex])
+            guard topology == .triangleList || topology == .triangleStrip else {
+                throw GPUError.validation("Per-vertex fragment inputs require triangle topology")
+            }
+        }
+        guard UInt64(fragment.varyings.count) + UInt64(fragment.fragmentInputBuiltinSlots) <= limit else {
+            throw GPUError.validation("Fragment inputs exceed the inter-stage limit")
+        }
+        let matches = fragment.varyings.allSatisfy { input in
+            if input.interpolation == .perVertex {
+                return vertex.varyings.contains {
+                    $0.location == input.location && $0.componentCount == input.componentCount && $0.scalar == input.scalar
+                }
+            }
+            return vertex.varyings.contains(input)
+        }
+        guard matches else {
+            throw GPUError.validation("Fragment inputs do not match vertex outputs")
+        }
+    }
+}
+
 extension RenderPipeline {
-    package init(id: ResourceID, colorFormat: TextureFormat, vertexBuffers: [VertexBufferLayout],
+    package static func validateColorTargetLimits(
+        _ targets: [UInt32: RenderColorTarget], fragment: RenderStageArtifact?, against capabilities: DeviceCapabilities?
+    ) throws {
+        guard fragment != nil || targets.isEmpty else {
+            throw GPUError.validation("Color targets require a fragment stage")
+        }
+        let slots = capabilities?.maxColorAttachments ?? 8
+        guard targets.keys.allSatisfy({ $0 < slots }) else {
+            throw GPUError.validation("Color target location exceeds the device attachment limit")
+        }
+        guard fragment?.colorOutputKinds.keys.allSatisfy({ $0 < slots }) ?? true else {
+            throw GPUError.validation("Fragment output location exceeds the device attachment limit")
+        }
+        let bytesPerSample = targets.keys.sorted().reduce(UInt64(0)) { total, location in
+            let format = targets[location]!.format
+            let alignment = UInt64(format.colorAttachmentAlignment)
+            return (total + alignment - 1) / alignment * alignment + UInt64(format.colorAttachmentByteCost)
+        }
+        guard bytesPerSample <= UInt64(capabilities?.maxColorAttachmentBytesPerSample ?? 32) else {
+            throw GPUError.validation("Color attachments exceed the device bytes-per-sample limit")
+        }
+    }
+
+    package init(id: ResourceID, colorFormat: TextureFormat?, vertexBuffers: [VertexBufferLayout],
                  depthState: RenderDepthState? = nil, sampleCount: UInt32 = 1, sampleMask: UInt32 = .max,
                  alphaToCoverageEnabled: Bool = false, primitive: RenderPrimitiveState = .init(), colorState: RenderColorState = .init(),
                  additionalColorTargets: [UInt32: RenderColorTarget] = [:],
-                 vertex: RenderStageArtifact, fragment: RenderStageArtifact,
-                 nonFilteringSamplers: Set<ComputeBindingSlot> = [], capabilities: DeviceCapabilities? = nil) throws {
+                 vertex: RenderStageArtifact, fragment: RenderStageArtifact?,
+                 nonFilteringSamplers: Set<ComputeBindingSlot> = [], capabilities: DeviceCapabilities? = nil,
+                 multiviewMask: UInt32? = nil) throws {
+        let stages = [vertex, fragment].compactMap { $0 }
+        if vertex.usesVertexWritableStorage, capabilities?.features.contains(.vertexWritableStorage) != true {
+            throw GPUError.validation("Feature not advertised")
+        }
         let immediateByteSize = max(vertex.immediateLayout?.wordAlignedByteSize ?? 0,
-                                    fragment.immediateLayout?.wordAlignedByteSize ?? 0)
+                                    fragment?.immediateLayout?.wordAlignedByteSize ?? 0)
         try capabilities?.requireImmediateSize(immediateByteSize)
         guard sampleCount == 1 || sampleCount == 4 else {
             throw GPUError.validation("Render pipeline sample count must be 1 or 4")
@@ -70,32 +158,25 @@ extension RenderPipeline {
                 throw GPUError.validation("Depth bias requires a triangle topology")
             }
         }
-        guard additionalColorTargets.keys.allSatisfy({ (1..<8).contains($0) }) else {
-            throw GPUError.validation("Additional color target locations must be in 1..<8")
+        guard additionalColorTargets[0] == nil else {
+            throw GPUError.validation("Additional color targets cannot replace location 0")
         }
         var targets = additionalColorTargets
-        targets[0] = .init(format: colorFormat, colorState: colorState)
+        if let colorFormat { targets[0] = .init(format: colorFormat, colorState: colorState) }
+        guard !targets.isEmpty || depthState != nil else {
+            throw GPUError.validation("Render pipeline requires at least one attachment")
+        }
+        try Self.validateColorTargetLimits(targets, fragment: fragment, against: capabilities)
         if targets.values.contains(where: { $0.colorState.usesSecondBlendSource }) {
-            guard additionalColorTargets.isEmpty, fragment.usesDualSourceBlending else {
+            guard colorFormat != nil, additionalColorTargets.isEmpty, fragment?.usesDualSourceBlending == true else {
                 throw GPUError.validation("Second-source blend factors require paired outputs and one color target")
             }
         }
-        if let components = fragment.dualSourceComponentCount, components != 4 {
+        if let components = fragment?.dualSourceComponentCount, components != 4 {
             throw GPUError.validation("Dual-source color targets require four output components per source")
         }
-        guard fragment.colorOutputKinds.keys.allSatisfy({ targets[$0] != nil }) else {
-            throw GPUError.validation("Fragment color output requires a matching color target")
-        }
-        let bytesPerSample = targets.keys.sorted().reduce(0) { total, location in
-            let format = targets[location]!.format
-            let alignment = format.colorAttachmentAlignment
-            return (total + alignment - 1) / alignment * alignment + format.colorAttachmentByteCost
-        }
-        guard bytesPerSample <= 32 else {
-            throw GPUError.validation("Color attachments exceed the portable bytes-per-sample limit")
-        }
         for (location, target) in targets {
-            let kind = fragment.colorOutputKinds[location]
+            let kind = fragment?.colorOutputKinds[location]
             if target.format.isNormalized16Color && capabilities?.features.contains(.normalized16Textures) != true {
                 throw GPUError.validation("Feature not advertised")
             }
@@ -109,7 +190,7 @@ extension RenderPipeline {
                   kind.map({ target.format.sampleType == TextureSampleType(kind: $0) }) ?? true else {
                 throw GPUError.validation("Fragment output type does not match the color attachment format")
             }
-            let components = fragment.colorOutputComponentCounts[location] ?? 4
+            let components = fragment?.colorOutputComponentCounts[location] ?? 4
             if kind != nil && components < target.format.colorAttachmentComponentCount {
                 throw GPUError.validation("Fragment output has too few components for its color attachment")
             }
@@ -140,16 +221,16 @@ extension RenderPipeline {
             guard sampleCount > 1 else {
                 throw GPUError.validation("Alpha-to-coverage requires a multisampled pipeline")
             }
-            guard !fragment.writesSampleMask else {
+            guard fragment?.writesSampleMask != true else {
                 throw GPUError.validation("Alpha-to-coverage is incompatible with fragment sample_mask output")
             }
-            guard (colorFormat.isNormalizedColor || colorFormat.isSRGB8Color || colorFormat == .rgba16Float || colorFormat == .rgb10a2Unorm || colorFormat == .rgba8Snorm ||
+            guard let colorFormat, (colorFormat.isNormalizedColor || colorFormat.isSRGB8Color || colorFormat == .rgba16Float || colorFormat == .rgb10a2Unorm || colorFormat == .rgba8Snorm ||
                    (colorFormat.isNormalized16Color && colorFormat.colorAttachmentComponentCount == 4)),
-                  fragment.colorOutputKind == .float else {
+                  fragment?.colorOutputKind == .float else {
                 throw GPUError.validation("Alpha-to-coverage requires a blendable color attachment and a fragment alpha output")
             }
         }
-        if fragment.writesDepth && depthState?.format.hasDepth != true {
+        if fragment?.writesDepth == true && depthState?.format.hasDepth != true {
             throw GPUError.validation("Fragment depth output requires a depth attachment")
         }
         var uniforms: [ComputeBindingSlot: Uniform] = [:]
@@ -159,7 +240,7 @@ extension RenderPipeline {
                                        vertexIndex: index, fragmentIndex: nil, visibility: 1)
             }
         }
-        for binding in fragment.uniformBindings {
+        for binding in fragment?.uniformBindings ?? [] {
             for (slot, index) in try binding.indexedSlots() {
                 let previous = uniforms[slot]
                 uniforms[slot] = .init(slot: slot, minimumByteSize: max(previous?.minimumByteSize ?? 0, binding.minimumByteSize),
@@ -186,7 +267,7 @@ extension RenderPipeline {
         }
         var bindingCounts: [IRResourceBinding: UInt32] = [:]
         var layouts: [(IRResourceBinding, ComputeShaderArtifact.BindingArrayLayout?)] = []
-        for stage in [vertex, fragment] {
+        for stage in stages {
             var bindings = stage.sampledTextures.map { ($0.binding, $0.bindingArray) }
             bindings += stage.samplerBindings.map { ($0.binding, $0.bindingArray) }
             bindings += stage.storageTextures.map { ($0.binding, $0.bindingArray) }
@@ -201,11 +282,11 @@ extension RenderPipeline {
                 }
             }
         }
-        let stageSamplers = try (vertex.samplerBindings + fragment.samplerBindings).flatMap { try $0.requirements() }
+        let stageSamplers = try (vertex.samplerBindings + (fragment?.samplerBindings ?? [])).flatMap { try $0.requirements() }
         let nonFiltering = try nonFilteringSamplerSlots(nonFilteringSamplers, in: stageSamplers)
         let whollyNonFiltering = whollyNonFilteringSamplerBindings(nonFiltering, in: stageSamplers)
         var sampledRequirements: [ComputeBindingSlot: SampledTextureRequirement] = [:]
-        let stageTextures = try (vertex.sampledTextures + fragment.sampledTextures).flatMap {
+        let stageTextures = try (vertex.sampledTextures + (fragment?.sampledTextures ?? [])).flatMap {
             try $0.requirements(nonFilteringSamplers: whollyNonFiltering)
         }
         for requirement in stageTextures {
@@ -222,7 +303,7 @@ extension RenderPipeline {
             }
         }
         let textureHandles = try merge(vertex.sampledTextures.flatMap { try $0.indexedSlots() },
-                                       fragment.sampledTextures.flatMap { try $0.indexedSlots() })
+                                       (fragment?.sampledTextures ?? []).flatMap { try $0.indexedSlots() })
         let textures = textureHandles.map {
             SampledTextureBinding(handle: $0, requirement: sampledRequirements[$0.slot]!)
         }
@@ -237,16 +318,13 @@ extension RenderPipeline {
                 requiresNonFiltering: nonFiltering.contains(requirement.slot))
         }
         let samplerHandles = try merge(vertex.samplerBindings.flatMap { try $0.indexedSlots() },
-                                       fragment.samplerBindings.flatMap { try $0.indexedSlots() })
+                                       (fragment?.samplerBindings ?? []).flatMap { try $0.indexedSlots() })
         let samplers = samplerHandles.map {
             SamplerBinding(handle: $0, requirement: samplerRequirements[$0.slot]!)
         }
         var storageRequirements: [ComputeBindingSlot: StorageTextureRequirement] = [:]
-        for stage in [vertex, fragment] {
+        for stage in stages {
             for requirement in try stage.storageTextures.flatMap({ try $0.requirements() }) {
-                guard stage.stage != .vertex || !requirement.writable else {
-                    throw GPUError.validation("Writable storage textures require fragment visibility")
-                }
                 if let previous = storageRequirements[requirement.slot], previous != requirement {
                     let property = previous.dimension == requirement.dimension ? "format or access" : "dimension"
                     throw GPUError.validation("Render stages disagree on the \(property) of a storage texture binding")
@@ -255,16 +333,13 @@ extension RenderPipeline {
             }
         }
         let storageHandles = try merge(vertex.storageTextures.flatMap { try $0.indexedSlots() },
-                                       fragment.storageTextures.flatMap { try $0.indexedSlots() })
+                                       (fragment?.storageTextures ?? []).flatMap { try $0.indexedSlots() })
         let storageTextures = storageHandles.map {
             StorageTextureBinding(handle: $0, requirement: storageRequirements[$0.slot]!)
         }
         var storageBufferRequirements: [ComputeBindingSlot: (minimum: UInt64, readOnly: Bool)] = [:]
-        for stage in [vertex, fragment] {
+        for stage in stages {
             for binding in stage.storageBindings {
-                guard stage.stage != .vertex || binding.isReadOnly else {
-                    throw GPUError.validation("Writable storage buffers require fragment visibility")
-                }
                 for (slot, _) in try binding.indexedSlots() {
                     let previous = storageBufferRequirements[slot]
                     if let previous, previous.readOnly != binding.isReadOnly {
@@ -275,7 +350,7 @@ extension RenderPipeline {
             }
         }
         let bufferHandles = try merge(vertex.storageBindings.flatMap { try $0.indexedSlots() },
-                                      fragment.storageBindings.flatMap { try $0.indexedSlots() })
+                                      (fragment?.storageBindings ?? []).flatMap { try $0.indexedSlots() })
         let storageBuffers = bufferHandles.map { handle in
             let requirement = storageBufferRequirements[handle.slot]!
             return StorageBufferBinding(handle: handle, minimumByteSize: requirement.minimum, isReadOnly: requirement.readOnly)
@@ -286,7 +361,7 @@ extension RenderPipeline {
         let storageBases = Set(storageRequirements.keys.map(\.baseSlot))
         let samplerBases = Set(samplerRequirements.keys.map(\.baseSlot))
         let externalBindings = merge(vertex.externalTextures.map { (.init(group: $0.group, binding: $0.binding), nil) },
-                                     fragment.externalTextures.map { (.init(group: $0.group, binding: $0.binding), nil) })
+                                     (fragment?.externalTextures ?? []).map { (.init(group: $0.group, binding: $0.binding), nil) })
         let externalSlots = Set(externalBindings.map(\.slot))
         guard textureBases.isDisjoint(with: uniformBases), samplerBases.isDisjoint(with: uniformBases),
               textureBases.isDisjoint(with: samplerBases), storageBases.isDisjoint(with: uniformBases),
@@ -300,14 +375,16 @@ extension RenderPipeline {
         }
         self.init(id: id, colorFormat: colorFormat, vertexBuffers: vertexBuffers, depthState: depthState,
                   sampleCount: sampleCount, sampleMask: sampleMask, alphaToCoverageEnabled: alphaToCoverageEnabled,
-                  writesColor: fragment.colorOutputKind != nil, primitive: primitive,
+                  writesColor: colorFormat != nil && fragment?.colorOutputKind != nil, primitive: primitive,
                   colorState: colorState, additionalColorTargets: additionalColorTargets,
-                  additionalColorOutputs: Set(fragment.colorOutputKinds.keys.filter { $0 != 0 }), uniforms: uniforms.values.sorted {
+                  additionalColorOutputs: Set(additionalColorTargets.keys.filter { fragment?.colorOutputKinds[$0] != nil }),
+                  uniforms: uniforms.values.sorted {
                       ($0.slot.group, $0.slot.binding, $0.slot.arrayElement ?? 0) <
                       ($1.slot.group, $1.slot.binding, $1.slot.arrayElement ?? 0)
                   },
                   storageBuffers: storageBuffers, sampledTextures: textures,
                   storageTextures: storageTextures, samplerBindings: samplers, externalTextureBindings: externalBindings,
-                  webBindingIndices: try resolveWebBindingIndices(layouts), immediateByteSize: immediateByteSize)
+                  webBindingIndices: try resolveWebBindingIndices(layouts), immediateByteSize: immediateByteSize,
+                  multiviewMask: multiviewMask)
     }
 }

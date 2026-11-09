@@ -1,7 +1,7 @@
 import SAGAShaderIR
 
 struct WGSLToken {
-    enum Kind { case word, number, symbol, templateStart, templateEnd, end }
+    enum Kind { case word, number, string, symbol, templateStart, templateEnd, end }
     let kind: Kind
     let text: String
     let start: Int
@@ -15,12 +15,17 @@ func wgslError(_ code: ShaderDiagnosticCode, _ message: String, _ token: WGSLTok
     .diagnostics([ShaderDiagnostic(severity: .error, code: code, message: message, location: token.location)])
 }
 
+struct WGSLSourceDocumentation {
+    var module: [String] = []
+    var beforeToken: [Int: [String]] = [:]
+}
+
 // Independently authored scalar scanner. Offsets are original UTF-8, not Character indices.
 struct WGSLScanner {
     let source: String
     var budget: ShaderBudget
     let docComments: Bool
-    func scan() throws -> ([WGSLToken], ShaderBudget) {
+    func scan() throws -> ([WGSLToken], WGSLSourceDocumentation, ShaderBudget) {
         var budget = budget
         var count = 0
         for _ in source.utf8 {
@@ -34,6 +39,10 @@ struct WGSLScanner {
         for c in scalars { try budget.consume(.work); offsets.append(offset); offset += c.utf8.count }
         offsets.append(offset)
         var result: [WGSLToken] = []
+        var documentation = WGSLSourceDocumentation()
+        var pendingDocumentation: [String] = []
+        var atModuleStart = true
+        var canAttachComment = true
         var i = 0
         func char(_ n: Int) -> Unicode.Scalar? { n < scalars.count ? scalars[n] : nil }
         func digit(_ c: Unicode.Scalar?) -> Bool { c.map { (48...57).contains($0.value) } ?? false }
@@ -42,18 +51,32 @@ struct WGSLScanner {
         func token(_ a: Int, _ b: Int, _ kind: WGSLToken.Kind) -> WGSLToken {
             WGSLToken(kind: kind, text: text(a,b), start: offsets[a], end: offsets[b])
         }
+        func recordComment(from start: Int, to end: Int, itemMarker: Unicode.Scalar) throws {
+            guard docComments else { return }
+            let marker = char(start + 2)
+            let moduleComment = atModuleStart && marker == "!"
+            if !moduleComment { atModuleStart = false }
+            guard moduleComment || (canAttachComment && marker == itemMarker) else {
+                canAttachComment = false
+                return
+            }
+            try budget.consume(.tokens)
+            try budget.consume(.work, amount: offsets[end] - offsets[start])
+            let comment = text(start, end)
+            if moduleComment { documentation.module.append(comment) }
+            else { pendingDocumentation.append(comment) }
+        }
         while i < scalars.count {
             try budget.consume(.work)
             let begin = i, c = scalars[i]
             if [9,10,11,12,13,32,0x85,0x200e,0x200f,0x2028,0x2029].contains(c.value) { i += 1; continue }
             if c == "/" && char(i+1) == "/" {
-                if docComments && (char(i+2) == "/" || char(i+2) == "!") { throw wgslError(.unsupportedConstruct, "Documentation capture is not implemented", token(i,i+3,.symbol)) }
                 i += 2
                 while i < scalars.count && ![10,13,0x85,0x2028,0x2029].contains(scalars[i].value) { try budget.consume(.work); i += 1 }
+                try recordComment(from: begin, to: i, itemMarker: "/")
                 continue
             }
             if c == "/" && char(i+1) == "*" {
-                if docComments && (char(i+2) == "*" || char(i+2) == "!") { throw wgslError(.unsupportedConstruct,"Documentation capture is not implemented",token(i,i+3,.symbol)) }
                 guard budget.limits.depth > 0 else { throw ShaderFailure.budgetExceeded(.depth) }
                 i += 2; var nesting = 1
                 while nesting > 0 {
@@ -65,10 +88,34 @@ struct WGSLScanner {
                     } else if char(i) == "*" && char(i+1) == "/" { nesting -= 1; i += 2 }
                     else { i += 1 }
                 }
+                try recordComment(from: begin, to: i, itemMarker: "*")
                 continue
             }
+            if docComments {
+                atModuleStart = false
+                canAttachComment = true
+                if !pendingDocumentation.isEmpty {
+                    documentation.beforeToken[offsets[begin]] = pendingDocumentation
+                    pendingDocumentation = []
+                }
+            }
             let kind: WGSLToken.Kind
-            if c == "_" || c.properties.isXIDStart {
+            if c == "\"" {
+                i += 1
+                while let scalar = char(i), scalar != "\"" {
+                    try budget.consume(.work)
+                    if scalar == "\\" { i += 1 }
+                    guard let part = char(i), ![10, 13, 0x85, 0x2028, 0x2029].contains(part.value) else {
+                        throw wgslError(.invalidToken, "Unterminated string literal", token(begin, i, .string))
+                    }
+                    i += 1
+                }
+                guard char(i) == "\"" else {
+                    throw wgslError(.invalidToken, "Unterminated string literal", token(begin, i, .string))
+                }
+                i += 1
+                kind = .string
+            } else if c == "_" || c.properties.isXIDStart {
                 i += 1
                 while i < scalars.count && scalars[i].properties.isXIDContinue { try budget.consume(.work); i += 1 }
                 kind = .word
@@ -110,7 +157,7 @@ struct WGSLScanner {
         try budget.consume(.tokens)
         result.append(WGSLToken(kind: .end,text: "",start:offset,end:offset))
         let tokens = try discoverTemplates(in: result, budget: &budget)
-        return (tokens, budget)
+        return (tokens, documentation, budget)
     }
 
     private func discoverTemplates(in raw: [WGSLToken], budget: inout ShaderBudget) throws -> [WGSLToken] {

@@ -1,14 +1,17 @@
 import SAGAShaderIR
+import SAGATypes
 import SAGAValidation
 
 private struct RenderField {
     let index: Int
     let type: IRHandle<IRType>
     let varying: RenderStageArtifact.Varying?
+    var perVertexElement: IRHandle<IRType>? = nil
     var clipDistanceCount: Int? = nil
     var invariantPosition = false
     var name: String { "saga_member_\(index)" }
     var global: String { varying.map { "saga_varying_\($0.location)" } ?? "gl_Position" }
+    var perVertexLocal: String { "saga_per_vertex_\(index)" }
 }
 
 struct VertexClipDistances {
@@ -103,11 +106,16 @@ package struct RenderCodeGenerator {
     let format: ShaderOutputFormat
     private let bindingArrayLengths: [IRResourceBinding: UInt32]
     private let webGPU: Bool
+    private let metalVertexBuffers: [VertexBufferLayout]?
 
-    package init(_ format: ShaderOutputFormat, bindingArrayLengths: [IRResourceBinding: UInt32] = [:], webGPU: Bool = false) {
+    package init(
+        _ format: ShaderOutputFormat, bindingArrayLengths: [IRResourceBinding: UInt32] = [:],
+        webGPU: Bool = false, metalVertexBuffers: [VertexBufferLayout]? = nil
+    ) {
         self.format = format
         self.bindingArrayLengths = bindingArrayLengths
         self.webGPU = webGPU
+        self.metalVertexBuffers = metalVertexBuffers
     }
 
     package func generate(_ validated: ValidatedModule<IRModule>, entryPoint: String) throws -> RenderStageArtifact {
@@ -117,9 +125,13 @@ package struct RenderCodeGenerator {
         }
         let vertex = entry.stage == .vertex
         guard vertex || entry.stage == .fragment else { throw unsupported("expected a vertex or fragment stage") }
+        if metalVertexBuffers != nil, !vertex || format != .msl {
+            throw unsupported("vertex pulling requires an MSL vertex entry point")
+        }
         guard module.overrides.count == 0 else { throw unsupported("overrides") }
 
         var helpers = try ShaderFunctions(module: module, entry: entry.function)
+        if webGPU && helpers.requiresDebugPrintf { throw unsupported("WebGPU shader debugPrintf") }
         let globals = module.globalVariables.values
         let reachable = helpers.reachableGlobals
         let active = globals.enumerated().filter { reachable.contains($0.offset) }.map(\.element)
@@ -133,7 +145,10 @@ package struct RenderCodeGenerator {
         let activeStorageBuffers = active.filter(isStorageBuffer)
         let activeUniforms = active.filter { $0.space == .uniform }
         let activeHandles = try handleResourceGlobals(active, module: module, bindingArrayLengths: bindingArrayLengths)
-        if webGPU { try requireWebGPUShaderTypes(activeHandles.storageTextures, module: module) }
+        if webGPU {
+            let widths = try helpers.nativeIntegerWidths(in: module, entry: entry.function, resources: active)
+            try requireWebGPUShaderTypes(activeHandles.storageTextures, module: module, nativeIntegerWidths: widths)
+        }
         let needsMetalAtomicGuard = try format == .msl && !vertex && activeHandles.storageTextures.contains {
             try bindingElementKind($0.type, module: module).storageTexture?.access.contains(.atomic) == true
         }
@@ -224,7 +239,7 @@ package struct RenderCodeGenerator {
             let buffer = try StorageBufferShaderBinding(global: global, index: index, flatBinding: nativeIndex,
                                                         runtimeIndex: runtimeIndex, metalLengths: metalLengths,
                                                         coherent: false, module: module, format: format,
-                                                        arrayCount: arrayCounts[binding], webBindingBase: webBases[binding],
+                                                        arrayCount: arrayCounts[binding], webGPU: webGPU, webBindingBase: webBases[binding],
                                                         aggregateAccess: aggregateBuffers.contains(index),
                                                         budget: &storageBudget)
             if buffer.reflection.runtimeArrayStride != nil { runtimeIndex += Int(buffer.reflection.bindingArray?.count ?? 1) }
@@ -325,6 +340,7 @@ package struct RenderCodeGenerator {
         var argumentFields: [Int: [String]] = [:]
         var inputFields: [RenderField] = []
         var inputDeclarations: [String] = []
+        var inputInitializers: [String] = []
         var vertexInputs: [RenderStageArtifact.VertexInput] = []
         var vertexBuiltins: [IRBuiltIn] = []
         var fragmentBuiltins: [IRBuiltIn] = []
@@ -334,6 +350,7 @@ package struct RenderCodeGenerator {
             arguments = inputs.references
             argumentFields = inputs.fields
             inputDeclarations = inputs.declarations
+            inputInitializers = inputs.initializers
             vertexInputs = inputs.inputs
             vertexBuiltins = inputs.builtins
         } else {
@@ -346,16 +363,22 @@ package struct RenderCodeGenerator {
             fragmentBuiltins = inputs.builtinInputs
         }
         let readsPrimitiveIndex = fragmentBuiltins.contains(.primitiveIndex)
+        let readsViewIndex = vertexBuiltins.contains(.viewIndex) || fragmentBuiltins.contains(.viewIndex)
         let requiresBarycentrics = fragmentBuiltins.contains {
             if case .barycentric = $0 { return true }
             return false
         }
+        let perVertexInputs = inputFields.filter { $0.perVertexElement != nil }
         guard !webGPU || !requiresBarycentrics else { throw unsupported("WebGPU fragment barycentrics") }
+        guard !webGPU || !readsViewIndex else { throw unsupported("WebGPU multiview index") }
+        guard !webGPU || perVertexInputs.isEmpty else { throw unsupported("WebGPU per-vertex interpolation") }
         let requiresSubgroups = fragmentBuiltins.contains(.subgroupSize) ||
             fragmentBuiltins.contains(.subgroupInvocationId) || !helpers.subgroupExtensions.isEmpty
         let fragmentInputBuiltinSlots = fragmentBuiltins.filter {
-            if case .position = $0 { return false }
-            return true
+            switch $0 {
+            case .position, .viewIndex: false
+            default: true
+            }
         }.count
 
         let stage: ShaderStage = vertex ? .vertex : .fragment
@@ -384,6 +407,7 @@ package struct RenderCodeGenerator {
         var resultTarget: ShaderResultTarget
         var structures: [IRHandle<IRType>: ShaderStructure] = [:]
         let usesFloat16 = module.types.values.contains { $0.kind.usesFloat16 }
+        let usesInt16 = !webGPU && moduleUsesInt16(module)
         let requiresStandardUniformLayout = format == .wgsl && module.uniformBufferStandardLayout
         var hlslProfile: String?
         switch format {
@@ -415,9 +439,10 @@ package struct RenderCodeGenerator {
             let needsHLSL66 = usesInt64Atomics(module) || usedStorageTextures.contains { $0.reflection.format == .r64Uint }
             let profile: String
             if needsHLSL66 { profile = "6_6" }
-            else if usesFloat16 { profile = "6_2" }
-            else { profile = requiresBarycentrics ? "6_1" : "6_0" }
-            hlslProfile = vertex ? (vertexBuiltins.isEmpty ? "vs_\(profile)" : "vs_6_8") : "ps_\(profile)"
+            else if usesFloat16 || usesInt16 { profile = "6_2" }
+            else { profile = requiresBarycentrics || readsViewIndex || !perVertexInputs.isEmpty ? "6_1" : "6_0" }
+            let needsHLSL68 = vertexBuiltins.contains(.vertexIndex) || vertexBuiltins.contains(.instanceIndex)
+            hlslProfile = vertex ? "vs_\(needsHLSL68 ? "6_8" : profile)" : "ps_\(profile)"
             let semantic = returnsVoid ? "" : " : \(vertex ? "SV_Position" : directBinding)"
             signature = "\(invariantPosition ? "precise " : "")\(directType) \(name)(\(parameter))\(semantic)"
             if dropsDepth && returnsVoid {
@@ -429,10 +454,12 @@ package struct RenderCodeGenerator {
             declarations = [vertexBuiltins.contains(.instanceIndex) ? "#version 460 core" : "#version 450 core"]
             declarations += glslUnsigned64Extensions(module: module, storageTextures: usedStorageTextures.map(\.reflection))
             if usesFloat16 { declarations.append(glslFloat16Extension) }
-            if usedUniforms.contains(where: \.usesGLSLHalfStorage) || usedStorageBuffers.contains(where: \.usesGLSLHalfStorage) { declarations.append(glslStorageFloat16Extension) }
+            if usesInt16 { declarations.append(glslInt16Extension) }
+            if usedUniforms.contains(where: \.usesGLSL16BitStorage) || usedStorageBuffers.contains(where: \.usesGLSL16BitStorage) { declarations.append(glslStorage16BitExtension) }
             declarations += helpers.glslExtensions
             declarations += helpers.glslSubgroupExtensions(requiresSubgroups: requiresSubgroups)
             if requiresBarycentrics { declarations.append("#extension GL_EXT_fragment_shader_barycentric : require") }
+            if readsViewIndex { declarations.append("#extension GL_EXT_multiview : require") }
             if helpers.demotesToHelperInvocation {
                 declarations.append("#extension GL_EXT_demote_to_helper_invocation : require")
             }
@@ -466,8 +493,12 @@ package struct RenderCodeGenerator {
                 (immediate != nil, "requires immediate_address_space;"),
                 (usedStorageTextures.contains { $0.reflection.format.requiresTextureFormatsTier1 }, "requires texture_formats_tier1;"),
                 (usesFloat16, "enable f16;"),
+                (usesInt16, "enable wgpu_int16;"),
+                (helpers.requiresDebugPrintf, "enable wgpu_debug_printf;"),
                 (clipDistances != nil, "enable clip_distances;"),
                 (readsPrimitiveIndex, "enable primitive_index;"),
+                (vertexBuiltins.contains(.drawIndex), "enable draw_index;"),
+                (!perVertexInputs.isEmpty, "enable wgpu_per_vertex;"),
                 (requiresSubgroups, "enable subgroups;"),
                 (dualSourceComponentCount != nil, "enable dual_source_blending;"),
             ]
@@ -536,6 +567,17 @@ package struct RenderCodeGenerator {
             }
             resultTarget = .fragmentStructure(typeName, fields: fragmentFields)
         }
+        if format == .msl && readsViewIndex {
+            let mask = RenderStageArtifact.metalMultiviewMaskMacro
+            declarations += [
+                "inline uint saga_view_index(uint amplification) {",
+                "#ifdef \(mask)",
+                "    uint views = uint(\(mask));",
+                "    for (uint index = 0u; index < amplification; ++index) views &= views - 1u;",
+                "    return ctz(views);",
+                "#else", "    return amplification;", "#endif", "}",
+            ]
+        }
         if format == .msl && fragmentFields.contains(.sampleMask) {
             let mask = RenderStageArtifact.metalPipelineSampleMaskMacro
             declarations += ["inline uint saga_apply_pipeline_mask(uint mask) {",
@@ -543,7 +585,7 @@ package struct RenderCodeGenerator {
                              "#else", "    return mask;", "#endif", "}"]
         }
         declarations += try decompositionDeclarations(module: module, format: format, structures: &structures)
-        declarations += try atomicComparisonDeclarations(module: module, format: format, structures: &structures)
+        declarations += try atomicComparisonDeclarations(module: module, format: format, webGPU: webGPU, structures: &structures)
         let extraTypes: Set<IRHandle<IRType>>
         if let clipDistances, let result {
             extraTypes = [format == .wgsl ? outputFields[clipDistances.member].type : result.type]
@@ -554,6 +596,22 @@ package struct RenderCodeGenerator {
         }
         declarations += try helpers.compositeDeclarations(module: module, entry: entry.function,
                                                           format: format, additionalTypes: extraTypes, structures: &structures)
+        for field in perVertexInputs where format != .wgsl {
+            let type = try shaderValueType(field.type, module: module, format: format, structures: structures)
+            let source = "saga_input.\(field.name)"
+            let local = field.perVertexLocal
+            switch format {
+            case .msl:
+                let values = ["first", "second", "third"].map { "\(source).get(metal::vertex_index::\($0))" }
+                inputInitializers.append("    const \(type) \(local) = { \(values.joined(separator: ", ")) };")
+            case .hlsl:
+                inputInitializers.append("    \(type) \(local);")
+                inputInitializers += (0..<3).map { index in
+                    "    \(local).elements[\(index)] = GetAttributeAtVertex(\(source), \(index));"
+                }
+            default: throw unsupported("per-vertex interpolation target")
+            }
+        }
         if let clipDistances, let result, format != .wgsl {
             let valueType = try shaderValueType(result.type, module: module, format: format, structures: structures)
             let destinations = format == .glsl ? outputFields.map(\.global) : outputFields.map(\.name)
@@ -615,7 +673,7 @@ package struct RenderCodeGenerator {
                                          vectors: helpers.integerVectorHelpers.union(writer.integerVectorHelpers),
                                          in: format)
         let source = (declarations + numeric + helperDeclarations + diagnosticAttributes + [signature + " {"] +
-                      privateBindings.initialization + body + ["}", ""])
+                      inputInitializers + privateBindings.initialization + body + ["}", ""])
             .joined(separator: "\n")
         return .init(artifact: .text(format: format, source: source), stage: stage,
                      sourceEntryPoint: entry.name, entryPoint: name,
@@ -633,21 +691,26 @@ package struct RenderCodeGenerator {
                      writesSampleMask: fragmentFields.contains(.sampleMask), invariantPosition: invariantPosition,
                      clipDistanceCount: clipDistances?.count ?? 0,
                      readsPrimitiveIndex: readsPrimitiveIndex, requiresBarycentrics: requiresBarycentrics,
+                     readsViewIndex: readsViewIndex,
                      fragmentInputBuiltinSlots: fragmentInputBuiltinSlots,
                      requiresShaderF16: usesFloat16,
                      requiresUniformBufferStandardLayout: requiresStandardUniformLayout, requiresSubgroups: requiresSubgroups,
                      dualSourceComponentCount: dualSourceComponentCount, earlyDepthTest: entry.earlyDepthTest,
                      metalTextureAtomicGuardBufferIndex: needsMetalAtomicGuard ? RenderStageArtifact.metalTextureAtomicGuardSlot : nil,
-                     requiresShaderInt64AtomicMinMax: usesInt64Atomics(module) && !helpers.requiresShaderInt64AtomicAllOps,
+                     requiresShaderInt64AtomicMinMax: !webGPU && usesInt64Atomics(module) && !helpers.requiresShaderInt64AtomicAllOps,
                      requiresShaderInt64AtomicAllOps: helpers.requiresShaderInt64AtomicAllOps,
-                     requiresShaderInt64: moduleUsesWideIntegers(module), immediateLayout: immediate?.layout,
-                     requiresSubgroupUniformity: module.requiresSubgroupUniformity)
+                     requiresShaderInt64: !webGPU && moduleUsesWideIntegers(module), requiresShaderInt16: usesInt16,
+                     requiresDebugPrintf: helpers.requiresDebugPrintf,
+                     immediateLayout: immediate?.layout,
+                     requiresSubgroupUniformity: module.requiresSubgroupUniformity,
+                     metalVertexPullingLayout: metalVertexBuffers.map(VertexBufferLayout.metalPullingSignature))
     }
 
     private func vertexArguments(
         _ arguments: [IRFunctionArgument], module: IRModule
     ) throws -> (parameter: String, references: [String], fields: [Int: [String]],
-                 declarations: [String], inputs: [RenderStageArtifact.VertexInput], builtins: [IRBuiltIn]) {
+                 declarations: [String], initializers: [String],
+                 inputs: [RenderStageArtifact.VertexInput], builtins: [IRBuiltIn]) {
         var attributes: [(input: RenderStageArtifact.VertexInput, type: IRHandle<IRType>)] = []
         var references: [String] = []
         var fields: [Int: [String]] = [:]
@@ -680,8 +743,31 @@ package struct RenderCodeGenerator {
                 }
                 return "saga_instance"
             }
-            guard case .location(let location, nil, nil, nil, false) = binding, location < 16 else {
-                throw unsupported("expected vertex_index, instance_index or a vertex attribute at location 0..<16")
+            if binding == .builtIn(.drawIndex), kind == .scalar(.u32) {
+                guard format == .wgsl, !webGPU else {
+                    throw unsupported("draw_index requires native WGSL or SPIR-V output")
+                }
+                builtins.append(.drawIndex)
+                builtinParameters.append("@builtin(draw_index) saga_draw_index: u32")
+                return "saga_draw_index"
+            }
+            if binding == .builtIn(.viewIndex), kind == .scalar(.u32) {
+                builtins.append(.viewIndex)
+                switch format {
+                case .msl:
+                    builtinParameters.append("uint saga_amplification_id [[amplification_id]]")
+                    return "saga_view_index(saga_amplification_id)"
+                case .hlsl: builtinParameters.append("uint saga_view_index : SV_ViewID")
+                case .wgsl: builtinParameters.append("@builtin(view_index) saga_view_index: u32")
+                default: return "uint(gl_ViewIndex)"
+                }
+                return "saga_view_index"
+            }
+            guard case .location(let location, nil, nil, nil, false) = binding else {
+                throw unsupported("expected vertex_index, instance_index, view_index or a vertex attribute")
+            }
+            if format == .msl, metalVertexBuffers == nil, location >= RenderStageArtifact.metalVertexAttributeCapacity {
+                throw unsupported("vertex attribute location exceeds the Metal descriptor limit")
             }
             let width: UInt8
             let scalar: IRScalar
@@ -710,13 +796,16 @@ package struct RenderCodeGenerator {
         attributes.sort { $0.input.location < $1.input.location }
         var parameters: [String] = []
         var declarations: [String] = []
+        var initializers: [String] = []
         if !attributes.isEmpty {
             let lines = try attributes.map { attribute -> String in
                 let input = attribute.input
                 let type = try shaderValueType(attribute.type, module: module, format: format, structures: [:])
                 let name = "saga_attribute_\(input.location)"
                 switch format {
-                case .msl: return "    \(type) \(name) [[attribute(\(input.location))]];"
+                case .msl:
+                    let binding = metalVertexBuffers == nil ? " [[attribute(\(input.location))]]" : ""
+                    return "    \(type) \(name)\(binding);"
                 case .hlsl: return "    \(type) \(name) : TEXCOORD\(input.location);"
                 case .wgsl: return "    @location(\(input.location)) \(name): \(type),"
                 default: return "layout(location = \(input.location)) in \(type) \(name);"
@@ -727,16 +816,24 @@ package struct RenderCodeGenerator {
             } else {
                 declarations = ["struct SagaVertexInput {"] + lines + [format == .wgsl ? "}" : "};"]
                 switch format {
-                case .msl: parameters.append("SagaVertexInput saga_vertex_input [[stage_in]]")
+                case .msl:
+                    if metalVertexBuffers == nil { parameters.append("SagaVertexInput saga_vertex_input [[stage_in]]") }
                 case .hlsl: parameters.append("SagaVertexInput saga_vertex_input")
                 case .wgsl: parameters.append("saga_vertex_input: SagaVertexInput")
                 default: break
                 }
             }
         }
+        if let metalVertexBuffers {
+            let inputs = attributes.map(\.input)
+            let pulling = try MetalVertexPulling(layouts: metalVertexBuffers).generate(inputs, builtins: builtins)
+            parameters += pulling.parameters
+            declarations += pulling.declarations
+            initializers = pulling.initializers
+        }
         parameters += builtinParameters
-        return (parameters.joined(separator: ", "), references, fields, declarations,
-                attributes.map { $0.input }, builtins)
+        return (parameters.joined(separator: ", "), references, fields, declarations, initializers,
+                attributes.map(\.input), builtins)
     }
 
     private func fragmentArguments(
@@ -747,7 +844,7 @@ package struct RenderCodeGenerator {
         var fields: [Int: [String]] = [:]
         var varyings: [RenderField] = []
         var builtins: [String] = []
-        var hlslBuiltins: [String] = []
+        var structuredBuiltins: [String] = []
         var builtinInputs: [IRBuiltIn] = []
         func reference(type: IRHandle<IRType>, binding: IRBinding?) throws -> String {
             if let subgroup = subgroupInput(binding, name: "saga_subgroup_input_\(builtinInputs.count)", format: format),
@@ -768,6 +865,8 @@ package struct RenderCodeGenerator {
                 builtin = ("saga_front_facing", "front_facing", "SV_IsFrontFace", "front_facing", "gl_FrontFacing")
             case .builtIn(.primitiveIndex):
                 builtin = ("saga_primitive_index", "primitive_id", "SV_PrimitiveID", "primitive_index", "uint(gl_PrimitiveID)")
+            case .builtIn(.viewIndex):
+                builtin = ("saga_amplification_id", "amplification_id", "SV_ViewID", "view_index", "uint(gl_ViewIndex)")
             case .builtIn(.barycentric(let perspective)):
                 builtin = ("saga_barycentric", perspective ? "barycentric_coord" : "barycentric_coord, center_no_perspective",
                            "SV_Barycentrics", perspective ? "barycentric" : "barycentric_no_perspective",
@@ -779,10 +878,17 @@ package struct RenderCodeGenerator {
                 builtinInputs.append(input)
                 let type = try shaderValueType(type, module: module, format: format, structures: [:])
                 switch format {
-                case .msl: builtins.append("\(type) \(builtin.name) [[\(builtin.msl)]]")
+                case .msl:
+                    if input == .barycentric(perspective: false) {
+                        // Metal 3.1 requires the interpolation qualifier on a structure member.
+                        structuredBuiltins.append("    \(type) \(builtin.name) [[\(builtin.msl)]];")
+                        return "saga_input.\(builtin.name)"
+                    }
+                    builtins.append("\(type) \(builtin.name) [[\(builtin.msl)]]")
+                    if input == .viewIndex { return "saga_view_index(\(builtin.name))" }
                 case .hlsl:
                     let interpolation = input == .barycentric(perspective: false) ? "noperspective " : ""
-                    hlslBuiltins.append("    \(interpolation)\(type) \(builtin.name) : \(builtin.hlsl);")
+                    structuredBuiltins.append("    \(interpolation)\(type) \(builtin.name) : \(builtin.hlsl);")
                     let reference = "saga_input.\(builtin.name)"
                     if case .builtIn(.position) = binding {
                         // SV_Position.w contains clip-space w, while WGSL exposes its reciprocal.
@@ -798,6 +904,7 @@ package struct RenderCodeGenerator {
             }
             let varying = try field(varyings.count, type: type, binding: binding, module: module)
             varyings.append(varying)
+            if varying.perVertexElement != nil && format != .wgsl { return varying.perVertexLocal }
             return format == .glsl ? varying.global : "saga_input.\(varying.name)"
         }
         for (index, argument) in arguments.enumerated() {
@@ -822,10 +929,9 @@ package struct RenderCodeGenerator {
         }
         var parameters: [String] = []
         var declarations: [String] = []
-        if !varyings.isEmpty || !hlslBuiltins.isEmpty {
+        if !varyings.isEmpty || !structuredBuiltins.isEmpty {
             declarations = try structure("SagaFragmentInput", fields: varyings, vertexOutput: false, module: module)
-            // glslang preserves an input SV_Coverage when it is a structure member.
-            declarations.insert(contentsOf: hlslBuiltins, at: declarations.count - 1)
+            declarations.insert(contentsOf: structuredBuiltins, at: declarations.count - 1)
             switch format {
             case .msl: parameters.append("SagaFragmentInput saga_input [[stage_in]]")
             case .hlsl: parameters.append("SagaFragmentInput saga_input")
@@ -849,7 +955,10 @@ package struct RenderCodeGenerator {
                 case .vector(let size, let scalar): return .blendSource(index: source, width: size.rawValue, scalar: scalar)
                 default: throw unsupported("expected a numeric dual-source output")
                 }
-            case .location(let location, nil, nil, nil, false) where location < 8:
+            case .location(let location, nil, nil, nil, false):
+                if (format == .msl || format == .hlsl), location >= RenderStageArtifact.nativeColorAttachmentCapacity {
+                    throw unsupported("color target location exceeds the native output register limit")
+                }
                 switch try module.types.value(for: type).kind {
                 case .scalar(let scalar) where [.f16, .f32, .i32, .u32].contains(scalar):
                     return .color(location: location, width: 1, scalar: scalar)
@@ -858,7 +967,7 @@ package struct RenderCodeGenerator {
                 default:
                     throw unsupported("expected a scalar or vector color with f16, f32, i32 or u32 components")
                 }
-            default: throw unsupported("expected a color at location 0..<8, frag_depth or sample_mask")
+            default: throw unsupported("expected a color location, frag_depth or sample_mask")
             }
         }
         if result.binding == nil, case .structure(let members, _) = try module.types.value(for: result.type).kind {
@@ -891,12 +1000,12 @@ package struct RenderCodeGenerator {
     private func field(
         _ index: Int, type: IRHandle<IRType>, binding: IRBinding?, module: IRModule
     ) throws -> RenderField {
-        guard case .location(let location, let declaredInterpolation, let declaredSampling, nil, false) = binding,
-              location < 16 else {
-            throw unsupported("expected a varying at location 0..<16")
+        guard case .location(let location, let declaredInterpolation, let declaredSampling, nil, false) = binding else {
+            throw unsupported("expected a varying with a location")
         }
         let interpolation = declaredInterpolation ?? .perspective
         let sampling = declaredSampling ?? (interpolation == .flat ? .first : .center)
+        var element: IRHandle<IRType>?
         switch interpolation {
         case .flat:
             guard sampling == .first || sampling == .either else { throw unsupported("unsupported flat sampling") }
@@ -905,20 +1014,26 @@ package struct RenderCodeGenerator {
                 throw unsupported("unsupported interpolation sampling")
             }
         case .perVertex:
-            throw unsupported("per-vertex varying interpolation")
+            guard format != .glsl else { throw unsupported("GLSL per-vertex interpolation") }
+            guard sampling == .center, case .array(let base, .constant(3), _) = try module.types.value(for: type).kind else {
+                throw unsupported("per-vertex varying must be an array of three elements")
+            }
+            element = base
         }
         let width: UInt8
         let scalar: IRScalar
-        switch try module.types.value(for: type).kind {
+        switch try module.types.value(for: element ?? type).kind {
         case .scalar(let lane): (width, scalar) = (1, lane)
         case .vector(let size, let lane): (width, scalar) = (size.rawValue, lane)
         default: throw unsupported("expected a scalar or vector varying")
         }
-        guard scalar == .f16 || scalar == .f32 || (interpolation == .flat && (scalar == .i32 || scalar == .u32)) else {
+        let uninterpolated = interpolation == .flat || interpolation == .perVertex
+        guard scalar == .f16 || scalar == .f32 || (uninterpolated && (scalar == .i32 || scalar == .u32)) else {
             throw unsupported("unsupported varying scalar type")
         }
         return RenderField(index: index, type: type, varying: .init(
-            location: location, componentCount: width, scalar: scalar, interpolation: interpolation, sampling: sampling))
+            location: location, componentCount: width, scalar: scalar, interpolation: interpolation, sampling: sampling),
+            perVertexElement: element)
     }
 
     private func structure(
@@ -934,6 +1049,18 @@ package struct RenderCodeGenerator {
                         "    \(floatType(UInt8(range.count), in: .hlsl)) saga_clip_\(group) : SV_ClipDistance\(group);"
                     }
                 default: throw unsupported("clip distances require a vertex output interface")
+                }
+            }
+            if let element = field.perVertexElement, let varying = field.varying {
+                let type = try shaderValueType(element, module: module, format: format, structures: [:])
+                switch format {
+                case .msl:
+                    return ["    metal::vertex_value<\(type)> \(field.name) [[user(locn\(varying.location))]];"]
+                case .hlsl:
+                    return ["    nointerpolation \(type) \(field.name) : TEXCOORD\(varying.location);"]
+                case .wgsl:
+                    return ["    @location(\(varying.location)) @interpolate(per_vertex) \(field.name): array<\(type), 3>,"]
+                default: throw unsupported("per-vertex interpolation target")
                 }
             }
             let type = try shaderValueType(field.type, module: module, format: format, structures: [:])

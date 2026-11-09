@@ -74,6 +74,7 @@ extension SPVFunctionLowerer {
                 expression = try project(expression, through: projection, statements: &statements, at: instruction)
             }
             accessPaths[expression] = path
+            storageAccessPaths[expression] = storageAccessPaths[value.expression]
             return .init(expression: expression, type: value.type, anchor: statements.last)
         }
         let type = try module.type(value.type, instruction)
@@ -99,7 +100,7 @@ extension SPVFunctionLowerer {
         return .init(expression: expression, type: value.type, anchor: read)
     }
 
-    private mutating func proveDominance(
+    mutating func proveDominance(
         of definition: UInt32, at use: UInt32, _ instruction: SPVInstruction
     ) throws {
         if definition == use || definition == entryLabel { return }

@@ -30,11 +30,13 @@ struct ShaderStructure {
 }
 
 func atomicComparisonDeclarations(
-    module: IRModule, format: ShaderOutputFormat, structures: inout [IRHandle<IRType>: ShaderStructure]
+    module: IRModule, format: ShaderOutputFormat, webGPU: Bool,
+    structures: inout [IRHandle<IRType>: ShaderStructure]
 ) throws -> [String] {
     var declarations: [String] = []
     for entry in module.specialTypes.predeclared {
         guard case .atomicCompareExchangeWeakResult(let scalar) = entry.kind else { continue }
+        if webGPU && scalar.width == 8 { continue }
         let suffix = "\(scalar.kind == .sint ? "I" : "U")\(Int(scalar.width) * 8)"
         let name = "SagaAtomicResult\(suffix)"
         let constructor = format == .hlsl ? "saga_make_atomic_\(suffix)" : name
@@ -159,6 +161,7 @@ struct ShaderFunctions {
     let controlBarriers: IRBarrier
     let requiresShaderInt64AtomicAllOps: Bool
     let demotesToHelperInvocation: Bool
+    let requiresDebugPrintf: Bool
     let subgroupExtensions: Set<String>
     let subgroupUsesFloat16: Bool
     let floatTextureSamplers: [Int: Set<IRResourceBinding>]
@@ -177,6 +180,7 @@ struct ShaderFunctions {
         var barriers: IRBarrier = []
         var needsFullInt64Atomics = false
         var demotes = false
+        var prints = false
         var subgroupExtensions: Set<String> = []
         var subgroupFloat16 = false
         var floatTextureSamplers: [Int: Set<IRResourceBinding>] = [:]
@@ -199,6 +203,8 @@ struct ShaderFunctions {
                     if seen.insert(callee.index).inserted { pending.append(callee) }
                 case .controlBarrier(let flags):
                     barriers.formUnion(flags)
+                case .debugPrintf:
+                    prints = true
                 case .atomic(let pointer, let operation, _, let result) where !needsFullInt64Atomics:
                     if let space = try wideAtomicSpace(pointer, in: function) {
                         if case .storage = space, result == nil, operation == .min || operation == .max { break }
@@ -289,6 +295,7 @@ struct ShaderFunctions {
         self.controlBarriers = barriers
         self.requiresShaderInt64AtomicAllOps = needsFullInt64Atomics
         self.demotesToHelperInvocation = demotes
+        self.requiresDebugPrintf = prints
         self.subgroupExtensions = subgroupExtensions
         self.subgroupUsesFloat16 = subgroupFloat16
         self.floatTextureSamplers = floatTextureSamplers
@@ -522,6 +529,38 @@ struct ShaderFunctions {
     var callCaptures: [Int: [String]] { parameters.mapValues { $0.map(\.name) } }
     var reachableGlobals: Set<Int> { Set(capturedGlobals.values.joined()) }
 
+    mutating func nativeIntegerWidths(
+        in module: IRModule, entry: IRHandle<IRFunction>, resources: [IRGlobalVariable]
+    ) throws -> Set<UInt8> {
+        guard module.types.values.contains(where: { $0.kind.nativeShaderIntegerWidth != nil }) else { return [] }
+        try budget.consume(.work, amount: resources.count)
+        var types = Set(resources.map(\.type))
+        for index in order + [entry.index] {
+            let function = module.functions.values[index]
+            try budget.consume(.work, amount: 1 + function.arguments.count + function.localVariables.count + function.expressions.count)
+            types.formUnion(function.arguments.map(\.type))
+            if let result = function.result { types.insert(result.type) }
+            types.formUnion(function.localVariables.values.map(\.type))
+            types.formUnion(function.expressions.values.map(\.type))
+        }
+        var pending = Array(types)
+        var widths: Set<UInt8> = []
+        while let type = pending.popLast() {
+            try budget.consume(.work)
+            let kind = try module.types.value(for: type).kind
+            if let width = kind.nativeShaderIntegerWidth { widths.insert(width) }
+            switch kind {
+            case .pointer(let base, _), .array(let base, _, _), .bindingArray(let base, _):
+                if types.insert(base).inserted { pending.append(base) }
+            case .structure(let members, _):
+                try budget.consume(.work, amount: members.count)
+                for member in members where types.insert(member.type).inserted { pending.append(member.type) }
+            default: break
+            }
+        }
+        return widths
+    }
+
     mutating func wgslDiagnosticLines(module: IRModule, function: IRFunction? = nil) throws -> [String] {
         var cursor = function == nil ? module.diagnosticFilter : function?.diagnosticFilter
         let parent = function == nil ? nil : module.diagnosticFilter
@@ -722,6 +761,8 @@ func shaderValueType(
     if let structure = structures[handle] { return structure.typeName }
     switch try module.types.value(for: handle).kind {
     case .scalar(.bool): return "bool"
+    case .scalar(.i16): return integer16Type(signed: true, in: format)
+    case .scalar(.u16): return integer16Type(signed: false, in: format)
     case .scalar(.u32): return format == .wgsl ? "u32" : "uint"
     case .scalar(.u64): return unsigned64Type(in: format)
     case .scalar(.i64): return signed64Type(in: format)
@@ -732,6 +773,14 @@ func shaderValueType(
     case .matrix(let columns, let rows, let scalar) where [.f16, .f32].contains(scalar):
         return shaderMatrixType(columns.rawValue, rows.rawValue, scalar: scalar, in: format)
     default: throw ShaderFailure.unsupported("Shader value type")
+    }
+}
+
+func integer16Type(signed: Bool, in format: ShaderOutputFormat) -> String {
+    switch format {
+    case .wgsl: signed ? "i16" : "u16"
+    case .msl: signed ? "short" : "ushort"
+    default: signed ? "int16_t" : "uint16_t"
     }
 }
 
@@ -779,6 +828,17 @@ func shaderMatrixType(_ columns: UInt8, _ rows: UInt8, scalar: IRScalar, in form
 func shaderVectorType(_ width: UInt8, scalar: IRScalar, in format: ShaderOutputFormat) throws -> String {
     if scalar == .f32 { return floatType(width, in: format) }
     if scalar == .f16 { return halfType(width, in: format) }
+    if scalar == .i16 || scalar == .u16 {
+        let signed = scalar == .i16
+        let lane = integer16Type(signed: signed, in: format)
+        if width == 1 { return lane }
+        switch format {
+        case .wgsl: return "vec\(width)<\(lane)>"
+        case .msl: return "\(lane)\(width)"
+        case .glsl: return "\(signed ? "i" : "u")16vec\(width)"
+        default: return "vector<\(lane), \(width)>"
+        }
+    }
     if scalar == .i64 || scalar == .u64 {
         let signed = scalar == .i64
         let lane = signed ? signed64Type(in: format) : unsigned64Type(in: format)

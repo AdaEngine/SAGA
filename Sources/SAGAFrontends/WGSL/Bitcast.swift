@@ -8,11 +8,13 @@ private func bitcastShape(_ kind: IRTypeKind, at token: WGSLToken) throws -> IRB
 }
 
 private func bitcastInput(_ input: IRBitcastShape, target: IRBitcastShape, at token: WGSLToken) throws -> IRBitcastShape {
-  let supported: [IRScalar] = [.i32, .u32, .i64, .u64, .f32, .f16]
+  let supported: [IRScalar] = [.i16, .u16, .i32, .u32, .i64, .u64, .f32, .f16]
   let concrete: IRBitcastShape
   if input.scalar == .abstractInt || input.scalar == .abstractFloat {
     let half = IRBitcastShape(size: input.size, scalar: .f16)
-    if (target.scalar == .f16 && target.size == input.size) || half.packedHalfWords(to: target) != nil {
+    if input.scalar == .abstractInt, target.size == input.size, [.i16, .u16].contains(target.scalar) {
+      concrete = target
+    } else if (target.scalar == .f16 && target.size == input.size) || half.packedHalfWords(to: target) != nil {
       concrete = half
     } else {
       let scalar: IRScalar = input.scalar == .abstractFloat ? .f32 :
@@ -97,6 +99,8 @@ extension WGSLScalarEvaluator {
       return kind
     }
     switch token.text {
+    case "i16": try parser.requireInt16(at: token); return .scalar(.i16)
+    case "u16": try parser.requireInt16(at: token); return .scalar(.u16)
     case "i32": return .scalar(.i32)
     case "u32": return .scalar(.u32)
     case "i64": return .scalar(.i64)
@@ -110,7 +114,10 @@ extension WGSLScalarEvaluator {
 
   func bitcastConstant(_ value: WGSLScalarConstant, to target: WGSLConstKind, at name: WGSLToken) throws -> WGSLScalarConstant {
     if value.kind == target { return value }
-    if value.kind.scalarLeaf == .floating(.f16) || target.scalarLeaf == .floating(.f16) {
+    let sourceScalar = try value.kind.scalarLeaf.irScalar(at: name)
+    let targetScalar = try target.scalarLeaf.irScalar(at: name)
+    let narrow = sourceScalar.width == 2 && targetScalar.width == 2
+    if !narrow && (sourceScalar == .f16 || targetScalar == .f16) {
       return try packedHalfConstant(value, to: target, at: name)
     }
     if case .vector(let vector) = value, case .vector(_, let scalar) = target {
@@ -119,6 +126,20 @@ extension WGSLScalarEvaluator {
         return try bitcastConstant(lane, to: scalar, at: name)
       }
       return .vector(.init(elements: elements, element: scalar))
+    }
+    if narrow {
+      let bits: UInt16
+      switch try value.literal {
+      case .i16(let lane): bits = UInt16(bitPattern: lane)
+      case .u16(let lane), .f16Bits(let lane): bits = lane
+      default: throw ShaderFailure.invalidHandle
+      }
+      switch target {
+      case .integer(.sint16): return .integer(.init(value: Int64(Int16(bitPattern: bits)), kind: .sint16))
+      case .integer(.uint16): return .integer(.init(value: Int64(bits), kind: .uint16))
+      case .floating(.f16): return try floating(Double(Binary16.decode(bits)), kind: .f16, at: name)
+      default: throw ShaderFailure.invalidHandle
+      }
     }
     if case .integer(let source) = value, source.kind.isWide,
        case .integer(let destination) = target, destination.isWide {

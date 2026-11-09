@@ -1,6 +1,81 @@
 import SAGAShaderIR
 
 extension GLSLParser {
+    func forLoop(at start: GLSLToken) throws {
+        let context = try requireContext()
+        context.scopes.append(GLSLScope())
+        defer { context.scopes.removeLast() }
+        try expect("(")
+        if !(try take(";")) {
+            if try text == "struct" || resolveType(token) != nil {
+                _ = try statement()
+            } else {
+                try forClause(endingWith: ";")
+            }
+        }
+
+        let outer = context.current
+        context.current = []
+        let condition: GLSLValue
+        if text == ";" {
+            condition = try expressionNode(addType(.scalar(.bool)), .literal(.bool(true)), at: start, emit: false)
+        } else {
+            condition = try rvalue(expression(), at: start)
+            try requireBool(condition, at: start)
+        }
+        try expect(";")
+        let checks = context.current
+
+        context.current = []
+        if !(try take(")")) { try forClause(endingWith: ")") }
+        let continuing = try block(context.current)
+        context.current = outer
+
+        let body: IRHandle<IRBlock>
+        do {
+            context.loopDepth += 1
+            defer { context.loopDepth -= 1 }
+            (body, _) = try childStatement()
+        }
+        let stop = try block([try statementNode(.break, at: start)])
+        let empty = try block([])
+        let branch = try statementNode(
+            .ifCondition(condition: condition.expression, accept: empty, reject: stop), at: start)
+        let child = try statementNode(.block(body), at: start)
+        let loopBody = try block(checks + [branch, child])
+        try append(.loop(body: loopBody, continuing: continuing, breakIf: nil), at: start)
+    }
+
+    private func forClause(endingWith delimiter: String) throws {
+        repeat {
+            try simpleExpression()
+        } while try take(",")
+        try expect(delimiter)
+    }
+
+    func increment(_ target: GLSLValue, postfix: Bool, at op: GLSLToken) throws -> GLSLValue {
+        try requireWritable(target, operation: "Increment or decrement", at: op)
+        let old = try rvalue(target, at: op)
+        guard let scalar = scalar(old.type) else {
+            throw glslError(op, .typeMismatch, "Increment or decrement requires a numeric scalar, vector or matrix")
+        }
+        let unit: IRLiteral
+        switch scalar {
+        case .i32: unit = .i32(1)
+        case .u32: unit = .u32(1)
+        case .f32: unit = .f32(1)
+        case let lane where lane.kind == .float && lane.width == 8: unit = .f64(1)
+        default: throw glslError(op, .typeMismatch, "Increment or decrement requires a numeric scalar, vector or matrix")
+        }
+        let one = try expressionNode(addType(.scalar(scalar)), .literal(unit), at: op, emit: false)
+        let operation = GLSLToken(text: op.text == "++" ? "+" : "-", start: op.start, end: op.end)
+        let modified = try binary(old, one, op: operation)
+        // Reuse the computed value and the already evaluated address for the writeback.
+        let new = try expressionNode(modified.type, .runtimeValue(modified.expression), at: op)
+        try storeValue(new, in: target, at: op)
+        return postfix ? old : new
+    }
+
     func switchStatement(at start: GLSLToken) throws -> Bool {
         try expect("(")
         let selector = try rvalue(expression(), at: start)
@@ -13,7 +88,7 @@ extension GLSLParser {
         let c = try requireContext()
         var outer = c.current
         c.current = []
-        c.scopes.append([:])
+        c.scopes.append(GLSLScope())
         c.switches.append((c.loopDepth, false))
         defer {
             c.switches.removeLast()
@@ -69,7 +144,8 @@ extension GLSLParser {
         return exits
     }
 
-    func integerConstant(at start: GLSLToken) throws -> (type: IRHandle<IRType>, bits: UInt32, literal: IRLiteral) {
+    func integerConstant(at start: GLSLToken, convertingTo target: IRHandle<IRType>? = nil) throws
+        -> (type: IRHandle<IRType>, bits: UInt32, literal: IRLiteral) {
         let c = try requireContext()
         let outer = c.current
         let expressions = c.expressions.count, statements = c.statements.count
@@ -82,7 +158,13 @@ extension GLSLParser {
             c.blocks.removeSubrange(blocks...)
             c.locals.removeSubrange(locals...)
         }
-        let value = try rvalue(expression(), at: start)
+        var value = try rvalue(expression(), at: start)
+        if let target {
+            guard let converted = try implicitlyConvert(value, to: target, at: start) else {
+                throw glslError(start, .typeMismatch, "Initializer type mismatch")
+            }
+            value = converted
+        }
         let bits = try integerConstantBits(value.expression, at: start)
         let literal: IRLiteral = kind(value.type) == .scalar(.i32) ? .i32(Int32(bitPattern: bits)) : .u32(bits)
         return (value.type, bits, literal)
@@ -99,6 +181,12 @@ extension GLSLParser {
         switch expression.kind {
         case .literal(.i32(let value)): return UInt32(bitPattern: value)
         case .literal(.u32(let value)): return value
+        case .constant(let handle):
+            switch globalConstantLiteral(handle) {
+            case .i32(let value): return UInt32(bitPattern: value)
+            case .u32(let value): return value
+            default: throw ShaderFailure.invalidHandle
+            }
         case .cast(let operand, _): return try integerConstantBits(operand, at: start)
         case .unary(.negate, let operand): return try 0 &- integerConstantBits(operand, at: start)
         case .unary(.bitwiseNot, let operand): return try ~integerConstantBits(operand, at: start)

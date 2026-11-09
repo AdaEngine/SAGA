@@ -73,25 +73,64 @@ func halfPrecisionRenderIOCompiles(_ format: ShaderOutputFormat) throws {
     #expect(VertexFormat.float16.byteSize == 2)
     #expect(VertexFormat.float16x2.byteSize == 4)
     #expect(VertexFormat.float16x4.byteSize == 8)
+    let limits = try DeviceCapabilities(maxBufferSize: 1024)
     _ = try VertexBufferLayout.validate([
         .init(stride: 4, attributes: [.init(location: 0, offset: 2, format: .float16)]),
-    ])
+    ], against: limits)
     #expect(throws: GPUError.self) {
         try VertexBufferLayout.validate([
             .init(stride: 8, attributes: [.init(location: 0, offset: 2, format: .float16x2)]),
-        ])
+        ], against: limits)
     }
 }
 
 #if canImport(Metal)
-@Test func halfPrecisionRenderIOPreservesNativeHalfValuesOnMetal() async throws {
+@Test(arguments: [false, true])
+func halfPrecisionRenderIOPreservesNativeHalfValuesOnMetal(_ pulling: Bool) async throws {
+    try await checkHalfPrecisionRenderIOOnMetal(.wgsl(halfPrecisionRenderSource), pulling: pulling)
+}
+
+@Test func spirvHalfCodeGeneratorRoundTripsRenderLocationsOnMetal() async throws {
     let compiler = IndependentShaderCompiler()
-    let input = ShaderInput.wgsl(halfPrecisionRenderSource)
-    let vertex = try compiler.compileRenderStage(input, entryPoint: "vs", to: .msl)
+    let source = ShaderInput.wgsl(halfPrecisionRenderSource)
+    guard case .spirv(let words) = try compiler.compile(source, to: .spirv) else { throw ShaderFailure.incompatibleArtifact }
+    try #require(words.count > 5)
+    var capabilities: Set<UInt32> = []
+    var offset = 5
+    while offset < words.count {
+        let count = Int(words[offset] >> 16)
+        try #require(count > 0 && count <= words.count - offset)
+        if words[offset] & 0xffff == 17 && count == 2 { capabilities.insert(words[offset + 1]) }
+        offset += count
+    }
+    #expect(capabilities.isSuperset(of: [9, 4436])) // Float16 and StorageInputOutput16
+    let input = ShaderInput.spirv(words)
+    for format: ShaderOutputFormat in [.msl, .wgsl, .hlsl, .glsl] {
+        let vertex = try compiler.compileRenderStage(input, entryPoint: "vs", to: format)
+        let fragment = try compiler.compileRenderStage(input, entryPoint: "fs", to: format)
+        #expect(vertex.vertexInputs.first?.scalar == .f16)
+        #expect(vertex.varyings == fragment.varyings && fragment.varyings.first?.scalar == .f16)
+        #expect(fragment.colorOutputComponentCounts == [0: 1, 1: 4])
+        #expect(vertex.requiresShaderF16 && fragment.requiresShaderF16)
+        if format == .wgsl {
+            for shader in [vertex, fragment] {
+                guard case .text(.wgsl, let code) = shader.artifact else { throw ShaderFailure.incompatibleArtifact }
+                _ = try compiler.parseAndValidate(.wgsl(code), capabilities: [.shaderFloat16])
+            }
+        }
+    }
+    try await checkHalfPrecisionRenderIOOnMetal(input, pulling: false)
+}
+
+private func checkHalfPrecisionRenderIOOnMetal(_ input: ShaderInput, pulling: Bool) async throws {
+    let compiler = IndependentShaderCompiler()
+    let layout = VertexBufferLayout(stride: 8, attributes: [.init(location: 0, offset: 0, format: .float16x4)])
+    let vertex = pulling
+        ? try compiler.compileMetalVertexStage(input, entryPoint: "vs", vertexBuffers: [layout])
+        : try compiler.compileRenderStage(input, entryPoint: "vs", to: .msl)
     let fragment = try compiler.compileRenderStage(input, entryPoint: "fs", to: .msl)
     let device = try await Device.make(backend: MetalBackend.makeDevice())
     do {
-        let layout = VertexBufferLayout(stride: 8, attributes: [.init(location: 0, offset: 0, format: .float16x4)])
         let pipeline = try await device.createRenderPipeline(
             vertex: vertex, fragment: fragment, colorFormat: .r16Float, vertexBuffers: [layout],
             additionalColorTargets: [1: .init(format: .rgba16Float)])

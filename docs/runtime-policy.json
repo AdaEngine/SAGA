@@ -28,13 +28,15 @@
     ],
     "SAGABackends": [
       "SAGAShaderIR",
-      "SAGAValidation"
+      "SAGAValidation",
+      "SAGATypes"
     ],
     "SAGACompiler": [
       "SAGAShaderIR",
       "SAGAValidation",
       "SAGAFrontends",
-      "SAGABackends"
+      "SAGABackends",
+      "SAGATypes"
     ],
     "SAGAMetal": [
       "SAGATypes",

@@ -136,8 +136,9 @@ extension WGSLScalarEvaluator {
       let result: Int64
       switch function {
       case .abs:
-        if integerKind.isUnsigned || (integerKind == .sint && value == Int64(Int32.min)) ||
-          (integerKind == .sint64 && value == Int64.min) { return .integer(integers[0]) }
+        if integerKind.isUnsigned || (integerKind != .abstract && value == integerKind.signedMinimum) {
+          return .integer(integers[0])
+        }
         guard value != Int64.min else { throw wgslError(.invalidType, "Abstract absolute value overflow", name) }
         result = abs(value)
       case .sign: result = value == 0 ? 0 : value < 0 ? -1 : 1

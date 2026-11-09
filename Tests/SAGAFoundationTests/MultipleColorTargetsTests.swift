@@ -48,16 +48,16 @@ func emitsMultipleFragmentColorLocations(format: ShaderOutputFormat) throws {
     let source = ShaderInput.wgsl(multipleTargetsShader)
     let vertex = try compiler.compileRenderStage(source, entryPoint: "vs", to: .msl)
     let fragment = try compiler.compileRenderStage(source, entryPoint: "fs", to: .msl)
-    for targets: [UInt32: RenderColorTarget] in [[:], [2: .init(format: .rgba8Unorm)]] {
-        await #expect(throws: GPUError.self) {
-            _ = try await device.createRenderPipeline(vertex: vertex, fragment: fragment, colorFormat: .rgba8Unorm,
-                                                      additionalColorTargets: targets)
-        }
+    let sparse = try await device.createRenderPipeline(vertex: vertex, fragment: fragment, colorFormat: .rgba8Unorm)
+    #expect(sparse.colorWriteMask(at: 2).isEmpty)
+    await #expect(throws: GPUError.validation("Fragment output type does not match the color attachment format")) {
+        try await device.createRenderPipeline(vertex: vertex, fragment: fragment, colorFormat: .rgba8Unorm,
+                                              additionalColorTargets: [2: .init(format: .rgba8Unorm)])
     }
     let floatFragment = try compiler.compileRenderStage(source, entryPoint: "bothFloat", to: .msl)
     let pipeline = try await device.createRenderPipeline(vertex: vertex, fragment: floatFragment, colorFormat: .rgba8Unorm,
                                                          additionalColorTargets: [2: .init(format: .rgba8Unorm)])
-    await #expect(throws: GPUError.validation("Color attachments exceed the portable bytes-per-sample limit")) {
+    await #expect(throws: GPUError.validation("Color attachments exceed the device bytes-per-sample limit")) {
         let formats = Dictionary(uniqueKeysWithValues: (UInt32(1)...4).map {
             ($0, RenderColorTarget(format: .rgba8Unorm))
         })

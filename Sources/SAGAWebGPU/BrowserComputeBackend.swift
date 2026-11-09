@@ -86,9 +86,15 @@ public struct BrowserComputeBackend: ComputeBackendDevice, PresentationBackendDe
     public func submit(_ submission: Submission) async throws { try await host.submit(submission) }
 
     public func allocateComputePipeline(_ pipeline: ComputePipeline, shader: ComputeShaderArtifact) async throws {
+        guard !shader.requiresDebugPrintf else { throw GPUError.unsupported("Browser WebGPU does not support shader debugPrintf") }
+        guard !shader.requiresShaderInt16 else {
+            throw GPUError.unsupported("Browser WebGPU does not support native 16-bit shader integers")
+        }
         guard case .text(.wgsl, _) = shader.artifact else {
             throw GPUError.validation("Browser requires a compiled WGSL compute shader")
         }
+        let size = shader.workgroupSize
+        try capabilities.requireComputeWorkgroupSize(x: size.x, y: size.y, z: size.z)
         try capabilities.requireWorkgroupStorageSize(shader.workgroupStorageByteSize)
         guard shader.externalTextures.isEmpty || supportsExternalTextures else {
             throw GPUError.unsupported("Browser host does not support external textures")
@@ -123,6 +129,9 @@ public struct BrowserComputeBackend: ComputeBackendDevice, PresentationBackendDe
     }
 
     public func allocateTexture(id: ResourceID, descriptor: TextureDescriptor) async throws {
+        guard descriptor.sampleCount == 1 || descriptor.arrayLayerCount == 1 else {
+            throw GPUError.unsupported("Browser WebGPU does not support multisampled texture arrays")
+        }
         guard let render = host as? any BrowserGPURenderHost else {
             throw GPUError.unsupported("Browser host does not implement textures")
         }
@@ -153,33 +162,59 @@ public struct BrowserComputeBackend: ComputeBackendDevice, PresentationBackendDe
     public func allocateRenderPipeline(
         _ pipeline: RenderPipeline, vertex: RenderStageArtifact, fragment: RenderStageArtifact
     ) async throws {
+        try await allocateRenderPipeline(pipeline, vertex: vertex, fragment: Optional(fragment))
+    }
+
+    public func allocateRenderPipeline(
+        _ pipeline: RenderPipeline, vertex: RenderStageArtifact, fragment: RenderStageArtifact?
+    ) async throws {
+        guard !vertex.requiresDebugPrintf, fragment?.requiresDebugPrintf != true else {
+            throw GPUError.unsupported("Browser WebGPU does not support shader debugPrintf")
+        }
+        guard !vertex.usesVertexWritableStorage else {
+            throw GPUError.unsupported("Browser WebGPU does not support vertex writable storage")
+        }
+        guard !vertex.requiresShaderInt16, fragment?.requiresShaderInt16 != true else {
+            throw GPUError.unsupported("Browser WebGPU does not support native 16-bit shader integers")
+        }
+        guard pipeline.multiviewMask == nil else { throw GPUError.unsupported("Browser WebGPU does not support multiview") }
         guard let render = host as? any BrowserGPURenderHost else {
             throw GPUError.unsupported("Browser host does not implement render pipelines")
         }
-        guard case .text(.wgsl, _) = vertex.artifact, case .text(.wgsl, _) = fragment.artifact else {
+        guard vertex.stage == .vertex, case .text(.wgsl, _) = vertex.artifact else {
             throw GPUError.validation("Browser requires compiled WGSL vertex and fragment stages")
         }
-        guard (vertex.externalTextures.isEmpty && fragment.externalTextures.isEmpty) || supportsExternalTextures else {
+        if let fragment {
+            guard fragment.stage == .fragment, case .text(.wgsl, _) = fragment.artifact else {
+                throw GPUError.validation("Browser requires compiled WGSL vertex and fragment stages")
+            }
+            guard !fragment.requiresPerVertex else {
+                throw GPUError.unsupported("Browser WebGPU does not support per-vertex fragment inputs")
+            }
+        }
+        guard (vertex.externalTextures.isEmpty && fragment?.externalTextures.isEmpty != false) || supportsExternalTextures else {
             throw GPUError.unsupported("Browser host does not support external textures")
         }
-        for stage in [vertex, fragment] {
+        for stage in [vertex, fragment].compactMap({ $0 }) {
             try requireBrowserBindings(stage.sampledTextures, stage.storageTextures, stage.samplerBindings,
                                        stage.storageBindings, stage.uniformBindings)
         }
-        if vertex.clipDistanceCount > 0 { try capabilities.require([.clipDistances]) }
-        if fragment.readsPrimitiveIndex { try capabilities.require([.primitiveIndex]) }
-        if fragment.requiresBarycentrics { try capabilities.require([.shaderBarycentrics]) }
-        if fragment.earlyDepthTest != nil { try capabilities.require([.shaderEarlyDepthTest]) }
+        _ = try VertexBufferLayout.validate(pipeline.vertexBuffers, against: capabilities)
+        try RenderPipeline.validateColorTargetLimits(pipeline.colorTargets, fragment: fragment, against: capabilities)
+        try capabilities.validateInterstageInterfaces(vertex: vertex, fragment: fragment, topology: pipeline.primitive.topology)
+        if fragment?.readsPrimitiveIndex == true { try capabilities.require([.primitiveIndex]) }
+        if fragment?.requiresBarycentrics == true { try capabilities.require([.shaderBarycentrics]) }
+        if fragment?.earlyDepthTest != nil { try capabilities.require([.shaderEarlyDepthTest]) }
         try capabilities.requireImmediateSize(pipeline.immediateByteSize)
-        if vertex.requiresShaderInt64 || fragment.requiresShaderInt64 { try capabilities.require([.shaderInt64]) }
+        if vertex.requiresShaderInt64 || fragment?.requiresShaderInt64 == true { try capabilities.require([.shaderInt64]) }
         try capabilities.requireShaderInt64Atomics(
-            minMax: vertex.requiresShaderInt64AtomicMinMax || fragment.requiresShaderInt64AtomicMinMax,
-            allOps: vertex.requiresShaderInt64AtomicAllOps || fragment.requiresShaderInt64AtomicAllOps)
-        if fragment.requiresSubgroups || vertex.requiresSubgroups { try capabilities.require([.subgroups]) }
-        if vertex.requiresSubgroupUniformity || fragment.requiresSubgroupUniformity {
+            minMax: vertex.requiresShaderInt64AtomicMinMax || fragment?.requiresShaderInt64AtomicMinMax == true,
+            allOps: vertex.requiresShaderInt64AtomicAllOps || fragment?.requiresShaderInt64AtomicAllOps == true)
+        if fragment?.requiresSubgroups == true || vertex.requiresSubgroups { try capabilities.require([.subgroups]) }
+        if vertex.requiresSubgroupUniformity || fragment?.requiresSubgroupUniformity == true {
             try capabilities.require([.subgroupUniformity])
         }
-        if fragment.usesDualSourceBlending || pipeline.colorTargets.values.contains(where: { $0.colorState.usesSecondBlendSource }) {
+        if fragment?.usesDualSourceBlending == true || pipeline.colorTargets.values.contains(where: { $0.colorState.usesSecondBlendSource }) {
             try capabilities.require([.dualSourceBlending])
         }
         if pipeline.depthState?.format == .depth32FloatStencil8 { try capabilities.require([.depth32FloatStencil8]) }
@@ -200,7 +235,7 @@ public struct BrowserComputeBackend: ComputeBackendDevice, PresentationBackendDe
         }
         if pipeline.primitive.unclippedDepth { try capabilities.require([.depthClipControl]) }
         let features = vertex.storageTextures.requiredStorageTextureFeatures
-            .union(fragment.storageTextures.requiredStorageTextureFeatures)
+            .union((fragment?.storageTextures ?? []).requiredStorageTextureFeatures)
         try capabilities.require(features)
         try await render.allocateRenderPipeline(pipeline, vertex: vertex, fragment: fragment)
     }

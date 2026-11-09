@@ -35,6 +35,16 @@ extension WGSLParser {
               throw wgslError(.unsupportedCapability, "f16 requires shaderFloat16", extensionName)
             }
             float16Enabled = true
+          case "wgpu_int16":
+            guard options.capabilities.contains(.shaderInt16) else {
+              throw wgslError(.unsupportedCapability, "wgpu_int16 requires shaderInt16", extensionName)
+            }
+            int16Enabled = true
+          case "wgpu_debug_printf":
+            guard options.capabilities.contains(.debugPrintf) else {
+              throw wgslError(.unsupportedCapability, "wgpu_debug_printf requires debugPrintf", extensionName)
+            }
+            debugPrintfEnabled = true
           case "clip_distances":
             guard options.capabilities.contains(.clipDistances) else {
               throw wgslError(.unsupportedCapability, "clip_distances requires clipDistances", extensionName)
@@ -45,6 +55,16 @@ extension WGSLParser {
               throw wgslError(.unsupportedCapability, "primitive_index requires primitiveIndex", extensionName)
             }
             primitiveIndexEnabled = true
+          case "draw_index":
+            guard options.capabilities.contains(.drawIndex) else {
+              throw wgslError(.unsupportedCapability, "draw_index requires drawIndex", extensionName)
+            }
+            drawIndexEnabled = true
+          case "wgpu_per_vertex":
+            guard options.capabilities.contains(.perVertex) else {
+              throw wgslError(.unsupportedCapability, "wgpu_per_vertex requires perVertex", extensionName)
+            }
+            perVertexEnabled = true
           case "subgroups":
             guard options.capabilities.contains(.subgroup) else {
               throw wgslError(.unsupportedCapability, "subgroups require the subgroup capability", extensionName)

@@ -7,7 +7,7 @@ import SAGAShaderIR
 import SAGAMetal
 
 actor RenderTestBackend: PresentationBackendDevice {
-    nonisolated let capabilities = try! DeviceCapabilities(maxBufferSize: 4096, maxTextureDimension2D: 32)
+    nonisolated let capabilities: DeviceCapabilities
     let started = Gate()
     let release = Gate()
     let allocationStarted = Gate()
@@ -16,10 +16,13 @@ actor RenderTestBackend: PresentationBackendDevice {
     let presentationGate: Gate?
     nonisolated let supportsPresentation: Bool
     private(set) var submitted = 0
+    private(set) var allocatedRenderPipelines = 0
     private(set) var textures: Set<ResourceID> = []
     private(set) var presented: [ResourceID] = []
 
-    init(allocationGate: Gate? = nil, presentationGate: Gate? = nil) {
+    init(allocationGate: Gate? = nil, presentationGate: Gate? = nil,
+         capabilities: DeviceCapabilities = try! .init(maxBufferSize: 4096, maxTextureDimension2D: 32)) {
+        self.capabilities = capabilities
         self.allocationGate = allocationGate
         self.presentationGate = presentationGate
         self.supportsPresentation = presentationGate != nil
@@ -33,7 +36,9 @@ actor RenderTestBackend: PresentationBackendDevice {
         if let allocationGate { await allocationGate.wait() }
     }
     func destroyTexture(id: ResourceID) { textures.remove(id) }
-    func allocateRenderPipeline(_ pipeline: RenderPipeline, vertex: RenderStageArtifact, fragment: RenderStageArtifact) {}
+    func allocateRenderPipeline(_ pipeline: RenderPipeline, vertex: RenderStageArtifact, fragment: RenderStageArtifact) {
+        allocatedRenderPipelines += 1
+    }
     func destroyRenderPipeline(id: ResourceID) {}
     func present(_ submission: Submission, source: ResourceID) async {
         presented.append(source)

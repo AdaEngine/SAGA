@@ -54,9 +54,11 @@ public struct RenderStencilAttachmentState: Sendable, Equatable {
 
     public let loadAction: LoadAction
     public let reference: UInt32
+    public let storeAction: RenderStoreAction
 
-    public init(loadAction: LoadAction = .clear(0), reference: UInt32 = 0) {
+    public init(loadAction: LoadAction = .clear(0), reference: UInt32 = 0, storeAction: RenderStoreAction = .store) {
         self.loadAction = loadAction
         self.reference = reference
+        self.storeAction = storeAction
     }
 }

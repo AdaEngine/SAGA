@@ -43,41 +43,87 @@ try {
         assert.ok(Math.abs(result.renderProbe[index] - expected) <= 1);
     }
     assert.equal(result.integerWords, 20);
-    assert.equal(result.runtimeArrayWords, 5);
+    assert.equal(result.runtimeArrayWords, 17);
     assert.equal(result.storageTailWords, 5);
     assert.equal(result.storageVectors, 4);
-    assert.deepEqual(result.groupedStorage, [29, 33, 23, 999]);
-    assert.equal(result.builtinInvocations, 174);
-    const adapterWorkgroupStorage = await page.evaluate(async () =>
-        (await navigator.gpu.requestAdapter()).limits.maxComputeWorkgroupStorageSize);
-    assert.equal(result.maxComputeWorkgroupStorageSize, adapterWorkgroupStorage);
-    assert.deepEqual(result.workgroupWords, [18, 19, 20, 17, 118, 119, 120, 117, 218, 219, 220, 217, 81, 82, 83, 80]);
-    assert.deepEqual(result.storageBarrierWords, [81, 80, 1081, 1080, 2081, 2080, 74, 73, 202, 201, 330, 329]);
-    assert.equal(result.atomicTickets, 256);
-    assert.equal(result.atomicRMWWords, 38);
-    assert.equal(result.atomicCompareWords, 14);
+    assert.deepEqual(result.groupedStorage, [29, 33, 23, 999, 119, 0xffffffec, 49, 999]);
+    assert.equal(result.builtinInvocations, 342);
+    const adapterLimits = await page.evaluate(async () => {
+        const limits = (await navigator.gpu.requestAdapter()).limits;
+        return {
+            storage: limits.maxComputeWorkgroupStorageSize, invocations: limits.maxComputeInvocationsPerWorkgroup,
+            size: { x: limits.maxComputeWorkgroupSizeX, y: limits.maxComputeWorkgroupSizeY, z: limits.maxComputeWorkgroupSizeZ },
+            dispatch: limits.maxComputeWorkgroupsPerDimension,
+            vertexAttributes: limits.maxVertexAttributes,
+            vertexBuffers: limits.maxVertexBuffers,
+            vertexStride: limits.maxVertexBufferArrayStride,
+            interstage: limits.maxInterStageShaderVariables,
+            colorAttachments: limits.maxColorAttachments,
+            colorBytes: limits.maxColorAttachmentBytesPerSample,
+        };
+    });
+    assert.equal(result.maxComputeWorkgroupStorageSize, adapterLimits.storage);
+    assert.equal(result.maxComputeInvocationsPerWorkgroup, adapterLimits.invocations);
+    assert.deepEqual(result.maxComputeWorkgroupSize, adapterLimits.size);
+    assert.equal(result.maxComputeWorkgroupsPerDimension, adapterLimits.dispatch);
+    assert.equal(result.maxVertexAttributes, adapterLimits.vertexAttributes);
+    assert.equal(result.maxVertexBuffers, adapterLimits.vertexBuffers);
+    assert.equal(result.maxVertexBufferArrayStride, adapterLimits.vertexStride);
+    assert.equal(result.maxInterStageShaderVariables, adapterLimits.interstage);
+    assert.equal(result.maxColorAttachments, adapterLimits.colorAttachments);
+    assert.equal(result.maxColorAttachmentBytesPerSample, adapterLimits.colorBytes);
+    assert.deepEqual(result.workgroupWords, [18, 19, 20, 17, 118, 119, 120, 117, 218, 219, 220, 217, 81, 82, 83, 80,
+        Math.min(512, adapterLimits.size.x, adapterLimits.invocations),
+        329, 330, 331, 328, 429, 430, 431, 428, 529, 530, 531, 528]);
+    assert.deepEqual(result.storageBarrierWords, [
+        81, 80, 1081, 1080, 2081, 2080, 74, 73, 202, 201, 330, 329, 84, 83, 212, 211, 340, 339,
+    ]);
+    assert.equal(result.atomicTickets, 384);
+    assert.equal(result.atomicRMWWords, 44);
+    assert.equal(result.atomicCompareWords, 24);
     assert.equal(result.mixedAtomicWords, 17);
-    assert.deepEqual(result.uniformLoadWords, [691, 691, 691, 691, 694, 694, 694, 694, 686, 686, 686, 686]);
+    assert.deepEqual(result.uniformLoadWords, [
+        691, 691, 691, 691, 694, 694, 694, 694, 686, 686, 686, 686,
+        1101, 1102, 1103, 1104, 1302, 1303, 1304, 1301, 1501, 1502, 1503, 1504,
+    ]);
     assert.deepEqual(result.selectWords, [3, 23, 40, 20, 60, 0xffffffff, 0xfffffffe, 1]);
     assert.deepEqual(result.constantWords, [40, 41, 42, 43]);
     assert.deepEqual(result.uniformWords, [30, 38, 17, 17]);
-    assert.deepEqual(result.renderUniformPixels, [0xff0000ff, 0xff00ff00, 0xff0000ff, 0xff00ff00]);
-    assert.deepEqual(result.matrixValues, [39, 54, 69, 69, 96, 123, 14, 19, 24, 20, 47, 24, 7, 8, 9, 0, 0, 0]);
-    assert.deepEqual(result.matrixBufferValues, [0, 1, 55, 18]);
-    assert.deepEqual(result.switchWords, [7, 7, 11, 19, 19, 215, 23, 1, 28, 28, 50, 99, 38, 22, 64, 99, 40, 43, 0, 10, 20, 99, 40, 3]);
+    const packedVertexFormats = result.supportsVertexFormatSnorm1010102 ? 27 : 26;
+    const packedBatchSize = Math.min(15, result.maxVertexAttributes - 1);
+    const packedVertexMasks = [];
+    for (let index = 0; index < packedVertexFormats; index += packedBatchSize) {
+        packedVertexMasks.push(2 ** Math.min(packedBatchSize, packedVertexFormats - index) - 1);
+    }
+    assert.deepEqual(result.renderUniformPixels,
+        [0xff0000ff, 0xff00ff00, 0xff0000ff, 0xff00ff00, 0xff00004d, ...packedVertexMasks]);
+    assert.deepEqual(result.matrixValues, [
+        39, 54, 69, 69, 96, 123, 14, 19, 24, 20, 47, 24, 7, 8, 9, 0, 0, 0,
+        14, 11, -12, 33, 25, -27, 63, 43, -45, 93, 61, -63, 1, 4, -2, 5, 3, -6,
+    ]);
+    assert.deepEqual(result.matrixBufferValues, [0, 1, 55, 18, 2, 21, 45, 15]);
+    assert.deepEqual(result.switchWords, [7, 7, 11, 19, 39, 219, 23, 1, 28, 28, 50, 99, 38, 22, 64, 99, 40, 43, 0, 10, 20, 99, 40, 3]);
     assert.deepEqual(result.textureUploadWords, [0xff445566, 0xff112233, 0xff445566, 0xff778899, 0xffaabbcc]);
     assert.deepEqual(result.textureLoadWords, [0, 0xffff0000, 0xff00ff00, 0, 0, 0, 0]);
     assert.deepEqual(result.renderTexturePixels, [0xffff0000, 0xff00ffff, 0xffff0000, 0xff0000ff]);
     assert.deepEqual(result.samplerValues, [0, 16, 0, 16, 10, 6, 0, 16, 16, 0, 0, 16, 0, 16, 0, 16]);
     assert.deepEqual(result.renderSamplerPixels, [0xffff0000, 0xffff60ff, 0xffff0000, 0xffff00ff]);
-    assert.deepEqual(result.mipTextureWords, [0, 0xff00ff00, 0xffff0000, 0x3f000000, 0x3f000000]);
+    assert.deepEqual(result.mipTextureWords, [
+        0, 0xff00ff00, 0xffff0000, 0x3f000000, 0x3f000000,
+        0, 0x3f800000, 0, 0x3f800000, 0, 0, 0x3f800000, 0x3f800000,
+        0, 0x3f000000, 0x3f000000, 0x3f800000, 0x3f800000, 0, 0, 0x3f800000,
+        0x40a00000, 0x40400000, 0x40000000, 0x40400000,
+    ]);
     assert.deepEqual(result.textureViewWords, [
         0x3f800000, 0, 0x40000000, 0x40000000, 0x3f800000, 0, 0x3f800000, 0x3f000000, 0xff00ff00,
     ]);
-    assert.deepEqual(result.textureGatherLanes, [80, 100, 40, 20, 90, 110, 50, 30, 125, 85, 25, 65, 170, 180, 150, 140]);
+    assert.deepEqual(result.textureGatherLanes, [
+        80, 100, 40, 20, 90, 110, 50, 30, 125, 85, 25, 65, 170, 180, 150, 140,
+        90, 110, 50, 30,
+    ]);
     assert.deepEqual(result.storageTextureWords, [0, 0xffff00ff, 0xff0000ff]);
     assert.deepEqual(result.fragmentStorageTextureWords, [0xff0000ff, 0xffff0000, 0xff00ff00, 0xff00ff00, 0xff0000ff, 0xffff0000]);
-    assert.deepEqual(result.readWriteStorageWords, [5, 0, 0, 10, 1, 20, 1, 0, 15, 20]);
+    assert.deepEqual(result.readWriteStorageWords, [5, 0, 0, 10, 1, 20, 1, 0, 15, 20, 20, 0, 0, 1, 2, 1, 0x01020318, 20]);
     assert.deepEqual(result.textureBarrierWords, [81, 80, 1081, 1080, 2081, 2080]);
     assert.deepEqual(result.renderReadableStorageWords, [0xffff0000, 0xff00ffff, 15]);
     assert.deepEqual(result.depthAttachmentWords, [0xffff0000, 0xff00ff00, 0xffff0000, 0xff0000ff, 0x3e800000]);
@@ -85,8 +131,9 @@ try {
     assert.deepEqual(result.depthComparisonWords, [
         0xbf40ff00, 0xbf40ff00, 0, 0x3f800000, 0x3e800000, 0x3f400000,
         0x3e800000, 0x3f400000, 0x3f000000, 0x3f000000,
+        0x3f800000, 0,
     ]);
-    assert.deepEqual(result.depthGatherLanes, [0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 1, 0]);
+    assert.deepEqual(result.depthGatherLanes, [0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 1, 0, 1, 0, 0, 1]);
     assert.deepEqual(result.rawDepthGather, [
         0.25, 0.5, 0.375, 0.125, 0.5, 0.875, 0.625, 0.375,
         0.875, 0.25, 0.125, 0.625, 0.25, 0.5, 0.375, 0.125,
@@ -95,7 +142,8 @@ try {
     assert.ok(samples.includes(0) && samples.includes(1));
     assert.ok(samples.every(value => value === 0 || value === 1));
     assert.deepEqual(result.multisampleWords.slice(4, 8), samples.map(value => value ? 1 : 4));
-    assert.deepEqual(result.multisampleWords.slice(8), [4, 4, 2, 0, 0xff000080, 0xff000080, 0, 0]);
+    assert.deepEqual(result.multisampleWords.slice(8), [4, 4, 2, 0, 0xff000080, 0xff000080, 0, 0, 4, 1, 4, 1,
+        0xff0000ff, 0]);
     const signedPixel = [-17 >>> 0, 23, -3 >>> 0, 1];
     const unsignedPixel = [249, 1, 200, 7];
     assert.deepEqual(result.integerTextureWords, [
@@ -107,15 +155,21 @@ try {
         ...[-86, -76, -106, -116, -76, -66, -96, -106].map(value => value >>> 0),
         125, 85, 25, 65, 170, 180, 150, 140,
     ]);
+    const sampleOneMarker = result.sampleCoverageWords.slice(5, 7);
+    const sampleThreeMarker = result.sampleCoverageWords.slice(13, 15);
+    assert.notDeepEqual(sampleOneMarker, sampleThreeMarker);
+    assert.ok([...sampleOneMarker, ...sampleThreeMarker].every(coordinate => coordinate >= 0 && coordinate <= 128));
     assert.deepEqual(result.sampleCoverageWords, [
-        0, 0, 0, 0, 2, 0, 0, 1, 0, 0, 0, 0, 4, 0, 0, 1,
+        0, 0, 0, 0, 2, ...sampleOneMarker, 1, 0, 0, 0, 0, 4, ...sampleThreeMarker, 1,
         0, 0, 0, 0, 0, 0, 0, 0, 3, 9, 0, 1, 0, 0, 0, 0,
     ]);
-    assert.deepEqual(result.fragmentDepthWords, [0xff0000ff, 0x3e800000, 0xffff0000, 0x3f800000]);
+    assert.deepEqual(result.fragmentDepthWords, [0xff0000ff, 0x3e800000, 0xffff0000, 0x3f800000, 0x3f800000, 0xff00ff00,
+        0x3f400000, 0x3e000000]);
     const frontPixels = [0x01650101, 0x01650102, 0x01650201, 0x01650202];
     assert.deepEqual(result.fragmentRasterWords, [
         ...frontPixels, ...frontPixels.map(pixel => pixel & 0x00ffffff),
         0, 0, 0, 0, ...frontPixels, 0, 0, 0, 0, 0xff004039, 0,
+        0xffffff00, 0xffffffff, 0xffff0000, 0xffff00ff,
     ]);
     assert.equal(result.interpolationWord, 0x543f2a15);
     const drawn = 0xff00ff00;
@@ -129,7 +183,10 @@ try {
     const halfCoverage = result.alphaCoverageWords.slice(4, 8);
     assert.ok(halfCoverage.includes(0) && halfCoverage.includes(1));
     assert.deepEqual(result.alphaCoverageWords.slice(8), [0, 1, 0, 1, 0, 0, 0, 0, 0x3f400000]);
-    assert.deepEqual(result.multipleColorWords, [0xff0000ff, 0x07210511, 0xffff8040]);
+    const wideColorCount = Math.min(result.maxColorAttachments, Math.floor(result.maxColorAttachmentBytesPerSample / 16));
+    const wideColors = Array.from({ length: wideColorCount }, (_, index) => [index + 0.25, 0.5, 0.75, 1]).flat();
+    assert.deepEqual(result.multipleColorWords,
+        [0xff0000ff, 0x07210511, 0xffff8040, ...new Uint32Array(new Float32Array(wideColors).buffer), 0xff00ff00, 1, 0, 2]);
     assert.deepEqual(result.viewportWords, Array.from({ length: 16 }, (_, index) =>
         index === 9 || index === 10 ? [0xff00ff00, 0x3f000000] : [0, 0x3f400000]).flat());
     const biasRed = 0xff0000ff;
@@ -142,14 +199,19 @@ try {
     assert.deepEqual(result.readOnlyDepthWords, [drawn, drawn, 0, 0, 0x3e800000, 0x3e800000]);
     const sampledAspects = [1, 173, 2, 1, drawn, drawn, drawn, drawn];
     assert.deepEqual(result.aspectWords, [...sampledAspects, ...sampledAspects]);
-    assert.deepEqual(result.stencilCopyWords, [0x00f08001, 0x00a50711, 1, 1, 3, 2]);
+    assert.deepEqual(result.stencilCopyWords, [0x00f08001, 0x00a50711, 1, 1, 3, 2, 1, 0, 3, 2, 0, 17, 3, 2]);
     assert.deepEqual(result.textureCopyWords, [0, 0xff0000ff]);
-    assert.deepEqual(result.arrayWords, [1, 2, 128, 240, 204, 221, 238, 255, 0, 0, 0, 0, 0, 0, 0, 0, 2, 1, 3, 1, 0xf0800201, 0x04030201]);
+    assert.deepEqual(result.arrayWords, [1, 2, 128, 240, 204, 221, 238, 255, 0, 0, 0, 0, 0, 0, 0, 0, 2, 1, 3, 1,
+        0xf0800201, 0x04030201, 0xf0800201, 0x04030201, 0x08070605, 0xffeeddcc]);
     assert.deepEqual(result.layerViewWords, [0x011e140a, 0x01463c32, 0x281e140a, 0x50463c32, 0xff0000ff, 0, 0, 0]);
     assert.deepEqual(result.arraySamplingWords, Array.from(new Uint32Array(new Float32Array([
         1, 0, 0, 1, 0, 1, 0, 1, 1, 1, 1, 1, 0, 1, 0.25, 0.75, 1, 1, 1, 1, 0, 1, 0, 1,
+        1, 0, 0, 0, 0, 0, 0, 0, 1, 1,
     ]).buffer)));
-    assert.deepEqual(result.storageArrayWords, [2, 1, 1, 2, 6, 10, 20, 0, 0, 0, 6, 0, 16, 0, 27, 0, 40, 0, 0, 0xffff00ff]);
+    assert.deepEqual(result.storageArrayWords, [
+        2, 1, 1, 2, 6, 10, 20, 0, 0, 0, 6, 0, 16, 0, 27, 0, 40, 0, 0, 0xffff00ff,
+        16, 0, 0, 0, 0, 0, 0, 27, 1, 1, 6, 0, 61, 0, 72, 0, 40, 0,
+    ]);
     assert.equal(result.storageFormats, 16);
     assert.deepEqual(result.cubeWords, [...new Uint32Array(new Float32Array([
         0, 0, 1, 1, 1, 0, 0, 1, 0, 1, 0, 1, 1, 1, 0, 1, 0, 1, 1, 1, 1, 0, 1, 1,
@@ -170,13 +232,30 @@ try {
     const inputBits = [0x3f800000, 0xc0200000, 0x3f000000, 0x00800000];
     assert.deepEqual(result.bitcastWords, [...inputBits, ...inputBits, ...inputBits,
         0x3f800000, 0xc0200000, 0x00800000, 0x40000000, 0x3f800000, 0xc0200000, 0x80000000, 0xffffffff]);
+    const eagerBooleanWords = [
+        0, 1, 1234, 1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 1, 0, 1, 1, 0, 12345678, 1, 0, 1,
+    ];
     assert.deepEqual(result.integerBitWords, [
         32, 31, 0, 0, 32, 0, 31, 0, 0, 1, 1, 32, 0, 0x80000000, 1, 0xffffffff,
         0xffffffff, 0, 31, 31, 0xffffffff, 0, 30, 0xffffffff, 0xffffffff, 0, 31, 0,
         0, 0, 8, 15, 0, 0, 0xfffffff8, 0xffffffff, 0x50000000, 0x50000001, 0x50000000, 0x5fffffff,
         0, 1, 0x80000000, 0xffffffff, 0, 1, 0x80000000, 0xffffffff, 0, 0xffffffff, 0, 7,
         32, 32, 32, 0x80000000,
-        0, 1, 1234, 1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 1, 0, 1, 1, 0, 12345678, 1, 0, 1,
+        ...eagerBooleanWords,
+        202, 900, 11, 0, 101, 202, 33, 900,
+        0x80000000, 0x01234561, 0xfffffff2, 0x12345673, 0xfffffff8, 0xffffffff, 0xffffffff, 7, 8, 15, 15, 7,
+        0x10000001, 0xf6a2c480, 0xffffffff, 0xee6a2c48, 2, 13, 32, 15,
+        0x80000008, 0x0123456f, 0xffffffff, 0x12345677, 0, 0, 0, 0, 0, 0, 0, 0,
+        0x10000001, 0xf6a2c480, 0xffffffff, 0xee6a2c48, 2, 13, 32, 15,
+        0x40000004, 0x0f123456, 1, 0x12345677, 0xc0000004, 0xff123456, 0xffffffff, 0x12345677,
+        0x10, 0x123456f0, 0x80000000, 0x12345677,
+        8, 0, 0xffffffff, 0x12345677, 0xfffffff8, 0, 0xffffffff, 0x12345677,
+        0x80000000, 0x80000000, 0xffffffff, 0x12345677, 0x80000000, 0x80000000, 0xffffffff, 0x12345677,
+        8, 0, 15, 1, 0xfffffff8, 0, 0xffffffff, 1,
+        0x50000008, 0x5123456f, 0x5fffffff, 0x52345677, 0xe0000008, 0xe123456f, 0xefffffff, 0xe2345677,
+        0, 0, 0, 0, 0x80000008, 0x0123456f, 0xffffffff, 0x12345677, 0x80000008, 0x0123456f, 0xffffffff, 0x12345677,
+        0x10000001, 0xf6a2c480, 0xffffffff, 0xee6a2c48, 2, 13, 32, 15,
+        ...eagerBooleanWords,
     ]);
     assert.deepEqual(result.packingWords, [
         0x7f40c181, 0xff800000, 0x4000c001, 0xffff8000,
@@ -198,11 +277,14 @@ try {
         0.5, 0, -0.125, 0.25, -24, 20, -5, 18, -15, 4, 5, -4, 1,
         0.5, 0, 0, 0, -0.125, 0.25, 0, 0, 0.03125, -0.0625, 0.125, 0, -0.0078125, 0.015625, -0.03125, 0.0625,
     ];
-    const inverses = new Float32Array(new Uint32Array(result.matrixBuiltinWords.slice(18)).buffer);
+    const inverseEnd = 18 + inverseExpected.length;
+    const inverses = new Float32Array(new Uint32Array(result.matrixBuiltinWords.slice(18, inverseEnd)).buffer);
     assert.equal(inverses.length, inverseExpected.length);
     for (const [index, expected] of inverseExpected.entries()) {
         assert.ok(Math.abs(inverses[index] * 1e-12 - expected) <= Math.max(1, Math.abs(expected)) * 0.0008);
     }
+    const matrixInstructions = new Float32Array(new Uint32Array(result.matrixBuiltinWords.slice(inverseEnd)).buffer);
+    assert.deepEqual(Array.from(matrixInstructions), [2, 5, 16, 12, 62, 152, 39, 54, 69, 36, 88, 39]);
     assert.deepEqual(result.derivativeWords, Array(12).fill(0x09050502));
     assert.deepEqual(result.derivativeFilterWords, Array(4).fill(0xff00ff00));
     assert.deepEqual(result.numericBuiltinWords.slice(0, 52), [
@@ -213,13 +295,27 @@ try {
             0.5, 0.5, 0.5, 0.5, 0, 0, 1, 1, 2, 0.5, 0, 1, 2.5, -1, -2.5, 2.5,
         ]).buffer),
     ]);
-    const spirvMath = result.numericBuiltinWords.slice(52);
+    const spirvMath = result.numericBuiltinWords.slice(52, 60);
     assert.equal(spirvMath.length, 8);
     const [degrees, hyperbolic] = new Float32Array(new Uint32Array(spirvMath.slice(0, 2)).buffer);
     assert.ok(Math.abs(degrees - 90) < 0.001);
     assert.ok(Math.abs(hyperbolic - 0.54930615) < 0.00001);
     assert.deepEqual(spirvMath.slice(2), [
         5, 0xff00ff00, ...new Uint32Array(new Float32Array([5, 2, -3]).buffer), 2,
+    ]);
+    assert.deepEqual(result.numericBuiltinWords.slice(60, 120), [
+        1, 0, 0, 0, 1, 0, 0, 1,
+        0, 1, 1, 0, 0, 1, 1, 1,
+        0, 1, 0, 0, 0, 1, 0, 1,
+        0, 0, 1, 0, 0, 0, 1, 1,
+        1, 1, 0, 0, 1, 1, 0, 1,
+        1, 0, 1, 0, 1, 0, 1, 1,
+        0, 0, 0, 1, 0, 1, 1, 0,
+        1, 0, 1, 0,
+    ]);
+    const remainderBits = new Uint32Array(new Float32Array([-2.5, 2.5, -2.5, 2.5, 0.5, -0.5, -2.5, 2.5]).buffer);
+    assert.deepEqual(result.numericBuiltinWords.slice(120), [
+        2, 0xffffffff, 1, 0xfffffffe, ...remainderBits, 2, remainderBits[0], remainderBits[4], 0,
     ]);
     const expectedTranscendental = [
         0.47942555, 0.87758255, 0.5463025, 2.3561945,
@@ -249,6 +345,8 @@ try {
         assert.deepEqual(result.halfBufferWords, [
             0xc7004880, 0x44803e00, 0x38004780, 0x38003800,
             0x40003c00, 0xc7004100, 0x45004400, 0xc7004600, 0x48004700, 0xc7004880,
+            0xc7004900, 0x49804300, 0xbf004ca0, 0xc7c0c4c0,
+            0xbf004100, 0xc7003c00, 0xc4c04840, 0xc7004100, 0xc7c04b40, 0xc7004400,
         ]);
     }
     if (result.halfMatrixWords !== null) {
@@ -302,6 +400,9 @@ try {
         0x3f800000, 0x3f804000, 0x80000000, 0x477fe000,
         0x38800000, 0x80000000, 0x33800000, 0xbf802000,
         0x40200000, 0x3eaaa000, 0xba832000, 0xc77fe000,
+        0x3f800000, 0x3f804000, 0x40000000, 0x477fe000,
+        0x38800000, 0, 0x80000000, 0x7f800000,
+        0xff800000, 0x7f800000, 0xff800000, 0x7fc01234,
     ]);
     if (result.floatingVectorWords !== null) {
         const vector = new Float32Array(new Uint32Array(result.floatingVectorWords).buffer);
@@ -310,7 +411,7 @@ try {
             -7, 19, -4, 40, -0.5, 0.5, 0, 0, 1, 0, 1, 0, 7.5, -5.5, 6, -6,
         ]);
     }
-    assert.deepEqual(result.overrideWords, [3, 4, 0, 0, 8, 8, 8, 8]);
+    assert.deepEqual(result.overrideWords, [3, 4, 0, 0, 8, 8, 8, 8, 7, 19, 3, 25]);
     assert.deepEqual(result.computedOverrideWords, [6, 7, 8, 0, 3, 3, 0, 0, 4, 8, 12, 16, 70, 71, 72]);
     assert.deepEqual(result.overrideArrayWords, [31, 31, 0, 0, 31, 33, 35, 33]);
     assert.deepEqual(result.pipelineBodyWords, [2, 3, 10, 0]);
@@ -329,6 +430,13 @@ try {
         0, 0xffffff00, 0, 0,
         1, 1, 1, 0,
         0, 1, 0x3f800000, 1,
+        0xfffffffd, 9,
+        0x80000000, 0x7fffff80, 0xfffffffd, 3, 0, 0xffffff00, 0, 3,
+        0x7fffff80, 0x7fffff80, 0x7fffff80, 0x7fffff80, 0x7fffff80, 0x80000000, 0xffffff00, 0xffffff00,
+        ...(result.halfConversionWords === null ? [] : [
+            0xffff0020, 0xffe0, 0xfffffffe, 2, 0, 0xffe0, 0, 2,
+            0xffe0, 0xffff0020, 0, 0, 0xffe0, 0, 0, 0,
+        ]),
     ]);
     if (result.halfConversionWords !== null) {
         assert.deepEqual(result.halfConversionWords, [0, 0xfffffffe, 1, 0]);
@@ -348,9 +456,13 @@ try {
         30, 137, 0, 11, 30, 139, 0, 11, 30, 141, 0, 11, 30, 143, 0, 11,
     ]);
     assert.deepEqual(result.privateRenderWords, [0xff0000ff, 0xff0000ff, 0xff0000ff, 0xff0000ff]);
-    assert.deepEqual(result.pointerWords, [0, 0, 30, 219, 10, 11, 35, 219, 20, 21, 35, 219, 0, 0, 30, 219]);
+    assert.deepEqual(result.pointerWords, [
+        0, 0, 30, 219, 10, 11, 35, 219, 20, 21, 35, 219, 0, 0, 30, 219,
+        40, 47, 147, 300, 41, 49, 149, 301, 42, 51, 151, 302, 43, 53, 153, 303,
+    ]);
     assert.deepEqual(result.pointerSubviewWords, [
         50, 57, 1141, 320, 50, 60, 1144, 320, 20, 23, 1144, 312, 0, 0, 1141, 312,
+        10, 40, 1420, 3246, 20, 30, 1124, 4040, 10, 40, 1620, 3250, 20, 30, 1126, 4440,
     ]);
     const sharedPointerGroup = [15, 126, 10, 126, 26, 126, 10, 127, 37, 126, 10, 128, 48, 126, 10, 129];
     assert.deepEqual(result.sharedPointerWords, [...sharedPointerGroup, ...sharedPointerGroup]);
@@ -380,6 +492,9 @@ try {
     assert.deepEqual(result.nestedUniformWords, [
         0, 0, 3, 9, 4, 5, 9, 13, 0, 0, 3, 17, 0, 0, 3, 9,
         0xff00ff00, 0xff00ff00, 0xff00ff00, 0xff00ff00,
+        10, 0xc0000000, 0xbf800000, 0xbf800000, 31, 0xc0000000, 0xbf800000, 0xbf800000,
+        59, 0xc1100000, 0x40e00000, 0xc0000000, 97, 0xc1100000, 0x40e00000, 0xc0000000,
+        0xff00ff00, 0xff00ff00, 0xff00ff00, 0xff00ff00,
     ]);
     if (result.nestedHalfUniformWords !== null) {
         const lanes = new Float32Array(Uint32Array.from(result.nestedHalfUniformWords).buffer);
@@ -398,7 +513,8 @@ try {
         0xff00ff00, 0xff00ff00, 0xff00ff00, 0xff00ff00,
         7, 400, 801, 10, 401, 802, 20, 402, 803, 30, 403, 804, 40,
     ]);
-    assert.deepEqual(result.indirectDispatchWords, [0, 5592, 0, 2, 3, 2, 1, 65536, 1, 1, 1, 0]);
+    const invalidDispatchCount = adapterLimits.dispatch === 0xffffffff ? 0 : adapterLimits.dispatch + 1;
+    assert.deepEqual(result.indirectDispatchWords, [0, 5592, 0, 2, 3, 2, 1, invalidDispatchCount, 1, 1, 1, 0]);
     const firstInstance = Number(result.supportsIndirectFirstInstance);
     const indirectColor = firstInstance ? 0xff00ff00 : 0xff0000ff;
     assert.deepEqual(result.indirectDrawWords, [
@@ -676,7 +792,7 @@ try {
     assert.deepEqual(result.halfTexelWords, [0x00001234, 0x42001234, 0x3c001234, 0x40000000]);
     assert.deepEqual(result.halfColorWords, [
         0x43000000, 0x3c000000, 0xc1003e00, 0x3a004700,
-        ...(result.halfPrecisionWords === null ? [] : [0x3400, 0x3a003400, 0x3c003a00]),
+        ...(result.halfPrecisionWords === null ? [] : [0x3400, 0x3a003400, 0x3c003a00, 0x3400, 0x3a003400, 0x3c003a00]),
     ]);
     const [supportsTier1Storage, supportsTier2StorageReadWrite, supportsNormalized16] = await page.evaluate(async () => {
         const features = (await navigator.gpu.requestAdapter()).features;
@@ -798,13 +914,24 @@ try {
         101, 202, 303, 404, ...[-11, 22, -33, 44].map(value => value >>> 0),
     ];
     assert.deepEqual(result.wideStorageWords, supportsTier2StorageReadWrite ? wideStorageExpected : []);
-    assert.equal(result.forwardedResourceWords.length, 8);
+    assert.equal(result.forwardedResourceWords.length, 22);
     assert.deepEqual(decodeFloatWords(result.forwardedResourceWords.slice(0, 4)).map(value => Math.round(value * 255)),
         [70, 10, 220, 150]);
-    assert.deepEqual(result.forwardedResourceWords.slice(4), [0xff000046, 0xff0000dc, 0xff00ff46, 0xff00ff96]);
+    assert.deepEqual(result.forwardedResourceWords.slice(4, 8), [0xff000046, 0xff0000dc, 0xff00ff46, 0xff00ff96]);
+    assert.deepEqual(decodeFloatWords(result.forwardedResourceWords.slice(8, 12)).map(value => Math.round(value * 255)),
+        [150, 220, 10, 70]);
+    assert.deepEqual(result.forwardedResourceWords.slice(12, 14), [0xff00ff0a, 0xff00ff96]);
+    assert.deepEqual(decodeFloatWords(result.forwardedResourceWords.slice(14, 18)).map(value => Math.round(value * 255)),
+        [210, 210, 170, 170]);
+    assert.deepEqual(decodeFloatWords(result.forwardedResourceWords.slice(18)).map(value => Math.round(value * 255)),
+        [660, 660, 310, 310]);
     assert.deepEqual(result.webBufferArrayWords, [
         0, 0, 0, 0, 100, 101, 1, 11, 200, 201, 3, 22, 0, 0, 0, 0,
         101, 55, 41, 42, 201, 77, 8, 9, 0xff37010b, 0xff4d030b,
+        1, 55, 55, 112, 3, 77, 9, 223, 101, 110, 41, 42, 201, 86, 8, 9,
+        0, 1, 0, 1132, 1, 3, 132, 1086, 3, 0, 86, 1000, 0, 0, 0, 1000,
+        101, 110, 41, 42, 201, 86, 8, 9,
+        0, 0, 0, 0, 0, 1, 0, 1, 17, 110, 41, 42, 23, 86, 8, 9,
     ]);
     assert.equal(result.externalTextureWords.length, 18);
     const externalExpected = [1, 0, 0, 1, 1, 1, 0, 1, 0, 1, 0, 1, 2, 1, 2, 1];

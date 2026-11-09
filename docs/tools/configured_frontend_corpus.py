@@ -5,10 +5,17 @@ import collections
 import hashlib
 import json
 import math
+import os
 from pathlib import Path
 import re
+import struct
 import subprocess
+import tempfile
 import tomllib
+try:
+    import resource
+except ImportError:
+    resource = None
 
 PIN = "a55352911bb26a1b33bc8d5fc03bdebb0a967f5a"
 ROOT = Path(__file__).resolve().parents[2]
@@ -17,10 +24,122 @@ TOP_KEYS = {"targets", "capabilities", "wgsl-in", "spv-in", "spv", "msl", "msl_p
             "hlsl", "glsl", "wgsl", "bounds_check_policies", "pipeline_constants", "glsl_multiview",
             "glsl_exclude_list", "spv_flow_dump_prefix", "fragment_module", "mesh_output_validation", "task_limits"}
 TARGETS = {"IR", "ANALYSIS", "SPIRV", "METAL", "GLSL", "DOT", "HLSL", "WGSL", "NO_VALIDATION"}
+MAX_ASSEMBLY_BYTES = 4_194_304  # Default SAGA source byte / SPIR-V word limits.
+MAX_ASSEMBLER_BYTES = 64 * 1024 * 1024
+UNMAPPED_ASSEMBLY = "SPIR-V assembler/binary provenance not yet mapped; not a pass"
 
 
 def sha(data):
     return hashlib.sha256(data).hexdigest()
+
+
+class AssemblyUnavailable(Exception):
+    pass
+
+
+def bounded_read(path, limit):
+    with path.open("rb") as stream:
+        data = stream.read(limit + 1)
+    if len(data) > limit:
+        raise AssemblyUnavailable("file exceeds the configured byte limit")
+    return data
+
+
+def run_assembler(arguments, limit):
+    if resource is None:
+        raise AssemblyUnavailable("bounded assembler execution is unavailable on this platform")
+
+    def limit_output():
+        resource.setrlimit(resource.RLIMIT_FSIZE, (limit + 1, limit + 1))
+
+    # Bound child output before reading it into the parent. This CLI is single-threaded.
+    with tempfile.TemporaryFile() as stdout, tempfile.TemporaryFile() as stderr:
+        try:
+            result = subprocess.run(arguments, stdin=subprocess.DEVNULL, stdout=stdout, stderr=stderr,
+                                    timeout=10, preexec_fn=limit_output, check=False)
+        except (OSError, subprocess.SubprocessError) as error:
+            raise AssemblyUnavailable(f"assembler could not run: {error}") from error
+        if result.returncode:
+            stderr.seek(0)
+            detail = stderr.read(512).decode("utf-8", errors="replace").strip()
+            reason = f"assembler exited with status {result.returncode}"
+            raise AssemblyUnavailable(f"{reason}: {detail}" if detail else reason)
+        stdout.seek(0)
+        binary = stdout.read(limit + 1)
+        if len(binary) > limit:
+            raise AssemblyUnavailable("assembler output exceeds the configured byte limit")
+        return binary
+
+
+def spirv_version(binary):
+    if len(binary) < 20 or len(binary) % 4:
+        raise AssemblyUnavailable("assembler returned a truncated or unaligned SPIR-V binary")
+    endian = {b"\x03\x02\x23\x07": "<", b"\x07\x23\x02\x03": ">"}.get(binary[:4])
+    if endian is None:
+        raise AssemblyUnavailable("assembler returned an invalid SPIR-V magic word")
+    _, version, _, bound, schema = struct.unpack_from(endian + "5I", binary)
+    if not 0x00010000 <= version <= 0x00010600 or version & 0xff0000ff or bound == 0 or schema != 0:
+        raise AssemblyUnavailable("assembler returned an unsupported SPIR-V header")
+    return version
+
+
+def map_spirv_assembly(rows, assembler, output):
+    assembly_rows = [row for row in rows if row["format"] == "spirv-assembly"]
+    if not assembly_rows:
+        return
+    if assembler is None:
+        for row in assembly_rows:
+            row["unavailable_reason"] = UNMAPPED_ASSEMBLY
+        return
+    if output is None:
+        raise ValueError("an assembly output directory is required")
+
+    try:
+        tool = assembler.resolve(strict=True)
+        if not tool.is_file() or not os.access(tool, os.X_OK):
+            raise AssemblyUnavailable("configured assembler is not an executable file")
+        tool_hash = sha(bounded_read(tool, MAX_ASSEMBLER_BYTES))
+        version_text = run_assembler([str(tool), "--version"], 4096).decode("utf-8").strip()
+        if not version_text:
+            raise AssemblyUnavailable("assembler did not report a version")
+    except (AssemblyUnavailable, OSError, UnicodeError) as error:
+        for row in assembly_rows:
+            row["unavailable_reason"] = f"SPIR-V assembler unavailable: {error}"
+        return
+
+    if output.is_symlink():
+        raise ValueError("assembly output directory must not be a symlink")
+    output.mkdir(parents=True, exist_ok=True)
+    output = output.resolve()
+    for row in assembly_rows:
+        source = Path(row["path"])
+        arguments = [str(source), "-o", "-"]  # Pinned convert_snapshots_spv invocation.
+        try:
+            if source.is_symlink() or not source.is_file() or sha(bounded_read(source, MAX_ASSEMBLY_BYTES)) != row["sha256"]:
+                raise ValueError("reference bytes drift: " + row["source"])
+            binary = run_assembler([str(tool), *arguments], MAX_ASSEMBLY_BYTES)
+            version = spirv_version(binary)
+        except AssemblyUnavailable as error:
+            row["unavailable_reason"] = f"SPIR-V assembly unavailable: {error}"
+            continue
+        if source.is_symlink() or sha(bounded_read(source, MAX_ASSEMBLY_BYTES)) != row["sha256"]:
+            raise ValueError("reference bytes drift during assembly: " + row["source"])
+        binary_hash = sha(binary)
+        target = output / (binary_hash + ".spv")
+        with tempfile.NamedTemporaryFile(dir=output, delete=False) as stream:
+            temporary = Path(stream.name)
+            try:
+                stream.write(binary)
+                stream.close()
+                temporary.replace(target)
+            finally:
+                temporary.unlink(missing_ok=True)
+        row["stage"] = "module"  # Entry stages come from the binary, not a CLI hint.
+        row["assembly"] = dict(source_sha256=row["sha256"], binary_path=str(target), binary_sha256=binary_hash,
+                               binary_bytes=len(binary), spirv_version=version, assembler_path=str(tool),
+                               assembler_sha256=tool_hash, assembler_version=version_text, assembler_arguments=arguments)
+    if sha(bounded_read(tool, MAX_ASSEMBLER_BYTES)) != tool_hash:
+        raise ValueError("assembler executable drift during corpus assembly")
 
 
 def flags(text, names):
@@ -87,7 +206,7 @@ def pinned_files(reference):
     return blobs
 
 
-def plan(reference):
+def plan(reference, assembler=None, assembly_output=None):
     blobs = pinned_files(reference)
     names = dict((name, int(bit)) for name, bit in re.findall(
         r"const ([A-Z][A-Z0-9_]*) = 1 << (\d+);", re.search(r"pub struct Capabilities: u64 \{(.*?)^    \}", blobs["naga/src/valid/mod.rs"].decode(), re.S | re.M).group(1)))
@@ -108,9 +227,8 @@ def plan(reference):
                    expected_parse="accepted", expected_semantic="accepted" if config["validation"] else "not-run",
                    expectation_source="naga/tests/naga/snapshots.rs:546-643",
                    config_source=config_source if raw else None, config_sha256=sha(raw) if raw else None, **config)
-        if fmt == "spirv-assembly":
-            row["unavailable_reason"] = "SPIR-V assembler/binary provenance not yet mapped; not a pass"
         rows.append(row)
+    map_spirv_assembly(rows, assembler, assembly_output)
     for stem in ["deep-expression", "deep-template"]:
         source = "naga/tests/naga/" + stem + ".wgsl"
         rows.append(dict(source=source,path=str(reference/source),sha256=sha(blobs[source]),format="wgsl",stage="compute",
@@ -137,6 +255,15 @@ def summarize(plan, actual):
                       "stage", "format", "config_source", "config_sha256", "validation"]:
             if field in row and (field not in result or type(result[field]) is not type(row[field]) or result[field] != row[field]):
                 raise ValueError("result configuration mismatch: " + field)
+        if row.get("format") == "spirv-assembly":
+            assembly = row.get("assembly")
+            unavailable = row.get("unavailable_reason")
+            if bool(assembly) == bool(unavailable) or result.get("unavailable_reason") != unavailable:
+                raise ValueError("result assembly availability mismatch")
+            if json.dumps(result.get("assembly"), sort_keys=True) != json.dumps(assembly, sort_keys=True):
+                raise ValueError("result assembly provenance mismatch")
+            if unavailable and (result.get("parse") != "not-run" or result.get("semantic") != "not-run"):
+                raise ValueError("unavailable assembly cannot have a frontend result")
         if result.get("unavailable_reason"):
             outcome = "unsupported"
         elif result.get("parse") != row["expected_parse"]:
@@ -160,8 +287,9 @@ def main():
     parser.add_argument("--reference",type=Path,required=True)
     parser.add_argument("--output",type=Path,required=True)
     parser.add_argument("--actual",type=Path)
+    parser.add_argument("--spirv-as", type=Path, help="opt in using this SPIRV-Tools assembler executable")
     args = parser.parse_args()
-    p = plan(args.reference.resolve())
+    p = plan(args.reference.resolve(), args.spirv_as, args.output.resolve().parent / "spirv-binaries")
     result = summarize(p,json.loads(args.actual.read_text())) if args.actual else p
     args.output.write_text(json.dumps(result,indent=2,allow_nan=False)+"\n")
     print(json.dumps(result.get("counts",dict(inputs=len(result["rows"]))),sort_keys=True))

@@ -17,10 +17,11 @@ func workgroupCompositeByteSize(_ type: IRHandle<IRType>, in module: IRModule) t
 }
 
 func initializeCompositeWorkgroup(
-    _ type: IRHandle<IRType>, reference: String, lane: String, threads: UInt32, module: IRModule,
+    _ type: IRHandle<IRType>, reference: String, indexPrefix: String, lane: String, threads: UInt32, module: IRModule,
     format: ShaderOutputFormat, structures: [IRHandle<IRType>: ShaderStructure], budget: inout ShaderBudget
 ) throws -> [String] {
     var lines: [String] = []
+    var nextIndex = 0
 
     func append(_ line: String, indent: String) throws {
         try budget.consume(.sourceBytes, amount: indent.utf8.count + line.utf8.count + 1)
@@ -28,7 +29,7 @@ func initializeCompositeWorkgroup(
     }
 
     func initialize(
-        _ type: IRHandle<IRType>, at reference: String, indent: String, parallel: Bool, depth: Int
+        _ type: IRHandle<IRType>, at reference: String, indent: String, parallel: Bool
     ) throws {
         try budget.consume(.work)
         try budget.enterDepth()
@@ -36,18 +37,19 @@ func initializeCompositeWorkgroup(
         let kind = try module.types.value(for: type).kind
         switch kind {
         case .array(let element, .constant(let count), _):
-            let index = "saga_init_\(depth)"
+            let index = "\(indexPrefix)_\(nextIndex)"
+            nextIndex += 1
             let start = parallel ? lane : "0u"
             let stride = parallel ? threads : 1
             try append("for (uint \(index) = \(start); \(index) < \(count)u; \(index) += \(stride)u) {", indent: indent)
             let path = format.valueArrayIndex(index)
-            try initialize(element, at: reference + path, indent: indent + "    ", parallel: false, depth: depth + 1)
+            try initialize(element, at: reference + path, indent: indent + "    ", parallel: false)
             try append("}", indent: indent)
         case .structure(let members, _):
             guard let structure = structures[type] else { throw ShaderFailure.invalidHandle }
             for (index, member) in members.enumerated() {
                 try initialize(member.type, at: reference + "." + structure.memberName(index),
-                               indent: indent, parallel: parallel, depth: depth + 1)
+                               indent: indent, parallel: parallel)
             }
         default:
             let store: String
@@ -69,6 +71,6 @@ func initializeCompositeWorkgroup(
         }
     }
 
-    try initialize(type, at: reference, indent: "    ", parallel: true, depth: 0)
+    try initialize(type, at: reference, indent: "    ", parallel: true)
     return lines
 }

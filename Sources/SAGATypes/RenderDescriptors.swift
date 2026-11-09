@@ -293,7 +293,7 @@ public enum TextureFormat: UInt32, Sendable, Hashable {
         case .rg8Unorm, .rg8Snorm, .rg8Uint, .rg8Sint, .r16Float, .r16Uint, .r16Sint, .r16Unorm, .r16Snorm: 2
         case .rgba32Float: 16
         case .rgba8Unorm, .bgra8Unorm, .rg32Float, .rgba16Float, .rgba16Uint, .rgba16Sint, .rgba16Unorm, .rgba16Snorm,
-             .rgb10a2Unorm, .rgb10a2Uint, .rgba8UnormSrgb, .bgra8UnormSrgb, .rgba8Snorm: 8
+             .rgb10a2Unorm, .rgb10a2Uint, .rgba8UnormSrgb, .bgra8UnormSrgb, .rgba8Snorm, .rg11b10Ufloat: 8
         default: 4
         }
     }
@@ -473,7 +473,8 @@ public struct TextureDescriptor: Sendable, Equatable {
             throw GPUError.validation("Texture sample count must be 1 or 4")
         }
         if sampleCount > 1 {
-            guard mipLevelCount == 1, arrayLayerCount == 1, usage.contains(.renderAttachment), !usage.contains(.storageBinding),
+            if arrayLayerCount > 1 { try capabilities.require([.multisampleArray]) }
+            guard mipLevelCount == 1, usage.contains(.renderAttachment), !usage.contains(.storageBinding),
                   format.supportsMultisampledAttachment(in: capabilities) else {
                 throw GPUError.validation("Invalid multisampled texture format, mip levels or usage")
             }
@@ -552,7 +553,8 @@ public struct TextureViewDescriptor: Sendable, Equatable {
         }
         let remaining = texture.arrayLayerCount - baseArrayLayer
         let count = arrayLayerCount ?? (dimension == .d2 ? 1 : dimension == .cube ? 6 : remaining)
-        guard count > 0, count <= remaining, texture.sampleCount == 1 || dimension == .d2 else {
+        let multisampledArray = dimension == .d2Array && texture.arrayLayerCount > 1
+        guard count > 0, count <= remaining, texture.sampleCount == 1 || dimension == .d2 || multisampledArray else {
             throw GPUError.validation("Invalid texture view dimension or array layer count")
         }
         switch dimension {
@@ -885,13 +887,15 @@ public struct RenderDepthAttachment: Sendable, Equatable {
     public let mipLevel: UInt32
     public let loadAction: LoadAction
     public let stencil: RenderStencilAttachmentState?
+    public let storeAction: RenderStoreAction
 
     public init(texture: ResourceID, mipLevel: UInt32 = 0, loadAction: LoadAction = .clear(1),
-                stencil: RenderStencilAttachmentState? = nil) {
+                stencil: RenderStencilAttachmentState? = nil, storeAction: RenderStoreAction = .store) {
         self.texture = texture
         self.mipLevel = mipLevel
         self.loadAction = loadAction
         self.stencil = stencil
+        self.storeAction = storeAction
     }
 }
 
@@ -972,7 +976,7 @@ public struct RenderPipeline: Sendable, Equatable {
     public let id: ResourceID
     /// The shared, word-aligned immediate data range for both shader stages.
     public let immediateByteSize: UInt64
-    public let colorFormat: TextureFormat
+    public let colorFormat: TextureFormat?
     public let writesColor: Bool
     public let colorState: RenderColorState
     public let additionalColorTargets: [UInt32: RenderColorTarget]
@@ -980,7 +984,7 @@ public struct RenderPipeline: Sendable, Equatable {
 
     package var colorTargets: [UInt32: RenderColorTarget] {
         var targets = additionalColorTargets
-        targets[0] = .init(format: colorFormat, colorState: colorState)
+        if let colorFormat { targets[0] = .init(format: colorFormat, colorState: colorState) }
         return targets
     }
 
@@ -992,6 +996,8 @@ public struct RenderPipeline: Sendable, Equatable {
     public let sampleCount: UInt32
     public let sampleMask: UInt32
     public let alphaToCoverageEnabled: Bool
+    /// Selected layers relative to the render attachment views. A nil mask selects ordinary rendering.
+    public let multiviewMask: UInt32?
     public let primitive: RenderPrimitiveState
     public let vertexBuffers: [VertexBufferLayout]
     package let uniforms: [Uniform]
@@ -1006,7 +1012,7 @@ public struct RenderPipeline: Sendable, Equatable {
         Set(samplerBindings.filter { $0.requirement.requiresNonFiltering }.map { $0.handle.slot })
     }
 
-    package init(id: ResourceID, colorFormat: TextureFormat, vertexBuffers: [VertexBufferLayout] = [],
+    package init(id: ResourceID, colorFormat: TextureFormat?, vertexBuffers: [VertexBufferLayout] = [],
                  depthState: RenderDepthState? = nil, sampleCount: UInt32 = 1, sampleMask: UInt32 = .max,
                  alphaToCoverageEnabled: Bool = false, writesColor: Bool = true,
                  primitive: RenderPrimitiveState = .init(), colorState: RenderColorState = .init(),
@@ -1014,7 +1020,8 @@ public struct RenderPipeline: Sendable, Equatable {
                  uniforms: [Uniform] = [], storageBuffers: [StorageBufferBinding] = [], sampledTextures: [SampledTextureBinding] = [],
                  storageTextures: [StorageTextureBinding] = [], samplerBindings: [SamplerBinding] = [],
                  externalTextureBindings: [HandleBinding] = [],
-                 webBindingIndices: [ComputeBindingSlot: UInt32] = [:], immediateByteSize: UInt64 = 0) {
+                 webBindingIndices: [ComputeBindingSlot: UInt32] = [:], immediateByteSize: UInt64 = 0,
+                 multiviewMask: UInt32? = nil) {
         self.id = id
         self.immediateByteSize = immediateByteSize
         self.colorFormat = colorFormat
@@ -1026,6 +1033,7 @@ public struct RenderPipeline: Sendable, Equatable {
         self.sampleCount = sampleCount
         self.sampleMask = sampleMask
         self.alphaToCoverageEnabled = alphaToCoverageEnabled
+        self.multiviewMask = multiviewMask
         self.primitive = primitive
         self.vertexBuffers = vertexBuffers
         self.uniforms = uniforms

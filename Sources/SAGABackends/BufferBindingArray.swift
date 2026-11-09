@@ -43,7 +43,8 @@ struct BufferArrayAddress {
             glslReference = reference + rootSuffix
         }
         return .init(name: reference, type: buffer.type, runtimeLength: length, space: buffer.space,
-                     glslReference: glslReference)
+                     glslReference: glslReference, wrappedArrays: buffer.wrappedArrays,
+                     metalMemoryQualifier: buffer.metalMemoryQualifier)
     }
 }
 
@@ -56,11 +57,11 @@ struct BufferBindingArray {
     let minimumByteSize: UInt64
     let runtimeStride: UInt32?
     let runtimeOffset: UInt32
-    let usesGLSLHalfStorage: Bool
+    let usesGLSL16BitStorage: Bool
 
     init(
         global: IRGlobalVariable, index: Int, flat: UInt32, module: IRModule, format: ShaderOutputFormat, count: UInt32,
-        runtimeSlot: Int? = nil, metalLengths: ShaderParameter? = nil, webBindingBase: UInt32?, coherent: Bool = false,
+        runtimeSlot: Int? = nil, metalLengths: ShaderParameter? = nil, webBindingBase: UInt32?, memoryQualifier: String = "",
         budget: inout ShaderBudget
     ) throws {
         guard let binding = global.binding,
@@ -76,7 +77,7 @@ struct BufferBindingArray {
         guard !uniform || root.size <= 65_536 else { throw ShaderFailure.unsupported("Uniform buffer exceeds 64 KiB") }
         let tail = try NestedStorageBinding.runtimeTail(element, module: module)
         let glslBlock = try uniform ? nil : types.glslStorageBlock(element, tailMember: tail?.member, budget: &budget)
-        usesGLSLHalfStorage = glslBlock?.usesHalfStorage == true
+        usesGLSL16BitStorage = glslBlock?.uses16BitStorage == true
         let register = hlslBindingArrayRegisterBase(binding)
         let address: BufferArrayAddress.Target
         var declarations = types.declarations
@@ -85,7 +86,7 @@ struct BufferBindingArray {
 
         switch format {
         case .msl:
-            let pointer = uniform ? "constant uint*" : writable ? "device uint*" : "device const uint*"
+            let pointer = memoryQualifier + (uniform ? "constant uint*" : writable ? "device uint*" : "device const uint*")
             for offset in 0..<count {
                 let elementName = "\(name)_\(offset)"
                 parameters.append("\(pointer) \(elementName) [[buffer(\(flat + offset))]]")
@@ -109,7 +110,7 @@ struct BufferBindingArray {
             } else {
                 let type = writable ? "RWByteAddressBuffer" : "ByteAddressBuffer"
                 let space = writable ? "u" : "t"
-                declarations.append("\(type) \(name)[\(count)] : register(\(space)\(register), space\(binding.group));")
+                declarations.append("\(memoryQualifier)\(type) \(name)[\(count)] : register(\(space)\(register), space\(binding.group));")
             }
             let lengthFunction = tail.map { tail in
                 let helper = "saga_length_\(index)"
@@ -123,10 +124,10 @@ struct BufferBindingArray {
             let space = uniform ? "uniform" : writable ? "storage, read_write" : "storage, read"
             if let webBindingBase {
                 declarations += (0..<count).map {
-                    "@group(\(binding.group)) @binding(\(webBindingBase + $0)) var<\(space)> \(name)_\($0): \(root.name);"
+                    "@group(\(binding.group)) @binding(\(webBindingBase + $0)) \(memoryQualifier)var<\(space)> \(name)_\($0): \(root.name);"
                 }
             } else {
-                declarations.append("@group(\(binding.group)) @binding(\(binding.binding)) var<\(space)> \(name): binding_array<\(root.name), \(count)>;")
+                declarations.append("@group(\(binding.group)) @binding(\(binding.binding)) \(memoryQualifier)var<\(space)> \(name): binding_array<\(root.name), \(count)>;")
             }
             address = .wgsl(tailMember: tail?.member, split: webBindingBase != nil)
         case .glsl:
@@ -136,7 +137,7 @@ struct BufferBindingArray {
                     "layout(std140, binding = \(flat + $0)) uniform SagaUniformArray\(index)_\($0) { uvec4 words[\(registers)]; } \(name)_\($0);"
                 }
             } else {
-                let qualifier = writable ? (coherent ? "coherent buffer" : "buffer") : "readonly buffer"
+                let qualifier = memoryQualifier + (writable ? "buffer" : "readonly buffer")
                 let members = glslBlock?.members ?? "uint words[];"
                 declarations += (0..<count).map {
                     "layout(std430, binding = \(flat + $0)) \(qualifier) SagaStorageArray\(index)_\($0) { \(members) } \(name)_\($0);"
@@ -160,6 +161,8 @@ struct BufferBindingArray {
         let bufferArray = BufferArrayAddress(count: count, target: address)
         storage = .init(reference: name, writable: writable,
                         nested: .init(name: name, type: element, runtimeLength: nil, space: global.space,
-                                      bindingArray: bufferArray), splitBindingArray: bufferArray.splitsArray)
+                                      wrappedArrays: format == .wgsl || glslBlock != nil ? types.paddedArrays : [],
+                                      bindingArray: bufferArray, metalMemoryQualifier: format == .msl ? memoryQualifier : ""),
+                        splitBindingArray: bufferArray.splitsArray)
     }
 }

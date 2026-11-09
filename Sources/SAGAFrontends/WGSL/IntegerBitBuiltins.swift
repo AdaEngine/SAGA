@@ -54,6 +54,8 @@ extension WGSLParser {
       }
       let leaf: WGSLConstKind
       switch scalar {
+      case .i16: leaf = .integer(.sint16)
+      case .u16: leaf = .integer(.uint16)
       case .i32: leaf = .integer(.sint)
       case .u32: leaf = .integer(.uint)
       case .i64: leaf = .integer(.sint64)
@@ -142,9 +144,7 @@ extension WGSLScalarEvaluator {
       result = (bits & ~mask) | ((inserted.bits << offset) & mask)
     default: throw ShaderFailure.invalidHandle
     }
-    let narrow = UInt32(truncatingIfNeeded: result)
-    let number = value.kind.isWide ? Int64(bitPattern: result) :
-      value.kind == .sint ? Int64(Int32(bitPattern: narrow)) : Int64(narrow)
+    let number = value.kind.truncating(Int64(bitPattern: result))
     return .integer(.init(value: number, kind: value.kind))
   }
 }

@@ -72,8 +72,8 @@ extension WGSLParser {
     let root = try lowerPipelineScalar(expression, annotation: nil, at: token)
     let value = globalExpressions[root.index]
     let kind = types[value.type.index].kind
-    guard kind == .scalar(.i32) || kind == .scalar(.u32) else {
-      throw wgslError(.typeMismatch, "Array override count must be i32 or u32", token)
+    guard dimensionIntegerKind(kind) != nil else {
+      throw wgslError(.typeMismatch, "Array override count must be a 16- or 32-bit integer", token)
     }
     if expression.count == 1, case .override(let named) = value.kind { return named }
 
@@ -188,21 +188,28 @@ extension WGSLParser {
     for tokens in attribute.expressions {
       if try containsOverrideReference(tokens) {
         let root = try lowerPipelineScalar(tokens, annotation: nil, at: tokens[0])
-        let kind = types[globalExpressions[root.index].type.index].kind
-        guard kind == .scalar(.i32) || kind == .scalar(.u32) else {
-          throw wgslError(.typeMismatch, "Workgroup override must be i32 or u32", tokens[0])
+        let type = types[globalExpressions[root.index].type.index].kind
+        guard let kind = dimensionIntegerKind(type) else {
+          throw wgslError(.typeMismatch, "Workgroup override must be a 16- or 32-bit integer", tokens[0])
         }
-        let value = WGSLIntegerConstant(value: 1, kind: kind == .scalar(.i32) ? .sint : .uint)
+        let value = WGSLIntegerConstant(value: 1, kind: kind)
         dimensions.append((value, root))
       } else {
         dimensions.append((try integerConstant(tokens, at: attribute.name), nil))
       }
     }
-    let concrete = Set(dimensions.map(\.value.kind).filter { $0 != .abstract }.map { $0 == .sint ? "i32" : "u32" })
-    guard concrete.count <= 1 else {
-      throw wgslError(.typeMismatch, "Workgroup dimensions must share i32/u32 type", attribute.name)
+    let concreteSignedness = Set(dimensions.map(\.value.kind).filter { $0 != .abstract }.map(\.isUnsigned))
+    // Naga lowers each mixed-sign dimension independently for native translation.
+    if !options.allowMixedWorkgroupDimensionTypes {
+      guard concreteSignedness.count <= 1 else {
+        throw wgslError(.typeMismatch, "Workgroup dimensions must share i32/u32 type", attribute.name)
+      }
+      let overrideKinds = Set(dimensions.compactMap { $0.expression == nil ? nil : $0.value.kind })
+      guard overrideKinds.count <= 1 else {
+        throw wgslError(.typeMismatch, "Workgroup override types disagree", attribute.name)
+      }
     }
-    let context: WGSLIntegerConstant.Kind = concrete.first == "u32" ? .uint : .sint
+    let context: WGSLIntegerConstant.Kind = concreteSignedness == [true] ? .uint : .sint
     let evaluator = WGSLIntegerEvaluator(parser: self, tokens: [], fallback: attribute.name)
     var fixed = [UInt32](repeating: 1, count: 3)
     var expressions = [WExpr?](repeating: nil, count: 3)
@@ -218,5 +225,15 @@ extension WGSLParser {
     let deferred = expressions.contains { $0 != nil }
       ? IRWorkgroupOverrides(x: expressions[0], y: expressions[1], z: expressions[2]) : nil
     return (size, deferred)
+  }
+
+  private func dimensionIntegerKind(_ type: IRTypeKind) -> WGSLIntegerConstant.Kind? {
+    switch type {
+    case .scalar(.i16): .sint16
+    case .scalar(.u16): .uint16
+    case .scalar(.i32): .sint
+    case .scalar(.u32): .uint
+    default: nil
+    }
   }
 }

@@ -11,13 +11,19 @@ func integerBitStatements(
         return ["let \(name) = \(function.rawValue)(\(arguments.joined(separator: ", ")));"]
     }
     let signed = scalar.kind == .sint
+    let narrow = scalar.width == 2
     let wide = scalar.width == 8
     func unsignedBits(_ operand: String) throws -> String {
+        if narrow {
+            let word = try shaderVectorType(width ?? 1, scalar: .u32, in: format)
+            return "\(word)(\(try integer16Bits(operand, signed: false, width: width ?? 1, in: format)))"
+        }
         guard signed else { return operand }
         if wide { return try wideIntegerBits(operand, signed: false, width: width ?? 1, in: format) }
         return integerBits(operand, signed: false, width: width, in: format)
     }
     func resultBits(_ operand: String) throws -> String {
+        if narrow { return try integer16Bits(operand, signed: signed, width: width ?? 1, in: format) }
         guard signed else { return operand }
         if wide { return try wideIntegerBits(operand, signed: true, width: width ?? 1, in: format) }
         return integerBits(operand, signed: true, width: width, in: format)
@@ -25,6 +31,23 @@ func integerBitStatements(
     let value = arguments[0]
     let bits = try unsignedBits(value)
     if arity == 1 {
+        if narrow {
+            let signedSearch = signed && function == .firstLeadingBit
+            let wordScalar: IRScalar = signedSearch ? .i32 : .u32
+            let word = try shaderVectorType(width ?? 1, scalar: wordScalar, in: format)
+            let widened = signedSearch ? "\(word)(\(value))" : bits
+            let wordResult = "\(name)_word"
+            var statements = try integerBitStatements(function, arguments: [widened], type: word, scalar: wordScalar,
+                                                       width: width, named: wordResult, format: format)
+            let adjusted: String = switch function {
+            case .countLeadingZeros: "\(wordResult) - 16u"
+            case .countTrailingZeros: "min(\(wordResult), \(word)(16u))"
+            case .reverseBits: "\(wordResult) >> 16u"
+            default: wordResult
+            }
+            statements.append("\(type) \(name) = \(try resultBits(adjusted));")
+            return statements
+        }
         if wide {
             return try wideIntegerBitUnary(function, bits: bits, type: type, signed: signed, width: width,
                                            named: name, format: format)
@@ -66,7 +89,7 @@ func integerBitStatements(
     let maskType = wide ? unsigned64Type(in: format) : "uint"
     let zero = wide ? unsigned64Literal(0, in: format) : "0u"
     let one = wide ? unsigned64Literal(1, in: format) : "1u"
-    let allBits = wide ? unsigned64Literal(.max, in: format) : "0xffffffffu"
+    let allBits = wide ? unsigned64Literal(.max, in: format) : narrow ? "0xffffu" : "0xffffffffu"
     // Clamp the requested range and keep every shift defined, including empty and full-width fields.
     var statements = [
         "uint \(offset) = min(\(arguments[arity - 2]), \(bitWidth)u);",
@@ -85,8 +108,11 @@ func integerBitStatements(
             expression = extracted
         }
     } else {
-        let inserted = try unsignedBits(arguments[1])
-        expression = "(((\(bits)) & ~(\(mask) << \(shift))) | (((\(inserted)) & \(mask)) << \(shift)))"
+        let word = try shaderVectorType(width ?? 1, scalar: wide ? .u64 : .u32, in: format)
+        let base = "\(name)_base", inserted = "\(name)_inserted"
+        statements.append("\(word) \(base) = \(bits);")
+        statements.append("\(word) \(inserted) = \(try unsignedBits(arguments[1]));")
+        expression = "((\(base) & ~(\(mask) << \(shift))) | ((\(inserted) & \(mask)) << \(shift)))"
     }
     statements.append("\(type) \(name) = \(try resultBits(expression));")
     return statements

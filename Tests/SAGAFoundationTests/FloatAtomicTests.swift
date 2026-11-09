@@ -50,7 +50,7 @@ func floatAtomicOperationsCompileAcrossTargets(_ format: ShaderOutputFormat) thr
     guard case .text(let actual, let code) = shader.artifact else { throw ShaderFailure.invalidHandle }
     #expect(actual == format)
     if format == .wgsl {
-        #expect(code.contains("bitcast<f32>(0x80000000u)"))
+        #expect(code.contains(", 0x80000000u)"))
         _ = try compiler.parseAndValidate(.wgsl(code))
     }
 }

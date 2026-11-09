@@ -216,6 +216,8 @@ extension WGSLParser {
           k = .atomic(pointer: try ex(p), function: mapped, value: try ex(v), result: try optional(r))
         case .call(let t, let xs, let r):
           k = .call(function: t, arguments: try xs.map(ex), result: try optional(r))
+        case .debugPrintf(let format, let arguments):
+          k = .debugPrintf(format: format, arguments: try arguments.map(ex))
         default: throw ShaderFailure.unsupported("WGSL statement remapping family not implemented")
         }
         return IRStatement(kind: k, location: s.location)
@@ -241,6 +243,17 @@ extension WGSLParser {
     predeclaredTypes = try predeclaredTypes.compactMap {
       guard !abstractStructures.contains($0.type.index) else { return nil }
       return .init(kind: $0.kind, type: try ty($0.type))
+    }
+    for index in documentation.indices {
+      try budget.consume(.work)
+      let record = documentation[index]
+      let target: IRDocumentationTarget
+      switch record.target {
+      case .type(let handle): target = .type(try ty(handle))
+      case .member(let handle, let member): target = .member(type: try ty(handle), index: member)
+      default: continue
+      }
+      documentation[index] = .init(target: target, lines: record.lines)
     }
     types = keptTypes
   }

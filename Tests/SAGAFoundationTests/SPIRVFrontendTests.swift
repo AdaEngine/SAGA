@@ -31,6 +31,22 @@ import SAGAFrontends
         #expect(m.functions.count == 1)
         #expect(try parse(Self.compute.map(\.byteSwapped)) == m)
     }
+    @Test func spirvRepeatedDebugNamesKeepTheLastName() throws {
+        let instructions = [
+            Self.i(15, 5, 10, 0x6e69616d, 0), Self.i(16, 10, 17, 1, 1, 1),
+            Self.i(5, 10, 0x00646c6f), Self.i(5, 10, 0x0077656e), // old, new
+            Self.i(6, 4, 0, 0x00646c6f), Self.i(6, 4, 0, 0x0077656e),
+            Self.i(19, 1), Self.i(33, 2, 1), Self.i(21, 3, 32, 0), Self.i(30, 4, 3),
+            Self.i(54, 1, 10, 0, 2), Self.i(248, 11), Self.i(253), Self.i(56),
+        ]
+        let words = Self.pre + instructions.flatMap { $0 }
+        let module = try parse(words)
+        #expect(module.functions.values.contains { $0.name == "new" })
+        #expect(module.types.values.contains {
+            if case .structure(let members, _) = $0.kind { return members.first?.name == "new" }
+            return false
+        })
+    }
     @Test func actualArithmeticAndPrivateStore() throws {
         let w = Self.pre + Self.i(19,1) + Self.i(21,2,32,0) + Self.i(32,3,6,2)
           + Self.i(43,2,4,7) + Self.i(43,2,5,9) + Self.i(59,3,6,6) + Self.i(33,7,1)

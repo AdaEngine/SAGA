@@ -52,7 +52,7 @@ func emitsNarrowFragmentColorOutputs(format: ShaderOutputFormat) throws {
         try RenderPipeline(id: id, colorFormat: .rg32Float, vertexBuffers: [],
                            additionalColorTargets: targets, vertex: vertex, fragment: fragment)
     }
-    #expect(throws: GPUError.validation("Color attachments exceed the portable bytes-per-sample limit")) {
+    #expect(throws: GPUError.validation("Color attachments exceed the device bytes-per-sample limit")) {
         try RenderPipeline(id: id, colorFormat: .r32Float, vertexBuffers: [],
                            additionalColorTargets: [1: .init(format: .rgba32Float), 2: .init(format: .rgba32Float)],
                            vertex: vertex, fragment: fragment)

@@ -54,10 +54,17 @@ private let int64AtomicAllOpsSource = """
     }
     """
 
-@Test(arguments: [ShaderOutputFormat.wgsl, .hlsl, .glsl])
-func bufferInt64AtomicAllOpsCompilesStorageAndWorkgroup(format: ShaderOutputFormat) throws {
+@Test(arguments: [ShaderOutputFormat.wgsl, .hlsl, .glsl], [false, true])
+func bufferInt64AtomicAllOpsCompilesStorageAndWorkgroup(format: ShaderOutputFormat, roundTrip: Bool) throws {
     let compiler = IndependentShaderCompiler()
-    let shader = try compiler.compileCompute(.wgsl(int64AtomicAllOpsSource), to: format)
+    var input = ShaderInput.wgsl(int64AtomicAllOpsSource)
+    if roundTrip {
+        guard case .spirv(let words) = try compiler.compile(input, to: .spirv) else {
+            throw ShaderFailure.incompatibleArtifact
+        }
+        input = .spirv(words)
+    }
+    let shader = try compiler.compileCompute(input, to: format)
     #expect(shader.workgroupStorageByteSize == 48)
     #expect(shader.requiresShaderInt64AtomicAllOps)
     #expect(!shader.requiresShaderInt64AtomicMinMax)

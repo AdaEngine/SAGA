@@ -36,10 +36,49 @@ private let primitiveIndexShader = """
     }
     """
 
-@Test(arguments: [ShaderOutputFormat.wgsl, .msl, .hlsl, .glsl])
-func primitiveIndexLowersFragmentBuiltinInDirectAndStructuredInputs(format: ShaderOutputFormat) throws {
+private func primitiveIndexBinary(_ compiler: IndependentShaderCompiler) throws -> [UInt32] {
+    guard case .spirv(let words) = try compiler.compile(.wgsl(primitiveIndexShader), to: .spirv) else {
+        throw ShaderFailure.incompatibleArtifact
+    }
+    return words
+}
+
+@Test func primitiveIndexExportsSPIRVFragmentInputs() throws {
+    let words = try primitiveIndexBinary(IndependentShaderCompiler())
+    var capabilities: Set<UInt32> = []
+    var indices: Set<UInt32> = []
+    var flat: Set<UInt32> = []
+    var interfaces: [Set<UInt32>] = []
+    var offset = 5
+    while offset < words.count {
+        let count = Int(words[offset] >> 16)
+        try #require(count > 0 && count <= words.count - offset)
+        switch words[offset] & 0xffff {
+        case 15 where count >= 4 && words[offset + 1] == 4:
+            let bytes = words[(offset + 3)..<(offset + count)].flatMap { word in
+                (0..<4).map { UInt8(truncatingIfNeeded: word >> ($0 * 8)) }
+            }
+            let length = bytes.prefix { $0 != 0 }.count
+            let interface = offset + 3 + (length + 4) / 4
+            try #require(interface <= offset + count)
+            interfaces.append(Set(words[interface..<(offset + count)]))
+        case 17 where count == 2: capabilities.insert(words[offset + 1])
+        case 71 where count == 4 && words[offset + 2] == 11 && words[offset + 3] == 7:
+            indices.insert(words[offset + 1])
+        case 71 where count == 3 && words[offset + 2] == 14: flat.insert(words[offset + 1])
+        default: break
+        }
+        offset += count
+    }
+    #expect(capabilities.contains(2)) // Geometry permits the PrimitiveId builtin in fragments.
+    #expect(indices.count == 2 && indices.isSubset(of: flat))
+    #expect(interfaces.count == 2 && interfaces.allSatisfy { $0.intersection(indices).count == 1 })
+}
+
+@Test(arguments: [ShaderOutputFormat.wgsl, .msl, .hlsl, .glsl], [false, true])
+func primitiveIndexLowersFragmentBuiltinInDirectAndStructuredInputs(format: ShaderOutputFormat, roundTrip: Bool) throws {
     let compiler = IndependentShaderCompiler()
-    let input = ShaderInput.wgsl(primitiveIndexShader)
+    let input = try roundTrip ? ShaderInput.spirv(primitiveIndexBinary(compiler)) : .wgsl(primitiveIndexShader)
     let vertex = try compiler.compileRenderStage(input, entryPoint: "vs", to: format)
     #expect(!vertex.readsPrimitiveIndex)
     for name in ["fs", "fs_direct"] {
@@ -97,6 +136,8 @@ func primitiveIndexRejectsInvalidStageDirectionTypeAndDuplicates(source: String)
         await device.close()
         return
     }
+    let limit = Int(device.capabilities.maxInterStageShaderVariables)
+    let highest = limit - 1
     let compiler = IndependentShaderCompiler()
     func stages(_ locations: [Int]) throws -> (RenderStageArtifact, RenderStageArtifact) {
         let varyings = locations.map { "@location(\($0)) value_\($0): f32," }.joined(separator: "\n")
@@ -107,25 +148,26 @@ func primitiveIndexRejectsInvalidStageDirectionTypeAndDuplicates(source: String)
             @vertex fn vs() -> VertexOutput { return VertexOutput(); }
             @fragment fn fs(values: Varyings, @builtin(primitive_index) index: u32,
                             @builtin(front_facing) front: bool) -> @location(0) vec4f {
-                return vec4f(select(values.value_15, f32(index), front));
+                return vec4f(select(values.value_\(highest), f32(index), front));
             }
             """)
         return (try compiler.compileRenderStage(source, entryPoint: "vs", to: .msl),
                 try compiler.compileRenderStage(source, entryPoint: "fs", to: .msl))
     }
-    let (validVertex, validFragment) = try stages(Array(0..<13) + [15])
+    let (validVertex, validFragment) = try stages(Array(0..<(limit - 3)) + [highest])
     _ = try await device.createRenderPipeline(vertex: validVertex, fragment: validFragment, colorFormat: .rgba8Unorm)
-    let (invalidVertex, invalidFragment) = try stages(Array(0..<14) + [15])
+    let (invalidVertex, invalidFragment) = try stages(Array(0..<(limit - 2)) + [highest])
     await #expect(throws: GPUError.validation("Fragment inputs exceed the inter-stage limit")) {
         try await device.createRenderPipeline(vertex: invalidVertex, fragment: invalidFragment, colorFormat: .rgba8Unorm)
     }
     await device.close()
 }
 
-@Test func primitiveIndicesResetPerInstanceAndIgnoreStripRestartOnMetal() async throws {
+@Test(arguments: [false, true])
+func primitiveIndicesResetPerInstanceAndIgnoreStripRestartOnMetal(_ roundTrip: Bool) async throws {
     let device = try await Device.make(backend: MetalBackend.makeDevice())
     let compiler = IndependentShaderCompiler()
-    let source = ShaderInput.wgsl(primitiveIndexShader)
+    let source = try roundTrip ? ShaderInput.spirv(primitiveIndexBinary(compiler)) : .wgsl(primitiveIndexShader)
     let vertex = try compiler.compileRenderStage(source, entryPoint: "vs", to: .msl)
     let fragment = try compiler.compileRenderStage(source, entryPoint: "fs", to: .msl)
     let layout = VertexBufferLayout(stride: 8, attributes: [.init(location: 0, offset: 0, format: .float32x2)])

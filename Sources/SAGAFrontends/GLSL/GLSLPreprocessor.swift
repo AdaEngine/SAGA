@@ -6,7 +6,13 @@ struct GLSLMacro {
 }
 struct GLSLPreprocessor {
     static let barycentricExtension = "GL_EXT_fragment_shader_barycentric"
+    static let multiviewExtension = "GL_EXT_multiview"
+    private static let float16Extensions: Set<String> = [
+        "GL_AMD_gpu_shader_half_float", "GL_EXT_shader_explicit_arithmetic_types_float16",
+    ]
     private var barycentricsEnabled = false
+    private var multiviewEnabled = false
+    private var enabledFloat16Extensions: Set<String> = []
     var macros:[String:GLSLMacro]=[:]
     var version=0
     var nesting=0
@@ -59,8 +65,12 @@ struct GLSLPreprocessor {
                             version=v
                             let value=GLSLToken(text:String(v),start:anchor.start,end:anchor.end)
                             macros["__VERSION__"] = .init(parameters:nil,replacement:[value])
+                            let supported = GLSLToken(text: "1", start: anchor.start, end: anchor.end)
+                            macros[Self.multiviewExtension] = .init(parameters: nil, replacement: [supported])
+                            for name in Self.float16Extensions {
+                                macros[name] = .init(parameters: nil, replacement: [supported])
+                            }
                             if v >= 450 {
-                                let supported = GLSLToken(text: "1", start: anchor.start, end: anchor.end)
                                 macros[Self.barycentricExtension] = .init(parameters: nil, replacement: [supported])
                             }
                         case "define":
@@ -89,20 +99,29 @@ struct GLSLPreprocessor {
                             guard args.count == 3, args[1].text == ":" else {
                                 throw glslError(anchor, .unexpectedToken, "Expected extension name : behavior")
                             }
-                            guard version >= 450, args[0].text == Self.barycentricExtension,
-                                  ["require", "enable", "warn", "disable"].contains(args[2].text) else {
+                            guard version != 0, ["require", "enable", "warn", "disable"].contains(args[2].text) else {
                                 throw glslError(anchor, .unsupportedConstruct, "Unsupported GLSL extension or behavior")
                             }
-                            barycentricsEnabled = args[2].text != "disable"
+                            let enabled = args[2].text != "disable"
+                            switch args[0].text {
+                            case Self.barycentricExtension where version >= 450: barycentricsEnabled = enabled
+                            case Self.multiviewExtension: multiviewEnabled = enabled
+                            case let name where Self.float16Extensions.contains(name):
+                                if enabled { enabledFloat16Extensions.insert(name) }
+                                else { enabledFloat16Extensions.remove(name) }
+                            default: throw glslError(anchor, .unsupportedConstruct, "Unsupported GLSL extension or behavior")
+                            }
                         default: throw glslError(anchor,.unsupportedConstruct,"Unsupported directive: \(directive)")
                         }
                     }
                 }
                 sawAnything=true
             } else if active {
-                guard version != 0 else { throw glslError(line[0],.unexpectedToken,"Missing version directive") }
+                // Naga's Vulkan-oriented frontend also accepts sources with no version directive.
                 for var token in try expand(line, disabled: [], budget: &budget) {
                     if token.barycentricPerspective != nil { token.barycentricsEnabled = barycentricsEnabled }
+                    if token.isViewIndex { token.multiviewEnabled = multiviewEnabled }
+                    token.float16Enabled = !enabledFloat16Extensions.isEmpty
                     output.append(token)
                 }
                 sawAnything=true
@@ -110,7 +129,6 @@ struct GLSLPreprocessor {
             line=[]
         }
         guard stack.isEmpty else { throw glslError(tokens.last ?? .init(text:"",start:0,end:0),.unexpectedToken,"Unterminated conditional") }
-        guard version != 0 else { throw ShaderFailure.unsupported("Missing GLSL version") }
         return output
     }
     mutating func expand(_ tokens:[GLSLToken], disabled:Set<String>, budget:inout ShaderBudget) throws -> [GLSLToken] {

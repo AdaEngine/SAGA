@@ -12,8 +12,9 @@ public struct WGSLFrontend: BoundedShaderFrontend {
     }
     public func parse(_ input: ShaderInput, budget: inout ShaderBudget) throws -> IRModule {
         guard case .wgsl(let source) = input else { throw ShaderFailure.unsupported("WGSL input required") }
-        let (tokens, scanned) = try WGSLScanner(source: source, budget: budget, docComments: options.parseDocComments).scan()
-        let parser = WGSLParser(tokens: tokens, budget: scanned, options: options)
+        let (tokens, sourceDocumentation, scanned) = try WGSLScanner(source: source, budget: budget,
+                                                                    docComments: options.parseDocComments).scan()
+        let parser = WGSLParser(tokens: tokens, budget: scanned, options: options, sourceDocumentation: sourceDocumentation)
         defer { budget = parser.budget }
         return try parser.module()
     }
@@ -85,8 +86,12 @@ final class WGSLParser {
     var entries: [IREntryPoint] = []
     var diagnosticFilters: [IRDiagnosticFilter] = []
     var float16Enabled = false
+    var int16Enabled = false
     var clipDistancesEnabled = false
     var primitiveIndexEnabled = false
+    var debugPrintfEnabled = false
+    var drawIndexEnabled = false
+    var perVertexEnabled = false
     var subgroupsEnabled = false
     var subgroupIDEnabled = false
     var requiresSubgroupUniformity = false
@@ -114,8 +119,12 @@ final class WGSLParser {
     var mustUseFunctions: Set<Int> = []
     var body = WGSLFunctionBody()
     var pipelineExpressionEnd: Int?
-    init(tokens: [WGSLToken], budget: ShaderBudget, options: WGSLFrontendOptions) {
+    let sourceDocumentation: WGSLSourceDocumentation
+    var documentation: [IRDocumentation] = []
+    init(tokens: [WGSLToken], budget: ShaderBudget, options: WGSLFrontendOptions,
+         sourceDocumentation: WGSLSourceDocumentation = .init()) {
         self.tokens = tokens; self.budget = budget; self.options = options
+        self.sourceDocumentation = sourceDocumentation
     }
     var token: WGSLToken { tokens[cursor] }
     func take() throws -> WGSLToken {
@@ -169,6 +178,7 @@ final class WGSLParser {
         let h = try WType(index:types.count); types.append(IRType(name:name,kind:kind,location:t?.location)); return h
     }
     func module() throws -> IRModule {
+        try recordDocumentation(sourceDocumentation.module, for: .module)
         try parseModuleDirectives()
         try indexModuleDeclarations()
         for i in declarations.indices {
@@ -180,8 +190,14 @@ final class WGSLParser {
                         globalVariables:IRTable(globals),globalExpressions:IRTable(globalExpressions),
                         functions:IRTable(functions),entryPoints:entries,
                         diagnosticFilters:IRTable(diagnosticFilters),diagnosticFilter:moduleDiagnosticFilter,
+                        documentation:documentation,
                         allowsPointerSubviews: allowsPointerSubviews, uniformBufferStandardLayout: uniformBufferStandardLayout,
                         requiresSubgroupUniformity: requiresSubgroupUniformity)
+    }
+    func recordDocumentation(_ lines: [String], for target: IRDocumentationTarget) throws {
+        guard !lines.isEmpty else { return }
+        try node()
+        documentation.append(.init(target: target, lines: lines))
     }
     struct Attribute {
         let name: WGSLToken
@@ -191,11 +207,11 @@ final class WGSLParser {
     func attributes() throws -> [String: Attribute] {
         var out: [String: Attribute] = [:]
         while try eat("@") {
-            let n = try isNext("diagnostic") ? take() : ident()
+            let n = try isNext("diagnostic") || isNext("volatile") ? take() : ident()
             let key = n.text == "diagnostic" ? "diagnostic@\(n.start)" : n.text
             guard out[key] == nil else { throw wgslError(.duplicateName,"Duplicate attribute",n) }
             let hasParentheses = try eat("(")
-            if hasParentheses && (n.text == "invariant" || n.text == "must_use") {
+            if hasParentheses && ["invariant", "must_use", "coherent", "volatile"].contains(n.text) {
                 throw wgslError(.unexpectedToken, "@\(n.text) does not take parentheses", n)
             }
             let expressions: [[WGSLToken]]
@@ -273,8 +289,19 @@ final class WGSLParser {
             }
             let words = attribute.arguments
             guard (1...2).contains(words.count), attribute.expressions.count == words.count,
-                  attribute.expressions.allSatisfy({ $0.count == 1 && $0[0].kind == .word }),
-                  let interpolation = IRInterpolation(rawValue: words[0].text), interpolation != .perVertex else {
+                  attribute.expressions.allSatisfy({ $0.count == 1 && $0[0].kind == .word }) else {
+                throw wgslError(.invalidBinding,"Invalid interpolation type",attribute.name)
+            }
+            if words[0].text == "per_vertex" {
+                guard perVertexEnabled else {
+                    throw wgslError(.unsupportedCapability, "per_vertex requires enable wgpu_per_vertex", words[0])
+                }
+                guard words.count == 1 || words[1].text == "center" else {
+                    throw wgslError(.invalidBinding, "per_vertex only allows center sampling", words[1])
+                }
+                return .location(index:index,interpolation:.perVertex,sampling:nil,blendSource:blendSource,perPrimitive:false)
+            }
+            guard let interpolation = IRInterpolation(rawValue: words[0].text), interpolation != .perVertex else {
                 throw wgslError(.invalidBinding,"Invalid interpolation type",attribute.name)
             }
             let sampling = words.count == 2 ? IRSampling(rawValue: words[1].text) :
@@ -300,6 +327,12 @@ final class WGSLParser {
             case "num_workgroups": builtin = .numWorkgroups
             case "vertex_index": builtin = .vertexIndex
             case "instance_index": builtin = .instanceIndex
+            case "draw_index":
+                guard drawIndexEnabled else {
+                    throw wgslError(.unsupportedCapability, "draw_index requires enable draw_index", t)
+                }
+                builtin = .drawIndex
+            case "view_index": builtin = .viewIndex
             case "position": builtin = .position(invariant: invariant != nil)
             case "clip_distances":
                 guard clipDistancesEnabled else {
@@ -324,7 +357,7 @@ final class WGSLParser {
                 builtin = t.text == "subgroup_size" ? .subgroupSize : .subgroupInvocationId
             case "subgroup_id", "num_subgroups":
                 try requireSubgroups(at: t)
-                guard subgroupIDEnabled else {
+                guard subgroupIDEnabled || allowsImplicitNagaSubgroups else {
                     throw wgslError(.unsupportedCapability, "This builtin requires subgroup_id", t)
                 }
                 builtin = t.text == "subgroup_id" ? .subgroupId : .numSubgroups
@@ -345,8 +378,10 @@ final class WGSLParser {
         }
         let scalar: IRScalar?
         switch t.text {
+        case "u16": try requireInt16(at: t); scalar = .u16
         case "u32": scalar = .u32
         case "u64": scalar = .u64
+        case "i16": try requireInt16(at: t); scalar = .i16
         case "i32": scalar = .i32
         case "i64": scalar = .i64
         case "f32": scalar = .f32
@@ -552,7 +587,11 @@ final class WGSLParser {
     func structure() throws {
         let n = try ident(); try reserve(n); try expect("{")
         var members: [IRStructMember] = [], memberNames: Set<String> = []; var size: UInt32 = 0, alignment: UInt32 = 1
+        var memberDocumentation: [(index: UInt32, lines: [String])] = []
         while !isNext("}") {
+            if let lines = sourceDocumentation.beforeToken[token.start] {
+                memberDocumentation.append((UInt32(members.count), lines))
+            }
             let attrs = try attributes(); let name = try ident()
             guard memberNames.insert(wgslKey(name.text)).inserted else { throw wgslError(.duplicateName,"Duplicate struct member",name) }
             if let last = members.last, try !isSized(last.type) { throw wgslError(.invalidType,"Runtime array must be final member",name) }
@@ -590,9 +629,12 @@ final class WGSLParser {
         let handle = try intern(.structure(members:members,span:try aligned(size,to:alignment,at:n)),name:n.text,at:n)
         structureAlignments[handle] = alignment
         typeNames[wgslKey(n.text)] = handle
+        for member in memberDocumentation {
+            try recordDocumentation(member.lines, for: .member(type: handle, index: member.index))
+        }
     }
     func global(_ attrs: [String: Attribute]) throws {
-        try checkAttributes(attrs,allowed:["group","binding"])
+        try checkAttributes(attrs,allowed:["group","binding","coherent","volatile"])
         var space: IRAddressSpace = .private
         let explicitSpace = try eat("<")
         if explicitSpace {
@@ -644,15 +686,31 @@ final class WGSLParser {
             }
             space = .handle
         }
+        var memoryDecorations: IRMemoryDecorations = []
+        let memoryAttributes: [(String, ShaderCapabilities, IRMemoryDecorations)] = [
+            ("coherent", .memoryDecorationCoherent, .coherent),
+            ("volatile", .memoryDecorationVolatile, .volatile),
+        ]
+        for (name, capability, decoration) in memoryAttributes {
+            guard let attribute = attrs[name] else { continue }
+            guard case .storage = space else {
+                throw wgslError(.invalidAddressSpace, "@\(name) requires a storage buffer", attribute.name)
+            }
+            guard options.capabilities.contains(capability) else {
+                throw wgslError(.unsupportedCapability, "@\(name) requires its memory decoration capability", attribute.name)
+            }
+            memoryDecorations.insert(decoration)
+        }
         var bind: IRResourceBinding?
         if let group = attrs["group"], let b = attrs["binding"] { bind = IRResourceBinding(group:try attributeUInt(group),binding:try attributeUInt(b)) }
-        else if !attrs.isEmpty { throw wgslError(.invalidBinding,"group and binding must occur together",n) }
+        else if attrs["group"] != nil || attrs["binding"] != nil { throw wgslError(.invalidBinding,"group and binding must occur together",n) }
         if space == .handle || space == .uniform || { if case .storage = space { true } else { false } }() {
             guard bind != nil else { throw wgslError(.invalidBinding,"Resource requires binding",n) }
         } else if bind != nil { throw wgslError(.invalidBinding,"Non-resource cannot have binding",n) }
         try node()
         globalNames[wgslKey(n.text)] = globals.count
-        globals.append(.init(name: n.text, space: space, binding: bind, type: ty, initializer: initializer, location: n.location))
+        globals.append(.init(name: n.text, space: space, binding: bind, type: ty, initializer: initializer,
+                             memoryDecorations: memoryDecorations, location: n.location))
     }
     func constant(_ attrs: [String: Attribute]) throws {
         guard attrs.isEmpty else { throw unsupported("constant attributes") }

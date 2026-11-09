@@ -19,6 +19,10 @@ extension WGSLParser {
     guard float16Enabled else { throw wgslError(.unsupportedCapability, "f16 requires enable f16", token) }
   }
 
+  func requireInt16(at token: WGSLToken) throws {
+    guard int16Enabled else { throw wgslError(.unsupportedCapability, "i16/u16 requires enable wgpu_int16", token) }
+  }
+
   func predeclaredType(_ name: String) -> IRTypeKind? {
     guard declarationNames[wgslKey(name)] == nil else { return nil }
     return Self.predeclaredTypes[name]

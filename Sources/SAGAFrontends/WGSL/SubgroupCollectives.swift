@@ -39,13 +39,15 @@ extension WGSLParser {
             throw wgslError(.typeMismatch, "Subgroup collective requires one operand", name)
         }
         let argument = try defaultMaterialize(first, at: name)
-        guard operation.accepts(types[argument.type.index].kind, collective: collective) else {
+        let operand = try operation.isBitwise ? argument :
+            subgroupWorkingOperand(argument, useUnsignedArithmetic: operation == .add || operation == .mul, at: name)
+        guard operation.accepts(types[operand.type.index].kind, collective: collective) else {
             throw wgslError(.typeMismatch, "Invalid subgroup collective operand type", name)
         }
-        let result = try expressionNode(.subgroupOperationResult(type: argument.type), type: argument.type,
+        let result = try expressionNode(.subgroupOperationResult(type: operand.type), type: operand.type,
                                         at: name, emit: false)
         try statement(.subgroupCollectiveOperation(op: operation, collective: collective,
-                                                   argument: argument.handle, result: result.handle), at: name)
-        return result
+                                                   argument: operand.handle, result: result.handle), at: name)
+        return try subgroupSourceResult(result, type: argument.type, at: name)
     }
 }

@@ -7,8 +7,12 @@ extension WGSLParser {
         "quadBroadcast", "quadSwapX", "quadSwapY", "quadSwapDiagonal",
     ]
 
+    var allowsImplicitNagaSubgroups: Bool {
+        options.allowLegacyNagaSubgroups && options.capabilities.contains(.subgroup)
+    }
+
     func requireSubgroups(at token: WGSLToken) throws {
-        guard subgroupsEnabled else {
+        guard subgroupsEnabled || allowsImplicitNagaSubgroups else {
             throw wgslError(.unsupportedCapability, "Subgroup operations require enable subgroups", token)
         }
     }
@@ -19,7 +23,8 @@ extension WGSLParser {
             throw wgslError(.typeMismatch, "Local value is not callable", name)
         }
         let argument = try defaultMaterialize(loaded(expression(), at: name), at: name)
-        switch types[argument.type.index].kind {
+        let operand = try subgroupWorkingOperand(argument, at: name)
+        switch types[operand.type.index].kind {
         case .scalar(let scalar), .vector(_, let scalar):
             guard [.i32, .u32, .f32, .f16].contains(scalar) else {
                 throw wgslError(.typeMismatch, "Subgroup gather requires a concrete numeric scalar or vector", name)
@@ -43,15 +48,22 @@ extension WGSLParser {
             let selector = try loaded(expression(), at: name)
             let constant = try knownIntegerConstant(start..<cursor, at: name)
             let indexLimit: Int64 = name.text == "quadBroadcast" ? 4 : 128
+            var useFirstLane = false
             if let constant, !(0..<indexLimit).contains(constant.value) {
-                throw wgslError(.invalidType, "Constant subgroup selector is outside 0..<\(indexLimit)", name)
+                guard name.text == "quadBroadcast", !subgroupsEnabled, allowsImplicitNagaSubgroups,
+                      constant.kind == .uint else {
+                    throw wgslError(.invalidType, "Constant subgroup selector is outside 0..<\(indexLimit)", name)
+                }
+                // The legacy source accepts the selector, but it cannot select a quad lane.
+                useFirstLane = true
             }
             switch name.text {
             case "subgroupBroadcast", "quadBroadcast":
                 guard let constant else {
                     throw wgslError(.invalidType, "Broadcast index must be a constant expression", name)
                 }
-                let index = try expressionNode(.literal(.u32(UInt32(constant.value))), type: intern(.scalar(.u32)),
+                let lane = useFirstLane ? 0 : UInt32(constant.value)
+                let index = try expressionNode(.literal(.u32(lane)), type: intern(.scalar(.u32)),
                                                at: name, emit: false)
                 mode = name.text == "quadBroadcast" ? .quadBroadcast(index.handle) : .broadcast(index.handle)
             case "subgroupShuffle":
@@ -72,8 +84,26 @@ extension WGSLParser {
         }
         _ = try eat(",")
         try expect(")")
-        let result = try expressionNode(.subgroupOperationResult(type: argument.type), type: argument.type, at: name, emit: false)
-        try statement(.subgroupGather(mode: mode, argument: argument.handle, result: result.handle), at: name)
-        return result
+        let result = try expressionNode(.subgroupOperationResult(type: operand.type), type: operand.type, at: name, emit: false)
+        try statement(.subgroupGather(mode: mode, argument: operand.handle, result: result.handle), at: name)
+        return try subgroupSourceResult(result, type: argument.type, at: name)
+    }
+
+    func subgroupWorkingOperand(
+        _ argument: WGSLValue, useUnsignedArithmetic: Bool = false, at name: WGSLToken
+    ) throws -> WGSLValue {
+        guard allowsImplicitNagaSubgroups, let shape = IRBitcastShape(types[argument.type.index].kind),
+              shape.scalar == .i16 || shape.scalar == .u16 else { return argument }
+        // Narrow sums and products depend only on their low bits. Use unsigned arithmetic
+        // for those operations and preserve signed order for signed min/max.
+        let scalar: IRScalar = shape.scalar == .i16 && !useUnsignedArithmetic ? .i32 : .u32
+        let type = try intern(IRBitcastShape(size: shape.size, scalar: scalar).type)
+        return try expressionNode(.cast(expression: argument.handle, target: scalar), type: type, at: name)
+    }
+
+    func subgroupSourceResult(_ result: WGSLValue, type: WType, at name: WGSLToken) throws -> WGSLValue {
+        guard result.type != type else { return result }
+        guard let shape = IRBitcastShape(types[type.index].kind) else { throw ShaderFailure.invalidHandle }
+        return try expressionNode(.cast(expression: result.handle, target: shape.scalar), type: type, at: name)
     }
 }

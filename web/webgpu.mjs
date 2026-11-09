@@ -173,24 +173,40 @@ function compareFunction(value) {
     return compare;
 }
 
-function vertexFormat(value) {
-    switch (value) {
-    case 1: return "float32";
-    case 2: return "float32x2";
-    case 3: return "float32x3";
-    case 4: return "float32x4";
-    case 5: return "uint32";
-    case 6: return "uint32x2";
-    case 7: return "uint32x3";
-    case 8: return "uint32x4";
-    case 9: return "sint32";
-    case 10: return "sint32x2";
-    case 11: return "sint32x3";
-    case 12: return "sint32x4";
-    case 13: return "float16";
-    case 14: return "float16x2";
-    case 15: return "float16x4";
-    default: throw new Error("Unknown WebGPU vertex format");
+// Stable Swift VertexFormat IDs and their WebGPU names and byte sizes.
+const vertexFormats = [
+    null,
+    ["float32", 4], ["float32x2", 8], ["float32x3", 12], ["float32x4", 16],
+    ["uint32", 4], ["uint32x2", 8], ["uint32x3", 12], ["uint32x4", 16],
+    ["sint32", 4], ["sint32x2", 8], ["sint32x3", 12], ["sint32x4", 16],
+    ["float16", 2], ["float16x2", 4], ["float16x4", 8],
+    ["uint8", 1], ["uint8x2", 2], ["uint8x4", 4],
+    ["sint8", 1], ["sint8x2", 2], ["sint8x4", 4],
+    ["unorm8", 1], ["unorm8x2", 2], ["unorm8x4", 4],
+    ["snorm8", 1], ["snorm8x2", 2], ["snorm8x4", 4],
+    ["uint16", 2], ["uint16x2", 4], ["uint16x4", 8],
+    ["sint16", 2], ["sint16x2", 4], ["sint16x4", 8],
+    ["unorm16", 2], ["unorm16x2", 4], ["unorm16x4", 8],
+    ["snorm16", 2], ["snorm16x2", 4], ["snorm16x4", 8],
+    ["unorm10-10-10-2", 4], ["unorm8x4-bgra", 4], ["snorm10-10-10-2", 4],
+];
+
+async function probeSnorm1010102VertexFormat(device) {
+    const module = device.createShaderModule({ code: `
+        @vertex fn vs(@location(0) value: vec4f) -> @builtin(position) vec4f { return value; }
+        @fragment fn fs() -> @location(0) vec4f { return vec4f(0.0); }
+    ` });
+    try {
+        await device.createRenderPipelineAsync({
+            layout: "auto",
+            vertex: { module, entryPoint: "vs", buffers: [{ arrayStride: 4,
+                attributes: [{ format: "snorm10-10-10-2", offset: 0, shaderLocation: 0 }] }] },
+            fragment: { module, entryPoint: "fs", targets: [{ format: "rgba8unorm" }] },
+        });
+        return true;
+    } catch (error) {
+        if (error instanceof TypeError || error.reason === "validation") return false;
+        throw error;
     }
 }
 
@@ -203,8 +219,31 @@ export async function openWebGPU(canvas) {
         "timestamp-query", "subgroups", "subgroup-size-control", "dual-source-blending", "texture-compression-bc", "texture-compression-etc2", "texture-compression-astc",
         "texture-compression-bc-sliced-3d", "texture-compression-astc-sliced-3d", "float32-filterable", "float32-blendable", "texture-formats-tier1", "texture-formats-tier2", "rg11b10ufloat-renderable", "depth32float-stencil8", "bgra8unorm-storage"]
         .filter(feature => adapter.features.has(feature));
-    const requiredLimits = { maxComputeWorkgroupStorageSize: adapter.limits.maxComputeWorkgroupStorageSize };
+    const requiredLimits = {
+        maxComputeWorkgroupStorageSize: adapter.limits.maxComputeWorkgroupStorageSize,
+        maxComputeInvocationsPerWorkgroup: adapter.limits.maxComputeInvocationsPerWorkgroup,
+        maxComputeWorkgroupSizeX: adapter.limits.maxComputeWorkgroupSizeX,
+        maxComputeWorkgroupSizeY: adapter.limits.maxComputeWorkgroupSizeY,
+        maxComputeWorkgroupSizeZ: adapter.limits.maxComputeWorkgroupSizeZ,
+        maxComputeWorkgroupsPerDimension: adapter.limits.maxComputeWorkgroupsPerDimension,
+        maxVertexAttributes: adapter.limits.maxVertexAttributes,
+        maxVertexBuffers: adapter.limits.maxVertexBuffers,
+        maxVertexBufferArrayStride: adapter.limits.maxVertexBufferArrayStride,
+        maxInterStageShaderVariables: adapter.limits.maxInterStageShaderVariables,
+        maxColorAttachments: adapter.limits.maxColorAttachments,
+        maxColorAttachmentBytesPerSample: adapter.limits.maxColorAttachmentBytesPerSample,
+    };
+    if (adapter.limits.maxBindGroupsPlusVertexBuffers !== undefined) {
+        requiredLimits.maxBindGroupsPlusVertexBuffers = adapter.limits.maxBindGroupsPlusVertexBuffers;
+    }
     const device = await adapter.requestDevice({ requiredFeatures, requiredLimits });
+    let supportsVertexFormatSnorm1010102;
+    try {
+        supportsVertexFormatSnorm1010102 = await probeSnorm1010102VertexFormat(device);
+    } catch (error) {
+        device.destroy();
+        throw error;
+    }
     const indirectFirstInstance = device.features.has("indirect-first-instance");
     const buffers = new Map();
     const mappings = new Map();
@@ -408,7 +447,7 @@ export async function openWebGPU(canvas) {
     function colorSlots(packet, read) {
         const colors = [];
         for (const [location, value] of packet.list(() => [packet.word(), read()])) {
-            if (location >= 8 || colors[location]) throw new Error("Invalid WebGPU color attachment location");
+            if (location >= device.limits.maxColorAttachments || colors[location]) throw new Error("Invalid WebGPU color attachment location");
             while (colors.length <= location) colors.push(null);
             colors[location] = value;
         }
@@ -447,15 +486,30 @@ export async function openWebGPU(canvas) {
         }
         const stripIndexFormat = indexFormat === 0 ? undefined : indexFormat === 2 ? "uint16" : "uint32";
         const vertex = { entryPoint: packet.string(), code: packet.string() };
-        const fragment = { entryPoint: packet.string(), code: packet.string() };
+        let fragment = packet.word() ? { entryPoint: packet.string(), code: packet.string() } : undefined;
+        const activeSamples = (1 << sampleCount) - 1;
+        if (!fragment && (mask & activeSamples) !== activeSamples) {
+            // Some WebGPU implementations ignore the pipeline mask when the fragment state is absent.
+            fragment = { entryPoint: "saga_coverage", code: "@fragment fn saga_coverage() {}" };
+        }
+        const fetchLayouts = [];
         const vertexBuffers = packet.list(() => {
             const arrayStride = packet.word();
             const step = packet.word();
             if (step !== 0 && step !== 1) throw new Error("Unknown WebGPU vertex step mode");
-            const attributes = packet.list(() => ({
-                shaderLocation: packet.word(), offset: packet.word(), format: vertexFormat(packet.word()),
-            }));
-            return { arrayStride, stepMode: step === 0 ? "vertex" : "instance", attributes };
+            const stepMode = step === 0 ? "vertex" : "instance";
+            let attributeEnd = 0;
+            const attributes = packet.list(() => {
+                const shaderLocation = packet.word();
+                const offset = packet.word();
+                const entry = vertexFormats[packet.word()];
+                if (!entry) throw new Error("Unknown WebGPU vertex format");
+                const [format, byteSize] = entry;
+                attributeEnd = Math.max(attributeEnd, offset + byteSize);
+                return { shaderLocation, offset, format };
+            });
+            fetchLayouts.push({ arrayStride, stepMode, attributeEnd });
+            return { arrayStride, stepMode, attributes };
         });
         const groups = bindingGroups(packet, () => {
             const binding = packet.word();
@@ -500,17 +554,10 @@ export async function openWebGPU(canvas) {
             primitive: { frontFace, cullMode, topology, stripIndexFormat, unclippedDepth },
             vertex: { entryPoint: vertex.entryPoint, module: device.createShaderModule({ code: vertex.code }),
                 buffers: vertexBuffers },
-            fragment: {
+            fragment: fragment ? {
                 entryPoint: fragment.entryPoint, module: device.createShaderModule({ code: fragment.code }),
                 targets,
-            },
-        }));
-        const fetchLayouts = vertexBuffers.map(({ arrayStride, stepMode, attributes }) => ({
-            arrayStride, stepMode,
-            attributeEnd: Math.max(...attributes.map(({ offset, format }) => {
-                const componentBytes = format.startsWith("float16") ? 2 : 4;
-                return offset + componentBytes * (format.split("x")[1] ?? 1);
-            })),
+            } : undefined,
         }));
         renderPipelines.set(id, { pipeline, fetchLayouts });
     }
@@ -530,6 +577,11 @@ export async function openWebGPU(canvas) {
         if (packet.word()) render.scissor = Array.from({ length: 4 }, () => packet.word());
         render.vertexBuffers = packet.list(() => ({ buffer: lookup(buffers, packet.id()), offset: packet.size() }));
         render.bindings = decodeResourceBindings(packet);
+        function readStoreOp() {
+            const action = packet.word();
+            if (action > 1) throw new Error("Invalid WebGPU attachment store action");
+            return action === 0 ? "store" : "discard";
+        }
         if (packet.word()) {
             const depthId = packet.id();
             const depthView = textureViews.get(depthId);
@@ -542,6 +594,8 @@ export async function openWebGPU(canvas) {
                 depthLoadOp: load >= 2 ? undefined : load === 1 ? "clear" : "load",
                 depthClearValue: load === 1 ? packet.float() : undefined,
             };
+            const depthStoreOp = readStoreOp();
+            render.depth.depthStoreOp = load < 2 ? depthStoreOp : undefined;
             if (packet.word()) {
                 render.depth.stencilReference = packet.word();
                 const stencilLoad = packet.word();
@@ -549,6 +603,8 @@ export async function openWebGPU(canvas) {
                 render.depth.stencilReadOnly = stencilLoad === 2;
                 render.depth.stencilLoadOp = stencilLoad === 2 ? undefined : stencilLoad === 1 ? "clear" : "load";
                 render.depth.stencilClearValue = stencilLoad === 1 ? packet.word() & 0xff : undefined;
+                const stencilStoreOp = readStoreOp();
+                render.depth.stencilStoreOp = stencilLoad < 2 ? stencilStoreOp : undefined;
             }
         }
         function colorView() {
@@ -563,8 +619,9 @@ export async function openWebGPU(canvas) {
             const load = packet.word();
             if (load !== 0 && load !== 1) throw new Error("Invalid WebGPU color load action");
             const clearValue = load ? [packet.float(), packet.float(), packet.float(), packet.float()] : undefined;
+            const storeOp = readStoreOp();
             const resolve = packet.word() ? colorView() : undefined;
-            return { target, depthSlice, loadOp: load ? "clear" : "load", clearValue, resolve };
+            return { target, depthSlice, loadOp: load ? "clear" : "load", storeOp, clearValue, resolve };
         });
         if (indexed) {
             const buffer = lookup(buffers, packet.id());
@@ -850,9 +907,9 @@ export async function openWebGPU(canvas) {
                             view: depth.view ?? depth.texture.createView({ baseMipLevel: depth.mipLevel, mipLevelCount: 1 }),
                             depthReadOnly: depth.depthReadOnly, stencilReadOnly: depth.stencilReadOnly,
                             depthLoadOp: depth.depthLoadOp, depthClearValue: depth.depthClearValue,
-                            depthStoreOp: depth.depthLoadOp ? "store" : undefined,
+                            depthStoreOp: depth.depthStoreOp,
                             stencilLoadOp: depth.stencilLoadOp, stencilClearValue: depth.stencilClearValue,
-                            stencilStoreOp: depth.stencilLoadOp ? "store" : undefined,
+                            stencilStoreOp: depth.stencilStoreOp,
                         } : undefined;
                         const view = attachment => attachment.view ?? attachment.texture.createView({
                             baseMipLevel: attachment.mipLevel, mipLevelCount: 1,
@@ -860,7 +917,7 @@ export async function openWebGPU(canvas) {
                         const colorAttachments = command.colors.map(color => color ? {
                             view: view(color.target), resolveTarget: color.resolve ? view(color.resolve) : undefined,
                             depthSlice: color.depthSlice,
-                            loadOp: color.loadOp, storeOp: "store", clearValue: color.clearValue,
+                            loadOp: color.loadOp, storeOp: color.storeOp, clearValue: color.clearValue,
                         } : null);
                         const timestampWrites = command.timestampWrites;
                         const empty = !command.indirect && (!command.count || !command.instanceCount ||
@@ -1259,6 +1316,20 @@ export async function openWebGPU(canvas) {
     return {
         maxBufferSize: device.limits.maxBufferSize,
         maxComputeWorkgroupStorageSize: device.limits.maxComputeWorkgroupStorageSize,
+        maxComputeInvocationsPerWorkgroup: device.limits.maxComputeInvocationsPerWorkgroup,
+        maxComputeWorkgroupSize: {
+            x: device.limits.maxComputeWorkgroupSizeX,
+            y: device.limits.maxComputeWorkgroupSizeY,
+            z: device.limits.maxComputeWorkgroupSizeZ,
+        },
+        maxComputeWorkgroupsPerDimension: device.limits.maxComputeWorkgroupsPerDimension,
+        maxVertexAttributes: device.limits.maxVertexAttributes,
+        maxVertexBuffers: device.limits.maxVertexBuffers,
+        maxVertexBufferArrayStride: device.limits.maxVertexBufferArrayStride,
+        maxInterStageShaderVariables: device.limits.maxInterStageShaderVariables,
+        maxColorAttachments: device.limits.maxColorAttachments,
+        maxColorAttachmentBytesPerSample: device.limits.maxColorAttachmentBytesPerSample,
+        supportsVertexFormatSnorm1010102,
         maxImmediateSize: navigator.gpu.wgslLanguageFeatures?.has("immediate_address_space")
             ? device.limits.maxImmediateSize ?? 0 : 0,
         maxTextureDimension2D: device.limits.maxTextureDimension2D,

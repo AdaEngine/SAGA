@@ -25,6 +25,7 @@ package struct ComputeCodeGenerator: ShaderCodeGenerator {
     ) throws -> ComputeShaderArtifact {
         let module = validated.module
         let usesFloat16 = module.types.values.contains { $0.kind.usesFloat16 }
+        let usesInt16 = !webGPU && moduleUsesInt16(module)
         let requiresStandardUniformLayout = outputFormat == .wgsl && module.uniformBufferStandardLayout
         guard module.entryPoints.count == 1, let entry = module.entryPoints.first,
               entry.stage == .compute, entry.workgroupOverrides == nil,
@@ -37,9 +38,13 @@ package struct ComputeCodeGenerator: ShaderCodeGenerator {
 
         let size = entry.workgroupSize
         guard size.x > 0, size.y > 0, size.z > 0,
-              size.x <= 1024, size.y <= 1024, size.z <= 64,
-              size.x * size.y * size.z <= 1024
-        else { throw unsupported("workgroup size exceeds the compute profile") }
+              size.z <= UInt32.max / size.x / size.y else {
+            throw unsupported("workgroup size exceeds the representable invocation count")
+        }
+        let threads = size.x * size.y * size.z
+        if outputFormat == .hlsl, size.z > 64 || threads > 1024 {
+            throw unsupported("workgroup size exceeds HLSL numthreads limits")
+        }
         let subgroupSize: UInt32?
         switch entry.subgroupSize {
         case .fixed(let required):
@@ -54,6 +59,7 @@ package struct ComputeCodeGenerator: ShaderCodeGenerator {
 
         var inputs = try ComputeInputs(arguments: function.arguments, workgroupSize: size, module: module, format: outputFormat)
         var helpers = try ShaderFunctions(module: module, entry: entry.function)
+        if webGPU && helpers.requiresDebugPrintf { throw unsupported("WebGPU shader debugPrintf") }
         let aggregateBuffers = try helpers.aggregateBufferGlobals(module: module, entry: entry.function)
         let usesSubgroupBarrier = helpers.controlBarriers.contains(.subgroup)
         if webGPU && usesSubgroupBarrier {
@@ -63,7 +69,7 @@ package struct ComputeCodeGenerator: ShaderCodeGenerator {
         var declarations = inputs.declarations
         var structures = inputs.structures
         declarations += try decompositionDeclarations(module: module, format: outputFormat, structures: &structures)
-        declarations += try atomicComparisonDeclarations(module: module, format: outputFormat, structures: &structures)
+        declarations += try atomicComparisonDeclarations(module: module, format: outputFormat, webGPU: webGPU, structures: &structures)
         let reachableGlobals = helpers.reachableGlobals
         var compositeWorkgroupSizes: [IRHandle<IRType>: UInt64] = [:]
         for index in reachableGlobals {
@@ -99,7 +105,11 @@ package struct ComputeCodeGenerator: ShaderCodeGenerator {
         })
         let resources = globals.enumerated().filter { !unusedBindings.contains($0.offset) }.map(\.element)
         let handles = try handleResourceGlobals(resources, module: module, bindingArrayLengths: bindingArrayLengths)
-        if webGPU { try requireWebGPUShaderTypes(handles.storageTextures, module: module) }
+        if webGPU {
+            let active = resources.filter { $0.binding != nil }
+            let widths = try helpers.nativeIntegerWidths(in: module, entry: entry.function, resources: active)
+            try requireWebGPUShaderTypes(handles.storageTextures, module: module, nativeIntegerWidths: widths)
+        }
         let arrayCounts = handles.arrayCounts
         let nativeExternal = outputFormat == .wgsl ? [] : handles.externalTextures
         let textureCounts = externalPlaneCounts(nativeExternal, in: arrayCounts)
@@ -130,7 +140,7 @@ package struct ComputeCodeGenerator: ShaderCodeGenerator {
         if !nativeExternal.isEmpty { declarations += externalTexturePrelude(outputFormat) }
         let metalLengths = ShaderParameter(type: "constant uint*", name: "saga_lengths")
         var runtimeIndex = 0
-        var usesGLSLHalfStorage = false
+        var usesGLSL16BitStorage = false
         var workgroupVariables: [WorkgroupVariable] = []
         var workgroupBytes: UInt64 = 0
         var nestedStorageBudget = ShaderBudget()
@@ -208,7 +218,7 @@ package struct ComputeCodeGenerator: ShaderCodeGenerator {
                 storage.append(uniform.storage)
                 metalStorage.append(uniform.captures)
                 uniformLayout.append(uniform.reflection)
-                usesGLSLHalfStorage = usesGLSLHalfStorage || uniform.usesGLSLHalfStorage
+                usesGLSL16BitStorage = usesGLSL16BitStorage || uniform.usesGLSL16BitStorage
                 continue
             }
             if global.space == .handle, let binding = global.binding, let flat = flatSamplers[binding] {
@@ -268,14 +278,15 @@ package struct ComputeCodeGenerator: ShaderCodeGenerator {
                                                         runtimeIndex: runtimeIndex, metalLengths: metalLengths,
                                                         coherent: helpers.controlBarriers.contains(.storage),
                                                         module: module, format: outputFormat, arrayCount: arrayCounts[binding],
-                                                        webBindingBase: webBases[binding], aggregateAccess: aggregateBuffers.contains(index),
+                                                        webGPU: webGPU, webBindingBase: webBases[binding],
+                                                        aggregateAccess: aggregateBuffers.contains(index),
                                                         budget: &nestedStorageBudget)
             declarations += buffer.declarations
             resourceParameters += buffer.parameters
             metalStorage.append(buffer.captures)
             storage.append(buffer.storage)
             layout.append(buffer.reflection)
-            usesGLSLHalfStorage = usesGLSLHalfStorage || buffer.usesGLSLHalfStorage
+            usesGLSL16BitStorage = usesGLSL16BitStorage || buffer.usesGLSL16BitStorage
             if buffer.reflection.runtimeArrayStride != nil { runtimeIndex += Int(buffer.reflection.bindingArray?.count ?? 1) }
         }
 
@@ -283,7 +294,6 @@ package struct ComputeCodeGenerator: ShaderCodeGenerator {
         if outputFormat != .wgsl && !workgroupVariables.isEmpty {
             let lane = inputs.workgroupInitializationIndex()
             if outputFormat == .msl { workgroupSetup = workgroupVariables.map(\.declaration) }
-            let threads = size.x * size.y * size.z
             var setupBudget = ShaderBudget()
             for variable in workgroupVariables {
                 workgroupSetup += try variable.initialize(lane: lane, threads: threads, module: module,
@@ -326,13 +336,16 @@ package struct ComputeCodeGenerator: ShaderCodeGenerator {
                 (inputs.requiresLinearIndexing, "requires linear_indexing;"),
                 (immediate != nil, "requires immediate_address_space;"),
                 (usesFloat16, "enable f16;"),
+                (usesInt16, "enable wgpu_int16;"),
+                (helpers.requiresDebugPrintf, "enable wgpu_debug_printf;"),
                 (requiresSubgroups, "enable subgroups;"),
                 (subgroupSize != nil, "enable subgroup_size_control;"),
             ]
             let extensions = directives.compactMap { required, directive in required ? directive : nil }
             declarations.insert(contentsOf: try extensions + helpers.wgslDiagnosticLines(module: module), at: 0)
+            let suffix = max(size.x, size.y, size.z) > UInt32(Int32.max) ? "u" : ""
             attributes = try helpers.wgslDiagnosticLines(module: module, function: function) +
-                ["@compute @workgroup_size(\(size.x), \(size.y), \(size.z))"] +
+                ["@compute @workgroup_size(\(size.x)\(suffix), \(size.y)\(suffix), \(size.z)\(suffix))"] +
                 (subgroupSize.map { ["@subgroup_size(\($0))"] } ?? [])
             signature = "fn \(entryPoint)(\(parameterList))"
         default:
@@ -340,7 +353,8 @@ package struct ComputeCodeGenerator: ShaderCodeGenerator {
                 "#version 450 core",
             ] + glslUnsigned64Extensions(module: module, storageTextures: storageTextures) +
                 (usesFloat16 ? [glslFloat16Extension] : []) +
-                (usesGLSLHalfStorage ? [glslStorageFloat16Extension] : []) + helpers.glslExtensions +
+                (usesInt16 ? [glslInt16Extension] : []) +
+                (usesGLSL16BitStorage ? [glslStorage16BitExtension] : []) + helpers.glslExtensions +
                 helpers.glslSubgroupExtensions(requiresSubgroups: requiresSubgroups) + [
                 "layout(local_size_x = \(size.x), local_size_y = \(size.y), local_size_z = \(size.z)) in;",
             ], at: 0)
@@ -359,9 +373,9 @@ package struct ComputeCodeGenerator: ShaderCodeGenerator {
         let source = (declarations + numeric + helperDeclarations + attributes + [signature + " {"] +
                       workgroupSetup + privateBindings.initialization + inputs.initializers + lines + ["}", ""])
             .joined(separator: "\n")
-        let atomic64 = usesInt64Atomics(module)
+        let atomic64 = !webGPU && usesInt64Atomics(module)
         let needsHLSL66 = subgroupSize != nil || atomic64 || storageTextures.contains { $0.format == .r64Uint }
-        let profile = needsHLSL66 ? "cs_6_6" : usesFloat16 ? "cs_6_2" : "cs_6_0"
+        let profile = needsHLSL66 ? "cs_6_6" : usesFloat16 || usesInt16 ? "cs_6_2" : "cs_6_0"
         return .init(
             artifact: .text(format: outputFormat, source: source), sourceEntryPoint: entry.name,
             entryPoint: entryPoint, workgroupSize: size, storageBindings: layout, uniformBindings: uniformLayout,
@@ -376,7 +390,9 @@ package struct ComputeCodeGenerator: ShaderCodeGenerator {
             requiresSubgroupID: inputs.requiresSubgroupID, hlslProfile: outputFormat == .hlsl ? profile : nil,
             requiresShaderInt64AtomicMinMax: atomic64 && !helpers.requiresShaderInt64AtomicAllOps,
             requiresShaderInt64AtomicAllOps: helpers.requiresShaderInt64AtomicAllOps,
-            requiresShaderInt64: moduleUsesWideIntegers(module), immediateLayout: immediate?.layout,
+            requiresShaderInt64: !webGPU && moduleUsesWideIntegers(module), requiresShaderInt16: usesInt16,
+            requiresDebugPrintf: helpers.requiresDebugPrintf,
+            immediateLayout: immediate?.layout,
             usesGlobalInvocationIndex: inputs.usesGlobalInvocationIndex, usesWorkgroupIndex: inputs.usesWorkgroupIndex,
             requiredSubgroupSize: subgroupSize, requiresSubgroupUniformity: module.requiresSubgroupUniformity)
     }
@@ -415,13 +431,16 @@ private struct WorkgroupVariable {
         lane: String, threads: UInt32, module: IRModule, structures: [IRHandle<IRType>: ShaderStructure],
         budget: inout ShaderBudget
     ) throws -> [String] {
+        let index = "\(name)_init"
         if case .composite(let composite) = layout {
-            return try initializeCompositeWorkgroup(composite, reference: reference, lane: lane, threads: threads,
+            return try initializeCompositeWorkgroup(composite, reference: reference, indexPrefix: index,
+                                                    lane: lane, threads: threads,
                                                     module: module, format: format, structures: structures, budget: &budget)
         }
         guard let field else { throw ShaderFailure.invalidHandle }
         let backingScalar = field.atomic && field.scalar == .f32 ? .u32 : field.scalar
         let zero: String = switch (backingScalar, format) {
+        case (.i16, _), (.u16, _): "\(integer16Type(signed: backingScalar == .i16, in: format))(0)"
         case (.u32, _): "0u"
         case (.i32, _): "0"
         case (.u64, _): unsigned64Literal(0, in: format)
@@ -451,8 +470,8 @@ private struct WorkgroupVariable {
             return ["    if (\(lane) == 0u) { \(store(reference)) }"]
         }
         return [
-            "    for (uint saga_init = \(lane); saga_init < \(count)u; saga_init += \(threads)u) {",
-            "        \(store("\(name)[saga_init]"))",
+            "    for (uint \(index) = \(lane); \(index) < \(count)u; \(index) += \(threads)u) {",
+            "        \(store("\(name)[\(index)]"))",
             "    }",
         ]
     }
@@ -557,8 +576,11 @@ func bindingElementKind(_ type: IRHandle<IRType>, module: IRModule) throws -> IR
     return kind
 }
 
-func requireWebGPUShaderTypes(_ textures: [IRGlobalVariable], module: IRModule) throws {
-    if moduleUsesWideIntegers(module) {
+func requireWebGPUShaderTypes(_ textures: [IRGlobalVariable], module: IRModule, nativeIntegerWidths: Set<UInt8>) throws {
+    if nativeIntegerWidths.contains(2) {
+        throw ShaderFailure.unsupported("16-bit integer types require native shader output")
+    }
+    if nativeIntegerWidths.contains(8) {
         throw ShaderFailure.unsupported("64-bit integer types require native shader output")
     }
     if try textures.contains(where: {
@@ -577,13 +599,24 @@ func usesInt64Atomics(_ module: IRModule) -> Bool {
 }
 
 func moduleUsesWideIntegers(_ module: IRModule) -> Bool {
-    module.types.values.contains {
-        switch $0.kind {
-        case .scalar(.u64), .scalar(.i64), .vector(_, .u64), .vector(_, .i64), .atomic(.u64), .atomic(.i64): true
-        default: false
+    module.types.values.contains { $0.kind.nativeShaderIntegerWidth == 8 }
+}
+
+extension IRTypeKind {
+    var nativeShaderIntegerWidth: UInt8? {
+        switch self {
+        case .scalar(.i16), .scalar(.u16), .vector(_, .i16), .vector(_, .u16): 2
+        case .scalar(.u64), .scalar(.i64), .vector(_, .u64), .vector(_, .i64), .atomic(.u64), .atomic(.i64): 8
+        default: nil
         }
     }
 }
+
+func moduleUsesInt16(_ module: IRModule) -> Bool {
+    module.types.values.contains { $0.kind.nativeShaderIntegerWidth == 2 }
+}
+
+let glslInt16Extension = "#extension GL_EXT_shader_explicit_arithmetic_types_int16 : require"
 
 func glslUnsigned64Extensions(module: IRModule, storageTextures: [ComputeShaderArtifact.StorageTextureBinding]) -> [String] {
     let image64 = storageTextures.contains { $0.format == .r64Uint }
@@ -941,7 +974,7 @@ struct UniformShaderBinding {
     var captures: [ShaderParameter] = []
     let storage: ShaderStorage
     let reflection: ComputeShaderArtifact.UniformBinding
-    let usesGLSLHalfStorage: Bool
+    let usesGLSL16BitStorage: Bool
 
     init(global: IRGlobalVariable, index: Int, flat: UInt32, module: IRModule, format: ShaderOutputFormat,
          arrayCount: UInt32?, webBindingBase: UInt32?, aggregateAccess: Bool) throws {
@@ -957,7 +990,7 @@ struct UniformShaderBinding {
             parameters = array.parameters
             captures = array.captures
             storage = array.storage
-            usesGLSLHalfStorage = false
+            usesGLSL16BitStorage = false
             reflection = .init(binding: binding, flatBindingIndex: format == .msl || format == .glsl ? flatBinding : nil,
                                minimumByteSize: array.minimumByteSize, bindingArray: array.layout)
             return
@@ -984,9 +1017,10 @@ struct UniformShaderBinding {
                 declarations = ["layout(std140, binding = \(flatBinding)) uniform \(type) { uvec4 words[\(registers)]; } \(name);"]
             default: throw unsupported("nested uniform target")
             }
-            usesGLSLHalfStorage = false
+            usesGLSL16BitStorage = false
             storage = .init(reference: name, writable: false,
-                            nested: .init(name: name, type: global.type, runtimeLength: nil, space: .uniform))
+                            nested: .init(name: name, type: global.type, runtimeLength: nil, space: .uniform,
+                                          wrappedArrays: format == .wgsl ? types.paddedArrays : []))
             reflection = .init(binding: binding, flatBindingIndex: format == .msl || format == .glsl ? flatBinding : nil,
                                minimumByteSize: root.size)
             return
@@ -1003,13 +1037,13 @@ struct UniformShaderBinding {
         guard let first = fields.first, fields.allSatisfy({ !$0.atomic && !$0.runtime }) else {
             throw unsupported("expected a fixed uniform buffer")
         }
-        usesGLSLHalfStorage = format == .glsl && fields.contains { $0.scalar == .f16 }
+        usesGLSL16BitStorage = format == .glsl && fields.contains { $0.scalar.width == 2 }
         let minimum = span.map(UInt64.init) ?? first.minimumByteSize
         guard minimum <= 65_536 else { throw unsupported("uniform buffer exceeds 64 KiB") }
         let names = span == nil ? ["value"] : fields.indices.map { "saga_member_\($0)" }
         // std140 rounds matrix column strides up to sixteen bytes.
         let packedGLSL = format == .glsl && fields.contains {
-            $0.columns != nil && ($0.width == 2 || $0.scalar == .f16)
+            $0.scalar == .i16 || $0.scalar == .u16 || ($0.columns != nil && ($0.width == 2 || $0.scalar == .f16))
         }
         switch format {
         case .msl:
@@ -1044,13 +1078,14 @@ struct UniformShaderBinding {
             }
             declarations = ["layout(std140, binding = \(flatBinding)) uniform \(type) { \(members) } \(name);"]
         }
-        let locations = fields.enumerated().map { position, field in
+        let locations = try fields.enumerated().map { position, field in
             let bound = field.count.map { "\($0)u" }
             if format == .msl || format == .hlsl || packedGLSL {
                 let reference: String
                 if packedGLSL { reference = "\(name).words" }
-                else if format == .msl, field.scalar == .f16 || field.scalar.width == 8 {
-                    reference = "reinterpret_cast<constant \(field.scalar == .f16 ? "half" : "ulong")*>(\(name))"
+                else if format == .msl, field.scalar.width != 4 {
+                    let pointer = field.scalar.width == 8 ? "ulong" : try shaderVectorType(1, scalar: field.scalar, in: .msl)
+                    reference = "reinterpret_cast<constant \(pointer)*>(\(name))"
                 }
                 else { reference = name }
                 return ShaderStorage(reference: reference, bound: bound, writable: false,
@@ -1071,12 +1106,12 @@ struct StorageBufferShaderBinding {
     var captures: [ShaderParameter] = []
     let storage: ShaderStorage
     let reflection: ComputeShaderArtifact.StorageBinding
-    let usesGLSLHalfStorage: Bool
+    let usesGLSL16BitStorage: Bool
 
     init(
         global: IRGlobalVariable, index: Int, flatBinding: UInt32, runtimeIndex: Int,
         metalLengths: ShaderParameter, coherent: Bool, module: IRModule, format outputFormat: ShaderOutputFormat,
-        arrayCount: UInt32?, webBindingBase: UInt32?, aggregateAccess: Bool,
+        arrayCount: UInt32?, webGPU: Bool, webBindingBase: UInt32?, aggregateAccess: Bool,
         budget: inout ShaderBudget
     ) throws {
         let writable: Bool
@@ -1085,34 +1120,36 @@ struct StorageBufferShaderBinding {
         case .storage([.load, .store]): writable = true
         default: throw unsupported("expected a uniform or storage buffer binding")
         }
-        guard let binding = global.binding,
-              global.initializer == nil, global.memoryDecorations.isEmpty
+        guard let binding = global.binding, global.initializer == nil
         else { throw unsupported("invalid compute buffer binding") }
+        let memory = try storageMemoryQualifier(global.memoryDecorations, format: outputFormat, webGPU: webGPU,
+                                                writable: writable, inferCoherence: coherent && writable)
         if let arrayCount {
             let array = try BufferBindingArray(global: global, index: index, flat: flatBinding, module: module,
                                                format: outputFormat, count: arrayCount, runtimeSlot: runtimeIndex, metalLengths: metalLengths,
-                                               webBindingBase: webBindingBase, coherent: coherent, budget: &budget)
+                                               webBindingBase: webBindingBase, memoryQualifier: memory, budget: &budget)
             declarations = array.declarations
             parameters = array.parameters
             captures = array.captures
             storage = array.storage
-            usesGLSLHalfStorage = array.usesGLSLHalfStorage
+            usesGLSL16BitStorage = array.usesGLSL16BitStorage
             reflection = .init(binding: binding, flatBindingIndex: outputFormat == .msl || outputFormat == .glsl ? flatBinding : nil,
                                minimumByteSize: array.minimumByteSize, isReadOnly: !writable,
                                runtimeArrayStride: array.runtimeStride, runtimeArrayOffset: array.runtimeOffset,
-                               hlslUsesByteAddressBuffer: outputFormat == .hlsl, bindingArray: array.layout)
+                               hlslUsesByteAddressBuffer: outputFormat == .hlsl, bindingArray: array.layout,
+                               memoryDecorations: global.memoryDecorations)
             return
         }
         if try aggregateAccess || hasNestedBufferLayout(global.type, module: module) {
             let nested = try NestedStorageBinding(global: global, index: index, binding: binding, flat: flatBinding,
                                                   runtimeSlot: runtimeIndex, metalLengths: metalLengths, writable: writable,
-                                                  coherent: coherent, module: module, format: outputFormat, budget: &budget)
+                                                  memoryQualifier: memory, module: module, format: outputFormat, budget: &budget)
             declarations = nested.declarations
             parameters = nested.parameters
             captures = nested.captures
             storage = nested.storage
             reflection = nested.reflection
-            usesGLSLHalfStorage = nested.usesGLSLHalfStorage
+            usesGLSL16BitStorage = nested.usesGLSL16BitStorage
             return
         }
         let structureSpan: UInt32?
@@ -1129,10 +1166,10 @@ struct StorageBufferShaderBinding {
             throw ShaderFailure.unsupported("Metal storage min/max atomics require unsigned 64-bit values")
         }
         let structured = structureSpan != nil
-        let hasHalfFields = fields.contains { $0.scalar == .f16 }
-        usesGLSLHalfStorage = outputFormat == .glsl && hasHalfFields
+        let hasNarrowFields = fields.contains { $0.scalar.width == 2 }
+        usesGLSL16BitStorage = outputFormat == .glsl && hasNarrowFields
         let hasWideValues = fields.contains { !$0.atomic && $0.scalar.width == 8 }
-        let rawHLSL = outputFormat == .hlsl && (hasHalfFields || hasWideValues || (structured && fields.contains(where: \.atomic)))
+        let rawHLSL = outputFormat == .hlsl && (hasNarrowFields || hasWideValues || (structured && fields.contains(where: \.atomic)))
         let name = "saga_buffer_\(index)"
         let typeName = "SagaBuffer\(index)"
         let minimum = structureSpan.map(UInt64.init) ?? tail.minimumByteSize
@@ -1140,7 +1177,7 @@ struct StorageBufferShaderBinding {
         let runtimeLength: String?
         switch outputFormat {
         case .msl:
-            let qualifier = writable ? "device" : "device const"
+            let qualifier = memory + (writable ? "device" : "device const")
             let element = tail.atomic && !structured ? tail.metalAtomicType : "uint"
             let pointer = ShaderParameter(type: "\(qualifier) \(element)*", name: name)
             parameters.append("\(pointer.type) \(name) [[buffer(\(flatBinding))]]")
@@ -1156,7 +1193,7 @@ struct StorageBufferShaderBinding {
                 let element = tail.atomic ? try tail.valueType(in: .hlsl, module: module) : "uint"
                 type = "\(buffer)<\(element)>"
             }
-            declarations.append("\(type) \(name) : register(\(register)\(binding.binding), space\(binding.group));")
+            declarations.append("\(memory)\(type) \(name) : register(\(register)\(binding.binding), space\(binding.group));")
             if tail.runtime {
                 let helper = "saga_length_\(index)"
                 let unit: UInt32 = rawHLSL ? 1 : 4
@@ -1204,12 +1241,11 @@ struct StorageBufferShaderBinding {
                 }
                 declarations.append("}")
             }
-            declarations.append("@group(\(binding.group)) @binding(\(binding.binding)) var<storage, \(access)> \(name): \(type);")
+            declarations.append("@group(\(binding.group)) @binding(\(binding.binding)) \(memory)var<storage, \(access)> \(name): \(type);")
             let array = structured ? "\(name).\(fieldNames.last!)" : name
             runtimeLength = tail.runtime ? "arrayLength(&\(array))" : nil
         default:
-            let coherence = coherent && writable ? "coherent " : ""
-            let qualifier = coherence + (writable ? "buffer" : "readonly buffer")
+            let qualifier = memory + (writable ? "buffer" : "readonly buffer")
             let members = try fields.enumerated().map { position, field in
                 let offset = structured ? "layout(offset = \(field.offset)) " : ""
                 let type = try field.valueType(in: .glsl, module: module)
@@ -1218,20 +1254,21 @@ struct StorageBufferShaderBinding {
             declarations.append("layout(std430, binding = \(flatBinding)) \(qualifier) \(typeName) { \(members) } \(name);")
             runtimeLength = tail.runtime ? "uint(\(name).\(fieldNames.last!).length())" : nil
         }
-        let locations = fields.enumerated().map { position, field in
+        let locations = try fields.enumerated().map { position, field in
             let reference: String
             var words: ShaderStorage.WordLayout?
             switch outputFormat {
             case .hlsl where rawHLSL:
                 reference = name
                 words = field.wordLayout(addressing: .byteAddressed)
-            case .msl where !field.atomic && (field.scalar == .f16 || field.scalar.width == 8):
-                let qualifier = writable ? "device" : "device const"
-                reference = "reinterpret_cast<\(qualifier) \(field.scalar == .f16 ? "half" : "ulong")*>(\(name))"
+            case .msl where !field.atomic && field.scalar.width != 4:
+                let qualifier = memory + (writable ? "device" : "device const")
+                let pointer = field.scalar.width == 8 ? "ulong" : try shaderVectorType(1, scalar: field.scalar, in: .msl)
+                reference = "reinterpret_cast<\(qualifier) \(pointer)*>(\(name))"
                 words = field.wordLayout()
             case .msl, .hlsl:
                 if field.atomic {
-                    let pointer = structured ? "reinterpret_cast<device \(field.metalAtomicType)*>(\(name) + \(field.offset / 4)u)" : name
+                    let pointer = structured ? "reinterpret_cast<\(memory)device \(field.metalAtomicType)*>(\(name) + \(field.offset / 4)u)" : name
                     reference = field.isArray ? pointer : "\(pointer)[0]"
                 } else if field.isArray || field.width > 1 || field.scalar != .u32 {
                     reference = name
@@ -1254,7 +1291,7 @@ struct StorageBufferShaderBinding {
         reflection = .init(binding: binding, flatBindingIndex: targetIndex, minimumByteSize: minimum,
                            isReadOnly: !writable, runtimeArrayStride: tail.runtime ? tail.stride : nil,
                            runtimeArrayOffset: tail.runtime ? tail.offset : 0,
-                           hlslUsesByteAddressBuffer: rawHLSL)
+                           hlslUsesByteAddressBuffer: rawHLSL, memoryDecorations: global.memoryDecorations)
     }
 }
 
@@ -1315,7 +1352,7 @@ private struct ComputeStorageField {
         default:
             throw unsupported("expected a supported scalar, vector or matrix buffer element")
         }
-        guard [.u32, .i32, .u64, .i64, .f32, .f16].contains(scalar) else {
+        guard [.u16, .i16, .u32, .i32, .u64, .i64, .f32, .f16].contains(scalar) else {
             throw unsupported("storage scalar type")
         }
         let columnSize = UInt32(width == 3 ? 4 : width) * UInt32(scalar.width)

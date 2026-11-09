@@ -109,16 +109,24 @@ private enum ShaderMemory {
                 switch addressing {
                 case .structured: word = "\(buffer)[\(index)]"
                 case .byteAddressed:
-                    if scalar == .f16 { return "\(buffer).Load<half>(\(byteOffset(index, laneBytes: 2)))" }
+                    if scalar.width == 2 {
+                        let type = try shaderVectorType(1, scalar: scalar, in: format)
+                        return "\(buffer).Load<\(type)>(\(byteOffset(index, laneBytes: 2)))"
+                    }
                     word = "\(buffer).Load(\(byteOffset(index)))"
                 case .packedHalfWords(let writable):
                     let packed = "\(buffer)[(\(index)) / 2u]"
                     let word = writable ? "atomicOr(\(packed), 0u)" : packed
-                    return "float16_t(unpackHalf2x16(\(word))[(\(index)) % 2u])"
+                    let lane = "((\(index)) % 2u)"
+                    if scalar == .f16 { return "float16_t(unpackHalf2x16(\(word))[\(lane)])" }
+                    return try integer16Bits("\(word) >> (\(lane) * 16u)", signed: scalar == .i16, in: format)
                 case .uniformRegisters:
-                    if scalar == .f16 {
+                    if scalar.width == 2 {
                         let register = "\(buffer)[(\(index)) / 8u][((\(index)) / 2u) % 4u]"
                         let lane = "((\(index)) % 2u)"
+                        if scalar != .f16 {
+                            return try integer16Bits("\(register) >> (\(lane) * 16u)", signed: scalar == .i16, in: format)
+                        }
                         if format == .glsl {
                             return "unpackFloat2x16(\(register))[\(lane)]"
                         }
@@ -169,7 +177,7 @@ private enum ShaderMemory {
                 let index = wordIndex(first: first, lane: lane)
                 if case .packedHalfWords(let writable) = addressing {
                     guard writable else { throw ShaderFailure.invalidHandle }
-                    statements += packedHalfStore(buffer: buffer, index: index, value: component,
+                    statements += packedHalfStore(buffer: buffer, index: index, value: component, scalar: scalar,
                                                   temporary: temporary + "_half_\(lane)")
                     continue
                 }
@@ -185,8 +193,9 @@ private enum ShaderMemory {
                     }
                 default: bits = component
                 }
-                if addressing == .byteAddressed && scalar == .f16 {
-                    statements.append("\(buffer).Store<half>(\(byteOffset(index, laneBytes: 2)), \(component));")
+                if addressing == .byteAddressed && scalar.width == 2 {
+                    let type = try shaderVectorType(1, scalar: scalar, in: format)
+                    statements.append("\(buffer).Store<\(type)>(\(byteOffset(index, laneBytes: 2)), \(component));")
                 } else if addressing == .byteAddressed && scalar.width == 8 {
                     let packed = "\(temporary)_bits_\(lane)"
                     statements.append("const uint64_t \(packed) = \(bits);")
@@ -201,19 +210,19 @@ private enum ShaderMemory {
         }
     }
 
-    private func packedHalfStore(buffer: String, index: String, value: String, temporary: String) -> [String] {
+    private func packedHalfStore(buffer: String, index: String, value: String, scalar: IRScalar, temporary: String) -> [String] {
         let slot = temporary + "_slot"
         let shift = temporary + "_shift"
         let bits = temporary + "_bits"
         let observed = temporary + "_observed"
         let expected = temporary + "_expected"
         let word = "\(buffer)[\(slot)]"
-        // Each half is an independent WGSL memory location. Preserve an adjacent
-        // invocation's update to the other half of this GLSL word.
+        let packed = scalar == .f16 ? "packHalf2x16(vec2(float(\(value)), 0.0))" : "uint(uint16_t(\(value)))"
+        // Each halfword is an independent memory location. Preserve writes to the neighboring halfword.
         return [
             "uint \(slot) = (\(index)) / 2u;",
             "uint \(shift) = ((\(index)) % 2u) * 16u;",
-            "uint \(bits) = (packHalf2x16(vec2(float(\(value)), 0.0)) & 65535u) << \(shift);",
+            "uint \(bits) = (\(packed) & 65535u) << \(shift);",
             "uint \(observed) = atomicOr(\(word), 0u);",
             "uint \(expected);",
             "do {",
@@ -438,6 +447,24 @@ struct ShaderBodyWriter {
                               index: handle.index, to: &lines)
             case .controlBarrier(let flags):
                 for line in try shaderControlBarrier(flags, in: outputFormat) { try append(line, to: &lines) }
+            case .debugPrintf(let format, let arguments):
+                let callable: String
+                switch outputFormat {
+                case .wgsl: callable = "debugPrintf"
+                case .msl: callable = "metal::os_log_default.log_info"
+                default: throw unsupported("debugPrintf requires native WGSL, Metal or SPIR-V output")
+                }
+                var operands = [DebugPrintfFormat.sourceLiteral(format)]
+                for argument in arguments {
+                    let expression = try value(argument)
+                    let type = try function.expressions.value(for: argument).type
+                    if outputFormat == .msl, try module.types.value(for: type).kind == .scalar(.f16) {
+                        operands.append("float(\(expression))")
+                    } else {
+                        operands.append(expression)
+                    }
+                }
+                try append("\(callable)(\(operands.joined(separator: ", ")));", to: &lines)
             case .workgroupUniformLoad(let pointer, let result):
                 try writeUniformLoad(pointer: pointer, result: result, to: &lines)
             case .imageStore(let image, let coordinate, let arrayIndex, let value):
@@ -456,7 +483,9 @@ struct ShaderBodyWriter {
                     guard target.writable else { throw unsupported("store to read-only storage") }
                     let rhs = try writer.value(expression)
                     if let scalar = try writer.atomicScalar(at: pointer) {
-                        try writer.writeAtomic(.store(rhs), target: target, scalar: scalar, result: nil, temporary: name, to: &lines)
+                        let bits = try scalar == .f32 ? writer.wgslFloatAtomicConstantBits(expression) : nil
+                        try writer.writeAtomic(.store(rhs), target: target, scalar: scalar, result: nil,
+                                               temporary: name, constantFloatBits: bits, to: &lines)
                     } else {
                         let statements: [String]
                         if case .aggregate(let access) = target.memory {
@@ -477,15 +506,18 @@ struct ShaderBodyWriter {
                     guard target.writable, let scalar = try writer.atomicScalar(at: pointer) else {
                         throw unsupported("atomic read-modify-write address")
                     }
-                    let operand = try writer.value(operand)
+                    let value = try writer.value(operand)
                     let temporary = name == resultName ? "saga_atomic_tmp_\(handle.index)" : name + "_tmp"
                     if case .exchange(let compare?, let strong) = operation {
                         let expected = try writer.value(compare)
-                        try writer.writeCompareExchange(target: target, scalar: scalar, expected: expected, replacement: operand,
+                        try writer.writeCompareExchange(target: target, scalar: scalar, expected: expected, replacement: value,
                             strong: strong, result: resultType.map { (name, $0) }, temporary: temporary, to: &lines)
                     } else {
-                        try writer.writeAtomic(.readModifyWrite(operation, operand), target: target, scalar: scalar,
-                                               result: result == nil ? nil : name, temporary: temporary, to: &lines)
+                        let bits = try scalar == .f32 && operation == .exchange(compare: nil)
+                            ? writer.wgslFloatAtomicConstantBits(operand) : nil
+                        try writer.writeAtomic(.readModifyWrite(operation, value), target: target, scalar: scalar,
+                                               result: result == nil ? nil : name, temporary: temporary,
+                                               constantFloatBits: bits, to: &lines)
                     }
                 }
                 if let result { remember(result) }
@@ -2413,10 +2445,18 @@ struct ShaderBodyWriter {
 
     private mutating func writeAtomic(
         _ operation: ShaderAtomicOperation, target: ShaderAddress, scalar: IRScalar,
-        result: String?, temporary: String, to lines: inout [String]
+        result: String?, temporary: String, constantFloatBits: String? = nil, to lines: inout [String]
     ) throws {
+        if case .readModifyWrite(.addFloat32Bits, let bits) = operation {
+            guard scalar == .u32 else { throw unsupported("Float32 bit-pattern atomic add requires u32 storage") }
+            let delta = try floatAtomicBitcast(bits, to: .f32)
+            try writeFloatAtomic(.readModifyWrite(.add, delta), target: target, result: result,
+                                 temporary: temporary, returnsBits: true, to: &lines)
+            return
+        }
         if scalar == .f32 {
-            try writeFloatAtomic(operation, target: target, result: result, temporary: temporary, to: &lines)
+            try writeFloatAtomic(operation, target: target, result: result, temporary: temporary,
+                                 constantFloatBits: constantFloatBits, to: &lines)
             return
         }
         if outputFormat == .msl, scalar.width == 8 {
@@ -2433,27 +2473,49 @@ struct ShaderBodyWriter {
         let type = try shaderVectorType(1, scalar: scalar, in: outputFormat)
         if let result { try append("\(declaration(type, named: result)) = \(zero);", to: &lines) }
         let assignment = result.map { "\($0) = " } ?? ""
-        let (intrinsic, operand) = try atomicIntrinsic(operation, scalar: scalar, zero: zero)
+        let loweredOperation: ShaderAtomicOperation
+        let comparisonSigned: Bool
+        if case .readModifyWrite(let function, let value) = operation,
+           function == .minWithOppositeSignedness || function == .maxWithOppositeSignedness {
+            guard scalar.kind == .sint || scalar.kind == .uint else {
+                throw unsupported("Opposite-signed atomic min/max requires an integer")
+            }
+            let extremum: IRAtomicFunction = function == .minWithOppositeSignedness ? .min : .max
+            if case .native(let reference) = target.memory {
+                try writeOppositeSignedNativeAtomic(extremum, reference: reference, operand: value, scalar: scalar,
+                                                   target: target, result: result, temporary: temporary, to: &lines)
+                return
+            }
+            loweredOperation = .readModifyWrite(extremum, value)
+            comparisonSigned = scalar.kind == .uint
+        } else {
+            loweredOperation = operation
+            comparisonSigned = scalar.kind == .sint
+        }
+        let (intrinsic, operand) = try atomicIntrinsic(loweredOperation, scalar: scalar, zero: zero)
         if outputFormat == .hlsl, let raw = target.memory.hlslAtomicByteAddress, let operand {
             let statements: [String]
             if scalar.width == 8 {
                 let unsignedBitwise = scalar == .i64 && operation.bitwiseOperator != nil
-                let input = unsignedBitwise ? "uint64_t(\(operand))" : operand
-                let old = unsignedBitwise ? temporary + "_bits" : result ?? temporary
-                var operations = result == nil || unsignedBitwise ? ["\(unsignedBitwise ? "uint64_t" : type) \(old);"] : []
+                let retag = unsignedBitwise || comparisonSigned != (scalar.kind == .sint)
+                let operandType = comparisonSigned && !unsignedBitwise ? "int64_t" : "uint64_t"
+                let input = retag ? "\(operandType)(\(operand))" : operand
+                let old = retag ? temporary + "_bits" : result ?? temporary
+                var operations = result == nil || retag ? ["\(operandType) \(old);"] : []
                 operations.append("\(raw.buffer).\(intrinsic)64(\(raw.offset), \(input), \(old));")
-                if unsignedBitwise, let result { operations.append("\(result) = int64_t(\(old));") }
+                if retag, let result { operations.append("\(result) = \(type)(\(old));") }
                 statements = operations
             } else {
-                statements = hlslRawAtomic(operation, intrinsic: intrinsic, operand: operand, signed: scalar == .i32,
-                                           raw: raw, result: result, temporary: "\(temporary)_bits")
+                statements = hlslRawAtomic(loweredOperation, intrinsic: intrinsic, operand: operand, signed: scalar == .i32,
+                                           comparisonSigned: comparisonSigned, raw: raw, result: result, temporary: "\(temporary)_bits")
             }
             try writeStatements(statements, when: target.boundsCheck, to: &lines)
             return
         }
         if case .glslAtomicWord(let reference) = target.memory, let operand {
-            let statements = glslRawAtomic(operation, intrinsic: intrinsic, operand: operand, signed: scalar == .i32,
-                                           reference: reference, result: result, temporary: temporary + "_bits")
+            let statements = glslRawAtomic(loweredOperation, intrinsic: intrinsic, operand: operand, signed: scalar == .i32,
+                                           comparisonSigned: comparisonSigned, reference: reference, result: result,
+                                           temporary: temporary + "_bits")
             try writeStatements(statements, when: target.boundsCheck, to: &lines)
             return
         }
@@ -2498,22 +2560,83 @@ struct ShaderBodyWriter {
         try writeStatements(["\(assignment)\(call);"], when: target.boundsCheck, to: &lines)
     }
 
+    private mutating func writeOppositeSignedNativeAtomic(
+        _ extremum: IRAtomicFunction, reference: String, operand: String, scalar: IRScalar,
+        target: ShaderAddress, result: String?, temporary: String, to lines: inout [String]
+    ) throws {
+        let physicalType = try shaderVectorType(1, scalar: scalar, in: outputFormat)
+        let comparisonScalar = IRScalar(kind: scalar.kind == .sint ? .uint : .sint, width: scalar.width)
+        let comparisonType = try shaderVectorType(1, scalar: comparisonScalar, in: outputFormat)
+        let input = temporary + "_operand"
+        let current = temporary + "_current"
+        let previous = temporary + "_previous"
+        let name = extremum == .min ? "min" : "max"
+        let comparedOperand = try bitcastValue(operand, from: scalar, to: comparisonScalar, type: comparisonType)
+        let comparedPrevious = try bitcastValue(previous, from: scalar, to: comparisonScalar, type: comparisonType)
+        let replacement = try bitcastValue("\(name)(\(comparedPrevious), \(input))", from: comparisonScalar,
+                                           to: scalar, type: physicalType)
+        var onSuccess: [String] = []
+        if let result { onSuccess.append("        \(result) = \(previous);") }
+        onSuccess.append("        break;")
+
+        let statements: [String]
+        if outputFormat == .wgsl {
+            let attempt = temporary + "_attempt"
+            statements = [
+                "let \(input) = \(comparedOperand);",
+                "var \(current) = atomicLoad(&\(reference));",
+                "loop {",
+                "    let \(previous) = \(current);",
+                "    let \(attempt) = atomicCompareExchangeWeak(&\(reference), \(previous), \(replacement));",
+                "    if (\(attempt).exchanged) {",
+            ] + onSuccess + ["    }", "    \(current) = \(attempt).old_value;", "}"]
+        } else {
+            let zero = scalarZero(scalar)
+            let load: [String]
+            let attempt: [String]
+            let succeeded: String
+            switch outputFormat {
+            case .msl:
+                load = ["\(physicalType) \(current) = atomic_load_explicit(&(\(reference)), memory_order_relaxed);"]
+                attempt = []
+                succeeded = "atomic_compare_exchange_weak_explicit(&(\(reference)), &\(current), \(replacement), " +
+                    "memory_order_relaxed, memory_order_relaxed)"
+            case .hlsl:
+                load = ["\(physicalType) \(current);", "InterlockedAdd(\(reference), \(zero), \(current));"]
+                attempt = ["    InterlockedCompareExchange(\(reference), \(previous), \(replacement), \(current));"]
+                succeeded = "\(current) == \(previous)"
+            case .glsl:
+                load = ["\(physicalType) \(current) = atomicAdd(\(reference), \(zero));"]
+                attempt = ["    \(current) = atomicCompSwap(\(reference), \(previous), \(replacement));"]
+                succeeded = "\(current) == \(previous)"
+            default: throw unsupported("opposite-signed atomic min/max target")
+            }
+            let hint = outputFormat == .hlsl ? "[allow_uav_condition] " : ""
+            statements = ["\(comparisonType) \(input) = \(comparedOperand);"] + load + [
+                "\(hint)while (true) {", "    \(physicalType) \(previous) = \(current);",
+            ] + attempt + ["    if (\(succeeded)) {"] + onSuccess + ["    }", "}"]
+        }
+        // The initial load and every retry must stay inside the same robust-address guard.
+        try writeStatements(statements, when: target.boundsCheck, to: &lines)
+    }
+
     private mutating func writeFloatAtomic(
         _ operation: ShaderAtomicOperation, target: ShaderAddress, result: String?,
-        temporary: String, to lines: inout [String]
+        temporary: String, returnsBits: Bool = false, constantFloatBits: String? = nil, to lines: inout [String]
     ) throws {
         // Float atomics use the same four bytes as uint atomics. Compare bit patterns so NaNs and signed zero cannot
         // turn an otherwise successful compare-exchange into a failed floating-point comparison.
         let bits = temporary + "_bits"
         switch operation {
         case .store(let value):
-            try writeAtomic(.store(floatAtomicBitcast(value, to: .u32)), target: target, scalar: .u32,
+            let replacement = try constantFloatBits ?? floatAtomicBitcast(value, to: .u32)
+            try writeAtomic(.store(replacement), target: target, scalar: .u32,
                             result: nil, temporary: bits, to: &lines)
             return
         case .load:
             try writeAtomic(.load, target: target, scalar: .u32, result: bits, temporary: bits, to: &lines)
         case .readModifyWrite(.exchange(compare: nil, strong: false), let value):
-            let replacement = try floatAtomicBitcast(value, to: .u32)
+            let replacement = try constantFloatBits ?? floatAtomicBitcast(value, to: .u32)
             try writeAtomic(.readModifyWrite(.exchange(compare: nil), replacement), target: target, scalar: .u32,
                             result: result == nil ? nil : bits, temporary: bits, to: &lines)
         case .readModifyWrite(let function, let value) where function == .add || function == .subtract:
@@ -2572,8 +2695,9 @@ struct ShaderBodyWriter {
         default: throw unsupported("float atomic operation")
         }
         if let result {
-            let type = floatType(1, in: outputFormat)
-            try append("\(declaration(type, named: result)) = \(try floatAtomicBitcast(bits, to: .f32));", to: &lines)
+            let type = try returnsBits ? shaderVectorType(1, scalar: .u32, in: outputFormat) : floatType(1, in: outputFormat)
+            let value = try returnsBits ? bits : floatAtomicBitcast(bits, to: .f32)
+            try append("\(declaration(type, named: result)) = \(value);", to: &lines)
         }
     }
 
@@ -2582,18 +2706,33 @@ struct ShaderBodyWriter {
                          type: shaderVectorType(1, scalar: output, in: outputFormat))
     }
 
+    private func wgslFloatAtomicConstantBits(_ operand: IRHandle<IRExpression>) throws -> String? {
+        guard outputFormat == .wgsl else { return nil }
+        let kind = try function.expressions.value(for: operand).kind
+        let literal: IRExpressionKind
+        if case .constant(let constant) = kind {
+            let initializer = try module.constants.value(for: constant).initializer
+            literal = try module.globalExpressions.value(for: initializer).kind
+        } else {
+            literal = kind
+        }
+        guard case .literal(.f32(let value)) = literal else { return nil }
+        // Keep literal bits out of floating-point constant folding on the physical u32 path.
+        return "0x\(String(value.bitPattern, radix: 16))u"
+    }
+
     private func glslRawAtomic(
         _ operation: ShaderAtomicOperation, intrinsic: String, operand: String, signed: Bool,
-        reference: String, result: String?, temporary: String
+        comparisonSigned: Bool, reference: String, result: String?, temporary: String
     ) -> [String] {
-        if signed, case .readModifyWrite(let function, _) = operation, function == .min || function == .max {
+        if comparisonSigned, case .readModifyWrite(let function, _) = operation, function == .min || function == .max {
             // The raw SSBO word is unsigned. Compare in signed space, then CAS the bit pattern.
             let comparison = function == .min ? "min" : "max"
             let input = temporary + "_operand"
             let previous = temporary + "_previous"
             let next = temporary + "_next"
             var lines = [
-                "int \(input) = \(operand);",
+                "int \(input) = \(signed ? operand : "int(\(operand))");",
                 "uint \(temporary) = atomicOr(\(reference), 0u);",
                 "while (true) {",
                 "    uint \(previous) = \(temporary);",
@@ -2602,7 +2741,7 @@ struct ShaderBodyWriter {
                 "    if (\(temporary) == \(previous)) { break; }",
                 "}",
             ]
-            if let result { lines.append("\(result) = int(\(temporary));") }
+            if let result { lines.append("\(result) = \(signed ? "int(\(temporary))" : temporary);") }
             return lines
         }
         let bits = signed ? "uint(\(operand))" : operand
@@ -2614,10 +2753,10 @@ struct ShaderBodyWriter {
 
     private func hlslRawAtomic(
         _ operation: ShaderAtomicOperation, intrinsic: String, operand: String, signed: Bool,
-        raw: (buffer: String, offset: String), result: String?, temporary: String
+        comparisonSigned: Bool, raw: (buffer: String, offset: String), result: String?, temporary: String
     ) -> [String] {
         var lines = ["uint \(temporary);"]
-        if signed, case .readModifyWrite(let function, _) = operation, function == .min || function == .max {
+        if comparisonSigned, case .readModifyWrite(let function, _) = operation, function == .min || function == .max {
             // Some HLSL compilers select unsigned min/max for raw-buffer methods.
             let byteOffset = "\(temporary)_offset"
             let previous = "\(temporary)_previous"
@@ -2628,7 +2767,7 @@ struct ShaderBodyWriter {
                 "\(raw.buffer).InterlockedAdd(\(byteOffset), 0u, \(temporary));",
                 "[allow_uav_condition] while (true) {",
                 "    uint \(previous) = \(temporary);",
-                "    uint \(next) = asuint(\(extremum)(asint(\(previous)), \(operand)));",
+                "    uint \(next) = asuint(\(extremum)(asint(\(previous)), \(signed ? operand : "asint(\(operand))")));",
                 "    \(raw.buffer).InterlockedCompareExchange(\(byteOffset), \(previous), \(next), \(temporary));",
                 "    if (\(temporary) == \(previous)) { break; }",
                 "}",
@@ -2665,6 +2804,8 @@ struct ShaderBodyWriter {
             case .subtract: (metal, hlsl) = ("atomic_fetch_sub_explicit", "InterlockedAdd")
             case .min: (metal, hlsl) = ("atomic_fetch_min_explicit", "InterlockedMin")
             case .max: (metal, hlsl) = ("atomic_fetch_max_explicit", "InterlockedMax")
+            case .minWithOppositeSignedness, .maxWithOppositeSignedness, .addFloat32Bits:
+                throw unsupported("Atomic operation requires explicit lowering")
             case .and: (metal, hlsl) = ("atomic_fetch_and_explicit", "InterlockedAnd")
             case .inclusiveOr: (metal, hlsl) = ("atomic_fetch_or_explicit", "InterlockedOr")
             case .exclusiveOr: (metal, hlsl) = ("atomic_fetch_xor_explicit", "InterlockedXor")
@@ -2878,7 +3019,8 @@ struct ShaderBodyWriter {
             case .wgsl: return .native(access.reference)
             case .msl:
                 let atomic = lane == .u64 ? "atomic_ulong" : lane == .i32 ? "atomic_int" : "atomic_uint"
-                let reference = "reinterpret_cast<device \(atomic)*>(\(access.buffer.name))[(\(access.byteOffset)) / \(lane.width)u]"
+                let qualifier = access.buffer.metalMemoryQualifier
+                let reference = "reinterpret_cast<\(qualifier)device \(atomic)*>(\(access.buffer.name))[(\(access.byteOffset)) / \(lane.width)u]"
                 return .native(reference)
             case .glsl:
                 if access.buffer.glslReference != nil { return .native(access.reference) }
@@ -2897,8 +3039,9 @@ struct ShaderBodyWriter {
         if access.buffer.space == .uniform || access.buffer.space == .immediate {
             let buffer: String
             switch outputFormat {
-            case .msl where scalar == .f16 || scalar.width == 8:
-                buffer = "reinterpret_cast<constant \(scalar == .f16 ? "half" : "ulong")*>(\(access.buffer.name))"
+            case .msl where scalar.width == 2 || scalar.width == 8:
+                let pointer = scalar.width == 8 ? "ulong" : try shaderVectorType(1, scalar: scalar, in: .msl)
+                buffer = "reinterpret_cast<constant \(pointer)*>(\(access.buffer.name))"
             case .glsl:
                 buffer = access.buffer.name + ".words"
             default:
@@ -2910,14 +3053,15 @@ struct ShaderBodyWriter {
         let buffer: String
         let addressing: ShaderStorage.WordAddressing
         switch (outputFormat, scalar) {
-        case (.msl, _) where scalar == .f16 || scalar.width == 8:
-            let qualifier = access.buffer.writable ? "device" : "device const"
-            buffer = "reinterpret_cast<\(qualifier) \(scalar == .f16 ? "half" : "ulong")*>(\(access.buffer.name))"
+        case (.msl, _) where scalar.width == 2 || scalar.width == 8:
+            let qualifier = access.buffer.metalMemoryQualifier + (access.buffer.writable ? "device" : "device const")
+            let pointer = scalar.width == 8 ? "ulong" : try shaderVectorType(1, scalar: scalar, in: .msl)
+            buffer = "reinterpret_cast<\(qualifier) \(pointer)*>(\(access.buffer.name))"
             addressing = .structured
         case (.hlsl, _):
             buffer = access.buffer.name
             addressing = .byteAddressed
-        case (.glsl, .f16):
+        case (.glsl, _) where scalar.width == 2:
             buffer = access.buffer.name + ".words"
             addressing = .packedHalfWords(writable: access.buffer.writable)
         case (.glsl, _):
@@ -3024,7 +3168,7 @@ struct ShaderBodyWriter {
 
     private func scalar(_ handle: IRHandle<IRType>) throws -> IRScalar {
         guard case .scalar(let type) = try module.types.value(for: handle).kind,
-              [.u32, .i32, .u64, .i64, .bool, .f32, .f16].contains(type)
+              [.u16, .i16, .u32, .i32, .u64, .i64, .bool, .f32, .f16].contains(type)
         else { throw unsupported("expected a numeric or boolean scalar") }
         return type
     }
@@ -3055,7 +3199,9 @@ struct ShaderBodyWriter {
 
     private func bitcastShape(_ type: IRHandle<IRType>) throws -> IRBitcastShape {
         guard let shape = try IRBitcastShape(module.types.value(for: type).kind),
-              [.i32, .u32, .i64, .u64, .f32, .f16].contains(shape.scalar) else { throw unsupported("bitcast value type") }
+              [.i16, .u16, .i32, .u32, .i64, .u64, .f32, .f16].contains(shape.scalar) else {
+            throw unsupported("bitcast value type")
+        }
         return shape
     }
 
@@ -3083,9 +3229,20 @@ struct ShaderBodyWriter {
         switch outputFormat {
         case .wgsl: operation = "bitcast<\(type)>"
         case .msl: operation = "as_type<\(type)>"
-        case .hlsl: operation = output == .i32 ? "asint" : output == .u32 ? "asuint" : "asfloat"
+        case .hlsl:
+            switch (input, output) {
+            case (.f16, .i16): operation = "asint16"
+            case (.f16, .u16): operation = "asuint16"
+            case (.i16, .f16), (.u16, .f16): operation = "asfloat16"
+            case (.i16, .u16), (.u16, .i16), (.i64, .u64), (.u64, .i64): return numericCast(type, source)
+            default: operation = output == .i32 ? "asint" : output == .u32 ? "asuint" : "asfloat"
+            }
         case .glsl:
             switch (input, output) {
+            case (.f16, .i16): operation = "float16BitsToInt16"
+            case (.f16, .u16): operation = "float16BitsToUint16"
+            case (.i16, .f16): operation = "int16BitsToFloat16"
+            case (.u16, .f16): operation = "uint16BitsToFloat16"
             case (.f32, .i32): operation = "floatBitsToInt"
             case (.f32, .u32): operation = "floatBitsToUint"
             case (.i32, .f32): operation = "intBitsToFloat"
@@ -3109,6 +3266,9 @@ struct ShaderBodyWriter {
         if type == .bool { return "false" }
         if type == .f32 { return floatLiteral(0) }
         if type == .f16 { return halfLiteral(0) }
+        if type == .i16 || type == .u16 {
+            return numericCast(integer16Type(signed: type == .i16, in: outputFormat), "0")
+        }
         if type == .i32 { return outputFormat == .wgsl ? "0i" : "0" }
         if type == .i64 { return signed64Literal(0, in: outputFormat) }
         if type == .u64 { return unsigned64Literal(0, in: outputFormat) }
@@ -3121,7 +3281,7 @@ struct ShaderBodyWriter {
         defer { try? budget.leaveDepth() }
         switch try module.types.value(for: type).kind {
         case .scalar: return try scalarZero(scalar(type))
-        case .vector(let size, let scalar) where [.f32, .f16, .i32, .u32, .i64, .u64, .bool].contains(scalar):
+        case .vector(let size, let scalar) where [.f32, .f16, .i16, .u16, .i32, .u32, .i64, .u64, .bool].contains(scalar):
             return try construct(type, components: Array(repeating: scalarZero(scalar), count: Int(size.rawValue)))
         case .matrix(let columns, let rows, let scalar) where [.f16, .f32].contains(scalar):
             let zero = scalarZero(scalar)
@@ -3171,7 +3331,10 @@ struct ShaderBodyWriter {
         let unsigned = target.kind == .uint
         let lower: String
         let upper: String
-        if input == .f16 {
+        if target.width == 2 {
+            lower = unsigned ? "0.0" : "-32768.0"
+            upper = unsigned ? "65535.0" : "32767.0"
+        } else if input == .f16 {
             lower = unsigned ? "0.0" : "-65504.0"
             upper = "65504.0"
         } else if target.width == 8 {
@@ -3193,6 +3356,10 @@ struct ShaderBodyWriter {
 
     private func literalValue(_ literal: IRLiteral) throws -> String {
         switch literal {
+        case .u16(let number):
+            return numericCast(integer16Type(signed: false, in: outputFormat), "\(number)")
+        case .i16(let number):
+            return numericCast(integer16Type(signed: true, in: outputFormat), "\(number)")
         case .u32(let number): return "\(number)u"
         case .i32(let number):
             if number == .min { return integerBits("2147483648u", signed: true, in: outputFormat) }
@@ -3353,7 +3520,7 @@ struct ShaderBodyWriter {
             return "[\(index)u]"
         }
         if case .vector(let width, let scalar) = try module.types.value(for: type).kind,
-           [.f32, .f16, .u32, .i32, .u64, .i64, .bool].contains(scalar), index < UInt32(width.rawValue) {
+           [.f32, .f16, .u16, .i16, .u32, .i32, .u64, .i64, .bool].contains(scalar), index < UInt32(width.rawValue) {
             return [".x", ".y", ".z", ".w"][Int(index)]
         }
         if case .array(_, .constant(let count), _) = try module.types.value(for: type).kind, index < count {
@@ -3473,6 +3640,18 @@ struct ShaderBodyWriter {
             let type = try typeName(resultType)
             return booleanCast(type, source)
         }
+        if input == .i16 || input == .u16 || target == .i16 || target == .u16 {
+            let source = try value(operand)
+            let type = try typeName(resultType)
+            if outputFormat == .wgsl { return numericCast(type, source) }
+            if target == .i16 || target == .u16 {
+                if input.kind == .float {
+                    return floatToIntegerCast(source, input: input, target: target, width: width, resultType: type)
+                }
+                return try integer16Bits(source, signed: target == .i16, width: width ?? 1, in: outputFormat)
+            }
+            return numericCast(type, source)
+        }
         if input.width == 8 || target.width == 8 {
             let source = try value(operand)
             let type = try typeName(resultType)
@@ -3519,8 +3698,16 @@ struct ShaderBodyWriter {
     private mutating func unaryValue(
         _ op: IRUnaryOperator, argument: IRHandle<IRExpression>, resultType: IRHandle<IRType>, parenthesized: Bool
     ) throws -> String {
+        if op == .bitwiseNot, outputFormat != .wgsl,
+           let shape = try IRBitcastShape(module.types.value(for: resultType).kind),
+           shape.scalar == .i16 || shape.scalar == .u16 {
+            let width = shape.size?.rawValue ?? 1
+            let wide = try shaderVectorType(width, scalar: .u32, in: outputFormat)
+            return try integer16Bits("~\(wide)(\(value(argument)))", signed: shape.scalar == .i16,
+                                     width: width, in: outputFormat)
+        }
         if case .vector(let size, let lane) = try module.types.value(for: resultType).kind,
-           [.i32, .u32, .i64, .u64].contains(lane) {
+           [.i16, .u16, .i32, .u32, .i64, .u64].contains(lane) {
             let operand = try value(argument)
             if op == .bitwiseNot { return "(~\(operand))" }
             guard op == .negate && lane.kind == .sint else { throw unsupported("integer vector unary operation") }
@@ -3574,7 +3761,7 @@ struct ShaderBodyWriter {
             return parenthesized ? "(\(binary))" : binary
         }
         if case .vector(let size, let lane) = lhsKind,
-           lane == .i32 || lane == .u32 || IntegerShaderHelper(operation: op, scalar: lane) != nil {
+           [.i16, .u16, .i32, .u32].contains(lane) || IntegerShaderHelper(operation: op, scalar: lane) != nil {
             let helper = IntegerVectorHelper(operation: .binary(op), scalar: lane, width: size.rawValue)
             try budget.consume(.sourceBytes, amount: helper.name.utf8.count + 4)
             let a = try value(left)
@@ -3679,8 +3866,8 @@ private extension IRTypeKind {
 func shaderBinarySymbol(_ op: IRBinaryOperator, type: IRScalar) throws -> String {
     let lane: IRScalar = switch type {
     case .f16: .f32
-    case .i64: .i32
-    case .u64: .u32
+    case .i16, .i64: .i32
+    case .u16, .u64: .u32
     default: type
     }
     return switch (op, lane) {

@@ -100,7 +100,12 @@ func start(_ maxBufferSize: UInt64, _ maxTextureDimension2D: UInt32, _ presentat
            _ multisampledFloat32Mask: UInt32, _ textureFormatsTier1: UInt32, _ textureFormatsTier2: UInt32, _ rg11b10UfloatRenderable: UInt32, _ depth32FloatStencil8: UInt32, _ bgra8UnormStorage: UInt32,
            _ firstVideoFrame: UInt64, _ secondVideoFrame: UInt64, _ closedVideoFrame: UInt64, _ maxImmediateSize: UInt32,
            _ linearIndexing: UInt32, _ subgroupSizeControl: UInt32, _ subgroupMinSize: UInt32, _ subgroupMaxSize: UInt32,
-           _ subgroupUniformity: UInt32, _ maxComputeWorkgroupStorageSize: UInt32) {
+           _ subgroupUniformity: UInt32, _ maxComputeWorkgroupStorageSize: UInt32,
+           _ maxComputeInvocationsPerWorkgroup: UInt32, _ maxComputeWorkgroupSizeX: UInt32,
+           _ maxComputeWorkgroupSizeY: UInt32, _ maxComputeWorkgroupSizeZ: UInt32,
+           _ maxComputeWorkgroupsPerDimension: UInt32, _ maxVertexAttributes: UInt32,
+           _ maxVertexBuffers: UInt32, _ maxVertexBufferArrayStride: UInt32, _ vertexFormatSnorm1010102: UInt32,
+           _ maxInterStageShaderVariables: UInt32, _ maxColorAttachments: UInt32, _ maxColorAttachmentBytesPerSample: UInt32) {
     _Concurrency._createExecutors(factory: ReactorFactory.self)
     Task {
         let status: UInt32
@@ -119,6 +124,7 @@ func start(_ maxBufferSize: UInt64, _ maxTextureDimension2D: UInt32, _ presentat
             if subgroupID != 0 { features.insert(.subgroupID) }
             if subgroupUniformity != 0 { features.insert(.subgroupUniformity) }
             if linearIndexing != 0 { features.insert(.linearIndexing) }
+            if vertexFormatSnorm1010102 != 0 { features.insert(.vertexFormatSnorm1010102) }
             if dualSourceBlending != 0 { features.insert(.dualSourceBlending) }
             if textureCompressionBC != 0 { features.insert(.textureCompressionBC) }
             if textureCompressionETC2 != 0 { features.insert(.textureCompressionETC2) }
@@ -145,7 +151,16 @@ func start(_ maxBufferSize: UInt64, _ maxTextureDimension2D: UInt32, _ presentat
                                                        maxImmediateSize: maxImmediateSize,
                                                        subgroupSizeRange: subgroupMinSize > 0 && subgroupMaxSize >= subgroupMinSize
                                                            ? subgroupMinSize...subgroupMaxSize : nil,
-                                                       maxComputeWorkgroupStorageSize: maxComputeWorkgroupStorageSize)
+                                                       maxComputeWorkgroupStorageSize: maxComputeWorkgroupStorageSize,
+                                                       maxComputeInvocationsPerWorkgroup: maxComputeInvocationsPerWorkgroup,
+                                                       maxComputeWorkgroupSize: .init(x: maxComputeWorkgroupSizeX,
+                                                           y: maxComputeWorkgroupSizeY, z: maxComputeWorkgroupSizeZ),
+                                                       maxComputeWorkgroupsPerDimension: maxComputeWorkgroupsPerDimension,
+                                                       maxVertexAttributes: maxVertexAttributes, maxVertexBuffers: maxVertexBuffers,
+                                                       maxVertexBufferArrayStride: maxVertexBufferArrayStride,
+                                                       maxInterStageShaderVariables: maxInterStageShaderVariables,
+                                                       maxColorAttachments: maxColorAttachments,
+                                                       maxColorAttachmentBytesPerSample: maxColorAttachmentBytesPerSample)
             message = try await runWebDiagnostic(capabilities: capabilities, supportsPresentation: presentation != 0,
                                                   videoFrames: (firstVideoFrame, secondVideoFrame, closedVideoFrame))
             status = 0

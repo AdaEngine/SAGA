@@ -113,6 +113,47 @@ func rejectsInvalidPrivateInitializers(source: String) {
 }
 
 #if canImport(Metal)
+@Test func spirvPrivateCompositeInitializersAreInvocationLocalOnMetal() async throws {
+    let source = ShaderInput.wgsl("""
+        struct Record { values: vec2u, tag: u32 }
+        var<private> state = Record(vec2u(5u, 7u), 11u);
+        var<private> counter: u32;
+        @group(0) @binding(0) var<storage, read_write> output: array<vec4u, 2>;
+
+        fn update(amount: u32) {
+            state.values.x += amount;
+            counter += 1u;
+        }
+        @compute @workgroup_size(2) fn run(@builtin(local_invocation_index) lane: u32) {
+            let initial = state;
+            update(lane + 1u);
+            output[lane] = vec4u(initial.values.x, state.values.x, state.values.y + state.tag, counter);
+        }
+        """)
+    let compiler = IndependentShaderCompiler()
+    guard case .spirv(let words) = try compiler.compile(source, to: .spirv) else { throw ShaderFailure.incompatibleArtifact }
+    let input = ShaderInput.spirv(words)
+    let imported = try compiler.parseAndValidate(input).module
+    let state = try #require(imported.globalVariables.values.first { $0.name == "state" })
+    #expect(state.space == .private && state.initializer != nil)
+    let shader = try compiler.compileCompute(input, to: .msl)
+    let device = try await Device.make(backend: MetalBackend.makeDevice())
+    do {
+        let pipeline = try await device.createComputePipeline(shader)
+        let output = try await device.createBuffer(.init(size: 32, usage: [.storage, .copySource]))
+        let readback = try await device.createBuffer(.init(size: 32, usage: [.copyDestination, .mapRead]))
+        let snapshots = try await device.submitCommands([
+            .dispatchCompute(pipeline: pipeline, bindings: [.init(binding: 0): output], workgroups: .init(x: 1)),
+            .copy(source: output, destination: readback, byteCount: 32), .read(buffer: readback, byteCount: 32),
+        ]).wait()
+        #expect(snapshots == [[5, 6, 18, 1, 5, 7, 18, 1]])
+    } catch {
+        await device.close()
+        throw error
+    }
+    await device.close()
+}
+
 @Test func privateShaderVariablesAreInvocationLocalOnMetal() async throws {
     let shader = try IndependentShaderCompiler().compileCompute(.wgsl(privateVariableShader), to: .msl,
                                                                  constants: ["base": 29])

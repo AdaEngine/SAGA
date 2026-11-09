@@ -119,6 +119,28 @@ func rejectsBarriersSomeInvocationsCanSkip(body: String) {
     #expect(!output.contains("threadgroup_barrier"))
 }
 
+@Test func hlslWorkgroupInitializationUsesDistinctLoopVariables() throws {
+    let input = ShaderInput.wgsl("""
+        struct Nested { first: array<u32, 2>, second: array<u32, 2> }
+        var<workgroup> first: array<u32, 4>;
+        var<workgroup> second: array<u32, 4>;
+        var<workgroup> nested: Nested;
+        @group(0) @binding(0) var<storage, read_write> output: array<u32, 4>;
+        @compute @workgroup_size(4) fn run(@builtin(local_invocation_index) lane: u32) {
+            output[lane] = first[lane] + second[lane] + nested.first[0] + nested.second[1];
+        }
+        """)
+    let shader = try IndependentShaderCompiler().compileCompute(input, to: .hlsl)
+    guard case .text(.hlsl, let text) = shader.artifact else { throw ShaderFailure.incompatibleArtifact }
+    let indices = text.split(separator: "\n").compactMap { line -> Substring? in
+        let tokens = line.split(separator: " ")
+        guard tokens.count > 2, tokens[0] == "for", tokens[1] == "(uint" else { return nil }
+        return tokens[2]
+    }
+    #expect(indices.count == 4)
+    #expect(Set(indices).count == indices.count)
+}
+
 #if canImport(Metal)
 @Test func workgroupMemoryStartsAtZeroAndSharesAcrossInvocationsOnMetal() async throws {
     let device = try await Device.make(backend: MetalBackend.makeDevice())

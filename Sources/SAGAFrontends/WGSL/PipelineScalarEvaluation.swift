@@ -108,6 +108,8 @@ package func evaluateWGSLPipelineValue(
             let name: String
             switch target {
             case .bool: name = "bool"
+            case .i16: name = "i16"
+            case .u16: name = "u16"
             case .i32: name = "i32"
             case .u32: name = "u32"
             case .i64: name = "i64"
@@ -250,6 +252,8 @@ private func pipelineToken(_ location: ShaderLocation?) -> WGSLToken {
 private func pipelineConstant(_ literal: IRLiteral) throws -> WGSLScalarConstant {
     switch literal {
     case .bool(let value): return .boolean(value)
+    case .i16(let value): return .integer(.init(value: Int64(value), kind: .sint16))
+    case .u16(let value): return .integer(.init(value: Int64(value), kind: .uint16))
     case .i32(let value): return .integer(.init(value: Int64(value), kind: .sint))
     case .u32(let value): return .integer(.init(value: Int64(value), kind: .uint))
     case .i64(let value): return .integer(.init(value: value, kind: .sint64))

@@ -1,4 +1,5 @@
 import Testing
+import SAGACompiler
 import SAGAShaderIR
 import SAGAFrontends
 
@@ -36,6 +37,22 @@ import SAGAFrontends
         for version in ["440", "450 core", "460"] { _ = try parse("#version \(version)\nvoid main(){}") }
         #expect(throws: ShaderFailure.self) { try GLSLFrontend(options: .init(stage:.vertex)).parse(.glsl("#version 450\nvoid main(){}",stage:.compute,defines:[:])) }
         #expect(throws: ShaderFailure.self) { try parse("#version 450\nvoid main(){}", defines:["not a name":"1"]) }
+    }
+    @Test func glslVersionlessSourcesUseTheNagaDialect() throws {
+        let compiler = IndependentShaderCompiler()
+        let fragment = ShaderInput.glsl("""
+            layout(location = 0) out vec4 color;
+            void main() { color = vec4(1.0); }
+            """, stage: .fragment, defines: [:])
+        let compute = ShaderInput.glsl("""
+            void main() {
+                vec4 sum = vec4(0);
+                for (int i = 0; i < 4; i++) { sum += vec4(1); }
+            }
+            """, stage: .compute, defines: [:])
+        _ = try compiler.compileWebGPURenderStage(fragment, entryPoint: "main")
+        #expect(try compiler.compileWebGPUCompute(compute).workgroupSize == .init())
+        #expect(throws: ShaderFailure.self) { try parse("void main(){}\n#version 450") }
     }
     @Test func originalUTF8DiagnosticAndMacroUseSite() throws {
         let s="#version 450\n// 🌏é\n#define BAD missing\nvoid main(){int x=BAD;}"

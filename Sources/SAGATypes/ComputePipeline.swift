@@ -18,7 +18,7 @@ public struct ComputeBindingSlot: Hashable, Sendable {
 }
 
 public struct DispatchWorkgroups: Equatable, Sendable {
-    package static let maximumDimension: UInt32 = 65_535
+    package static let defaultMaximumDimension: UInt32 = 65_535
 
     public let x: UInt32
     public let y: UInt32

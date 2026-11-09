@@ -176,8 +176,18 @@ func resolvesColorAndPreservesIndividualMultisampleValuesOnMetal(indexed: Bool) 
             colorFormat: .rgba8Unorm,
             vertexBuffers: [.init(stride: 8, attributes: [.init(location: 0, offset: 0, format: .float32x2)])],
             depthState: .init(compare: .less), sampleCount: 4)
-        let compute = try await device.createComputePipeline(
-            compiler.compileCompute(.wgsl(multisampleReader), to: .msl))
+        let reader = ShaderInput.wgsl(multisampleReader)
+        let input: ShaderInput
+        if indexed {
+            guard case .spirv(var words) = try compiler.compile(reader, to: .spirv) else {
+                throw ShaderFailure.incompatibleArtifact
+            }
+            words.insert(contentsOf: SPIRVFrontendTests.i(17, 27), at: 5) // StorageImageMultisample
+            input = .spirv(words)
+        } else {
+            input = reader
+        }
+        let compute = try await device.createComputePipeline(compiler.compileCompute(input, to: .msl))
         let color = try await device.createTexture(.init(width: 1, height: 1, format: .rgba8Unorm,
             usage: [.renderAttachment, .textureBinding, .copySource], sampleCount: 4))
         let depth = try await device.createTexture(.init(width: 1, height: 1, format: .depth32Float,

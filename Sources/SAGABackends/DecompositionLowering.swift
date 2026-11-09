@@ -35,4 +35,4 @@ func halfType(_ width: UInt8, in format: ShaderOutputFormat) -> String {
 }
 
 let glslFloat16Extension = "#extension GL_EXT_shader_explicit_arithmetic_types_float16 : require"
-let glslStorageFloat16Extension = "#extension GL_EXT_shader_16bit_storage : require"
+let glslStorage16BitExtension = "#extension GL_EXT_shader_16bit_storage : require"

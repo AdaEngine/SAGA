@@ -10,6 +10,22 @@ struct SPVValueLayout {
 }
 
 extension SPVDecoder {
+    func requireFixedSize(_ type: IRHandle<IRType>, _ instruction: SPVInstruction, depth: Int = 0) throws {
+        guard depth < 64 else { throw instruction.fail("Layout depth limit", code: .unsupportedConstruct) }
+        switch types[type.index].kind {
+        case .array(_, .dynamic, _):
+            throw instruction.fail("Runtime array cannot be used as a fixed-size member")
+        case .array(let element, .constant, _):
+            try requireFixedSize(element, instruction, depth: depth + 1)
+        case .structure(let members, _):
+            if let last = members.last, case .array(_, .dynamic, _) = types[last.type.index].kind {
+                throw instruction.fail("Runtime-sized structure cannot be nested")
+            }
+        default:
+            break
+        }
+    }
+
     mutating func addImplicitStruct(_ instruction: SPVInstruction) throws {
         let id = instruction.a[0]
         var fields: [IRStructMember] = []
@@ -79,16 +95,57 @@ extension SPVDecoder {
             guard !implicitArrays.contains(next) else {
                 throw instruction.fail("Buffer arrays require explicit ArrayStride")
             }
+            guard !incompleteMatrixLayouts.contains(next) else {
+                throw instruction.fail("Buffer matrix members require ColMajor and MatrixStride", code: .unsupportedConstruct)
+            }
             verifiedBufferLayouts.insert(next)
             switch types[next.index].kind {
             case .structure(let members, _):
                 try charge(members.count)
                 pending.append(contentsOf: members.map(\.type))
-            case .array(let element, _, _):
+            case .array(let element, _, _), .bindingArray(let element, _):
                 pending.append(element)
             default:
                 break
             }
         }
+    }
+
+    mutating func requiresStandardUniformLayout(_ type: IRHandle<IRType>) throws -> Bool {
+        // SPIR-V encodes offsets and strides, but has no decoration for the Vulkan device feature.
+        // Recover the WGSL language feature only for layouts that need it under WGSL rules.
+        var pending = [type]
+        var seen: Set<IRHandle<IRType>> = []
+        while let next = pending.popLast() {
+            try charge()
+            guard seen.insert(next).inserted else { continue }
+            switch types[next.index].kind {
+            case .bindingArray(let element, _):
+                pending.append(element)
+            case .array(let element, _, let stride):
+                if stride % 16 != 0 { return true }
+                pending.append(element)
+            case .structure(let fields, _):
+                try charge(fields.count)
+                var paddedStructureEnd: UInt64 = 0
+                for field in fields {
+                    if UInt64(field.offset) < paddedStructureEnd { return true }
+                    switch types[field.type.index].kind {
+                    case .structure(_, let span):
+                        if field.offset % 16 != 0 { return true }
+                        let extended = (UInt64(span) + 15) & ~UInt64(15)
+                        paddedStructureEnd = UInt64(field.offset) + extended
+                    case .array:
+                        if field.offset % 16 != 0 { return true }
+                        paddedStructureEnd = 0
+                    default:
+                        paddedStructureEnd = 0
+                    }
+                    pending.append(field.type)
+                }
+            default: break
+            }
+        }
+        return false
     }
 }

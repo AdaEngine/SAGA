@@ -16,7 +16,7 @@ extension WGSLParser {
         leftTokens: Range<Int>, rightTokens: Range<Int>, at token: WGSLToken
     ) throws -> WGSLValue {
         if case .vector(let size, let scalar) = types[left.type.index].kind {
-            guard [.i32, .u32, .i64, .u64].contains(scalar),
+            guard [.i16, .u16, .i32, .u32, .i64, .u64].contains(scalar),
                   case .vector(let countSize, let count) = types[right.type.index].kind,
                   countSize == size, count == .u32 || count == .abstractInt else {
                 throw wgslError(.typeMismatch, "Vector shift requires matching integer values and u32 counts", token)
@@ -41,7 +41,7 @@ extension WGSLParser {
                                       type: left.type, at: token)
         }
         guard case .scalar(let scalar) = types[left.type.index].kind,
-              [.i32, .u32, .i64, .u64, .abstractInt].contains(scalar),
+              [.i16, .u16, .i32, .u32, .i64, .u64, .abstractInt].contains(scalar),
               case .scalar(let count) = types[right.type.index].kind, count == .u32 || count == .abstractInt else {
             throw wgslError(.typeMismatch, "Shift requires an integer value and u32 count", token)
         }
@@ -79,8 +79,8 @@ extension WGSLParser {
             }
         }
         guard let l = leaf(lhs), let r = leaf(rhs),
-              [IRScalar.i32, .u32, .i64, .u64, .abstractInt].contains(l),
-              [IRScalar.i32, .u32, .i64, .u64, .abstractInt].contains(r) else { return nil }
+              [IRScalar.i16, .u16, .i32, .u32, .i64, .u64, .abstractInt].contains(l),
+              [IRScalar.i16, .u16, .i32, .u32, .i64, .u64, .abstractInt].contains(r) else { return nil }
         let scalar = l == .abstractInt ? r : l
         guard scalar != .abstractInt, l == r || l == .abstractInt || r == .abstractInt else {
             throw wgslError(.typeMismatch, "Integer vector operands need a common concrete lane type", token)
@@ -108,7 +108,7 @@ extension WGSLParser {
                       (divisors.count == 1 || divisors.count == width) else {
                     throw wgslError(.typeMismatch, "Constant vector shape mismatch", token)
                 }
-                let minimum = scalar == .i64 ? Int64.min : Int64(Int32.min)
+                let minimum = Int64.min >> (64 - Int(scalar.width) * 8)
                 for lane in 0..<width {
                     let lhs = dividends[dividends.count == 1 ? 0 : lane].value
                     let rhs = divisors[divisors.count == 1 ? 0 : lane].value

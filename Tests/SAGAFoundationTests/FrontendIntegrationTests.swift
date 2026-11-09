@@ -22,8 +22,8 @@ import Testing
     }
   }
   @Test func parserSuccessDoesNotBypassSemanticValidation() throws {
-    // Workgroup size exceeds pinned validator limit; syntax is valid.
-    let source = "@compute @workgroup_size(20000) fn main() {}"
+    // The declaration parses, but front_facing is a fragment-stage input.
+    let source = "@compute @workgroup_size(1) fn main(@builtin(front_facing) front: bool) {}"
     let raw = try WGSLFrontend().parse(.wgsl(source))
     #expect(raw.entryPoints.count == 1)
     #expect(throws: ShaderFailure.self) {

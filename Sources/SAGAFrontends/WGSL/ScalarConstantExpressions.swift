@@ -78,7 +78,7 @@ struct WGSLConstNode {
 
 struct WGSLScalarEvaluator {
   static let constantFunctions = [
-    "bool", "i32", "u32", "i64", "u64", "f32", "f16", "all", "any", "select",
+    "bool", "i16", "u16", "i32", "u32", "i64", "u64", "f32", "f16", "all", "any", "select",
   ]
   let parser: WGSLParser
   let tokens: [WGSLToken]
@@ -481,6 +481,9 @@ struct WGSLScalarEvaluator {
           scalar = s
         } else if name.text == "bool" {
           scalar = .bool
+        } else if name.text == "i16" || name.text == "u16" {
+          try parser.requireInt16(at: name)
+          scalar = name.text == "i16" ? .i16 : .u16
         } else if name.text == "i32" {
           scalar = .i32
         } else if name.text == "u32" {
@@ -553,6 +556,10 @@ struct WGSLScalarEvaluator {
       }
       if scalar == .bool {
         callName = "bool"
+      } else if scalar == .i16 {
+        callName = "i16"
+      } else if scalar == .u16 {
+        callName = "u16"
       } else if scalar == .i32 {
         callName = "i32"
       } else if scalar == .u32 {
@@ -566,6 +573,7 @@ struct WGSLScalarEvaluator {
       }
     }
     if callName == "f16" { try parser.requireFloat16(at: t) }
+    if callName == "i16" || callName == "u16" { try parser.requireInt16(at: t) }
     let function = IRMathFunction(wgslName: callName)
     let bitArity = function?.integerBitArity
     let packing = function?.packingBuiltin
@@ -614,12 +622,14 @@ struct WGSLScalarEvaluator {
       return try append(.numeric(function, args), signature.result, t)
     }
     let needed = callName == "select" ? 3 : 1
-    if args.isEmpty && ["bool", "i32", "u32", "i64", "u64", "f32", "f16"].contains(callName) {
+    if args.isEmpty && ["bool", "i16", "u16", "i32", "u32", "i64", "u64", "f32", "f16"].contains(callName) {
       let zero: WGSLScalarConstant
       switch callName {
       case "bool": zero = .boolean(false)
       case "f32": zero = .floating(.init(value: 0, kind: .f32))
       case "f16": zero = .floating(.init(value: 0, kind: .f16))
+      case "i16": zero = .integer(.init(value: 0, kind: .sint16))
+      case "u16": zero = .integer(.init(value: 0, kind: .uint16))
       case "i32": zero = .integer(.init(value: 0, kind: .sint))
       case "i64": zero = .integer(.init(value: 0, kind: .sint64))
       case "u64": zero = .integer(.init(value: 0, kind: .uint64))
@@ -645,6 +655,8 @@ struct WGSLScalarEvaluator {
     case "f32": kind = .floating(.f32)
     case "f16": kind = .floating(.f16)
     case "bool": kind = .boolean
+    case "i16": kind = .integer(.sint16)
+    case "u16": kind = .integer(.uint16)
     case "i32": kind = .integer(.sint)
     case "u32": kind = .integer(.uint)
     case "i64": kind = .integer(.sint64)
@@ -708,7 +720,7 @@ struct WGSLScalarEvaluator {
           guard case .integer(let numerator) = try value(lhs) else {
             throw ShaderFailure.invalidHandle
           }
-          let minimum = kind == .sint ? Int64(Int32.min) : Int64.min
+          let minimum = kind.signedMinimum
           guard numerator.value != minimum else {
             throw wgslError(.invalidType, "Constant division/remainder overflow", n.token)
           }
@@ -819,14 +831,10 @@ struct WGSLScalarEvaluator {
       } else if case .boolean(let b) = v {
         result = .boolean(!b)
       } else if case .integer(let a) = v {
-        if a.kind.isWide {
-          result = .integer(.init(value: op == "~" ? ~a.value : 0 &- a.value, kind: a.kind))
+        if a.kind != .abstract {
+          result = .integer(.init(value: a.kind.truncating(op == "~" ? ~a.value : 0 &- a.value), kind: a.kind))
         } else if op == "~" {
-          result = .integer(
-            try arithmetic.checked(
-              a.kind == .uint ? Int64(~UInt32(a.value)) : ~a.value, a.kind, at: n.token))
-        } else if a.kind == .sint {
-          result = .integer(.init(value: Int64(Int32.zero &- Int32(a.value)), kind: .sint))
+          result = .integer(try arithmetic.checked(~a.value, a.kind, at: n.token))
         } else {
           let (v, overflow) = Int64.zero.subtractingReportingOverflow(a.value)
           guard !overflow else {

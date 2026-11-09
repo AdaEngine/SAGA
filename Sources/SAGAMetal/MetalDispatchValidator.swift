@@ -2,11 +2,11 @@
 import Metal
 import SAGATypes
 
-/// Applies the portable workgroup limit after any earlier GPU writes to the argument buffer.
+/// Applies the device workgroup limit after any earlier GPU writes to the argument buffer.
 struct MetalDispatchValidator {
     private let pipeline: any MTLComputePipelineState
 
-    init(device: any MTLDevice) throws {
+    init(device: any MTLDevice, maxWorkgroupsPerDimension: UInt32) throws {
         let source = """
         #include <metal_stdlib>
         using namespace metal;
@@ -14,7 +14,7 @@ struct MetalDispatchValidator {
                                       device packed_uint3& destination [[buffer(1)]],
                                       constant uint& linear_limit [[buffer(2)]]) {
             uint3 groups(source);
-            bool invalid = any(groups > \(DispatchWorkgroups.maximumDimension)u) || any(groups == 0u);
+            bool invalid = any(groups > \(maxWorkgroupsPerDimension)u) || any(groups == 0u);
             if (!invalid && linear_limit != 0u) {
                 invalid = groups.z > linear_limit / groups.x / groups.y;
             }

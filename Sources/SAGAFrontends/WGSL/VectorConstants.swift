@@ -17,6 +17,8 @@ extension WGSLConstKind {
   static func scalar(_ scalar: IRScalar, at t: WGSLToken) throws -> WGSLConstKind {
     switch scalar {
     case .bool: return .boolean
+    case .i16: return .integer(.sint16)
+    case .u16: return .integer(.uint16)
     case .i32: return .integer(.sint)
     case .u32: return .integer(.uint)
     case .i64: return .integer(.sint64)
@@ -74,10 +76,7 @@ extension WGSLScalarEvaluator {
       case .floating(let x): return try floatToInteger(x, target: k, at: t)
       case .integer(let x):
         if x.kind == .abstract || x.kind == k { return try converted(v, to: target, at: t) }
-        if k.isWide { return .integer(.init(value: x.value, kind: k)) }
-        let bits = UInt32(truncatingIfNeeded: x.value)
-        return .integer(
-          .init(value: k == .uint ? Int64(bits) : Int64(Int32(bitPattern: bits)), kind: k))
+        return .integer(.init(value: k.truncating(x.value), kind: k))
       case .vector, .matrix, .array, .composite, .decomposition: throw wgslError(.typeMismatch, "Scalar conversion needs scalar", t)
       }
     case .vector, .matrix, .array, .composite, .decomposition: throw wgslError(.invalidType, "Vector scalar conversion target", t)

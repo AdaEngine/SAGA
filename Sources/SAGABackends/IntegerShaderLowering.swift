@@ -122,6 +122,41 @@ func wideIntegerBits(_ value: String, signed: Bool, width: UInt8 = 1, in format:
     }
 }
 
+func integer16Bits(_ value: String, signed: Bool, width: UInt8 = 1, in format: ShaderOutputFormat) throws -> String {
+    let unsigned = try shaderVectorType(width, scalar: .u16, in: format)
+    let narrowed = "\(unsigned)(\(value))"
+    guard signed else { return narrowed }
+    let type = try shaderVectorType(width, scalar: .i16, in: format)
+    switch format {
+    case .msl: return "as_type<\(type)>(\(narrowed))"
+    case .wgsl: return "bitcast<\(type)>(\(narrowed))"
+    default: return "\(type)(\(narrowed))"
+    }
+}
+
+private func integer16Binary(
+    _ op: IRBinaryOperator, scalar: IRScalar, left: String, right: String,
+    in format: ShaderOutputFormat, helpers: inout Set<IntegerShaderHelper>
+) throws -> String? {
+    let signed = scalar == .i16
+    let promoted = signed ? IRScalar.i32 : .u32
+    if let helper = IntegerShaderHelper(operation: op, scalar: promoted) {
+        if format == .wgsl { return "(\(left) \(helper.operation.symbol) \(right))" }
+        // Promotion makes min(i16) / -1 representable and keeps native shifts inside the lane width.
+        let type = try shaderVectorType(1, scalar: promoted, in: format)
+        let rhs = helper.operation.isShift ? "(\(right) & 15u)" : "\(type)(\(right))"
+        guard let value = try integerBinary(op, scalar: promoted, left: "\(type)(\(left))", right: rhs,
+                                            in: format, helpers: &helpers) else { return nil }
+        return try integer16Bits(value, signed: signed, in: format)
+    }
+    guard format != .wgsl, [.add, .subtract, .multiply, .and, .inclusiveOr, .exclusiveOr].contains(op) else {
+        return nil
+    }
+    let symbol = try shaderBinarySymbol(op, type: .u32)
+    // In C++ even ushort operands promote to signed int. Widen explicitly before multiplying.
+    return try integer16Bits("uint(\(left)) \(symbol) uint(\(right))", signed: signed, in: format)
+}
+
 func wideIntegerBinary(
     _ op: IRBinaryOperator, scalar: IRScalar, width: UInt8 = 1, left: String, right: String,
     in format: ShaderOutputFormat
@@ -151,6 +186,9 @@ func integerBinary(
     _ op: IRBinaryOperator, scalar: IRScalar, left: String, right: String,
     in format: ShaderOutputFormat, helpers: inout Set<IntegerShaderHelper>
 ) throws -> String? {
+    if scalar == .i16 || scalar == .u16 {
+        return try integer16Binary(op, scalar: scalar, left: left, right: right, in: format, helpers: &helpers)
+    }
     if let helper = IntegerShaderHelper(operation: op, scalar: scalar) {
         let signed = scalar.kind == .sint
         if format == .wgsl || !helper.operation.isShift || (op == .shiftRight && signed) {
@@ -180,6 +218,7 @@ func signedNegation(_ value: String, in format: ShaderOutputFormat) -> String {
 func integerNegation(_ value: String, scalar: IRScalar, in format: ShaderOutputFormat) throws -> String {
     if scalar == .i32 { return signedNegation(value, in: format) }
     if format == .wgsl { return "(-\(value))" }
+    if scalar == .i16 { return try integer16Bits("0u - uint(\(value))", signed: true, in: format) }
     let bits = try wideIntegerBits(value, signed: false, in: format)
     let zero = unsigned64Literal(0, in: format)
     return try wideIntegerBits("\(zero) - \(bits)", signed: true, in: format)

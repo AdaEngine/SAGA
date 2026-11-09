@@ -17,10 +17,19 @@ private let dualSourceShader = """
     }
     """
 
-@Test(arguments: [ShaderOutputFormat.wgsl, .msl, .hlsl, .glsl])
-func dualSourceFragmentOutputsRemainSeparateFromColorAttachments(format: ShaderOutputFormat) throws {
+private func dualSourceInput(_ compiler: IndependentShaderCompiler, roundTrip: Bool) throws -> ShaderInput {
+    let source = ShaderInput.wgsl(dualSourceShader)
+    guard roundTrip else { return source }
+    guard case .spirv(let words) = try compiler.compile(source, to: .spirv) else {
+        throw ShaderFailure.incompatibleArtifact
+    }
+    return .spirv(words)
+}
+
+@Test(arguments: [ShaderOutputFormat.wgsl, .msl, .hlsl, .glsl], [false, true])
+func dualSourceFragmentOutputsRemainSeparateFromColorAttachments(format: ShaderOutputFormat, roundTrip: Bool) throws {
     let compiler = IndependentShaderCompiler()
-    let artifact = try compiler.compileRenderStage(.wgsl(dualSourceShader), entryPoint: "fs", to: format)
+    let artifact = try compiler.compileRenderStage(dualSourceInput(compiler, roundTrip: roundTrip), entryPoint: "fs", to: format)
     #expect(artifact.usesDualSourceBlending)
     #expect(artifact.colorOutputKinds == [0: .float])
     guard case .text(_, let source) = artifact.artifact else { Issue.record("Expected shader text"); return }
@@ -75,10 +84,11 @@ func rejectsInvalidDualSourceBindingsEvenOnUnusedStructures(source: String) {
 }
 
 #if canImport(Metal)
-@Test func blendsUsingBothFragmentSourcesOnMetal() async throws {
+@Test(arguments: [false, true])
+func blendsUsingBothFragmentSourcesOnMetal(_ roundTrip: Bool) async throws {
     let device = try await Device.make(backend: MetalBackend.makeDevice(), requiredFeatures: [.dualSourceBlending])
     let compiler = IndependentShaderCompiler()
-    let source = ShaderInput.wgsl(dualSourceShader)
+    let source = try dualSourceInput(compiler, roundTrip: roundTrip)
     let vertex = try compiler.compileRenderStage(source, entryPoint: "vs", to: .msl)
     let fragment = try compiler.compileRenderStage(source, entryPoint: "fs", to: .msl)
     let ordinary = try compiler.compileRenderStage(.wgsl("""

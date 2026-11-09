@@ -1,5 +1,30 @@
+import hashlib
+from pathlib import Path
+import struct
+import tempfile
 import unittest
-from configured_frontend_corpus import configuration, summarize, DEFAULT_CAPS
+from unittest.mock import patch
+from configured_frontend_corpus import configuration, summarize, map_spirv_assembly, DEFAULT_CAPS
+
+
+def assembly_row(root):
+    path = root / "shader.spvasm"
+    source = b"; pinned source fixture\n"
+    path.write_bytes(source)
+    return dict(source="shader.spvasm", path=str(path), sha256=hashlib.sha256(source).hexdigest(),
+                format="spirv-assembly", stage="compute", expected_parse="accepted",
+                expected_semantic="accepted", validation=True)
+
+
+def fake_assembler(root, output, status=0):
+    path = root / "spirv-as"
+    escaped = "".join(f"\\{byte:03o}" for byte in output)
+    path.write_text("#!/bin/sh\n"
+                    'if [ "$1" = "--version" ]; then echo "SPIRV-Tools test version"; exit 0; fi\n'
+                    'if [ "$#" -ne 3 ] || [ "$2" != "-o" ] || [ "$3" != "-" ]; then exit 77; fi\n'
+                    f"printf '{escaped}'\nexit {status}\n")
+    path.chmod(0o755)
+    return path
 
 class ConfiguredCorpusTests(unittest.TestCase):
     def test_pinned_defaults_differ_from_frontend_api_defaults(self):
@@ -56,5 +81,77 @@ class ConfiguredCorpusTests(unittest.TestCase):
         b=dict(source="b",sha256="hash",expected_parse="rejected",expected_semantic="not-run",validation=True)
         report=summarize(dict(rows=[a,b],scope="test"),[dict(a,parse="accepted"),dict(b,parse="rejected")])
         self.assertEqual(report["counts"],{"parse-only":1,"rejection-only":1})
+
+    def test_assembly_mapping_binds_binary_to_pinned_source_and_tool(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            row = assembly_row(root)
+            binary = struct.pack("<5I", 0x07230203, 0x00010600, 0, 1, 0)
+            tool = fake_assembler(root, binary)
+            map_spirv_assembly([row], tool, root / "binaries")
+            self.assertNotIn("unavailable_reason", row)
+            self.assertEqual(row["stage"], "module")
+            record = row["assembly"]
+            self.assertEqual(record["source_sha256"], row["sha256"])
+            self.assertEqual(record["binary_sha256"], hashlib.sha256(binary).hexdigest())
+            self.assertEqual(record["binary_bytes"], len(binary))
+            self.assertEqual(record["spirv_version"], 0x00010600)
+            self.assertEqual(Path(record["binary_path"]).read_bytes(), binary)
+            self.assertEqual(record["assembler_path"], str(tool))
+            self.assertEqual(record["assembler_sha256"], hashlib.sha256(tool.read_bytes()).hexdigest())
+            self.assertEqual(record["assembler_version"], "SPIRV-Tools test version")
+            self.assertEqual(record["assembler_arguments"], [row["path"], "-o", "-"])
+
+            configured = dict(rows=[row], scope="test")
+            actual = dict(row, parse="accepted", semantic="accepted")
+            self.assertEqual(summarize(configured, [actual])["counts"], {"pass": 1})
+            for field in record:
+                with self.subTest(field=field), self.assertRaises(ValueError):
+                    summarize(configured, [dict(actual, assembly=dict(record, **{field: "drift"}))])
+            with self.assertRaises(ValueError):
+                summarize(configured, [dict(actual, assembly=None)])
+
+    def test_assembly_unavailable_is_not_a_pass_without_a_verified_binary(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            for tool in [None, root / "missing", fake_assembler(root, b"not SPIR-V")]:
+                row = assembly_row(root)
+                map_spirv_assembly([row], tool, root / "binaries")
+                self.assertNotIn("assembly", row)
+                self.assertIn("unavailable_reason", row)
+                configured = dict(rows=[row], scope="test")
+                observed = dict(row, parse="not-run", semantic="not-run")
+                self.assertEqual(summarize(configured, [observed])["counts"], {"unsupported": 1})
+                with self.assertRaises(ValueError):
+                    summarize(configured, [dict(observed, unavailable_reason=None, parse="accepted", semantic="accepted")])
+
+    def test_assembly_tool_failure_and_source_drift_fail_closed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            row = assembly_row(root)
+            binary = struct.pack("<5I", 0x07230203, 0x00010300, 0, 1, 0)
+            tool = fake_assembler(root, binary, status=1)
+            map_spirv_assembly([row], tool, root / "binaries")
+            self.assertIn("unavailable_reason", row)
+            self.assertFalse(list((root / "binaries").glob("*.spv")))
+
+            row = assembly_row(root)
+            Path(row["path"]).write_bytes(b"drift")
+            with self.assertRaises(ValueError):
+                map_spirv_assembly([row], fake_assembler(root, binary), root / "binaries")
+
+    def test_assembly_output_size_and_version_are_bounded(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            invalid = [
+                struct.pack("<5I", 0x07230203, 0x00010300, 0, 1, 0) + bytes(16),
+                struct.pack("<5I", 0x07230203, 0x00010700, 0, 1, 0),
+            ]
+            for binary in invalid:
+                row = assembly_row(root)
+                with patch("configured_frontend_corpus.MAX_ASSEMBLY_BYTES", 32):
+                    map_spirv_assembly([row], fake_assembler(root, binary), root / "binaries")
+                self.assertIn("unavailable_reason", row)
+                self.assertNotIn("assembly", row)
 
 if __name__ == "__main__":unittest.main()

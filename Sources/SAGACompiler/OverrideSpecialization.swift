@@ -4,7 +4,7 @@ internal import SAGAValidation
 
 func specializeOverrides(
     _ validated: ValidatedModule<IRModule>, entry: IREntryPoint?, constants: [String: Double],
-    retainLinkedStages: Bool, capabilities: ShaderCapabilities
+    retainLinkedStages: Bool, validator: ShaderSemanticValidator
 ) throws -> ValidatedModule<IRModule> {
     let module = validated.module
     let isolateCompute = entry?.stage == .compute && module.entryPoints.count > 1
@@ -14,7 +14,7 @@ func specializeOverrides(
     }
     var specializer = OverrideSpecializer(module: module, budget: ShaderBudget())
     let specialized = try specializer.specialize(entry, constants: constants, retainLinkedStages: retainLinkedStages)
-    return try ValidatedModule.checking(specialized, with: ShaderSemanticValidator(capabilities: capabilities))
+    return try ValidatedModule.checking(specialized, with: validator)
 }
 
 private struct OverrideSpecializer {
@@ -239,11 +239,10 @@ private struct OverrideSpecializer {
             guard let handle else { return fallback }
             let expression = try module.globalExpressions.value(for: handle)
             let literal = try evaluateWGSLPipelineScalar(handle, in: module, overrides: values, budget: &budget)
-            switch literal {
-            case .i32(let size) where size > 0: return UInt32(size)
-            case .u32(let size) where size > 0: return size
-            default: throw failure(.invalidBinding, "Specialized workgroup dimension must be positive", expression.location)
+            guard let size = unsignedSize(literal), size > 0 else {
+                throw failure(.invalidBinding, "Specialized workgroup dimension must be positive", expression.location)
             }
+            return size
         }
         return try .init(x: dimension(dimensions.x, fallback: fixed.x),
                          y: dimension(dimensions.y, fallback: fixed.y),
@@ -253,13 +252,7 @@ private struct OverrideSpecializer {
     private mutating func subgroupSize(_ entry: IREntryPoint) throws -> IRSubgroupSize? {
         guard case .overrideExpression(let handle)? = entry.subgroupSize else { return entry.subgroupSize }
         let literal = try evaluateWGSLPipelineScalar(handle, in: module, overrides: values, budget: &budget)
-        let size: UInt32?
-        switch literal {
-        case .u32(let value): size = value
-        case .i32(let value): size = UInt32(exactly: value)
-        default: size = nil
-        }
-        guard let size, size.nonzeroBitCount == 1 else {
+        guard let size = unsignedSize(literal), size.nonzeroBitCount == 1 else {
             let location = try module.globalExpressions.value(for: handle).location
             throw failure(.invalidBinding, "Specialized subgroup size must be a power of two", location)
         }
@@ -276,13 +269,11 @@ private struct OverrideSpecializer {
             }
             let count: UInt32
             if live.contains(try IRHandle(index: index)) {
-                switch values[handle] {
-                case .i32(let size)? where size > 0: count = UInt32(size)
-                case .u32(let size)? where size > 0: count = size
-                default:
+                guard let size = values[handle].flatMap(unsignedSize), size > 0 else {
                     let value = try module.overrides.value(for: handle)
                     throw failure(.invalidType, "Specialized array count must be positive", value.location)
                 }
+                count = size
             } else {
                 // No retained function accesses this type.
                 count = 1
@@ -334,6 +325,8 @@ private struct OverrideSpecializer {
     private func zero(_ type: IRHandle<IRType>) throws -> IRLiteral {
         switch try module.types.value(for: type).kind {
         case .scalar(.bool): return .bool(false)
+        case .scalar(.i16): return .i16(0)
+        case .scalar(.u16): return .u16(0)
         case .scalar(.i32): return .i32(0)
         case .scalar(.u32): return .u32(0)
         case .scalar(.f32): return .f32(0)
@@ -347,6 +340,12 @@ private struct OverrideSpecializer {
         guard number.isFinite else { throw invalid }
         switch try module.types.value(for: declaration.type).kind {
         case .scalar(.bool): return .bool(number != 0)
+        case .scalar(.i16):
+            guard let value = Int16(exactly: number.rounded(.towardZero)) else { throw invalid }
+            return .i16(value)
+        case .scalar(.u16):
+            guard let value = UInt16(exactly: number.rounded(.towardZero)) else { throw invalid }
+            return .u16(value)
         case .scalar(.i32):
             guard let value = Int32(exactly: number.rounded(.towardZero)) else { throw invalid }
             return .i32(value)
@@ -362,6 +361,16 @@ private struct OverrideSpecializer {
             guard value & 0x7c00 != 0x7c00 else { throw invalid }
             return .f16Bits(value)
         default: throw ShaderFailure.invalidHandle
+        }
+    }
+
+    private func unsignedSize(_ literal: IRLiteral) -> UInt32? {
+        switch literal {
+        case .i16(let value): UInt32(exactly: value)
+        case .u16(let value): UInt32(value)
+        case .i32(let value): UInt32(exactly: value)
+        case .u32(let value): value
+        default: nil
         }
     }
 

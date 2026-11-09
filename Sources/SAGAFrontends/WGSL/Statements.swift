@@ -211,6 +211,7 @@ extension WGSLParser {
                 return
             }
             if declarationNames[key] == nil {
+                if start.text == "debugPrintf" { try debugPrintfStatement(at: start, end: end); return }
                 if start.text == "atomicMin" || start.text == "atomicMax" {
                     _ = try take()
                     try expect("(")
@@ -289,6 +290,14 @@ extension WGSLParser {
             let value = try coerce(args[args.count - 1], to: intern(valueType), at: start)
             try expect(end)
             if let textureAtomic {
+                let root: IRExpressionKind
+                switch body.expressions[image.handle.index].kind {
+                case .access(let base, _), .accessIndex(let base, _): root = body.expressions[base.index].kind
+                case let kind: root = kind
+                }
+                guard case .globalVariable = root else {
+                    throw wgslError(.invalidReference, "Texture atomics require a global texture binding", start)
+                }
                 try statement(.imageAtomic(image: image.handle, coordinate: coordinate.handle,
                                            arrayIndex: layer, function: textureAtomic, value: value.handle), at: start)
             } else {

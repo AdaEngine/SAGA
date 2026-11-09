@@ -21,7 +21,8 @@ private struct Packet {
         bytes.append(contentsOf: text.utf8)
     }
     mutating func addRender(
-        _ pipeline: RenderPipeline, target: ResourceID, targetMipLevel: UInt32, targetDepthSlice: UInt32?, colorLoad: RenderColorLoadAction,
+        _ pipeline: RenderPipeline, target: ResourceID?, targetMipLevel: UInt32, targetDepthSlice: UInt32?,
+        colorLoad: RenderColorLoadAction, colorStore: RenderStoreAction,
         count: UInt32? = nil, vertexBuffers: [VertexBufferBinding], firstVertex: UInt32 = 0, instances: DrawInstances = .init(),
         uniforms: [ComputeBindingSlot: ComputeBufferBinding], storageBuffers: [ComputeBindingSlot: ComputeBufferBinding],
         textures: [ComputeBindingSlot: ResourceID],
@@ -56,6 +57,7 @@ private struct Packet {
             case .unused: add(UInt32(3))
             case .clear(let value): add(UInt32(1)); add(value.bitPattern)
             }
+            add(depth.storeAction.rawValue)
             add(UInt32(depth.stencil == nil ? 0 : 1))
             if let stencil = depth.stencil {
                 add(stencil.reference)
@@ -64,11 +66,14 @@ private struct Packet {
                 case .readOnly: add(UInt32(2))
                 case .clear(let value): add(UInt32(1)); add(value)
                 }
+                add(stencil.storeAction.rawValue)
             }
         }
         var colors = additionalColors
-        colors[0] = .init(texture: target, mipLevel: targetMipLevel, loadAction: colorLoad, resolve: resolve,
-                          depthSlice: targetDepthSlice)
+        if let target {
+            colors[0] = .init(texture: target, mipLevel: targetMipLevel, loadAction: colorLoad, resolve: resolve,
+                              depthSlice: targetDepthSlice, storeAction: colorStore)
+        }
         add(UInt32(colors.count))
         for (location, color) in colors.sorted(by: { $0.key < $1.key }) {
             add(location); add(color.texture); add(color.mipLevel)
@@ -79,6 +84,7 @@ private struct Packet {
             if let clear {
                 for component in clear.channels { add(component.bitPattern) }
             }
+            add(color.storeAction.rawValue)
             add(UInt32(color.resolve == nil ? 0 : 1))
             if let resolve = color.resolve { add(resolve.texture); add(resolve.mipLevel) }
         }
@@ -270,8 +276,13 @@ struct WebGPUHost: BrowserGPUPresentationHost, SamplerBackendDevice, TextureView
     func allocateRenderPipeline(
         _ pipeline: RenderPipeline, vertex: RenderStageArtifact, fragment: RenderStageArtifact
     ) async throws {
-        guard case .text(.wgsl, let vertexSource) = vertex.artifact,
-              case .text(.wgsl, let fragmentSource) = fragment.artifact else {
+        try await allocateRenderPipeline(pipeline, vertex: vertex, fragment: Optional(fragment))
+    }
+
+    func allocateRenderPipeline(
+        _ pipeline: RenderPipeline, vertex: RenderStageArtifact, fragment: RenderStageArtifact?
+    ) async throws {
+        guard case .text(.wgsl, let vertexSource) = vertex.artifact else {
             throw GPUError.validation("Expected WGSL render stages")
         }
         var packet = Packet(10)
@@ -295,7 +306,13 @@ struct WebGPUHost: BrowserGPUPresentationHost, SamplerBackendDevice, TextureView
         packet.add(pipeline.primitive.topology.rawValue); packet.add(pipeline.primitive.stripIndexFormat?.rawValue ?? 0)
         packet.add(UInt32(pipeline.primitive.unclippedDepth ? 1 : 0))
         packet.add(vertex.entryPoint); packet.add(vertexSource)
-        packet.add(fragment.entryPoint); packet.add(fragmentSource)
+        packet.add(UInt32(fragment == nil ? 0 : 1))
+        if let fragment {
+            guard case .text(.wgsl, let source) = fragment.artifact else {
+                throw GPUError.validation("Expected WGSL render stages")
+            }
+            packet.add(fragment.entryPoint); packet.add(source)
+        }
         packet.add(UInt32(pipeline.vertexBuffers.count))
         for layout in pipeline.vertexBuffers {
             packet.add(layout.stride)
@@ -433,27 +450,27 @@ struct WebGPUHost: BrowserGPUPresentationHost, SamplerBackendDevice, TextureView
                 packet.add(UInt32(4)); packet.add(id); packet.add(size)
             case .dispatch:
                 throw GPUError.unsupported("Metal diagnostic dispatch is unavailable on WebGPU")
-            case .render(let pipeline, let target, let colorLoad, let vertexCount, let vertexBuffers, let firstVertex, let instances, let uniforms, let textures, let samplers, let targetMipLevel, let targetDepthSlice, let depth, let resolve, let blendConstant, let additionalColors, let raster, let storageBuffers, let immediates):
+            case .render(let pipeline, let target, let colorLoad, let vertexCount, let vertexBuffers, let firstVertex, let instances, let uniforms, let textures, let samplers, let targetMipLevel, let targetDepthSlice, let depth, let resolve, let blendConstant, let additionalColors, let raster, let storageBuffers, let immediates, let colorStore):
                 packet.add(UInt32(5))
                 packet.addRender(pipeline, target: target, targetMipLevel: targetMipLevel, targetDepthSlice: targetDepthSlice,
-                                 colorLoad: colorLoad, count: vertexCount, vertexBuffers: vertexBuffers,
+                                 colorLoad: colorLoad, colorStore: colorStore, count: vertexCount, vertexBuffers: vertexBuffers,
                                  firstVertex: firstVertex, instances: instances, uniforms: uniforms, storageBuffers: storageBuffers,
                                  textures: textures, samplers: samplers, depth: depth, resolve: resolve,
                                  blendConstant: blendConstant, additionalColors: additionalColors, raster: raster, immediates: immediates)
-            case .renderIndexed(let pipeline, let target, let colorLoad, let index, let draw, let vertexBuffers, let uniforms, let textures, let samplers, let targetMipLevel, let targetDepthSlice, let depth, let resolve, let blendConstant, let additionalColors, let raster, let storageBuffers, let immediates):
+            case .renderIndexed(let pipeline, let target, let colorLoad, let index, let draw, let vertexBuffers, let uniforms, let textures, let samplers, let targetMipLevel, let targetDepthSlice, let depth, let resolve, let blendConstant, let additionalColors, let raster, let storageBuffers, let immediates, let colorStore):
                 packet.add(UInt32(7))
                 packet.addRender(pipeline, target: target, targetMipLevel: targetMipLevel, targetDepthSlice: targetDepthSlice,
-                                 colorLoad: colorLoad, count: draw.indexCount, vertexBuffers: vertexBuffers,
+                                 colorLoad: colorLoad, colorStore: colorStore, count: draw.indexCount, vertexBuffers: vertexBuffers,
                                  firstVertex: 0, instances: draw.instances, uniforms: uniforms, storageBuffers: storageBuffers,
                                  textures: textures, samplers: samplers, depth: depth, resolve: resolve,
                                  blendConstant: blendConstant, additionalColors: additionalColors, raster: raster, immediates: immediates)
                 packet.add(index)
                 packet.add(draw.firstIndex); packet.add(draw.baseVertex)
-            case .renderIndirect(let pipeline, let target, let colorLoad, let arguments, let offset, let index, let vertexBuffers, let uniforms, let textures, let samplers, let targetMipLevel, let targetDepthSlice, let depth, let resolve, let blendConstant, let additionalColors, let raster, let storageBuffers, let immediates):
+            case .renderIndirect(let pipeline, let target, let colorLoad, let arguments, let offset, let index, let vertexBuffers, let uniforms, let textures, let samplers, let targetMipLevel, let targetDepthSlice, let depth, let resolve, let blendConstant, let additionalColors, let raster, let storageBuffers, let immediates, let colorStore):
                 packet.add(UInt32(11)); packet.add(arguments); packet.add(offset)
                 packet.add(UInt32(index == nil ? 0 : 1))
                 packet.addRender(pipeline, target: target, targetMipLevel: targetMipLevel, targetDepthSlice: targetDepthSlice,
-                                 colorLoad: colorLoad, vertexBuffers: vertexBuffers, uniforms: uniforms, storageBuffers: storageBuffers,
+                                 colorLoad: colorLoad, colorStore: colorStore, vertexBuffers: vertexBuffers, uniforms: uniforms, storageBuffers: storageBuffers,
                                  textures: textures, samplers: samplers, depth: depth, resolve: resolve,
                                  blendConstant: blendConstant, additionalColors: additionalColors, raster: raster, immediates: immediates)
                 if let index { packet.add(index) }

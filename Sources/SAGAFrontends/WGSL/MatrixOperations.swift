@@ -218,6 +218,8 @@ extension WGSLParser {
     func scalar(_ l:IRLiteral) -> WGSLScalarConstant? {
       switch l {
       case .abstractInt(let n):return .integer(.init(value:n,kind:.abstract))
+      case .i16(let n):return .integer(.init(value:Int64(n),kind:.sint16))
+      case .u16(let n):return .integer(.init(value:Int64(n),kind:.uint16))
       case .i32(let n):return .integer(.init(value:Int64(n),kind:.sint))
       case .u32(let n):return .integer(.init(value:Int64(n),kind:.uint))
       case .abstractFloat(let x):return .floating(.init(value:x,kind:.abstract))

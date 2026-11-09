@@ -33,7 +33,7 @@ extension IRMathFunction {
             guard operand == .scalar(.u32) else { return nil }
             return ([operand, operand], .scalar(self == .dot4I8Packed ? .i32 : .u32))
         case .dot:
-            guard size != nil, floats || [.i32, .u32, .i64, .u64, .abstractInt].contains(scalar) else { return nil }
+            guard size != nil, floats || [.i16, .u16, .i32, .u32, .i64, .u64, .abstractInt].contains(scalar) else { return nil }
             return ([operand, operand], scalarType)
         case .length, .distance:
             guard floats else { return nil }

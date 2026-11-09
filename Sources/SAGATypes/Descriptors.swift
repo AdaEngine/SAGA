@@ -20,11 +20,13 @@ public enum GPUFeature: String, Sendable, Hashable, CaseIterable {
     case narrow8BitStorageTextures, storage8BitReadWrite, snorm8Renderable
     case depth32FloatStencil8
     case textureAtomic, textureInt64Atomic
-    case shaderInt64, shaderInt64AtomicMinMax, shaderInt64AtomicAllOps
+    case shaderInt16, shaderInt64, shaderInt64AtomicMinMax, shaderInt64AtomicAllOps
     case linearIndexing
     case bgra8UnormStorage, wideRGBAStorageReadWrite
     case indirectFirstInstance, clipDistances, primitiveIndex, depthClipControl, subgroups, subgroupID, dualSourceBlending
-    case subgroupSizeControl, subgroupUniformity, shaderBarycentrics
+    case subgroupSizeControl, subgroupUniformity, shaderBarycentrics, shaderPerVertex, vertexFormatSnorm1010102
+    case multiview, selectiveMultiview, multisampleArray, vertexWritableStorage
+    case memoryDecorationCoherent, shaderDebugPrintf
 }
 
 public struct DeviceCapabilities: Sendable, Equatable {
@@ -33,6 +35,16 @@ public struct DeviceCapabilities: Sendable, Equatable {
     public let maxImmediateSize: UInt32
     /// Maximum rounded workgroup storage for one compute pipeline entry point.
     public let maxComputeWorkgroupStorageSize: UInt32
+    public let maxComputeInvocationsPerWorkgroup: UInt32
+    public let maxComputeWorkgroupSize: DispatchWorkgroups
+    public let maxComputeWorkgroupsPerDimension: UInt32
+    public let maxVertexAttributes: UInt32
+    public let maxVertexBuffers: UInt32
+    public let maxVertexBufferArrayStride: UInt32
+    public let maxInterStageShaderVariables: UInt32
+    public let maxColorAttachments: UInt32
+    public let maxColorAttachmentBytesPerSample: UInt32
+    public let maxMultiviewViewCount: UInt32
     /// Advertised subgroup-size limits when the backend provides them.
     public let subgroupSizeRange: ClosedRange<UInt32>?
     public let features: Set<GPUFeature>
@@ -44,10 +56,23 @@ public struct DeviceCapabilities: Sendable, Equatable {
     public init(maxBufferSize: UInt64, features: Set<GPUFeature> = [], maxTextureDimension2D: UInt32 = 8192,
                 timestampPeriodNanoseconds: Double = 1, multisampledFloat32Formats: Set<TextureFormat> = [],
                 maxImmediateSize: UInt32 = 0, subgroupSizeRange: ClosedRange<UInt32>? = nil,
-                maxComputeWorkgroupStorageSize: UInt32 = 16 * 1024) throws {
+                maxComputeWorkgroupStorageSize: UInt32 = 16 * 1024,
+                maxComputeInvocationsPerWorkgroup: UInt32 = 256,
+                maxComputeWorkgroupSize: DispatchWorkgroups = .init(x: 256, y: 256, z: 64),
+                maxComputeWorkgroupsPerDimension: UInt32 = 65_535, maxVertexAttributes: UInt32 = 16,
+                maxVertexBuffers: UInt32 = 8, maxVertexBufferArrayStride: UInt32 = 2048,
+                maxInterStageShaderVariables: UInt32 = 16, maxColorAttachments: UInt32 = 8,
+                maxColorAttachmentBytesPerSample: UInt32 = 32, maxMultiviewViewCount: UInt32 = 0) throws {
         guard maxBufferSize > 0 else { throw GPUError.validation("maxBufferSize must be positive") }
         guard maxTextureDimension2D > 0 else { throw GPUError.validation("maxTextureDimension2D must be positive") }
         guard maxImmediateSize.isMultiple(of: 4) else { throw GPUError.validation("maxImmediateSize must be word-aligned") }
+        guard maxComputeInvocationsPerWorkgroup > 0, !maxComputeWorkgroupSize.isEmpty, maxComputeWorkgroupsPerDimension > 0 else {
+            throw GPUError.validation("Compute workgroup limits must be positive")
+        }
+        guard maxVertexBufferArrayStride.isMultiple(of: 4) else {
+            throw GPUError.validation("Maximum vertex buffer stride must be word-aligned")
+        }
+        guard maxMultiviewViewCount <= 32 else { throw GPUError.validation("Multiview view count exceeds the mask width") }
         if let subgroupSizeRange, subgroupSizeRange.lowerBound == 0 {
             throw GPUError.validation("Subgroup sizes must be positive")
         }
@@ -61,6 +86,16 @@ public struct DeviceCapabilities: Sendable, Equatable {
         self.maxTextureDimension2D = maxTextureDimension2D
         self.maxImmediateSize = maxImmediateSize
         self.maxComputeWorkgroupStorageSize = maxComputeWorkgroupStorageSize
+        self.maxComputeInvocationsPerWorkgroup = maxComputeInvocationsPerWorkgroup
+        self.maxComputeWorkgroupSize = maxComputeWorkgroupSize
+        self.maxComputeWorkgroupsPerDimension = maxComputeWorkgroupsPerDimension
+        self.maxVertexAttributes = maxVertexAttributes
+        self.maxVertexBuffers = maxVertexBuffers
+        self.maxVertexBufferArrayStride = maxVertexBufferArrayStride
+        self.maxInterStageShaderVariables = maxInterStageShaderVariables
+        self.maxColorAttachments = maxColorAttachments
+        self.maxColorAttachmentBytesPerSample = maxColorAttachmentBytesPerSample
+        self.maxMultiviewViewCount = maxMultiviewViewCount
         self.subgroupSizeRange = subgroupSizeRange
         self.features = features
         self.multisampledFloat32Formats = multisampledFloat32Formats
@@ -86,6 +121,14 @@ public struct DeviceCapabilities: Sendable, Equatable {
     package func requireWorkgroupStorageSize(_ byteSize: UInt64) throws {
         guard byteSize <= UInt64(maxComputeWorkgroupStorageSize) else {
             throw GPUError.validation("Workgroup storage exceeds the device limit")
+        }
+    }
+
+    package func requireComputeWorkgroupSize(x: UInt32, y: UInt32, z: UInt32) throws {
+        guard x > 0, y > 0, z > 0,
+              x <= maxComputeWorkgroupSize.x, y <= maxComputeWorkgroupSize.y, z <= maxComputeWorkgroupSize.z,
+              z <= maxComputeInvocationsPerWorkgroup / x / y else {
+            throw GPUError.validation("Workgroup size exceeds the device limits")
         }
     }
 

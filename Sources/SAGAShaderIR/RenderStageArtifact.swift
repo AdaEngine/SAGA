@@ -2,6 +2,7 @@
 public struct RenderStageArtifact: Sendable, Equatable {
     package static let metalPointTopologyMacro = "SAGA_POINT_TOPOLOGY"
     package static let metalPipelineSampleMaskMacro = "SAGA_PIPELINE_SAMPLE_MASK"
+    package static let metalMultiviewMaskMacro = "SAGA_MULTIVIEW_MASK"
 
     public struct VertexInput: Sendable, Equatable {
         public let location: UInt32
@@ -40,8 +41,15 @@ public struct RenderStageArtifact: Sendable, Equatable {
     public let hlslProfile: String?
     /// Vertex outputs or fragment inputs, ordered by shader location.
     public let varyings: [Varying]
+    public var requiresPerVertex: Bool { stage == .fragment && varyings.contains { $0.interpolation == .perVertex } }
+    package var usesVertexWritableStorage: Bool {
+        stage == .vertex && (storageBindings.contains { !$0.isReadOnly } || storageTextures.contains { $0.access.contains(.store) })
+    }
     /// Vertex attributes ordered by shader location.
     public let vertexInputs: [VertexInput]
+    package let metalVertexPullingLayout: [UInt32]?
+    /// The MSL entry point loads its vertex streams directly.
+    public var usesMetalVertexPulling: Bool { metalVertexPullingLayout != nil }
     /// Scalar kinds of the color outputs, keyed by fragment location.
     public let colorOutputKinds: [UInt32: IRScalarKind]
     /// Component counts of the color outputs, keyed by fragment location.
@@ -51,6 +59,10 @@ public struct RenderStageArtifact: Sendable, Equatable {
     public let earlyDepthTest: IREarlyDepthTest?
     /// Metal fragment buffer containing the viewport's minimum and maximum depth.
     public static let metalViewportDepthBufferIndex = 0
+    package static let metalVertexAttributeCapacity: UInt32 = 31
+    package static let nativeColorAttachmentCapacity: UInt32 = 8
+    /// Metal vertex buffer index for the UInt64 byte lengths of bound streams, after their offsets.
+    public static let metalVertexPullingSizeBufferIndex: UInt32 = 8
     package static let metalStorageBufferBase = ComputeShaderArtifact.uniformBindingBase + ComputeShaderArtifact.uniformBindingCapacity
     package static let metalStorageLengthBufferIndex = metalStorageBufferBase + ComputeShaderArtifact.storageBindingCapacity
     package static let metalTextureAtomicGuardSlot = metalStorageLengthBufferIndex + 1
@@ -68,10 +80,14 @@ public struct RenderStageArtifact: Sendable, Equatable {
     public let readsPrimitiveIndex: Bool
     /// Whether the fragment stage receives native barycentric coordinates.
     public let requiresBarycentrics: Bool
+    /// Whether the stage declares the native multiview index input.
+    public let readsViewIndex: Bool
     /// Fragment builtins that consume a slot in the inter-stage input budget.
     package let fragmentInputBuiltinSlots: Int
     public let requiresShaderF16: Bool
     public let requiresShaderInt64: Bool
+    public let requiresShaderInt16: Bool
+    public let requiresDebugPrintf: Bool
     public let requiresShaderInt64AtomicMinMax: Bool
     public let requiresShaderInt64AtomicAllOps: Bool
     public let requiresSubgroups: Bool
@@ -106,14 +122,15 @@ public struct RenderStageArtifact: Sendable, Equatable {
         colorOutputKinds: [UInt32: IRScalarKind] = [:], colorOutputComponentCounts: [UInt32: UInt8] = [:],
         writesDepth: Bool = false, writesSampleMask: Bool = false,
         invariantPosition: Bool = false, clipDistanceCount: Int = 0, readsPrimitiveIndex: Bool = false,
-        requiresBarycentrics: Bool = false, fragmentInputBuiltinSlots: Int = 0,
+        requiresBarycentrics: Bool = false, readsViewIndex: Bool = false, fragmentInputBuiltinSlots: Int = 0,
         requiresShaderF16: Bool = false,
         requiresUniformBufferStandardLayout: Bool = false, requiresSubgroups: Bool = false,
         dualSourceComponentCount: UInt8? = nil, earlyDepthTest: IREarlyDepthTest? = nil,
         metalTextureAtomicGuardBufferIndex: UInt32? = nil, requiresShaderInt64AtomicMinMax: Bool = false,
-        requiresShaderInt64AtomicAllOps: Bool = false, requiresShaderInt64: Bool = false,
+        requiresShaderInt64AtomicAllOps: Bool = false, requiresShaderInt64: Bool = false, requiresShaderInt16: Bool = false,
+        requiresDebugPrintf: Bool = false,
         immediateLayout: ShaderImmediateLayout? = nil,
-        requiresSubgroupUniformity: Bool = false
+        requiresSubgroupUniformity: Bool = false, metalVertexPullingLayout: [UInt32]? = nil
     ) {
         self.artifact = artifact
         self.stage = stage
@@ -122,6 +139,7 @@ public struct RenderStageArtifact: Sendable, Equatable {
         self.hlslProfile = hlslProfile
         self.varyings = varyings
         self.vertexInputs = vertexInputs
+        self.metalVertexPullingLayout = metalVertexPullingLayout
         self.colorOutputKinds = colorOutputKinds
         self.colorOutputComponentCounts = colorOutputComponentCounts
         self.writesDepth = writesDepth
@@ -132,9 +150,12 @@ public struct RenderStageArtifact: Sendable, Equatable {
         self.clipDistanceCount = clipDistanceCount
         self.readsPrimitiveIndex = readsPrimitiveIndex
         self.requiresBarycentrics = requiresBarycentrics
+        self.readsViewIndex = readsViewIndex
         self.fragmentInputBuiltinSlots = fragmentInputBuiltinSlots
         self.requiresShaderF16 = requiresShaderF16
         self.requiresShaderInt64 = requiresShaderInt64
+        self.requiresShaderInt16 = requiresShaderInt16
+        self.requiresDebugPrintf = requiresDebugPrintf
         self.requiresShaderInt64AtomicMinMax = requiresShaderInt64AtomicMinMax
         self.requiresShaderInt64AtomicAllOps = requiresShaderInt64AtomicAllOps
         self.requiresSubgroups = requiresSubgroups

@@ -139,7 +139,32 @@ extension WGSLParser {
       throw wgslError(
         .unexpectedToken, "Declaration did not consume its indexed token range", token)
     }
+    if let lines = sourceDocumentation.beforeToken[tokens[d.start].start] {
+      try recordDeclarationDocumentation(d, lines: lines)
+    }
     declarationStates[index] = 2
+  }
+
+  private func recordDeclarationDocumentation(_ declaration: WGSLModuleDeclaration, lines: [String]) throws {
+    let name = wgslKey(declaration.name.text)
+    switch declaration.kind {
+    case "struct":
+      guard let type = typeNames[name] else { throw ShaderFailure.invalidHandle }
+      try recordDocumentation(lines, for: .type(type))
+    case "fn":
+      guard let index = functionNames[name] else { throw ShaderFailure.invalidHandle }
+      if let entryIndex = entries.indices.last, entries[entryIndex].function.index == index {
+        try recordDocumentation(lines, for: .entryPoint(UInt32(entryIndex)))
+      } else {
+        try recordDocumentation(lines, for: .function(.init(index: index)))
+      }
+    case "const":
+      if let index = constantNames[name] { try recordDocumentation(lines, for: .constant(.init(index: index))) }
+    case "var":
+      guard let index = globalNames[name] else { throw ShaderFailure.invalidHandle }
+      try recordDocumentation(lines, for: .globalVariable(.init(index: index)))
+    default: break
+    }
   }
   func resolveTypeDeclarationIfIndexed(_ name: WGSLToken) throws {
     if declarationNames[wgslKey(name.text)] != nil { try resolveTypeDeclaration(name) }

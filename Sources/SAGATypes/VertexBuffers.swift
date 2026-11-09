@@ -19,25 +19,70 @@ public enum VertexFormat: UInt32, Sendable, Equatable {
     case float16x2 = 14
     case float16x4 = 15
 
+    case uint8 = 16
+    case uint8x2 = 17
+    case uint8x4 = 18
+    case sint8 = 19
+    case sint8x2 = 20
+    case sint8x4 = 21
+    case unorm8 = 22
+    case unorm8x2 = 23
+    case unorm8x4 = 24
+    case snorm8 = 25
+    case snorm8x2 = 26
+    case snorm8x4 = 27
+    case uint16 = 28
+    case uint16x2 = 29
+    case uint16x4 = 30
+    case sint16 = 31
+    case sint16x2 = 32
+    case sint16x4 = 33
+    case unorm16 = 34
+    case unorm16x2 = 35
+    case unorm16x4 = 36
+    case snorm16 = 37
+    case snorm16x2 = 38
+    case snorm16x4 = 39
+    case unorm1010102 = 40
+    case unorm8x4BGRA = 41
+    case snorm1010102 = 42
+
     public var componentCount: UInt32 {
         switch self {
-        case .float16: 1
-        case .float16x2: 2
-        case .float16x4: 4
-        default: (rawValue - 1) % 4 + 1
+        case .float32, .uint32, .sint32, .float16,
+             .uint8, .sint8, .unorm8, .snorm8, .uint16, .sint16, .unorm16, .snorm16: 1
+        case .float32x2, .uint32x2, .sint32x2, .float16x2,
+             .uint8x2, .sint8x2, .unorm8x2, .snorm8x2, .uint16x2, .sint16x2, .unorm16x2, .snorm16x2: 2
+        case .float32x3, .uint32x3, .sint32x3: 3
+        case .float32x4, .uint32x4, .sint32x4, .float16x4,
+             .uint8x4, .sint8x4, .unorm8x4, .snorm8x4, .uint16x4, .sint16x4, .unorm16x4, .snorm16x4,
+             .unorm1010102, .unorm8x4BGRA, .snorm1010102: 4
         }
     }
+
     public var byteSize: UInt32 {
         switch self {
-        case .float16, .float16x2, .float16x4: componentCount * 2
-        default: componentCount * 4
+        case .uint8, .uint8x2, .uint8x4, .sint8, .sint8x2, .sint8x4,
+             .unorm8, .unorm8x2, .unorm8x4, .snorm8, .snorm8x2, .snorm8x4:
+            componentCount
+        case .float16, .float16x2, .float16x4,
+             .uint16, .uint16x2, .uint16x4, .sint16, .sint16x2, .sint16x4,
+             .unorm16, .unorm16x2, .unorm16x4, .snorm16, .snorm16x2, .snorm16x4:
+            componentCount * 2
+        case .unorm1010102, .unorm8x4BGRA, .snorm1010102:
+            4
+        default:
+            componentCount * 4
         }
     }
+
     public var dataType: VertexDataType {
         switch self {
-        case .float32, .float32x2, .float32x3, .float32x4, .float16, .float16x2, .float16x4: .float
-        case .uint32, .uint32x2, .uint32x3, .uint32x4: .uint
-        case .sint32, .sint32x2, .sint32x3, .sint32x4: .sint
+        case .uint8, .uint8x2, .uint8x4, .uint16, .uint16x2, .uint16x4,
+             .uint32, .uint32x2, .uint32x3, .uint32x4: .uint
+        case .sint8, .sint8x2, .sint8x4, .sint16, .sint16x2, .sint16x4,
+             .sint32, .sint32x2, .sint32x3, .sint32x4: .sint
+        default: .float
         }
     }
 }
@@ -74,25 +119,46 @@ public struct VertexBufferLayout: Sendable, Equatable {
         attributes.map { UInt64($0.offset) + UInt64($0.format.byteSize) }.max() ?? 0
     }
 
-    package static func validate(_ layouts: [Self]) throws -> [UInt32: VertexFormat] {
-        guard layouts.count <= 8 else { throw GPUError.validation("Too many vertex buffer slots") }
+    package static func validate(_ layouts: [Self], against capabilities: DeviceCapabilities) throws -> [UInt32: VertexFormat] {
+        let locations = try validate(layouts, maxBuffers: capabilities.maxVertexBuffers,
+            maxAttributes: capabilities.maxVertexAttributes, maxStride: capabilities.maxVertexBufferArrayStride)
+        if locations.values.contains(.snorm1010102) { try capabilities.require([.vertexFormatSnorm1010102]) }
+        return locations
+    }
+
+    package static func validate(
+        _ layouts: [Self], maxBuffers: UInt32, maxAttributes: UInt32, maxStride: UInt32
+    ) throws -> [UInt32: VertexFormat] {
+        guard UInt64(layouts.count) <= UInt64(maxBuffers) else {
+            throw GPUError.validation("Too many vertex buffer slots")
+        }
         var locations: [UInt32: VertexFormat] = [:]
         for layout in layouts {
-            let limit = layout.stride == 0 ? 2048 : layout.stride
-            guard !layout.attributes.isEmpty, layout.attributes.count <= 16 - locations.count,
-                  layout.stride <= 2048, layout.stride % 4 == 0,
+            let limit = layout.stride == 0 ? maxStride : layout.stride
+            let totalAttributes = UInt64(locations.count) + UInt64(layout.attributes.count)
+            guard !layout.attributes.isEmpty, totalAttributes <= UInt64(maxAttributes),
+                  layout.stride <= maxStride, layout.stride % 4 == 0,
                   layout.attributeEnd <= UInt64(limit) else {
                 throw GPUError.validation("Invalid vertex buffer stride or attribute range")
             }
             for attribute in layout.attributes {
                 let alignment = min(4, attribute.format.byteSize)
-                guard attribute.location < 16, attribute.offset % alignment == 0,
+                guard attribute.location < maxAttributes, attribute.offset % alignment == 0,
                       locations.updateValue(attribute.format, forKey: attribute.location) == nil else {
                     throw GPUError.validation("Invalid, duplicate or unaligned vertex attribute")
                 }
             }
         }
         return locations
+    }
+
+    package static func metalPullingSignature(_ layouts: [Self]) -> [UInt32] {
+        layouts.flatMap { layout in
+            [layout.stride, layout.stepMode.rawValue, UInt32(layout.attributes.count)] +
+                layout.attributes.sorted { $0.location < $1.location }.flatMap {
+                    [$0.location, $0.offset, $0.format.rawValue]
+                }
+        }
     }
 }
 

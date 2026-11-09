@@ -5,6 +5,9 @@ struct GLSLToken: Sendable {
     let start: Int
     let end: Int
     var barycentricsEnabled = false
+    var multiviewEnabled = false
+    var float16Enabled = false
+    var isViewIndex: Bool { text == "gl_ViewIndex" }
     var barycentricPerspective: Bool? {
         switch text {
         case "gl_BaryCoordEXT": true

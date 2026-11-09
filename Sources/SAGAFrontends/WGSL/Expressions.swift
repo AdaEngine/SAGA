@@ -61,6 +61,8 @@ extension WGSLParser {
         if s == scalar { return literal }
         switch literal {
         case .abstractInt(let n):
+            if s == .i16 { return .i16(Int16(truncatingIfNeeded: n)) }
+            if s == .u16 { return .u16(UInt16(truncatingIfNeeded: n)) }
             if s == .i64 { return .i64(n) }
             if s == .u64, let v = UInt64(exactly: n) { return .u64(v) }
             if s == .u32, let v = UInt32(exactly:n) { return .u32(v) }
@@ -311,7 +313,7 @@ extension WGSLParser {
             if (binary == .divide || binary == .modulo) && [.sint, .uint, .abstractInt].contains(s.kind),
                let divisor = try knownIntegerConstant(rightStart..<cursor, at: op) {
                 guard divisor.value != 0 else { throw wgslError(.invalidType,"Constant division or remainder by zero",op) }
-                let minimum = s == .i64 ? Int64.min : Int64(Int32.min)
+                let minimum = Int64.min >> (64 - Int(s.width) * 8)
                 if divisor.value == -1, s.kind == .sint,
                    try knownIntegerConstant(leftStart..<operatorStart, at: op)?.value == minimum {
                     throw wgslError(.invalidType,"Constant signed division or remainder overflow",op)
@@ -360,8 +362,8 @@ extension WGSLParser {
                 if t.text == "!", scalar == .bool {
                     return try expressionNode(.unary(op: .logicalNot, expression: v.handle), type: v.type, at: t)
                 }
-                guard (t.text == "-" && [.i32, .i64, .f16, .f32].contains(scalar)) ||
-                      (t.text == "~" && [.i32, .u32, .i64, .u64].contains(scalar)) else {
+                guard (t.text == "-" && [.i16, .i32, .i64, .f16, .f32].contains(scalar)) ||
+                      (t.text == "~" && [.i16, .u16, .i32, .u32, .i64, .u64].contains(scalar)) else {
                     throw unsupported("vector unary overload",at:t)
                 }
                 return try expressionNode(.unary(op: t.text == "-" ? .negate : .bitwiseNot, expression: v.handle),
@@ -416,7 +418,7 @@ extension WGSLParser {
             if try eat("[") {
                 let indexAt = token
                 let indexStart = cursor
-                let index = try defaultMaterialize(expression(), at: indexAt)
+                let index = try widenedSubscript(try defaultMaterialize(expression(), at: indexAt), at: indexAt)
                 let indexTokens = indexStart..<cursor
                 try expect("]")
                 let indexType = types[index.type.index].kind
@@ -529,6 +531,23 @@ extension WGSLParser {
             return index.value
         }
     }
+    private func widenedSubscript(_ index: WGSLValue, at token: WGSLToken) throws -> WGSLValue {
+        let scalar: IRScalar
+        switch types[index.type.index].kind {
+        case .scalar(.i16): scalar = .i32
+        case .scalar(.u16): scalar = .u32
+        default: return index
+        }
+        let type = try intern(.scalar(scalar))
+        switch body.expressions[index.handle.index].kind {
+        case .literal(.i16(let value)):
+            return try expressionNode(.literal(.i32(Int32(value))), type: type, at: token, emit: false)
+        case .literal(.u16(let value)):
+            return try expressionNode(.literal(.u32(UInt32(value))), type: type, at: token, emit: false)
+        default:
+            return try expressionNode(.cast(expression: index.handle, target: scalar), type: type, at: token)
+        }
+    }
     private func addressOf(_ value: WGSLValue, at t: WGSLToken) throws -> WGSLValue {
         guard value.pointer else { throw wgslError(.typeMismatch, "Address-of requires a reference", t) }
         if case .bindingArray = types[value.type.index].kind {
@@ -566,7 +585,7 @@ extension WGSLParser {
         guard case .pointer(_,let space) = types[body.expressions[value.handle.index].type.index].kind else { throw wgslError(.invalidType,"Expected pointer",token) }; return space
     }
     func isTypeName(_ name: String) -> Bool {
-        predeclaredType(name) != nil || typeNames[wgslKey(name)] != nil || declarationNames[wgslKey(name)].map { ["alias","struct"].contains(declarations[$0].kind) } == true || ["u32","u64","i32","i64","f32","f16","bool","vec2","vec3","vec4","array","mat2x2","mat2x3","mat2x4","mat3x2","mat3x3","mat3x4","mat4x2","mat4x3","mat4x4"].contains(name)
+        predeclaredType(name) != nil || typeNames[wgslKey(name)] != nil || declarationNames[wgslKey(name)].map { ["alias","struct"].contains(declarations[$0].kind) } == true || ["u16","u32","u64","i16","i32","i64","f32","f16","bool","vec2","vec3","vec4","array","mat2x2","mat2x3","mat2x4","mat3x2","mat3x3","mat3x4","mat4x2","mat4x3","mat4x4"].contains(name)
     }
     func arguments() throws -> [WGSLValue] {
         var args: [WGSLValue] = []

@@ -85,6 +85,8 @@ extension IRStatementKind {
             return try .atomic(pointer: map(pointer), function: function, value: map(value), result: optional(result))
         case .workgroupUniformLoad(let pointer, let result):
             return try .workgroupUniformLoad(pointer: map(pointer), result: map(result))
+        case .debugPrintf(let format, let arguments):
+            return try .debugPrintf(format: format, arguments: arguments.map(map))
         default:
             throw ShaderFailure.unsupported("Statement remapping for shared pointer specialization")
         }
