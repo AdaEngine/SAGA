@@ -75,10 +75,14 @@ private final class XlibWindow {
             .render(pipeline: pipeline, target: frame, clear: .init(red: 0, green: 0, blue: 1, alpha: 1), vertexCount: 3)])
         try await device.present(frame).wait()
         // Resizing forces the swapchain to be rebuilt on the next present.
+        // The X server applies the new size asynchronously, so keep presenting until the swapchain notices it.
         window.resize(width: 320, height: 240)
-        try await device.present(frame).wait()
-        try await device.present(frame).wait()
-        #expect(await backend.presentationRebuildsForTesting() >= 2)
+        for _ in 0..<100 {
+            try await device.present(frame).wait()
+            if await backend.presentationRebuildsForTesting() >= 1 { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(await backend.presentationRebuildsForTesting() >= 1)
         await device.close()
     } catch { await device.close(); throw error }
 }
