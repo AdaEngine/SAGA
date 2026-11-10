@@ -899,7 +899,7 @@ extension IRSubgroupOperation {
         case .inclusiveScan: prefix = "subgroupInclusive"
         case .exclusiveScan: prefix = "subgroupExclusive"
         }
-        return prefix + rawValue.prefix(1).uppercased() + rawValue.dropFirst()
+        return prefix + rawValue.prefix(1).uppercased() + String(rawValue.dropFirst())
     }
 
     package var isVote: Bool { self == .all || self == .any }

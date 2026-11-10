@@ -388,18 +388,30 @@ package struct ComputeCodeGenerator: ShaderCodeGenerator {
                 (subgroupSize.map { ["@subgroup_size(\($0))"] } ?? [])
             signature = "fn \(entryPoint)(\(parameterList))"
         default:
-            declarations.insert(contentsOf: [
-                usesRayQuery || !accelerationStructures.isEmpty ? "#version 460 core" : "#version 450 core",
-            ] + (usesRayQuery || !accelerationStructures.isEmpty ? ["#extension GL_EXT_ray_query : require", "#extension GL_EXT_ray_flags_primitive_culling : require"] : []) + (module.types.values.contains { if case .rayQuery(true) = $0.kind { return true }; return false } ? ["#extension GL_EXT_ray_tracing_position_fetch : require"] : []) + glslUnsigned64Extensions(module: module, storageTextures: storageTextures) +
-                (usesFloat16 ? [glslFloat16Extension] : []) +
-                (usesInt16 ? [glslInt16Extension] : []) +
-                (usesGLSL16BitStorage ? [glslStorage16BitExtension] : []) +
-                (usesCooperativeMatrix ? ["#extension GL_KHR_memory_scope_semantics : require",
-                                          "#extension GL_KHR_cooperative_matrix : require"] : []) + helpers.glslExtensions +
-                helpers.glslSubgroupExtensions(requiresSubgroups: requiresSubgroups) +
-                (usesRayQuery || !accelerationStructures.isEmpty ? ["layout(primitive_culling);"] : []) + [
-                "layout(local_size_x = \(size.x), local_size_y = \(size.y), local_size_z = \(size.z)) in;",
-            ], at: 0)
+            let usesRayTracing = usesRayQuery || !accelerationStructures.isEmpty
+            var prefix: [String] = [usesRayTracing ? "#version 460 core" : "#version 450 core"]
+            if usesRayTracing {
+                prefix.append("#extension GL_EXT_ray_query : require")
+                prefix.append("#extension GL_EXT_ray_flags_primitive_culling : require")
+            }
+            let returnsVertices = module.types.values.contains { type in
+                if case .rayQuery(true) = type.kind { return true }
+                return false
+            }
+            if returnsVertices { prefix.append("#extension GL_EXT_ray_tracing_position_fetch : require") }
+            prefix.append(contentsOf: glslUnsigned64Extensions(module: module, storageTextures: storageTextures))
+            if usesFloat16 { prefix.append(glslFloat16Extension) }
+            if usesInt16 { prefix.append(glslInt16Extension) }
+            if usesGLSL16BitStorage { prefix.append(glslStorage16BitExtension) }
+            if usesCooperativeMatrix {
+                prefix.append("#extension GL_KHR_memory_scope_semantics : require")
+                prefix.append("#extension GL_KHR_cooperative_matrix : require")
+            }
+            prefix.append(contentsOf: helpers.glslExtensions)
+            prefix.append(contentsOf: helpers.glslSubgroupExtensions(requiresSubgroups: requiresSubgroups))
+            if usesRayTracing { prefix.append("layout(primitive_culling);") }
+            prefix.append("layout(local_size_x = \(size.x), local_size_y = \(size.y), local_size_z = \(size.z)) in;")
+            declarations.insert(contentsOf: prefix, at: 0)
             attributes = []
             signature = "void \(entryPoint)()"
         }
@@ -413,9 +425,19 @@ package struct ComputeCodeGenerator: ShaderCodeGenerator {
                                          vectors: helpers.integerVectorHelpers.union(body.integerVectorHelpers),
                                          in: outputFormat)
         let cooperativePrelude = usesCooperativeMatrix && outputFormat == .hlsl ? [hlslCooperativeMatrixPrelude] : []
-        let source = (declarations + numeric + cooperativePrelude + helperDeclarations + attributes + [signature + " {"] +
-                      workgroupSetup + privateBindings.initialization + inputs.initializers + lines + ["}", ""])
-            .joined(separator: "\n")
+        var sourceLines: [String] = declarations
+        sourceLines.append(contentsOf: numeric)
+        sourceLines.append(contentsOf: cooperativePrelude)
+        sourceLines.append(contentsOf: helperDeclarations)
+        sourceLines.append(contentsOf: attributes)
+        sourceLines.append(signature + " {")
+        sourceLines.append(contentsOf: workgroupSetup)
+        sourceLines.append(contentsOf: privateBindings.initialization)
+        sourceLines.append(contentsOf: inputs.initializers)
+        sourceLines.append(contentsOf: lines)
+        sourceLines.append("}")
+        sourceLines.append("")
+        let source = sourceLines.joined(separator: "\n")
         let atomic64 = !webGPU && usesInt64Atomics(module)
         let needsHLSL66 = subgroupSize != nil || atomic64 || storageTextures.contains { $0.format == .r64Uint }
         let profile: String

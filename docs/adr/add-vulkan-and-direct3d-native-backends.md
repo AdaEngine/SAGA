@@ -55,6 +55,7 @@ Constraints that carry over:
 |---|---|---|
 | 1. Compute, buffers, readback | done | `swift test --filter vulkan` |
 | 2. Uniform buffers, immediates (push constants), indirect dispatch with GPU-side limit validation | done | same |
+| 3z. Linux host: build and full suite on Ubuntu 24.04 (WSL2) with lavapipe, Xlib presentation with swapchain rebuild; portability fixes (libm link, expressions the Swift 6.2.3 type checker rejects). Wayland presentation not run | partial | Linux run of the suite, Xlib presentation test |
 | 3a. 2D textures, buffer/texture copies and uploads, offscreen render (vertex buffers, instances, uniforms and storage buffers, blending, viewport, scissor) | done | triangle and vertex-buffer pixel readback tests |
 | 3b. Sampled 2D textures, samplers, compute storage textures | done | compute sample-and-store and fragment sampling tests |
 | 4a. Indexed draws (uint16, uint32, signed base vertex), robustBufferAccess enabled | done | indexed draw test |
@@ -96,7 +97,10 @@ Constraints that carry over:
 Compiler additions: `compileCompute(to: .spirv)` and `compileRenderStage(to: .spirv)` take reflection from the GLSL
 writer over the same IR and the binary from the SPIR-V writer, so layout and code come from one module. They inherit
 the GLSL writer's binding capacities and capability checks. Every image stays in `VK_IMAGE_LAYOUT_GENERAL`.
-Linux is unverified.
+Linux: the Vulkan backend builds with Swift 6.2.3 on Ubuntu 24.04 (WSL2) and the whole suite passes there, 1550 tests,
+with Vulkan running on Mesa's lavapipe software driver. Xlib presentation was exercised against a real X server
+(WSLg) with a swapchain rebuild after a resize. Not covered: Wayland presentation, and a hardware Linux GPU
+driver (lavapipe lacks mesh shaders, ray queries and cooperative matrices, so those tests skip there).
 
 ## Mesh shader plan for Vulkan (survey, 2026-11-10)
 

@@ -2896,9 +2896,16 @@ struct ShaderBodyWriter {
             default: throw unsupported("opposite-signed atomic min/max target")
             }
             let hint = outputFormat == .hlsl ? "[allow_uav_condition] " : ""
-            statements = ["\(comparisonType) \(input) = \(comparedOperand);"] + load + [
-                "\(hint)while (true) {", "    \(physicalType) \(previous) = \(current);",
-            ] + attempt + ["    if (\(succeeded)) {"] + onSuccess + ["    }", "}"]
+            var assembled: [String] = ["\(comparisonType) \(input) = \(comparedOperand);"]
+            assembled.append(contentsOf: load)
+            assembled.append("\(hint)while (true) {")
+            assembled.append("    \(physicalType) \(previous) = \(current);")
+            assembled.append(contentsOf: attempt)
+            assembled.append("    if (\(succeeded)) {")
+            assembled.append(contentsOf: onSuccess)
+            assembled.append("    }")
+            assembled.append("}")
+            statements = assembled
         }
         // The initial load and every retry must stay inside the same robust-address guard.
         try writeStatements(statements, when: target.boundsCheck, to: &lines)

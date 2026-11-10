@@ -159,12 +159,15 @@ package struct MeshGLSLCodeGenerator {
         guard hasIndices else { throw ShaderFailure.unsupported("GLSL mesh primitive indices") }
         let size = entry.workgroupSize
         let stride = UInt64(size.x) * UInt64(size.y) * UInt64(size.z)
-        let prefix = ["#version 450 core", "#extension GL_EXT_mesh_shader : require"] + glslUnsigned64Extensions(module: module, storageTextures: textures.storageTextures) +
-            (module.types.values.contains { $0.kind.usesFloat16 } ? [glslFloat16Extension] : []) +
-            (moduleUsesInt16(module) ? [glslInt16Extension] : []) + (bindings.usesGLSL16BitStorage ? [glslStorage16BitExtension] : []) + helpers.glslExtensions + helpers.glslSubgroupExtensions(requiresSubgroups: requiresSubgroups) + [
-            "layout(local_size_x = \(size.x), local_size_y = \(size.y), local_size_z = \(size.z)) in;",
-            "layout(\(topology), max_vertices = \(info.maxVertices), max_primitives = \(info.maxPrimitives)) out;"
-        ]
+        var prefix: [String] = ["#version 450 core", "#extension GL_EXT_mesh_shader : require"]
+        prefix.append(contentsOf: glslUnsigned64Extensions(module: module, storageTextures: textures.storageTextures))
+        if module.types.values.contains(where: { $0.kind.usesFloat16 }) { prefix.append(glslFloat16Extension) }
+        if moduleUsesInt16(module) { prefix.append(glslInt16Extension) }
+        if bindings.usesGLSL16BitStorage { prefix.append(glslStorage16BitExtension) }
+        prefix.append(contentsOf: helpers.glslExtensions)
+        prefix.append(contentsOf: helpers.glslSubgroupExtensions(requiresSubgroups: requiresSubgroups))
+        prefix.append("layout(local_size_x = \(size.x), local_size_y = \(size.y), local_size_z = \(size.z)) in;")
+        prefix.append("layout(\(topology), max_vertices = \(info.maxVertices), max_primitives = \(info.maxPrimitives)) out;")
         let inner = ["void saga_mesh_body(\(params.joined(separator: ", "))) {"] + bodyLines + ["}"]
         var main = ["void main() {", "    if (\(lane) == 0u) { saga_mesh_output = \(initial); }"]
         main += try shared.initialize(lane: lane, threads: meshWorkgroupThreadCount(size), module: module, structures: structures)

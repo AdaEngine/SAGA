@@ -96,11 +96,14 @@ package struct TaskGLSLCodeGenerator {
         let bodyLines = try body.write()
         let numeric = try integerPrelude(helpers.integerHelpers.union(body.integerHelpers), vectors: helpers.integerVectorHelpers.union(body.integerVectorHelpers), in: .glsl)
         let size = entry.workgroupSize
-        let prefix = ["#version 450 core", "#extension GL_EXT_mesh_shader : require"] + glslUnsigned64Extensions(module: module, storageTextures: textures.storageTextures) +
-            (module.types.values.contains { $0.kind.usesFloat16 } ? [glslFloat16Extension] : []) +
-            (moduleUsesInt16(module) ? [glslInt16Extension] : []) + (bindings.usesGLSL16BitStorage ? [glslStorage16BitExtension] : []) + helpers.glslExtensions + helpers.glslSubgroupExtensions(requiresSubgroups: requiresSubgroups) + [
-            "layout(local_size_x = \(size.x), local_size_y = \(size.y), local_size_z = \(size.z)) in;"
-        ]
+        var prefix: [String] = ["#version 450 core", "#extension GL_EXT_mesh_shader : require"]
+        prefix.append(contentsOf: glslUnsigned64Extensions(module: module, storageTextures: textures.storageTextures))
+        if module.types.values.contains(where: { $0.kind.usesFloat16 }) { prefix.append(glslFloat16Extension) }
+        if moduleUsesInt16(module) { prefix.append(glslInt16Extension) }
+        if bindings.usesGLSL16BitStorage { prefix.append(glslStorage16BitExtension) }
+        prefix.append(contentsOf: helpers.glslExtensions)
+        prefix.append(contentsOf: helpers.glslSubgroupExtensions(requiresSubgroups: requiresSubgroups))
+        prefix.append("layout(local_size_x = \(size.x), local_size_y = \(size.y), local_size_z = \(size.z)) in;")
         let inner = ["uvec3 saga_task_body(\(params.joined(separator: ", "))) {"] + bodyLines + ["}"]
         var main = ["void main() {", "    if (\(lane) == 0u) { saga_payload = \(try zero(global.type)); }"]
         main += try shared.initialize(lane: lane, threads: meshWorkgroupThreadCount(size), module: module, structures: structures)

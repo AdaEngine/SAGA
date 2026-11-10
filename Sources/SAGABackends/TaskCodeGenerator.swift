@@ -147,8 +147,26 @@ package struct TaskCodeGenerator {
             }
             saveDispatch.append("    if (\(lane) == 0u) { saga_dispatch_size = saga_size; }")
         }
-        let outer = [signature] + sharedSetup + [ "    if (\(lane) == 0u) { \(payloadName) = \(zero); }", "    \(barrier)"] + subgroupSetup.body + inputs.initializers + ["    uint3 saga_size = saga_task_body(\(callArgs.joined(separator: ", ")));"] + saveDispatch + ["    \(barrier)", "    \(dispatch)", "}", ""]
-        return (.text(format: format, source: (header + declarations + numeric + helperLines.map { format == .msl ? taskObjectBarrier($0) : $0 } + inner + outer).joined(separator: "\n")), bindings.uniforms, bindings.buffers, bindings.textures, bindings.samplers, bindings.storageTextures, inputs.usesSubgroups || !helpers.subgroupExtensions.isEmpty || helpers.controlBarriers.contains(.subgroup))
+        var outer: [String] = [signature]
+        outer.append(contentsOf: sharedSetup)
+        outer.append("    if (\(lane) == 0u) { \(payloadName) = \(zero); }")
+        outer.append("    \(barrier)")
+        outer.append(contentsOf: subgroupSetup.body)
+        outer.append(contentsOf: inputs.initializers)
+        outer.append("    uint3 saga_size = saga_task_body(\(callArgs.joined(separator: ", ")));")
+        outer.append(contentsOf: saveDispatch)
+        outer.append("    \(barrier)")
+        outer.append("    \(dispatch)")
+        outer.append("}")
+        outer.append("")
+        var source: [String] = header
+        source.append(contentsOf: declarations)
+        source.append(contentsOf: numeric)
+        source.append(contentsOf: helperLines.map { format == .msl ? taskObjectBarrier($0) : $0 })
+        source.append(contentsOf: inner)
+        source.append(contentsOf: outer)
+        let needsSubgroups = inputs.usesSubgroups || !helpers.subgroupExtensions.isEmpty || helpers.controlBarriers.contains(.subgroup)
+        return (.text(format: format, source: source.joined(separator: "\n")), bindings.uniforms, bindings.buffers, bindings.textures, bindings.samplers, bindings.storageTextures, needsSubgroups)
     }
 }
 

@@ -87,10 +87,13 @@ import SAGAFrontends
         #expect(f.expressions.values.contains { if case .load = $0.kind { true } else { false } })
     }
     @Test func headerWordCountsIDsAndOrderRejected() throws {
-        for w in [[], [0x07230203], [0,0,0,0,0], [0x07230203,0x00020000,0,4,0],
-                  [0x07230203,0x00010300,0,0,0], Self.head + [0], Self.head + [0xffff0001],
-                  Self.pre + Self.i(19,1) + Self.i(19,1), Self.pre + Self.i(19,100),
-                  Self.pre + Self.i(19,1) + Self.i(17,1)] { try fails(w) }
+        var cases: [[UInt32]] = [[], [0x07230203], [0, 0, 0, 0, 0], [0x07230203, 0x00020000, 0, 4, 0], [0x07230203, 0x00010300, 0, 0, 0]]
+        cases.append(Self.head + [0])
+        cases.append(Self.head + [0xffff0001])
+        cases.append(Self.pre + Self.i(19, 1) + Self.i(19, 1))
+        cases.append(Self.pre + Self.i(19, 100))
+        cases.append(Self.pre + Self.i(19, 1) + Self.i(17, 1))
+        for w in cases { try fails(w) }
     }
     @Test func unsupportedNeverReturnsDummyAndCoordinateNotIgnored() throws {
         try fails(Self.pre + Self.i(9999), code: .unsupportedConstruct)

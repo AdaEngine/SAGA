@@ -143,12 +143,15 @@ private func dotText(_ artifact: ShaderArtifact) throws -> String {
 @Test func dotCodeGeneratorEscapesSPIRVNames() throws {
     var name = Array("quoted\"slash\\line\nend".utf8) + [0]
     while !name.count.isMultiple(of: 4) { name.append(0) }
-    let packed = stride(from: 0, to: name.count, by: 4).map { index in
-        UInt32(name[index]) | UInt32(name[index + 1]) << 8 | UInt32(name[index + 2]) << 16 | UInt32(name[index + 3]) << 24
-    }
+    let packed = packLittleEndianWords(name)
     let i = SPIRVFrontendTests.i
-    var words = SPIRVFrontendTests.pre + [UInt32(packed.count + 3) << 16 | 15, 5, 10] + packed
-    words += i(16, 10, 17, 1, 1, 1) + i(19, 1) + i(33, 2, 1) + i(54, 1, 10, 0, 2) + i(248, 11) + i(253) + i(56)
+    var words: [UInt32] = SPIRVFrontendTests.pre
+    words.append(UInt32(packed.count + 3) << 16 | 15)
+    words += [5, 10]
+    words += packed
+    for instruction in [i(16, 10, 17, 1, 1, 1), i(19, 1), i(33, 2, 1), i(54, 1, 10, 0, 2), i(248, 11), i(253), i(56)] {
+        words += instruction
+    }
     let source = try dotText(IndependentShaderCompiler().compile(.spirv(words), to: .dot))
     #expect(source.contains(#"quoted\"slash\\line\nend"#))
     #expect(!source.contains("line\nend"))

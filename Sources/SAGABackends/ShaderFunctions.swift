@@ -378,10 +378,11 @@ struct ShaderFunctions {
         let additional = try additionalFunctions(module: module, entries: sharedEntries, excluding: Set(stageFunctions))
         let additionalPairs = try glslTextureUses(module: module, functions: additional,
                                                    bindingArrayLengths: bindingArrayLengths).pairs
-        let pairs = stagePairs.union(additionalPairs).sorted {
-            ($0.texture.global, $0.texture.element ?? 0, $0.sampler.global, $0.sampler.element ?? 0, $0.externalPlane ?? 0) <
-            ($1.texture.global, $1.texture.element ?? 0, $1.sampler.global, $1.sampler.element ?? 0, $1.externalPlane ?? 0)
+        func pairKey(_ pair: ShaderTextureSamplerPair) -> [Int] {
+            [Int(pair.texture.global), Int(pair.texture.element ?? 0), Int(pair.sampler.global), Int(pair.sampler.element ?? 0),
+             Int(pair.externalPlane ?? 0)]
         }
+        let pairs = stagePairs.union(additionalPairs).sorted { pairKey($0).lexicographicallyPrecedes(pairKey($1)) }
         let capacity = sharedEntries.isEmpty ? limit : 2 * limit
         let units = (0..<(2 * capacity)).filter { !textureSlots.contains($0) }
         var independent = standalone

@@ -133,44 +133,105 @@ public enum BufferCommand: Sendable, Equatable {
     }
 
     public var resources: [ResourceID] {
+        // Long chains of concatenations are slow to type-check, so the lists are built step by step.
+        var ids: [ResourceID] = []
+        func appendAttachments(_ attachments: [UInt32: RenderColorAttachment]) {
+            for attachment in attachments.values {
+                ids.append(attachment.texture)
+                if let resolve = attachment.resolve?.texture { ids.append(resolve) }
+            }
+        }
+        func appendBindings(
+            _ vertexBuffers: [VertexBufferBinding], _ uniforms: [ComputeBindingSlot: ComputeBufferBinding],
+            _ storage: [ComputeBindingSlot: ComputeBufferBinding], _ textures: [ComputeBindingSlot: ResourceID],
+            _ samplers: [ComputeBindingSlot: ResourceID]
+        ) {
+            for binding in vertexBuffers { ids.append(binding.buffer) }
+            for binding in uniforms.values { ids.append(binding.buffer) }
+            for binding in storage.values { ids.append(binding.buffer) }
+            ids.append(contentsOf: textures.values)
+            ids.append(contentsOf: samplers.values)
+        }
         switch self {
-        case .buildAccelerationStructure(let destination, let geometry): [destination, geometry.vertexBuffer] + (geometry.indexBuffer.map { [$0.buffer] } ?? [])
-        case .buildTopLevelAccelerationStructure(let destination, let instances): [destination] + instances.map(\.accelerationStructure)
-        case .write(let id, _, _), .writeBytes(let id, _, _, _, _), .clearBuffer(let id, _, _), .read(let id, _): [id]
+        case .buildAccelerationStructure(let destination, let geometry):
+            ids = [destination, geometry.vertexBuffer]
+            if let index = geometry.indexBuffer { ids.append(index.buffer) }
+            return ids
+        case .buildTopLevelAccelerationStructure(let destination, let instances):
+            ids = [destination]
+            for instance in instances { ids.append(instance.accelerationStructure) }
+            return ids
+        case .write(let id, _, _), .writeBytes(let id, _, _, _, _), .clearBuffer(let id, _, _), .read(let id, _): return [id]
         case .drawMesh(let pipeline, let target, _, _, let taskBuffers, let meshBuffers, let taskTextures, let meshTextures, let taskSamplers, let meshSamplers, let additionalColors, _, let resolve, let depth, let indirect, _, let fragmentBuffers, let fragmentTextures, let fragmentSamplers, _):
-            [pipeline.id, target] + (indirect.map { [$0] } ?? []) + [resolve?.texture, depth?.texture].compactMap { $0 } + fragmentBuffers.values.map(\.buffer) + Array(fragmentTextures.values) + Array(fragmentSamplers.values) + taskBuffers.values.map(\.buffer) + meshBuffers.values.map(\.buffer) + Array(taskTextures.values) + Array(meshTextures.values) + Array(taskSamplers.values) + Array(meshSamplers.values) + additionalColors.values.flatMap { [$0.texture, $0.resolve?.texture].compactMap { $0 } }
+            ids = [pipeline.id, target]
+            if let indirect { ids.append(indirect) }
+            if let resolve { ids.append(resolve.texture) }
+            if let depth { ids.append(depth.texture) }
+            for binding in fragmentBuffers.values { ids.append(binding.buffer) }
+            ids.append(contentsOf: fragmentTextures.values)
+            ids.append(contentsOf: fragmentSamplers.values)
+            for binding in taskBuffers.values { ids.append(binding.buffer) }
+            for binding in meshBuffers.values { ids.append(binding.buffer) }
+            ids.append(contentsOf: taskTextures.values)
+            ids.append(contentsOf: meshTextures.values)
+            ids.append(contentsOf: taskSamplers.values)
+            ids.append(contentsOf: meshSamplers.values)
+            appendAttachments(additionalColors)
+            return ids
         case .render(_, let target, _, _, let bindings, _, _, let uniforms, let textures, let samplers, _, _, let depth, let resolve, _, let additionalColors, _, let storageBuffers, _, _):
-            (target.map { [$0] } ?? []) + bindings.map(\.buffer) + uniforms.values.map(\.buffer) + storageBuffers.values.map(\.buffer) + textures.values + samplers.values +
-                [depth?.texture, resolve?.texture].compactMap { $0 } + additionalColors.values.flatMap { attachment in
-                    [attachment.texture, attachment.resolve?.texture].compactMap { $0 }
-                }
+            if let target { ids.append(target) }
+            appendBindings(bindings, uniforms, storageBuffers, textures, samplers)
+            if let depth { ids.append(depth.texture) }
+            if let resolve { ids.append(resolve.texture) }
+            appendAttachments(additionalColors)
+            return ids
         case .renderIndexed(_, let target, _, let index, _, let bindings, let uniforms, let textures, let samplers, _, _, let depth, let resolve, _, let additionalColors, _, let storageBuffers, _, _):
-            (target.map { [$0] } ?? []) + [index.buffer] + bindings.map(\.buffer) + uniforms.values.map(\.buffer) + storageBuffers.values.map(\.buffer) + textures.values + samplers.values +
-                [depth?.texture, resolve?.texture].compactMap { $0 } + additionalColors.values.flatMap { attachment in
-                    [attachment.texture, attachment.resolve?.texture].compactMap { $0 }
-                }
+            if let target { ids.append(target) }
+            ids.append(index.buffer)
+            appendBindings(bindings, uniforms, storageBuffers, textures, samplers)
+            if let depth { ids.append(depth.texture) }
+            if let resolve { ids.append(resolve.texture) }
+            appendAttachments(additionalColors)
+            return ids
         case .renderIndirect(_, let target, _, let arguments, _, let index, let bindings, let uniforms, let textures, let samplers, _, _, let depth, let resolve, _, let additionalColors, _, let storageBuffers, _, _):
-            (target.map { [$0] } ?? []) + [arguments] + bindings.map(\.buffer) + uniforms.values.map(\.buffer) + storageBuffers.values.map(\.buffer) + textures.values + samplers.values +
-                [index?.buffer, depth?.texture, resolve?.texture].compactMap { $0 } + additionalColors.values.flatMap { attachment in
-                    [attachment.texture, attachment.resolve?.texture].compactMap { $0 }
-                }
-        case .dispatch(_, let input, let output, _): [input, output]
+            if let target { ids.append(target) }
+            ids.append(arguments)
+            appendBindings(bindings, uniforms, storageBuffers, textures, samplers)
+            if let index { ids.append(index.buffer) }
+            if let depth { ids.append(depth.texture) }
+            if let resolve { ids.append(resolve.texture) }
+            appendAttachments(additionalColors)
+            return ids
+        case .dispatch(_, let input, let output, _): return [input, output]
         case .dispatchCompute(_, let bindings, _, let textures, let samplers, _, let structures):
-            Array(bindings.values) + textures.values + samplers.values + structures.values
+            ids = Array(bindings.values)
+            ids.append(contentsOf: textures.values)
+            ids.append(contentsOf: samplers.values)
+            ids.append(contentsOf: structures.values)
+            return ids
         case .dispatchComputeRanges(_, let bindings, _, let textures, let samplers, _, let structures):
-            bindings.values.map(\.buffer) + textures.values + samplers.values + structures.values
+            for binding in bindings.values { ids.append(binding.buffer) }
+            ids.append(contentsOf: textures.values)
+            ids.append(contentsOf: samplers.values)
+            ids.append(contentsOf: structures.values)
+            return ids
         case .dispatchComputeIndirect(_, let bindings, let arguments, _, let textures, let samplers, _, let structures):
-            [arguments] + bindings.values.map(\.buffer) + textures.values + samplers.values + structures.values
+            ids = [arguments]
+            for binding in bindings.values { ids.append(binding.buffer) }
+            ids.append(contentsOf: textures.values)
+            ids.append(contentsOf: samplers.values)
+            ids.append(contentsOf: structures.values)
+            return ids
         case .timestamped, .occlusionQueried:
-            measuredPassResources
+            return measuredPassResources
         case .resolveQuerySet(let set, _, _, let destination, _):
-            [set, destination]
-        case .writeTexture(let destination, _, _, _, _): [destination]
+            return [set, destination]
+        case .writeTexture(let destination, _, _, _, _): return [destination]
         case .copy(let source, _, let destination, _, _), .copyTextureToBuffer(let source, let destination, _, _, _, _, _, _, _, _),
              .copyTextureRegionToBuffer(let source, let destination, _, _, _),
              .copyBufferToTexture(let source, _, let destination, _, _),
              .copyTextureToTexture(let source, let destination, _, _):
-            [source, destination]
+            return [source, destination]
         }
     }
 

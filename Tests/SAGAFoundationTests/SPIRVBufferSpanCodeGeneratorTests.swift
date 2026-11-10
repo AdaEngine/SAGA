@@ -87,9 +87,7 @@ func spirvBufferSpanCodeGeneratorRejectsInvalidDeclaredSpans(_ span: Int) throws
     let text = Array("saga.struct-span.v1:\(span):\(field.suffix)".utf8) + [0]
     try #require(text.count <= field.range.count * 4)
     let bytes = text + Array(repeating: 0, count: field.range.count * 4 - text.count)
-    words.replaceSubrange(field.range, with: stride(from: 0, to: bytes.count, by: 4).map { index in
-        UInt32(bytes[index]) | UInt32(bytes[index + 1]) << 8 | UInt32(bytes[index + 2]) << 16 | UInt32(bytes[index + 3]) << 24
-    })
+    words.replaceSubrange(field.range, with: packLittleEndianWords(bytes))
     do {
         _ = try compiler.parseAndValidate(.spirv(words))
         Issue.record("Accepted a smaller or misaligned declared structure span")

@@ -23,7 +23,8 @@ let package = Package(
         .target(name: "SAGABackend", dependencies: ["SAGATypes", "SAGAShaderIR"]),
         .target(name: "SAGACore", dependencies: ["SAGATypes", "SAGABackend", "SAGAShaderIR"]),
         .target(name: "SAGA", dependencies: ["SAGATypes", "SAGACore", "SAGABackend"]),
-        .target(name: "SAGAShaderIR"),
+        // The compiler folds constants with the C math library, which Linux does not link by default.
+        .target(name: "SAGAShaderIR", linkerSettings: [.linkedLibrary("m", .when(platforms: [.linux]))]),
         .target(name: "SAGAValidation", dependencies: ["SAGAShaderIR"]),
         .target(name: "SAGAFrontends", dependencies: ["SAGAShaderIR"]),
         .target(name: "SAGABackends", dependencies: ["SAGAShaderIR", "SAGAValidation", "SAGATypes"]),
