@@ -55,7 +55,7 @@ Constraints that carry over:
 |---|---|---|
 | 1. Compute, buffers, readback | done | `swift test --filter vulkan` |
 | 2. Uniform buffers, immediates (push constants), indirect dispatch with GPU-side limit validation | done | same |
-| 3z. Linux host: build and full suite on Ubuntu 24.04 (WSL2) with lavapipe, Xlib presentation with swapchain rebuild; portability fixes (libm link, expressions the Swift 6.2.3 type checker rejects). Wayland presentation not run | partial | Linux run of the suite, Xlib presentation test |
+| 3z. Linux host: build and full suite on Ubuntu 24.04 (WSL2) with lavapipe; Xlib presentation with swapchain rebuild and Wayland presentation to a bare wl_surface on the WSLg compositor (both through a run-time loaded client library); portability fixes (libm link, expressions the Swift 6.2.3 type checker rejects). No hardware Linux GPU driver was available | done on lavapipe | Linux run of the suite, Xlib and Wayland presentation tests |
 | 3a. 2D textures, buffer/texture copies and uploads, offscreen render (vertex buffers, instances, uniforms and storage buffers, blending, viewport, scissor) | done | triangle and vertex-buffer pixel readback tests |
 | 3b. Sampled 2D textures, samplers, compute storage textures | done | compute sample-and-store and fragment sampling tests |
 | 4a. Indexed draws (uint16, uint32, signed base vertex), robustBufferAccess enabled | done | indexed draw test |
@@ -99,8 +99,8 @@ writer over the same IR and the binary from the SPIR-V writer, so layout and cod
 the GLSL writer's binding capacities and capability checks. Every image stays in `VK_IMAGE_LAYOUT_GENERAL`.
 Linux: the Vulkan backend builds with Swift 6.2.3 on Ubuntu 24.04 (WSL2) and the whole suite passes there, 1550 tests,
 with Vulkan running on Mesa's lavapipe software driver. Xlib presentation was exercised against a real X server
-(WSLg) with a swapchain rebuild after a resize. Not covered: Wayland presentation, and a hardware Linux GPU
-driver (lavapipe lacks mesh shaders, ray queries and cooperative matrices, so those tests skip there).
+(WSLg) with a swapchain rebuild after a resize, and Wayland presentation to a surface on the WSLg compositor. Not
+covered: a hardware Linux GPU driver (lavapipe lacks mesh shaders, ray queries and cooperative matrices, so those tests skip there).
 
 ## Mesh shader plan for Vulkan (survey, 2026-11-10)
 
