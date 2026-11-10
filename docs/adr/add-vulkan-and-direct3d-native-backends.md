@@ -90,3 +90,25 @@ Compiler additions: `compileCompute(to: .spirv)` and `compileRenderStage(to: .sp
 writer over the same IR and the binary from the SPIR-V writer, so layout and code come from one module. They inherit
 the GLSL writer's binding capacities and capability checks. Every image stays in `VK_IMAGE_LAYOUT_GENERAL`.
 Linux is unverified.
+
+## Mesh shader plan for Vulkan (survey, 2026-11-10)
+
+The mesh path is Metal-only end to end today, so Vulkan needs four pieces, in this order. The development GPU exposes
+`VK_EXT_mesh_shader`, so each piece can be checked on hardware, and `spirv-val` ships with the Vulkan SDK.
+
+1. **SPIR-V mesh and task stages.** `SPIRVEntryPlan` only knows vertex, fragment and compute. The mesh output variable is a
+   workgroup-space structure (as in `MeshGLSLCodeGenerator`), so the writer needs an epilogue after the user body: a
+   barrier, `OpSetMeshOutputsEXT` with the clamped counts, then strided copy loops into the `MeshVerticesEXT` per-vertex
+   block, the `PrimitiveTriangleIndicesEXT` array and the user varyings (decorated `PerPrimitiveEXT` for primitive outputs).
+   Required modules details: execution model `MeshEXT` (5365) or `TaskEXT` (5364), modes `OutputVertices`,
+   `OutputPrimitivesEXT`, `OutputTrianglesEXT`, capability `MeshShadingEXT`, extension `SPV_EXT_mesh_shader`, and SPIR-V 1.4,
+   which also requires every referenced global variable in the entry-point interface. Early `return` inside nested
+   loops cannot branch to the epilogue in structured control flow and should be rejected or flag-lowered.
+2. **Reflected artifacts.** `compileReflectedMeshStage` and the task equivalent accept only MSL. Vulkan needs the same
+   reflection (bindings, payload, topology, limits) paired with the SPIR-V words, as done for compute and render stages.
+3. **Vulkan pipelines.** Enable `VkPhysicalDeviceMeshShaderFeaturesEXT`, create a graphics pipeline with mesh (and optional
+   task) plus fragment stages and no vertex-input or input-assembly state, and advertise `.meshShaders` with the device limits.
+4. **Draws.** Plan `drawMesh` like `render` and record `vkCmdDrawMeshTasksEXT`; indirect and counted variants follow.
+
+Direct3D 12 mesh shaders follow the same shape using HLSL from `MeshHLSLCodeGenerator`, DXC `ms_6_5`, and a pipeline-state
+stream, which this backend does not create yet.
