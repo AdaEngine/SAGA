@@ -54,6 +54,7 @@ extension VulkanDevice {
     enum BuildInput {
         case triangles(vertexAddress: UInt64, stride: UInt64, maxVertex: UInt32, indexAddress: UInt64?)
         case instances(address: UInt64)
+        case boxes(address: UInt64, stride: UInt64)
     }
 
     /// A 96-byte `VkAccelerationStructureGeometryKHR`.
@@ -69,6 +70,11 @@ extension VulkanDevice {
             words[7] = stride
             words[8] = UInt64(maxVertex) | UInt64(indexAddress == nil ? 1_000_165_000 : 1) << 32  // indexType: NONE or UINT32
             words[9] = indexAddress ?? 0
+        case .boxes(let address, let stride):
+            words[2] = 1  // AABBS
+            words[3] = 1000150003  // VkAccelerationStructureGeometryAabbsDataKHR
+            words[5] = address
+            words[6] = stride
         case .instances(let address):
             words[2] = 2  // INSTANCES
             words[3] = 1000150004  // VkAccelerationStructureGeometryInstancesDataKHR
@@ -128,6 +134,9 @@ extension VulkanDevice {
         case .triangles(let count):
             (top, primitives) = (false, count)
             input = .triangles(vertexAddress: 0, stride: 12, maxVertex: max(count * 3, 3), indexAddress: nil)
+        case .boxes(let count):
+            (top, primitives) = (false, count)
+            input = .boxes(address: 0, stride: 24)
         case .instances(let count):
             (top, primitives) = (true, count)
             input = .instances(address: 0)
@@ -244,6 +253,14 @@ extension VulkanDevice {
             try buildStructure(top: false, input: .triangles(vertexAddress: vertexAddress, stride: geometry.vertexStride,
                                                              maxVertex: geometry.vertexCount - 1, indexAddress: indexAddress),
                                primitives: geometry.triangleCount, target: target, commandBuffer: commandBuffer, batch: &batch, ray: ray)
+        case .buildBoxAccelerationStructure(let destination, let geometry):
+            guard let target = accelerationStructures[destination], let buffer = buffers[geometry.buffer] else {
+                throw GPUError.validation("Unknown Vulkan acceleration structure build input")
+            }
+            _ = try geometry.range(bufferSize: buffer.descriptor.size)
+            let address = try deviceAddress(of: buffer.native.handle) + geometry.offset
+            try buildStructure(top: false, input: .boxes(address: address, stride: geometry.stride), primitives: geometry.count,
+                               target: target, commandBuffer: commandBuffer, batch: &batch, ray: ray)
         case .buildTopLevelAccelerationStructure(let destination, let instances):
             guard let target = accelerationStructures[destination] else {
                 throw GPUError.validation("Unknown Vulkan acceleration structure build input")

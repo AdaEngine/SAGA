@@ -1554,6 +1554,8 @@ public final class MetalDevice: ComputeAccelerationStructureBackendDevice, Prese
                     }
                     _ = try geometry.indexRange(bufferSize: source.descriptor.size)
                 }
+            case .buildBoxAccelerationStructure:
+                throw GPUError.unsupported("Metal does not build box acceleration structures")
             case .buildTopLevelAccelerationStructure(let destination, let instances):
                 guard let target = accelerationStructures[destination],
                       case .instances(let maximum) = target.descriptor.capacity,
@@ -1883,6 +1885,8 @@ public final class MetalDevice: ComputeAccelerationStructureBackendDevice, Prese
                 guard nextAccelerationBuild < UInt64.max else { throw GPUError.outOfMemory }
                 nextAccelerationBuild += 1
                 accelerationBuilds[destination] = PendingAccelerationBuild(serial: nextAccelerationBuild, build: build.persistent)
+            case .buildBoxAccelerationStructure:
+                throw GPUError.unsupported("Metal does not build box acceleration structures")
             case .buildTopLevelAccelerationStructure(let destination, let instances):
                 let inputs = try instances.map { instance in
                     guard let source = accelerationBuilds[instance.accelerationStructure]

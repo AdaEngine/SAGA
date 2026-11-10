@@ -686,7 +686,7 @@ public actor VulkanDevice: ComputeAccelerationStructureBackendDevice, PlanarExte
                     throw GPUError.unsupported("Vulkan does not implement this command yet")
                 }
                 operations.append(.imageCopy(plan))
-            case .buildAccelerationStructure, .buildTopLevelAccelerationStructure:
+            case .buildAccelerationStructure, .buildBoxAccelerationStructure, .buildTopLevelAccelerationStructure:
                 guard native.ray != nil else { throw GPUError.unsupported("This Vulkan device does not support ray queries") }
                 if case .buildAccelerationStructure(_, let geometry) = command, geometry.indexBuffer != nil {
                     // The index sanitizer binds one set of three storage buffers.

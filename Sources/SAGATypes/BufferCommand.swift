@@ -2,6 +2,7 @@
 public enum BufferCommand: Sendable, Equatable {
     case buildTopLevelAccelerationStructure(destination: ResourceID, instances: [AccelerationStructureInstance])
     case buildAccelerationStructure(destination: ResourceID, geometry: AccelerationStructureTriangleGeometry)
+    case buildBoxAccelerationStructure(destination: ResourceID, geometry: AccelerationStructureAABBGeometry)
     case write(buffer: ResourceID, offset: UInt64, words: [UInt32])
     case writeBytes(buffer: ResourceID, offset: UInt64, bytes: [UInt8], dataOffset: UInt64 = 0, byteCount: UInt64? = nil)
     case dispatch(pipeline: ResourceID, input: ResourceID, output: ResourceID, count: UInt32)
@@ -157,6 +158,8 @@ public enum BufferCommand: Sendable, Equatable {
             ids = [destination, geometry.vertexBuffer]
             if let index = geometry.indexBuffer { ids.append(index.buffer) }
             return ids
+        case .buildBoxAccelerationStructure(let destination, let geometry):
+            return [destination, geometry.buffer]
         case .buildTopLevelAccelerationStructure(let destination, let instances):
             ids = [destination]
             for instance in instances { ids.append(instance.accelerationStructure) }
@@ -758,6 +761,11 @@ public enum BufferCommand: Sendable, Equatable {
             guard instances.allSatisfy({ $0.transform.count == 12 && $0.transform.allSatisfy(\.isFinite) && $0.instanceID <= 0x00ff_ffff }) else {
                 throw GPUError.validation("Invalid acceleration structure instance")
             }
+        case .buildBoxAccelerationStructure(_, let geometry):
+            guard let descriptor = descriptors[geometry.buffer], descriptor.usage.contains(.storage) else {
+                throw GPUError.validation("Acceleration structure boxes require a storage buffer")
+            }
+            _ = try geometry.range(bufferSize: descriptor.size)
         case .buildAccelerationStructure(_, let geometry):
             guard let descriptor = descriptors[geometry.vertexBuffer], descriptor.usage.contains(.vertex) else {
                 throw GPUError.validation("Acceleration structure geometry requires a vertex buffer")

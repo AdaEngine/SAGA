@@ -47,6 +47,12 @@ extension D3D12Device: ComputeAccelerationStructureBackendDevice {
         return words
     }
 
+    /// A procedural-primitive geometry description: the box count and the box buffer with its stride.
+    private func boxGeometry(address: UInt64, stride: UInt64, count: UInt32) -> [UInt64] {
+        // Type PROCEDURAL_PRIMITIVE_AABBS (1) with flags NONE, then AABBCount, StartAddress, StrideInBytes.
+        [1, UInt64(count), address, stride, 0, 0, 0]
+    }
+
     /// The prebuild sizes (structure, scratch) for either kind of input.
     private func prebuild(top: Bool, count: UInt32, geometry: [UInt64]?) throws -> (structure: UInt64, scratch: UInt64) {
         let device5 = try queryInterface(device, "8b4f173b-2fea-4b80-8f58-4307191ab95d")  // ID3D12Device5
@@ -77,6 +83,8 @@ extension D3D12Device: ComputeAccelerationStructureBackendDevice {
         case .triangles(let count):
             sizes = try prebuild(top: false, count: 1, geometry: triangleGeometry(
                 vertexAddress: 0, stride: 12, vertexCount: max(3, count * 3), indexAddress: nil, indexCount: 0))
+        case .boxes(let count):
+            sizes = try prebuild(top: false, count: 1, geometry: boxGeometry(address: 0, stride: 24, count: max(1, count)))
         case .instances(let count):
             sizes = try prebuild(top: true, count: max(1, count), geometry: nil)
         }
@@ -198,6 +206,18 @@ extension D3D12Device: ComputeAccelerationStructureBackendDevice {
             }
             var geometryWords = triangleGeometry(vertexAddress: vertexBuffer.address + geometry.vertexOffset, stride: geometry.vertexStride,
                                                  vertexCount: geometry.vertexCount, indexAddress: indexAddress, indexCount: indexCount)
+            let sizes = try prebuild(top: false, count: 1, geometry: geometryWords)
+            try geometryWords.withUnsafeMutableBytes { bytes in
+                try build(top: false, count: 1, inputPointer: UInt64(UInt(bitPattern: bytes.baseAddress)), target: target,
+                          scratchSize: sizes.scratch)
+            }
+        case .buildBoxAccelerationStructure(let destination, let geometry):
+            guard let target = accelerationStructures[destination], let buffer = buffers[geometry.buffer] else {
+                throw GPUError.validation("Unknown Direct3D 12 acceleration structure build input")
+            }
+            _ = try geometry.range(bufferSize: buffer.descriptor.size)
+            transition(geometry.buffer, D3D12.stateNonPixelShaderResource)
+            var geometryWords = boxGeometry(address: buffer.address + geometry.offset, stride: geometry.stride, count: geometry.count)
             let sizes = try prebuild(top: false, count: 1, geometry: geometryWords)
             try geometryWords.withUnsafeMutableBytes { bytes in
                 try build(top: false, count: 1, inputPointer: UInt64(UInt(bitPattern: bytes.baseAddress)), target: target,

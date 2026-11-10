@@ -837,7 +837,8 @@ public actor Device {
                     throw GPUError.validation("Render acceleration structure has not been built")
                 }
                 switch pass {
-                case .buildAccelerationStructure(let destination, _), .buildTopLevelAccelerationStructure(let destination, _):
+                case .buildAccelerationStructure(let destination, _), .buildBoxAccelerationStructure(let destination, _),
+                     .buildTopLevelAccelerationStructure(let destination, _):
                     availableBuilds.insert(destination)
                 default: break
                 }
@@ -848,12 +849,18 @@ public actor Device {
                         throw GPUError.validation("Acceleration structure destination or capacity is invalid")
                     }
                 }
+                if case .buildBoxAccelerationStructure(let destination, let geometry) = command {
+                    guard case .accelerationStructure(let descriptor) = resources[destination]?.descriptor,
+                          case .boxes(let capacity) = descriptor.capacity, geometry.count <= capacity else {
+                        throw GPUError.validation("Acceleration structure destination or capacity is invalid")
+                    }
+                }
                 if case .buildTopLevelAccelerationStructure(let destination, let instances) = command {
                     guard case .accelerationStructure(let descriptor) = resources[destination]?.descriptor,
                           case .instances(let capacity) = descriptor.capacity,
                           instances.count <= Int(capacity), instances.allSatisfy({ instance in
                               guard case .accelerationStructure(let source) = resources[instance.accelerationStructure]?.descriptor,
-                                    case .triangles = source.capacity else { return false }
+                                    source.capacity.isBottomLevel else { return false }
                               return true
                           }) else {
                         throw GPUError.validation("Invalid top-level acceleration structure or instances")
@@ -882,7 +889,8 @@ public actor Device {
         }
         let buildDestinations = Set(commands.compactMap { command -> ResourceID? in
             switch command.recordedPass.command {
-            case .buildAccelerationStructure(let destination, _), .buildTopLevelAccelerationStructure(let destination, _): destination
+            case .buildAccelerationStructure(let destination, _), .buildBoxAccelerationStructure(let destination, _),
+                 .buildTopLevelAccelerationStructure(let destination, _): destination
             default: nil
             }
         })
@@ -917,7 +925,8 @@ public actor Device {
                 throw GPUError.validation("Top-level acceleration structure references an unbuilt BLAS")
             }
             switch pass {
-            case .buildAccelerationStructure(let destination, _), .buildTopLevelAccelerationStructure(let destination, _):
+            case .buildAccelerationStructure(let destination, _), .buildBoxAccelerationStructure(let destination, _),
+                 .buildTopLevelAccelerationStructure(let destination, _):
                 available.insert(destination)
             default: break
             }

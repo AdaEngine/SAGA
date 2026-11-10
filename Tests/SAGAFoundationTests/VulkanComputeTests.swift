@@ -1607,6 +1607,52 @@ private func vulkanTaskMeshPixel(taskSize: String) async throws -> UInt32? {
     } catch { await device.close(); throw error }
 }
 
+@Test(.enabled(if: vulkanAvailable), .gpuExclusive) func vulkanRayQueriesHitProceduralBoxes() async throws {
+    let backend = try VulkanBackend.makeDevice()
+    let device = try await Device.make(backend: backend)
+    do {
+        guard backend.capabilities.features.contains(.rayQuery) else { await device.close(); return }
+        let shader = try IndependentShaderCompiler().compileCompute(.wgsl("""
+            enable wgpu_ray_query;
+            @group(0) @binding(0) var<storage, read_write> output: array<u32, 4>;
+            @group(0) @binding(1) var scene: acceleration_structure;
+            @compute @workgroup_size(1) fn main() {
+                var q: ray_query;
+                rayQueryInitialize(&q, scene, RayDesc(0u, 255u, 0.1, 10.0, vec3f(0.5, 0.5, 0.0), vec3f(0.0, 0.0, 1.0)));
+                var candidates = 0u;
+                while rayQueryProceed(&q) {
+                    let c = rayQueryGetCandidateIntersection(&q);
+                    if c.kind == 3u { candidates += 1u; rayQueryGenerateIntersection(&q, 4.0); }
+                }
+                let hit = rayQueryGetCommittedIntersection(&q);
+                output[0] = hit.kind;
+                output[1] = bitcast<u32>(hit.t);
+                output[2] = candidates;
+            }
+            """), to: .spirv)
+        let pipeline = try await device.createComputePipeline(shader)
+        let boxes = try await device.createBuffer(.init(size: 24, usage: [.storage, .copyDestination]))
+        let output = try await device.createBuffer(.init(size: 16, usage: [.storage, .copySource]))
+        let readback = try await device.createBuffer(.init(size: 16, usage: [.copyDestination, .mapRead]))
+        let bottom = try await device.createAccelerationStructure(.init(maxBoxCount: 1))
+        let top = try await device.createAccelerationStructure(.init(maxInstanceCount: 1))
+        let one = Float(1).bitPattern, four = Float(4).bitPattern, five = Float(5).bitPattern
+        let ticket = try await device.submitCommands([
+            .write(buffer: boxes, offset: 0, words: [0, 0, four, one, one, five]),
+            .buildBoxAccelerationStructure(destination: bottom, geometry: .init(buffer: boxes, count: 1)),
+            .buildTopLevelAccelerationStructure(destination: top, instances: [.init(accelerationStructure: bottom)]),
+            .dispatchCompute(pipeline: pipeline, bindings: [.init(binding: 0): output], workgroups: .init(x: 1),
+                             accelerationStructures: [.init(binding: 1): top]),
+            .copy(source: output, destination: readback, byteCount: 16), .read(buffer: readback, byteCount: 16),
+        ])
+        let words = try await ticket.wait()[0]
+        #expect(words[0] == 2)  // a generated (procedural) hit is committed
+        #expect(Float(bitPattern: words[1]) == 4)
+        #expect(words[2] == 1)
+        await device.close()
+    } catch { await device.close(); throw error }
+}
+
 @Test(.enabled(if: vulkanAvailable), .gpuExclusive) func vulkanDrawsLineMeshes() async throws {
     let backend = try VulkanBackend.makeDevice()
     let device = try await Device.make(backend: backend)

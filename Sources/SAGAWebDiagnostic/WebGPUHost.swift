@@ -413,7 +413,7 @@ struct WebGPUHost: BrowserGPUPresentationHost, SamplerBackendDevice, TextureView
                 packet.add(UInt32(14)); packet.add(occlusion.querySet); packet.add(occlusion.queryIndex)
             }
             switch command {
-            case .buildAccelerationStructure, .buildTopLevelAccelerationStructure:
+            case .buildAccelerationStructure, .buildBoxAccelerationStructure, .buildTopLevelAccelerationStructure:
                 throw GPUError.unsupported("Browser acceleration structures are not supported")
             case .timestamped, .occlusionQueried:
                 throw GPUError.validation("Invalid query pass nesting")

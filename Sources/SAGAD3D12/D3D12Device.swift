@@ -616,7 +616,7 @@ public actor D3D12Device: ComputeBackendDevice, PlanarExternalTextureBackendDevi
                 case .render, .renderIndexed, .renderIndirect:
                     try recordDraw(command, list: list, transition: transition, arena: &arena, heapsSet: &heapsSet,
                                    renderTargets: &renderTargets)
-                case .buildAccelerationStructure, .buildTopLevelAccelerationStructure:
+                case .buildAccelerationStructure, .buildBoxAccelerationStructure, .buildTopLevelAccelerationStructure:
                     try recordStructureBuild(command, list: list, transition: { transition($0, to: $1) }, retained: &retained)
                 case .drawMesh:
                     let (equivalent, groups, indirect) = try equivalentRender(for: command)
