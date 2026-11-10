@@ -67,15 +67,15 @@ extension VulkanDevice: MeshBackendDevice {
     public func destroyMeshPipeline(id: ResourceID) async { destroyRenderPipelineNow(id: id) }
 
     /// Plans `drawMesh` as an equivalent render command and records the mesh task dimensions.
-    func planMeshDraw(_ command: BufferCommand, totals: inout DescriptorTotals) throws -> RenderPlan {
+    func planMeshDraw(_ command: BufferCommand, slot: Int, totals: inout DescriptorTotals) throws -> RenderPlan {
         guard case .drawMesh(let pipeline, let target, let colorLoad, let workgroups, let taskBuffers, let meshBuffers,
                              _, let meshTextures, _, let meshSamplers, let additional, let colorStore, let resolve, let depth,
-                             let indirect, _, let fragmentBuffers, let fragmentTextures, let fragmentSamplers, let raster) = command,
+                             let indirect, let indirectOffset, let fragmentBuffers, let fragmentTextures, let fragmentSamplers, let raster) = command,
               let state = renderPipelines[pipeline.id] else {
             throw GPUError.validation("Unknown Vulkan mesh pipeline")
         }
-        guard indirect == nil, taskBuffers.isEmpty else {
-            throw GPUError.unsupported("Vulkan mesh draws do not support task stages or indirect arguments yet")
+        guard taskBuffers.isEmpty else {
+            throw GPUError.unsupported("Vulkan mesh draws do not support task stages yet")
         }
         let buffers = meshBuffers.merging(fragmentBuffers) { first, _ in first }
         let equivalent = BufferCommand.render(
@@ -86,6 +86,13 @@ extension VulkanDevice: MeshBackendDevice {
             storageBuffers: buffers, immediates: [], colorStore: colorStore)
         var plan = try planRender(equivalent, totals: &totals)
         plan.meshGroups = (workgroups.x, workgroups.y, workgroups.z)
+        if let indirect {
+            guard let source = self.buffers[indirect], indirectOffset % 4 == 0, indirectOffset <= source.descriptor.size,
+                  source.descriptor.size - indirectOffset >= 12 else {
+                throw GPUError.validation("Invalid Vulkan indirect mesh draw arguments")
+            }
+            plan.indirect = (source.native.handle, indirectOffset, slot)
+        }
         return plan
     }
 }

@@ -1309,3 +1309,54 @@ private final class TestWindow: @unchecked Sendable {
         await device.close()
     } catch { await device.close(); throw error }
 }
+
+@Test(.enabled(if: vulkanAvailable), .gpuExclusive) func vulkanMeshDrawsReadValidatedIndirectGroupCounts() async throws {
+    let backend = try VulkanBackend.makeDevice()
+    let device = try await Device.make(backend: backend)
+    do {
+        guard backend.capabilities.features.contains(.meshShaders) else { await device.close(); return }
+        let source = """
+            enable wgpu_mesh_shader;
+            struct V { @builtin(position) position: vec4f, }
+            struct P { @builtin(triangle_indices) indices: vec3u, }
+            struct O {
+              @builtin(vertices) vertices: array<V, 3>,
+              @builtin(primitives) primitives: array<P, 1>,
+              @builtin(vertex_count) vertex_count: u32,
+              @builtin(primitive_count) primitive_count: u32,
+            }
+            var<workgroup> out: O;
+            @mesh(out) @workgroup_size(1) fn mesh() {
+              out.vertex_count = 3u; out.primitive_count = 1u;
+              out.vertices[0].position = vec4f(-1.0, -1.0, 0.5, 1.0);
+              out.vertices[1].position = vec4f(3.0, -1.0, 0.5, 1.0);
+              out.vertices[2].position = vec4f(-1.0, 3.0, 0.5, 1.0);
+              out.primitives[0].indices = vec3u(0u, 1u, 2u);
+            }
+            @fragment fn fragment() -> @location(0) vec4f { return vec4f(0.0, 1.0, 0.0, 1.0); }
+            """
+        let compiler = IndependentShaderCompiler()
+        let pipeline = try await device.createMeshPipeline(
+            mesh: try compiler.compileReflectedMeshStage(.wgsl(source), entryPoint: "mesh", to: .spirv),
+            fragment: try compiler.compileRenderStage(.wgsl(source), entryPoint: "fragment", to: .spirv), colorFormat: .rgba8Unorm)
+        let target = try await device.createTexture(.init(width: 8, height: 8, format: .rgba8Unorm, usage: [.renderAttachment, .copySource]))
+        let arguments = try await device.createBuffer(.init(size: 32, usage: [.indirect, .copyDestination]))
+        let read = try await device.createBuffer(.init(size: 1824, usage: [.copyDestination, .mapRead]))
+        let blue = RenderClearColor(red: 0, green: 0, blue: 1, alpha: 1)
+        func draw(offset: UInt64) -> BufferCommand {
+            .drawMesh(pipeline: pipeline, target: target, colorLoad: .clear(blue), workgroups: .init(x: 0),
+                      indirectBuffer: arguments, indirectOffset: offset)
+        }
+        let snapshot: [BufferCommand] = [
+            .copyTextureToBuffer(source: target, destination: read, bytesPerRow: 256), .read(buffer: read, byteCount: 1824)]
+        let ticket = try await device.submitCommands([
+            .write(buffer: arguments, offset: 0, words: [1, 1, 1, 5_000_000, 1, 1]),
+            draw(offset: 0),
+        ] + snapshot + [draw(offset: 12)] + snapshot)  // 5,000,000 groups exceed the per-dimension limit, so nothing is drawn
+        let snapshots = try await ticket.wait()
+        try #require(snapshots.count == 2)
+        #expect(snapshots[0][3 * 64 + 3] == 0xff00_ff00)
+        #expect(snapshots[1][3 * 64 + 3] == 0xffff_0000)
+        await device.close()
+    } catch { await device.close(); throw error }
+}

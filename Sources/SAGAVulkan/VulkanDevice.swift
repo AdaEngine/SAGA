@@ -13,6 +13,7 @@ final class VulkanNativeDevice: Sendable {
     let queueFamily: UInt32
     /// vkCmdDrawMeshTasksEXT, present only when mesh shaders are enabled.
     let drawMeshTasks: (@convention(c) (UInt, UInt32, UInt32, UInt32) -> Void)?
+    let drawMeshTasksIndirect: (@convention(c) (UInt, UInt64, UInt64, UInt32, UInt32) -> Void)?
 
     var f: VulkanFunctions { instance.functions }
     let graphics: VulkanGraphicsFunctions
@@ -61,6 +62,14 @@ final class VulkanNativeDevice: Sendable {
             }
         }
         drawMeshTasks = meshDraw
+        var meshIndirect: (@convention(c) (UInt, UInt64, UInt64, UInt32, UInt32) -> Void)?
+        if support.canEnableMeshShaders, let library = VulkanLibrary.open(), let address = library.symbol("vkGetInstanceProcAddr") {
+            let getProc = unsafeBitCast(address, to: GetInstanceProcAddr.self)
+            if let draw = getProc(adapter.instance.handle, "vkCmdDrawMeshTasksIndirectEXT") {
+                meshIndirect = unsafeBitCast(draw, to: (@convention(c) (UInt, UInt64, UInt64, UInt32, UInt32) -> Void).self)
+            }
+        }
+        drawMeshTasksIndirect = meshIndirect
         graphics = try VulkanGraphicsFunctions(instance: adapter.instance)
         limits = adapter.limits
         queueFamily = adapter.queueFamily
@@ -125,7 +134,7 @@ extension VulkanNativeDevice {
         var info = VkBufferCreateInfo()
         info.size = size
         info.usage = VK.BufferUsage.transferSource | VK.BufferUsage.transferDestination | VK.BufferUsage.storageBuffer |
-            VK.BufferUsage.uniformBuffer | VK.BufferUsage.indirectBuffer
+            VK.BufferUsage.uniformBuffer | VK.BufferUsage.indirectBuffer | VK.BufferUsage.indexBuffer | VK.BufferUsage.vertexBuffer
         var buffer: UInt64 = 0
         try vulkanCheck(withUnsafePointer(to: &info) { f.createBuffer(device, UnsafeRawPointer($0), nil, &buffer) }, "buffer creation")
         var requirements = VkMemoryRequirements()
@@ -202,6 +211,8 @@ public actor VulkanDevice: ComputeBackendDevice {
     var samplers: [ResourceID: SamplerState] = [:]
     var textureViews: [ResourceID: TextureViewState] = [:]
     var querySets: [ResourceID: VulkanQuerySetState] = [:]
+    var cachedValidator: Pipeline?
+    var cachedDrawValidator: Pipeline?
     var terminal = false
     /// Native objects of timed-out batches stay alive: the GPU may still be using them.
     var quarantine: [PendingBatch] = []
@@ -283,7 +294,20 @@ public actor VulkanDevice: ComputeBackendDevice {
         if let buffer = buffers.removeValue(forKey: id) { native.destroy(buffer.native) }
     }
 
+    func destroyHelper(_ pipeline: Pipeline?) {
+        guard let pipeline else { return }
+        let f = native.f
+        f.destroyPipeline(native.device, pipeline.pipeline, nil)
+        f.destroyPipelineLayout(native.device, pipeline.layout, nil)
+        pipeline.setLayouts.forEach { f.destroyDescriptorSetLayout(native.device, $0, nil) }
+        f.destroyShaderModule(native.device, pipeline.module, nil)
+    }
+
     public func close(owner: UInt64) {
+        destroyHelper(cachedValidator)
+        destroyHelper(cachedDrawValidator)
+        cachedValidator = nil
+        cachedDrawValidator = nil
         if let presenter { presenter.destroy(native: native); self.presenter = nil }
         for id in buffers.keys where id.device == owner { destroyBuffer(id: id) }
         for id in pipelines.keys where id.device == owner { destroyComputePipeline(id: id) }
@@ -478,8 +502,13 @@ public actor VulkanDevice: ComputeBackendDevice {
         var readbackSize: UInt64 = 0
         var descriptorTotals = DescriptorTotals()
         var indirectLimits: [(linear: UInt32, axis: UInt32)] = []
-        var validator: Pipeline?
-        var drawValidator: Pipeline?
+        // The validators are created on first use and live as long as the device.
+        var validator: Pipeline? = cachedValidator
+        var drawValidator: Pipeline? = cachedDrawValidator
+        defer {
+            cachedValidator = validator
+            cachedDrawValidator = drawValidator
+        }
 
         for recorded in commands {
             guard recorded.resources.allSatisfy(pinned.contains) else {
@@ -551,8 +580,15 @@ public actor VulkanDevice: ComputeBackendDevice {
                 descriptorTotals.sets += UInt32(plan.pipeline.setLayouts.count)
                 operations.append(.render(plan))
             case .drawMesh:
-                let plan = try planMeshDraw(command, totals: &descriptorTotals)
+                let plan = try planMeshDraw(command, slot: indirectLimits.count, totals: &descriptorTotals)
                 descriptorTotals.sets += UInt32(plan.pipeline.setLayouts.count)
+                if plan.indirect != nil {
+                    // GPU-authored group counts go through the dispatch validator before the draw.
+                    validator = try validator ?? dispatchValidatorPipeline()
+                    descriptorTotals.sets += 1
+                    descriptorTotals.add(VK.DescriptorType.storageBuffer, 3)
+                    indirectLimits.append((capabilities.maxMeshWorkgroupTotalCount, capabilities.maxMeshWorkgroupsPerDimension))
+                }
                 operations.append(.render(plan))
             case .renderIndexed:
                 let plan = try planIndexedRender(command, totals: &descriptorTotals)
@@ -713,7 +749,21 @@ public actor VulkanDevice: ComputeBackendDevice {
                             resolve.destinationOffset + UInt64(index - resolve.first) * 8, 8, VulkanQuery.results64Bit)
                     }
                 case .render(var plan):
-                    if let indirect = plan.indirect, let drawValidator, let scratch = batch.scratch {
+                    if let indirect = plan.indirect, plan.meshGroups != nil, let validator, let scratch = batch.scratch {
+                        let base = UInt64(indirect.slot) * Self.scratchStride
+                        copy(indirect.source, indirect.offset, scratch.handle, base, 12)
+                        barrier()
+                        try bindDescriptors(commandBuffer: commandBuffer, bindPoint: VK.pipelineBindPointCompute,
+                                            layout: validator.layout, setLayouts: validator.setLayouts, writes: [
+                            .init(set: 0, binding: 0, type: VK.DescriptorType.storageBuffer, buffer: scratch.handle, offset: base, range: 12),
+                            .init(set: 0, binding: 1, type: VK.DescriptorType.storageBuffer, buffer: scratch.handle, offset: base + 256, range: 12),
+                            .init(set: 0, binding: 2, type: VK.DescriptorType.storageBuffer, buffer: scratch.handle, offset: base + 512, range: 8),
+                        ], batch: &batch)
+                        f.cmdBindPipeline(commandBuffer, VK.pipelineBindPointCompute, validator.pipeline)
+                        f.cmdDispatch(commandBuffer, 1, 1, 1)
+                        barrier()
+                        plan.indirectArguments = (scratch.handle, base + 256)
+                    } else if let indirect = plan.indirect, let drawValidator, let scratch = batch.scratch {
                         let base = UInt64(indirect.slot) * Self.scratchStride
                         copy(indirect.source, indirect.offset, scratch.handle, base, plan.indexed == nil ? 16 : 20)
                         barrier()

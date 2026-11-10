@@ -1151,7 +1151,9 @@ extension VulkanDevice {
             }
         }
         if let occlusion = plan.occlusion { g.cmdBeginQuery(commandBuffer, occlusion.pool, occlusion.index, 0) }
-        if let groups = plan.meshGroups, let drawMeshTasks = native.drawMeshTasks {
+        if plan.meshGroups != nil, let arguments = plan.indirectArguments, let drawIndirect = native.drawMeshTasksIndirect {
+            drawIndirect(commandBuffer, arguments.buffer, arguments.offset, 1, 12)
+        } else if let groups = plan.meshGroups, let drawMeshTasks = native.drawMeshTasks {
             drawMeshTasks(commandBuffer, groups.0, groups.1, groups.2)
         } else if let arguments = plan.indirectArguments {
             if let indexed = plan.indexed {

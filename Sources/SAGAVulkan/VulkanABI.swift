@@ -45,6 +45,8 @@ enum VK {
         static let uniformBuffer: UInt32 = 0x10
         static let storageBuffer: UInt32 = 0x20
         static let indirectBuffer: UInt32 = 0x100
+        static let indexBuffer: UInt32 = 0x40
+        static let vertexBuffer: UInt32 = 0x80
     }
 
     enum MemoryProperty {
