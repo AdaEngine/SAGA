@@ -37,7 +37,7 @@ private let destinationSlot = ComputeBindingSlot(binding: 3)
     #expect(capabilities.maxComputeInvocationsPerWorkgroup >= 128)
     #expect(capabilities.maxComputeWorkgroupsPerDimension >= 65_535)
     #expect(capabilities.maxComputeWorkgroupSize.x >= 128)
-    #expect(capabilities.features.isSubset(of: [.timestampQuery, .depth32FloatStencil8, .shaderF16, .shaderInt16, .shaderInt64, .subgroups, .multiview, .selectiveMultiview, .textureCompressionBC, .textureCompressionETC2, .textureCompressionASTC]))  // only probed, supported features
+    #expect(capabilities.features.isSubset(of: [.timestampQuery, .depth32FloatStencil8, .shaderF16, .shaderInt16, .shaderInt64, .subgroups, .multiview, .selectiveMultiview, .textureCompressionBC, .textureCompressionETC2, .textureCompressionASTC, .cooperativeMatrix]))  // only probed, supported features
 }
 
 @Test(.enabled(if: vulkanAvailable), .gpuExclusive) func vulkanReadbacksAreZeroInitializedAndSnapshotOrdered() async throws {
@@ -1171,6 +1171,51 @@ private final class TestWindow: @unchecked Sendable {
         let snapshots = try await ticket.wait()
         try #require(snapshots.count == 1)
         #expect(pixel(snapshots[0], x: 3, y: 3) == 0xff00ff00)
+        await device.close()
+    } catch { await device.close(); throw error }
+}
+
+@Test(.enabled(if: vulkanAvailable), .gpuExclusive) func vulkanMultipliesCooperativeMatrices() async throws {
+    let backend = try VulkanBackend.makeDevice()
+    let device = try await Device.make(backend: backend)
+    do {
+        let shape = CooperativeMatrixProperties(mSize: 16, nSize: 16, kSize: 16, inputType: .float16, accumulatorType: .float32)
+        guard backend.capabilities.features.contains(.cooperativeMatrix),
+              backend.capabilities.cooperativeMatrixProperties.contains(shape) else {
+            await device.close()
+            return
+        }
+        let source = """
+            enable f16;
+            enable wgpu_cooperative_matrix;
+            @group(0) @binding(0) var<storage, read> factors: array<f16, 512>;
+            @group(0) @binding(1) var<storage, read_write> accumulators: array<f32, 512>;
+
+            @compute @workgroup_size(32)
+            fn main() {
+                let a = coopLoad<coop_mat16x16<f16, A>>(&factors[0]);
+                let b = coopLoad<coop_mat16x16<f16, B>>(&factors[256]);
+                let c = coopLoad<coop_mat16x16<f32, C>>(&accumulators[0]);
+                coopStore(coopMultiplyAdd(a, b, c), &accumulators[256]);
+            }
+            """
+        let pipeline = try await device.createComputePipeline(
+            try IndependentShaderCompiler().compileCompute(.wgsl(source), to: .spirv))
+        let factors = try await device.createBuffer(.init(size: 1024, usage: [.storage, .copyDestination]))
+        let accumulators = try await device.createBuffer(.init(size: 2048, usage: [.storage, .copyDestination, .copySource]))
+        let readback = try await device.createBuffer(.init(size: 1024, usage: [.copyDestination, .mapRead]))
+        let ticket = try await device.submitCommands([
+            // First matrix of 1.0 (0x3C00), second of 2.0 (0x4000), packed two half floats per word.
+            .write(buffer: factors, offset: 0, words: [UInt32](repeating: 0x3C00_3C00, count: 128) + [UInt32](repeating: 0x4000_4000, count: 128)),
+            .dispatchCompute(pipeline: pipeline, bindings: [ComputeBindingSlot(binding: 0): factors,
+                                                             ComputeBindingSlot(binding: 1): accumulators],
+                             workgroups: .init(x: 1)),
+            .copy(source: accumulators, sourceOffset: 1024, destination: readback, byteCount: 1024),
+            .read(buffer: readback, byteCount: 1024),
+        ])
+        let words = try await ticket.wait()[0]
+        // Every element is the sum of 16 products of 1.0 and 2.0.
+        #expect(words.allSatisfy { Float(bitPattern: $0) == 32 })
         await device.close()
     } catch { await device.close(); throw error }
 }

@@ -30,9 +30,16 @@ final class VulkanNativeDevice: Sendable {
             chain.storage16 = 1
             if support.int8 { chain.int8 = 1 }
             deviceExtensions.append(VulkanFeatureSupport.float16Extension)
-        } else {
-            chain.unlinkFloat16()
         }
+        if support.canEnableCooperativeMatrix {
+            chain.cooperativeMatrix = 1
+            chain.vulkanMemoryModel = 1
+            deviceExtensions.append(VulkanFeatureSupport.cooperativeExtension)
+            if support.deviceExtensions.contains(VulkanFeatureSupport.memoryModelExtension) {
+                deviceExtensions.append(VulkanFeatureSupport.memoryModelExtension)
+            }
+        }
+        chain.relink(float16: support.canEnableFloat16, cooperative: support.canEnableCooperativeMatrix)
         instance = adapter.instance
         graphics = try VulkanGraphicsFunctions(instance: adapter.instance)
         limits = adapter.limits
@@ -199,6 +206,7 @@ public actor VulkanDevice: ComputeBackendDevice {
         if support.core[40] != 0 { features.insert(.shaderInt64) }
         if support.canEnableFloat16 { features.insert(.shaderF16) }
         if support.supportsSubgroups { features.insert(.subgroups) }
+        if support.canEnableCooperativeMatrix, support.supportsSubgroups { features.insert(.cooperativeMatrix) }
         let multiviewViews = support.multiview ? min(support.maxMultiviewViewCount, 32) : 0
         if multiviewViews > 1 { features.formUnion([.multiview, .selectiveMultiview]) }
         if support.core[22] != 0 { features.insert(.textureCompressionBC) }
@@ -219,7 +227,8 @@ public actor VulkanDevice: ComputeBackendDevice {
             maxVertexAttributes: min(limits.maxVertexInputAttributes, 16),
             maxVertexBuffers: min(limits.maxVertexInputBindings, 8),
             maxColorAttachments: min(limits.maxFragmentOutputAttachments, 8),
-            maxMultiviewViewCount: multiviewViews > 1 ? multiviewViews : 0)
+            maxMultiviewViewCount: multiviewViews > 1 ? multiviewViews : 0,
+            cooperativeMatrixProperties: features.contains(.cooperativeMatrix) ? support.cooperativeProperties : [])
     }
 
     func requireActive() throws {

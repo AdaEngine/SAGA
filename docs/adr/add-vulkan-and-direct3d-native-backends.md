@@ -73,7 +73,8 @@ Constraints that carry over:
 | 5d. Subgroups (basic, vote, arithmetic, ballot, shuffle, quad; probed) | done | subgroup add test |
 | 5e. Binding arrays (buffers, textures, samplers; static and dynamic indexing features enabled when present) | done | storage buffer array test |
 | 5f. Multiview (render pass view masks, array attachment views, view-index shaders) | done | multiview test |
-| 5g. Cooperative matrices, mesh shaders, ray queries, external textures | not started | |
+| 5g. Cooperative matrices (VK_KHR_cooperative_matrix; subgroup-scope f16 and f32 shapes read from the driver) | done | cooperative matrix multiply test |
+| 5h. Mesh shaders, ray queries, external textures | not started | |
 | 6a. Direct3D 12 compute: HLSL through DXC (dxcompiler.dll, dxil.dll found at runtime), root-descriptor buffer bindings (CBV, SRV, UAV), copies, fills, direct dispatch, readback | done | `d3d12` compute test |
 | 6b. Direct3D 12 immediates and workgroup counts as root constants, indirect dispatch with GPU-side limit validation (ExecuteIndirect) | done | immediates and indirect test |
 | 6c. Direct3D 12 2D/array/3D color textures, buffer-texture copies and uploads, samplers, sampled and storage textures in compute (descriptor tables; debug layer clean) | done | texture compute test |
