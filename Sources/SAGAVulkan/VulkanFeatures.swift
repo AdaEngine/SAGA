@@ -11,6 +11,9 @@ struct VulkanFeatureSupport: Sendable {
     var int8 = false
     var storage16 = false
     var multiview = false
+    var meshShader = false
+    var taskShader = false
+    var meshLimits = VulkanMeshLimits()
     var cooperativeMatrix = false
     var memoryModel = false
     var memoryModelDeviceScope = false
@@ -57,13 +60,18 @@ struct VulkanFeatureSupport: Sendable {
             && deviceExtensions.contains(Self.cooperativeExtension)
     }
 
+    static let meshExtension = "VK_EXT_mesh_shader"
+
+    /// Mesh shaders need the extension, the feature, and SPIR-V 1.4 through its core version or extension.
+    var canEnableMeshShaders: Bool { meshShader && deviceExtensions.contains(Self.meshExtension) }
+
     var canEnableFloat16: Bool { float16 && storage16 && deviceExtensions.contains(Self.float16Extension) }
 }
 
 /// The three chained feature structures as one raw allocation, so pNext links stay valid for the call.
 final class VulkanFeatureChain {
     private let memory: UnsafeMutableRawPointer
-    private static let size = 256 + 32 + 32 + 32 + 32 + 32
+    private static let size = 256 + 32 + 32 + 32 + 32 + 32 + 48
 
     /// Offsets: features2 at 0 (16 header bytes + 220 feature bytes), multiview at 256, float16/int8 at 288,
     /// 16-bit storage at 320. They are chained in that order.
@@ -81,6 +89,18 @@ final class VulkanFeatureChain {
         (memory + 352).storeBytes(of: 1000506000, as: UInt32.self)  // cooperative matrix features
         (memory + 352).storeBytes(of: UInt(bitPattern: memory + 384), toByteOffset: 8, as: UInt.self)
         (memory + 384).storeBytes(of: 1000211000, as: UInt32.self)  // Vulkan memory model features
+        (memory + 384).storeBytes(of: UInt(bitPattern: memory + 416), toByteOffset: 8, as: UInt.self)
+        (memory + 416).storeBytes(of: 1000328000, as: UInt32.self)  // mesh shader features
+    }
+
+    /// taskShader at 16 and meshShader at 20 of the mesh shader feature structure.
+    var meshShader: UInt32 {
+        get { (memory + 416).load(fromByteOffset: 20, as: UInt32.self) }
+        set { (memory + 416).storeBytes(of: newValue, toByteOffset: 20, as: UInt32.self) }
+    }
+    var taskShader: UInt32 {
+        get { (memory + 416).load(fromByteOffset: 16, as: UInt32.self) }
+        set { (memory + 416).storeBytes(of: newValue, toByteOffset: 16, as: UInt32.self) }
     }
 
     var cooperativeMatrix: UInt32 {
@@ -98,10 +118,11 @@ final class VulkanFeatureChain {
     var memoryModelDeviceScope: UInt32 { (memory + 384).load(fromByteOffset: 20, as: UInt32.self) }
 
     /// Chains only the optional structures that will be enabled.
-    func relink(float16: Bool, cooperative: Bool) {
+    func relink(float16: Bool, cooperative: Bool, mesh: Bool = false) {
         var order: [Int] = [256]
         if float16 { order += [288, 320] }
         if cooperative { order += [352, 384] }
+        if mesh { order.append(416) }
         memory.storeBytes(of: UInt(bitPattern: memory + 256), toByteOffset: 8, as: UInt.self)
         for (index, offset) in order.enumerated() {
             let next = index + 1 < order.count ? UInt(bitPattern: memory + order[index + 1]) : 0
@@ -156,14 +177,16 @@ func vulkanQueryFeatures(physical: UInt, instance: VulkanInstance) -> VulkanFeat
     support.int8 = chain.int8 != 0
     support.storage16 = chain.storage16Supported
     support.multiview = chain.multiviewSupported
+    support.meshShader = chain.meshShader != 0
+    support.taskShader = chain.taskShader != 0
     support.cooperativeMatrix = chain.cooperativeMatrix != 0
     support.memoryModel = chain.vulkanMemoryModel != 0
     support.memoryModelDeviceScope = chain.memoryModelDeviceScope != 0
     if support.cooperativeMatrix { support.cooperativeProperties = vulkanCooperativeProperties(physical: physical, instance: instance) }
     // VkPhysicalDeviceProperties2 (16-byte header, 824-byte properties) chained to the subgroup properties.
-    let properties = UnsafeMutableRawPointer.allocate(byteCount: 16 + 824 + 40 + 24, alignment: 8)
+    let properties = UnsafeMutableRawPointer.allocate(byteCount: 16 + 824 + 40 + 24 + 160, alignment: 8)
     defer { properties.deallocate() }
-    properties.initializeMemory(as: UInt8.self, repeating: 0, count: 16 + 824 + 40 + 24)
+    properties.initializeMemory(as: UInt8.self, repeating: 0, count: 16 + 824 + 40 + 24 + 160)
     properties.storeBytes(of: 1000059001, as: UInt32.self)
     let subgroup = properties + 16 + 824
     properties.storeBytes(of: UInt(bitPattern: subgroup), toByteOffset: 8, as: UInt.self)
@@ -171,11 +194,19 @@ func vulkanQueryFeatures(physical: UInt, instance: VulkanInstance) -> VulkanFeat
     let multiviewProperties = subgroup + 40
     subgroup.storeBytes(of: UInt(bitPattern: multiviewProperties), toByteOffset: 8, as: UInt.self)
     multiviewProperties.storeBytes(of: 1000053002, as: UInt32.self)
+    let meshProperties = multiviewProperties + 24
+    multiviewProperties.storeBytes(of: UInt(bitPattern: meshProperties), toByteOffset: 8, as: UInt.self)
+    meshProperties.storeBytes(of: 1000328001, as: UInt32.self)
     instance.functions.getPhysicalDeviceProperties2(physical, properties)
     support.subgroupSize = subgroup.load(fromByteOffset: 16, as: UInt32.self)
     support.subgroupStages = subgroup.load(fromByteOffset: 20, as: UInt32.self)
     support.subgroupOperations = subgroup.load(fromByteOffset: 24, as: UInt32.self)
     support.maxMultiviewViewCount = multiviewProperties.load(fromByteOffset: 16, as: UInt32.self)
+    func meshWord(_ offset: Int) -> UInt32 { meshProperties.load(fromByteOffset: offset, as: UInt32.self) }
+    support.meshLimits = VulkanMeshLimits(
+        taskTotal: meshWord(16), taskCount: meshWord(20), taskInvocations: meshWord(32), taskSize: meshWord(36),
+        taskPayload: meshWord(48), meshTotal: meshWord(60), meshCount: meshWord(64), meshInvocations: meshWord(76),
+        meshSize: meshWord(80), outputVertices: meshWord(112), outputPrimitives: meshWord(116))
     return support
 }
 
@@ -222,4 +253,19 @@ func vulkanCooperativeProperties(physical: UInt, instance: VulkanInstance) -> [C
         if !result.contains(properties) { result.append(properties) }
     }
     return result
+}
+
+/// Limits from VkPhysicalDeviceMeshShaderPropertiesEXT.
+struct VulkanMeshLimits: Sendable {
+    var taskTotal: UInt32 = 0
+    var taskCount: UInt32 = 0
+    var taskInvocations: UInt32 = 0
+    var taskSize: UInt32 = 0
+    var taskPayload: UInt32 = 0
+    var meshTotal: UInt32 = 0
+    var meshCount: UInt32 = 0
+    var meshInvocations: UInt32 = 0
+    var meshSize: UInt32 = 0
+    var outputVertices: UInt32 = 0
+    var outputPrimitives: UInt32 = 0
 }

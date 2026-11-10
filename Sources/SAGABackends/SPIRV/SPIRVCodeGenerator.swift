@@ -11,9 +11,13 @@ public struct SPIRVCodeGenerator: ShaderCodeGenerator {
         self.init(bindingArrayLengths: [:], limits: limits)
     }
 
-    package init(bindingArrayLengths: [IRResourceBinding: UInt32], limits: ShaderLimits = .default) {
+    /// When set, only this entry point is written, so a module with several stages yields a single-stage binary.
+    private let selectedEntry: String?
+
+    package init(bindingArrayLengths: [IRResourceBinding: UInt32], entryPoint: String? = nil, limits: ShaderLimits = .default) {
         self.limits = limits
         self.bindingArrayLengths = bindingArrayLengths
+        self.selectedEntry = entryPoint
     }
 
     public func generate(_ module: ValidatedModule<IRModule>) throws -> ShaderArtifact {
@@ -27,7 +31,8 @@ public struct SPIRVCodeGenerator: ShaderCodeGenerator {
                 .nonUniformDescriptorAccesses(in: ir)
             : [:]
         var writer = SPIRVBinaryWriter(module: ir, budget: ShaderBudget(limits: limits),
-                                       bindingArrayLengths: bindingArrayLengths, nonUniformDescriptors: nonUniform)
+                                       bindingArrayLengths: bindingArrayLengths, nonUniformDescriptors: nonUniform,
+                                       selectedEntry: selectedEntry)
         return try .spirv(writer.writeModule())
     }
 }
@@ -41,22 +46,24 @@ enum SPIRVEntryPlan {
     case compute(SPIRVComputeInputPlan)
     case vertex(SPIRVRenderInterfacePlan)
     case fragment(SPIRVRenderInterfacePlan)
+    case mesh(SPIRVMeshPlan)
 
     var interfaceIDs: [UInt32] {
         switch self {
         case .compute(let plan): plan.interfaceIDs
         case .vertex(let plan), .fragment(let plan): plan.interfaceIDs
+        case .mesh(let plan): plan.interfaceIDs
         }
     }
 
     var executionModel: UInt32 {
-        switch self { case .vertex: 0; case .fragment: 4; case .compute: 5 }
+        switch self { case .vertex: 0; case .fragment: 4; case .compute: 5; case .mesh: 5365 }
     }
 
     var renderInterface: SPIRVRenderInterfacePlan? {
         switch self {
         case .vertex(let plan), .fragment(let plan): plan
-        case .compute: nil
+        case .compute, .mesh: nil
         }
     }
 }
@@ -64,19 +71,24 @@ enum SPIRVEntryPlan {
 struct SPIRVBinaryWriter {
     let module: IRModule
     let bindingArrayLengths: [IRResourceBinding: UInt32]
+    private let selectedEntry: String?
     private let nonUniformDescriptors: [Int: Set<IRHandle<IRExpression>>]
     var budget: ShaderBudget
     var declarationState = SPIRVDeclarationState()
 
     private var nextID: UInt32 = 1
-    private var capabilities: Set<UInt32> = [1] // Shader
-    private var extensions: Set<String> = []
+    var capabilities: Set<UInt32> = [1] // Shader
+    var extensions: Set<String> = []
+    var usesMeshShading = false
+    /// Module-scope variables, listed in every entry point interface when the module targets SPIR-V 1.4.
+    private var globalVariableIDs: [UInt32] = []
+    private var pendingEntries: [(model: UInt32, id: UInt32, name: [UInt32], interface: [UInt32])] = []
     private var glslInstructions: UInt32?
     private(set) var constantIDs: Set<UInt32> = []
     private(set) var constantWords: [UInt32: UInt32] = [:]
     private(set) var nonUniformResourceIDs: Set<UInt32> = []
     private var entryPoints: [UInt32] = []
-    private var executionModes: [UInt32] = []
+    var executionModes: [UInt32] = []
     private var debug: [UInt32] = []
     private var debugStrings: [UInt32] = []
     private var debugFormatIDs: [String: UInt32] = [:]
@@ -93,7 +105,8 @@ struct SPIRVBinaryWriter {
     private(set) var functionIDs: [UInt32] = []
 
     init(module: IRModule, budget: ShaderBudget, bindingArrayLengths: [IRResourceBinding: UInt32],
-         nonUniformDescriptors: [Int: Set<IRHandle<IRExpression>>]) {
+         nonUniformDescriptors: [Int: Set<IRHandle<IRExpression>>], selectedEntry: String? = nil) {
+        self.selectedEntry = selectedEntry
         self.module = module
         self.budget = budget
         self.bindingArrayLengths = bindingArrayLengths
@@ -106,7 +119,7 @@ struct SPIRVBinaryWriter {
         for _ in module.functions.values { functionIDs.append(try allocateID()) }
         let hasWorkgroupMemory = module.globalVariables.values.contains { $0.space == .workgroup }
         var entryPlans: [Int: (entry: IREntryPoint, plan: SPIRVEntryPlan)] = [:]
-        for entry in module.entryPoints {
+        for entry in module.entryPoints where selectedEntry == nil || entry.name == selectedEntry {
             let index = entry.function.index
             let function = try module.functions.value(for: entry.function)
             let id = functionIDs[index]
@@ -123,7 +136,7 @@ struct SPIRVBinaryWriter {
                 entryPlans[index] = (entry, plan)
             }
             let name = try stringWords(entry.name)
-            entryPoints += try instruction(15, [plan.executionModel, id] + name + plan.interfaceIDs) // OpEntryPoint
+            pendingEntries.append((plan.executionModel, id, name, plan.interfaceIDs))
         }
         for (index, global) in module.globalVariables.values.enumerated() {
             let handle = try IRHandle<IRGlobalVariable>(index: index)
@@ -152,6 +165,11 @@ struct SPIRVBinaryWriter {
             try writeFunction(function, id: functionIDs[index], entryPlan: entryPlans[index]?.plan,
                               nonUniformDescriptors: nonUniformDescriptors[index] ?? [])
         }
+        for entry in pendingEntries {
+            // SPIR-V 1.4 requires every referenced global variable in the interface, so list all of them.
+            let extra = usesMeshShading ? globalVariableIDs.filter { !entry.interface.contains($0) } : []
+            entryPoints += try instruction(15, [entry.model, entry.id] + entry.name + entry.interface + extra) // OpEntryPoint
+        }
         if usesCooperativeMatrix && usesStorageDeviceScopeAtomics {
             try requireCapability(5346) // VulkanMemoryModelDeviceScope
         }
@@ -159,7 +177,7 @@ struct SPIRVBinaryWriter {
             throw unsupported("does not support coherent or volatile storage decorations with the Vulkan memory model")
         }
         try budget.consume(.words, amount: 5)
-        var words: [UInt32] = [0x07230203, 0x00010300, 0, nextID, 0]
+        var words: [UInt32] = [0x07230203, usesMeshShading ? 0x00010400 : 0x00010300, 0, nextID, 0]
         for capability in capabilities.sorted() { words += try instruction(17, [capability]) }
         for name in extensions.sorted() { words += try instruction(10, stringWords(name)) }
         if let glslInstructions {
@@ -208,6 +226,8 @@ struct SPIRVBinaryWriter {
             let plan = try prepareRenderInterface(function, stage: .fragment)
             if plan.writesDepth { executionModes += try instruction(16, [id, 12]) } // DepthReplacing
             return .fragment(plan)
+        case .mesh:
+            return .mesh(try prepareMeshEntry(entry, function: function, id: id))
         default: throw unsupported("does not lower the \(entry.stage.rawValue) stage")
         }
     }
@@ -314,6 +334,7 @@ struct SPIRVBinaryWriter {
         case 41...44, 46: constantIDs.insert(operands[1]) // Module constants
         default: break
         }
+        if opcode == 59, operands.count >= 3 { globalVariableIDs.append(operands[1]) }
         if opcode == 43, operands.count == 3 { constantWords[operands[1]] = operands[2] }
         if opcode == 46 { constantWords[operands[1]] = 0 }
     }
@@ -352,6 +373,10 @@ struct SPIRVBinaryWriter {
     }
 
     func unsupported(_ reason: String) -> ShaderFailure { .unsupported("SPIR-V writer \(reason)") }
+
+    mutating func instructionWords(_ opcode: UInt32, _ operands: [UInt32]) throws -> [UInt32] {
+        try instruction(opcode, operands)
+    }
 
     private mutating func instruction(_ opcode: UInt32, _ operands: [UInt32]) throws -> [UInt32] {
         try charge()

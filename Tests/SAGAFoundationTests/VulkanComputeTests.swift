@@ -37,7 +37,7 @@ private let destinationSlot = ComputeBindingSlot(binding: 3)
     #expect(capabilities.maxComputeInvocationsPerWorkgroup >= 128)
     #expect(capabilities.maxComputeWorkgroupsPerDimension >= 65_535)
     #expect(capabilities.maxComputeWorkgroupSize.x >= 128)
-    #expect(capabilities.features.isSubset(of: [.timestampQuery, .depth32FloatStencil8, .shaderF16, .shaderInt16, .shaderInt64, .subgroups, .multiview, .selectiveMultiview, .textureCompressionBC, .textureCompressionETC2, .textureCompressionASTC, .cooperativeMatrix]))  // only probed, supported features
+    #expect(capabilities.features.isSubset(of: [.timestampQuery, .depth32FloatStencil8, .shaderF16, .shaderInt16, .shaderInt64, .subgroups, .multiview, .selectiveMultiview, .textureCompressionBC, .textureCompressionETC2, .textureCompressionASTC, .cooperativeMatrix, .meshShaders]))  // only probed, supported features
 }
 
 @Test(.enabled(if: vulkanAvailable), .gpuExclusive) func vulkanReadbacksAreZeroInitializedAndSnapshotOrdered() async throws {
@@ -1216,6 +1216,52 @@ private final class TestWindow: @unchecked Sendable {
         let words = try await ticket.wait()[0]
         // Every element is the sum of 16 products of 1.0 and 2.0.
         #expect(words.allSatisfy { Float(bitPattern: $0) == 32 })
+        await device.close()
+    } catch { await device.close(); throw error }
+}
+
+@Test(.enabled(if: vulkanAvailable), .gpuExclusive) func vulkanDrawsWithMeshShaders() async throws {
+    let backend = try VulkanBackend.makeDevice()
+    let device = try await Device.make(backend: backend)
+    do {
+        guard backend.capabilities.features.contains(.meshShaders) else { await device.close(); return }
+        let source = """
+            enable wgpu_mesh_shader;
+            struct V { @builtin(position) position: vec4f, @location(0) color: vec4f, }
+            struct P { @builtin(triangle_indices) indices: vec3u, }
+            struct O {
+              @builtin(vertices) vertices: array<V, 3>,
+              @builtin(primitives) primitives: array<P, 1>,
+              @builtin(vertex_count) vertex_count: u32,
+              @builtin(primitive_count) primitive_count: u32,
+            }
+            var<workgroup> out: O;
+            @mesh(out) @workgroup_size(1) fn mesh() {
+              out.vertex_count = 3u; out.primitive_count = 1u;
+              out.vertices[0].position = vec4f(-1.0, -1.0, 0.5, 1.0);
+              out.vertices[1].position = vec4f(3.0, -1.0, 0.5, 1.0);
+              out.vertices[2].position = vec4f(-1.0, 3.0, 0.5, 1.0);
+              out.vertices[0].color = vec4f(0.0, 1.0, 0.0, 1.0);
+              out.vertices[1].color = vec4f(0.0, 1.0, 0.0, 1.0);
+              out.vertices[2].color = vec4f(0.0, 1.0, 0.0, 1.0);
+              out.primitives[0].indices = vec3u(0u, 1u, 2u);
+            }
+            @fragment fn fragment(@location(0) color: vec4f) -> @location(0) vec4f { return color; }
+            """
+        let compiler = IndependentShaderCompiler()
+        let mesh = try compiler.compileReflectedMeshStage(.wgsl(source), entryPoint: "mesh", to: .spirv)
+        let fragment = try compiler.compileRenderStage(.wgsl(source), entryPoint: "fragment", to: .spirv)
+        let pipeline = try await device.createMeshPipeline(mesh: mesh, fragment: fragment, colorFormat: .rgba8Unorm)
+        let target = try await device.createTexture(.init(width: 8, height: 8, format: .rgba8Unorm,
+                                                          usage: [.renderAttachment, .copySource]))
+        let read = try await device.createBuffer(.init(size: 1824, usage: [.copyDestination, .mapRead]))
+        let ticket = try await device.submitCommands([
+            .drawMesh(pipeline: pipeline, target: target, colorLoad: .clear(.init(red: 0, green: 0, blue: 1, alpha: 1)),
+                      workgroups: .init(x: 1)),
+            .copyTextureToBuffer(source: target, destination: read, bytesPerRow: 256),
+            .read(buffer: read, byteCount: 1824),
+        ])
+        #expect(try await ticket.wait()[0][3 * 64 + 3] == 0xff00_ff00)
         await device.close()
     } catch { await device.close(); throw error }
 }

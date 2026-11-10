@@ -11,6 +11,8 @@ final class VulkanNativeDevice: Sendable {
     let device: UInt
     let queue: UInt
     let queueFamily: UInt32
+    /// vkCmdDrawMeshTasksEXT, present only when mesh shaders are enabled.
+    let drawMeshTasks: (@convention(c) (UInt, UInt32, UInt32, UInt32) -> Void)?
 
     var f: VulkanFunctions { instance.functions }
     let graphics: VulkanGraphicsFunctions
@@ -39,8 +41,26 @@ final class VulkanNativeDevice: Sendable {
                 deviceExtensions.append(VulkanFeatureSupport.memoryModelExtension)
             }
         }
-        chain.relink(float16: support.canEnableFloat16, cooperative: support.canEnableCooperativeMatrix)
+        if support.canEnableMeshShaders {
+            chain.meshShader = 1
+            if support.taskShader { chain.taskShader = 1 }
+            deviceExtensions.append(VulkanFeatureSupport.meshExtension)
+            // SPIR-V 1.4 is core in Vulkan 1.2 and an extension before that.
+            for name in ["VK_KHR_spirv_1_4", "VK_KHR_shader_float_controls"] where support.deviceExtensions.contains(name) {
+                deviceExtensions.append(name)
+            }
+        }
+        chain.relink(float16: support.canEnableFloat16, cooperative: support.canEnableCooperativeMatrix,
+                     mesh: support.canEnableMeshShaders)
         instance = adapter.instance
+        var meshDraw: (@convention(c) (UInt, UInt32, UInt32, UInt32) -> Void)?
+        if support.canEnableMeshShaders, let library = VulkanLibrary.open(), let address = library.symbol("vkGetInstanceProcAddr") {
+            let getProc = unsafeBitCast(address, to: GetInstanceProcAddr.self)
+            if let draw = getProc(adapter.instance.handle, "vkCmdDrawMeshTasksEXT") {
+                meshDraw = unsafeBitCast(draw, to: (@convention(c) (UInt, UInt32, UInt32, UInt32) -> Void).self)
+            }
+        }
+        drawMeshTasks = meshDraw
         graphics = try VulkanGraphicsFunctions(instance: adapter.instance)
         limits = adapter.limits
         queueFamily = adapter.queueFamily
@@ -206,6 +226,8 @@ public actor VulkanDevice: ComputeBackendDevice {
         if support.core[40] != 0 { features.insert(.shaderInt64) }
         if support.canEnableFloat16 { features.insert(.shaderF16) }
         if support.supportsSubgroups { features.insert(.subgroups) }
+        if support.canEnableMeshShaders, support.meshLimits.meshInvocations > 0 { features.insert(.meshShaders) }
+        let meshEnabled = features.contains(.meshShaders)
         if support.canEnableCooperativeMatrix, support.supportsSubgroups { features.insert(.cooperativeMatrix) }
         let multiviewViews = support.multiview ? min(support.maxMultiviewViewCount, 32) : 0
         if multiviewViews > 1 { features.formUnion([.multiview, .selectiveMultiview]) }
@@ -228,7 +250,18 @@ public actor VulkanDevice: ComputeBackendDevice {
             maxVertexBuffers: min(limits.maxVertexInputBindings, 8),
             maxColorAttachments: min(limits.maxFragmentOutputAttachments, 8),
             maxMultiviewViewCount: multiviewViews > 1 ? multiviewViews : 0,
-            cooperativeMatrixProperties: features.contains(.cooperativeMatrix) ? support.cooperativeProperties : [])
+            cooperativeMatrixProperties: features.contains(.cooperativeMatrix) ? support.cooperativeProperties : [],
+            maxTaskWorkgroupTotalCount: meshEnabled ? support.meshLimits.taskTotal : nil,
+            maxTaskWorkgroupsPerDimension: meshEnabled ? support.meshLimits.taskCount : nil,
+            maxMeshWorkgroupTotalCount: meshEnabled ? support.meshLimits.meshTotal : nil,
+            maxMeshWorkgroupsPerDimension: meshEnabled ? support.meshLimits.meshCount : nil,
+            maxTaskInvocationsPerWorkgroup: meshEnabled ? support.meshLimits.taskInvocations : nil,
+            maxTaskInvocationsPerDimension: meshEnabled ? support.meshLimits.taskSize : nil,
+            maxMeshInvocationsPerWorkgroup: meshEnabled ? support.meshLimits.meshInvocations : nil,
+            maxMeshInvocationsPerDimension: meshEnabled ? support.meshLimits.meshSize : nil,
+            maxTaskPayloadSize: meshEnabled ? support.meshLimits.taskPayload : nil,
+            maxMeshOutputVertices: meshEnabled ? support.meshLimits.outputVertices : 256,
+            maxMeshOutputPrimitives: meshEnabled ? support.meshLimits.outputPrimitives : 256)
     }
 
     func requireActive() throws {
@@ -515,6 +548,10 @@ public actor VulkanDevice: ComputeBackendDevice {
                 readbackSize += (byteCount + 3) & ~3
             case .render:
                 let plan = try planRender(command, totals: &descriptorTotals)
+                descriptorTotals.sets += UInt32(plan.pipeline.setLayouts.count)
+                operations.append(.render(plan))
+            case .drawMesh:
+                let plan = try planMeshDraw(command, totals: &descriptorTotals)
                 descriptorTotals.sets += UInt32(plan.pipeline.setLayouts.count)
                 operations.append(.render(plan))
             case .renderIndexed:

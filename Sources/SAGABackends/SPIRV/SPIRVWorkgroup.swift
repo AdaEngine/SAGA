@@ -54,7 +54,7 @@ extension SPIRVBinaryWriter {
         }
     }
 
-    private mutating func workgroupProjection(_ base: UInt32, index: UInt32, type: IRHandle<IRType>) throws -> UInt32 {
+    mutating func workgroupProjection(_ base: UInt32, index: UInt32, type: IRHandle<IRType>) throws -> UInt32 {
         let pointer = try pointerTypeID(storageClass: 4, pointee: workgroupTypeID(type))
         return try rawValueInstruction(65, type: pointer, operands: [base, index]) // OpAccessChain
     }

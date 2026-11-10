@@ -17,6 +17,9 @@ struct SPIRVComputeInputPlan {
     fileprivate let arguments: [Argument]
     fileprivate let workgroup: [IRHandle<IRGlobalVariable>]
     fileprivate let initializationIndex: Int?
+
+    /// Input variable that holds the local invocation index, when the plan loads it.
+    var laneVariable: UInt32? { initializationIndex.map { inputs[$0].variable } }
 }
 
 extension SPIRVBinaryWriter {

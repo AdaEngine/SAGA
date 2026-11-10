@@ -155,7 +155,7 @@ public struct IndependentShaderCompiler: Sendable {
         let module = try specializeGlobalParameters(specialized, validator: validator)
         var compiled = try generator.generateCompute(module, onlyReachableBindings: entryPoint != nil || entries.count > 1)
         if output == .spirv {
-            guard case .spirv(let words) = try SPIRVCodeGenerator(bindingArrayLengths: bindingArrayLengths).generate(module) else {
+            guard case .spirv(let words) = try SPIRVCodeGenerator(bindingArrayLengths: bindingArrayLengths, entryPoint: entryPoint).generate(module) else {
                 throw ShaderFailure.incompatibleArtifact
             }
             compiled = compiled.withSPIRV(words)
@@ -259,7 +259,7 @@ public struct IndependentShaderCompiler: Sendable {
         _ input: ShaderInput, entryPoint: String, to output: ShaderOutputFormat,
         constants: [String: Double] = [:], bindingArrayLengths: [IRResourceBinding: UInt32] = [:]
     ) throws -> ShaderArtifact {
-        guard output == .msl || output == .hlsl || output == .glsl else { throw ShaderFailure.unsupported("Mesh shader target") }
+        guard output == .msl || output == .hlsl || output == .glsl || output == .spirv else { throw ShaderFailure.unsupported("Mesh shader target") }
         let validator = ShaderSemanticValidator(capabilities: Self.compilationCapabilities.union([.meshShader, .meshShaderPointTopology]),
                                                 allowsVertexWritableStorage: true)
         let validated = try parseAndValidate(input, validator: validator, allow1DTextureSampleLevelOffset: output == .hlsl || output == .glsl,
@@ -281,6 +281,7 @@ public struct IndependentShaderCompiler: Sendable {
         case .msl: artifact = try MeshMetalCodeGenerator().generate(module, entryPoint: entryPoint, bindingArrayLengths: bindingArrayLengths)
         case .hlsl: artifact = try MeshHLSLCodeGenerator(bindingArrayLengths: bindingArrayLengths).generate(module, entryPoint: entryPoint)
         case .glsl: artifact = try MeshGLSLCodeGenerator(bindingArrayLengths: bindingArrayLengths).generate(module, entryPoint: entryPoint)
+        case .spirv: artifact = try SPIRVCodeGenerator(bindingArrayLengths: bindingArrayLengths, entryPoint: entryPoint).generate(module)
         default: throw ShaderFailure.unsupported("Mesh shader target")
         }
         try artifact.validateContainer(for: output)
@@ -291,7 +292,7 @@ public struct IndependentShaderCompiler: Sendable {
         _ input: ShaderInput, entryPoint: String, to output: ShaderOutputFormat, constants: [String: Double] = [:],
         bindingArrayLengths: [IRResourceBinding: UInt32] = [:]
     ) throws -> MeshStageArtifact {
-        guard output == .msl else { throw ShaderFailure.unsupported("Reflected mesh shader target") }
+        guard output == .msl || output == .spirv else { throw ShaderFailure.unsupported("Reflected mesh shader target") }
         let validator = ShaderSemanticValidator(capabilities: Self.compilationCapabilities.union([.meshShader, .meshShaderPointTopology]),
                                                 allowsVertexWritableStorage: true)
         let validated = try parseAndValidate(input, validator: validator, allow1DTextureSampleLevelOffset: output == .hlsl,
@@ -306,10 +307,12 @@ public struct IndependentShaderCompiler: Sendable {
                                                    retainLinkedStages: false, validator: validator)
         let module = try specializeGlobalParameters(specialized, validator: validator)
         let generated = try MeshMetalCodeGenerator().generateReflected(module, entryPoint: entryPoint, bindingArrayLengths: bindingArrayLengths)
-        try generated.artifact.validateContainer(for: output)
+        // Vulkan pairs the reflection of the shared description with SPIR-V words from the same module.
+        let reflectedArtifact: ShaderArtifact = output == .spirv ? try SPIRVCodeGenerator(bindingArrayLengths: bindingArrayLengths, entryPoint: entryPoint).generate(module) : generated.artifact
+        try reflectedArtifact.validateContainer(for: output)
         guard let selected = module.module.entryPoints.first(where: { $0.name == entryPoint && $0.stage == .mesh }), let info = selected.meshInfo else { throw ShaderFailure.unsupported("Mesh metadata") }
         let numeric = try meshNumericCapabilities(module: module.module, entry: selected)
-        return MeshStageArtifact(artifact: generated.artifact, sourceEntryPoint: entryPoint, workgroupSize: selected.workgroupSize, workgroupStorageByteSize: try meshWorkgroupStorageByteSize(module: module.module, entry: selected), payload: try meshPayload(selected.taskPayload, in: module.module), topology: info.topology, maxVertices: info.maxVertices, maxPrimitives: info.maxPrimitives, vertexVaryings: try meshVaryings(info.vertexOutputType, in: module.module), primitiveVaryings: try meshVaryings(info.primitiveOutputType, in: module.module), uniformBindings: generated.uniforms, storageBindings: generated.buffers, sampledTextures: generated.textures, samplerBindings: generated.samplers, storageTextures: generated.storageTextures, requiresSubgroups: generated.requiresSubgroups, writesPrimitiveIndex: try meshWritesPrimitiveIndex(info.primitiveOutputType, in: module.module), requiresShaderF16: numeric.f16, requiresShaderInt16: numeric.int16, requiresShaderInt64: numeric.int64, requiresShaderInt64AtomicMinMax: numeric.atomicMinMax, requiresShaderInt64AtomicAllOps: numeric.atomicAllOps)
+        return MeshStageArtifact(artifact: reflectedArtifact, sourceEntryPoint: entryPoint, workgroupSize: selected.workgroupSize, workgroupStorageByteSize: try meshWorkgroupStorageByteSize(module: module.module, entry: selected), payload: try meshPayload(selected.taskPayload, in: module.module), topology: info.topology, maxVertices: info.maxVertices, maxPrimitives: info.maxPrimitives, vertexVaryings: try meshVaryings(info.vertexOutputType, in: module.module), primitiveVaryings: try meshVaryings(info.primitiveOutputType, in: module.module), uniformBindings: generated.uniforms, storageBindings: generated.buffers, sampledTextures: generated.textures, samplerBindings: generated.samplers, storageTextures: generated.storageTextures, requiresSubgroups: generated.requiresSubgroups, writesPrimitiveIndex: try meshWritesPrimitiveIndex(info.primitiveOutputType, in: module.module), requiresShaderF16: numeric.f16, requiresShaderInt16: numeric.int16, requiresShaderInt64: numeric.int64, requiresShaderInt64AtomicMinMax: numeric.atomicMinMax, requiresShaderInt64AtomicAllOps: numeric.atomicAllOps)
     }
 
     public func compileRenderStage(
@@ -371,7 +374,7 @@ public struct IndependentShaderCompiler: Sendable {
                                                glslPipelineFamily: glslPipelineFamily)
             .generate(module, entryPoint: entryPoint)
         if output == .spirv {
-            guard case .spirv(let words) = try SPIRVCodeGenerator(bindingArrayLengths: bindingArrayLengths).generate(module) else {
+            guard case .spirv(let words) = try SPIRVCodeGenerator(bindingArrayLengths: bindingArrayLengths, entryPoint: entryPoint).generate(module) else {
                 throw ShaderFailure.incompatibleArtifact
             }
             compiled = compiled.withSPIRV(words)

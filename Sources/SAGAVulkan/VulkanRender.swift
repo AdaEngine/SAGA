@@ -157,8 +157,8 @@ extension VulkanDevice: RenderBackendDevice {
 
     struct RenderPipelineState {
         var model: RenderPipeline
-        var vertexModule: UInt64
-        var fragmentModule: UInt64
+        /// Every shader module of the pipeline: vertex and fragment, or task, mesh and fragment.
+        var modules: [UInt64]
         var setLayouts: [UInt64]
         var layout: UInt64
         var pipeline: UInt64
@@ -222,6 +222,8 @@ extension VulkanDevice: RenderBackendDevice {
         var layer: UInt32 = 0
         var layerCount: UInt32 = 1
         var viewMask: UInt32?
+        /// Mesh task group counts; the plan then ends in vkCmdDrawMeshTasksEXT instead of a vertex draw.
+        var meshGroups: (UInt32, UInt32, UInt32)?
     }
 
     // MARK: Textures
@@ -494,13 +496,28 @@ extension VulkanDevice: RenderBackendDevice {
 
     // MARK: Render pipelines
 
+    /// One shader stage of a graphics pipeline.
+    struct GraphicsStage {
+        var stage: UInt32
+        var words: [UInt32]
+        var entryPoint: String
+    }
+
     public func allocateRenderPipeline(_ pipeline: RenderPipeline, vertex: RenderStageArtifact,
                                        fragment: RenderStageArtifact) async throws {
         try requireActive()
-        guard renderPipelines[pipeline.id] == nil else { throw GPUError.validation("Duplicate Vulkan render pipeline") }
         guard case .spirv(let vertexWords) = vertex.artifact, case .spirv(let fragmentWords) = fragment.artifact else {
             throw GPUError.validation("Vulkan requires SPIR-V render stages")
         }
+        try buildGraphicsPipeline(pipeline, stages: [
+            GraphicsStage(stage: VK.Stage.vertex, words: vertexWords, entryPoint: vertex.entryPoint),
+            GraphicsStage(stage: VK.Stage.fragment, words: fragmentWords, entryPoint: fragment.entryPoint)], meshStages: false)
+    }
+
+    /// Builds a graphics pipeline from vertex and fragment stages, or from mesh (and optional task) and fragment stages.
+    func buildGraphicsPipeline(_ pipeline: RenderPipeline, stages stageSpecs: [GraphicsStage], meshStages: Bool) throws {
+        try requireActive()
+        guard renderPipelines[pipeline.id] == nil else { throw GPUError.validation("Duplicate Vulkan render pipeline") }
         guard let colorFormat = pipeline.colorFormat, let format = self.format(colorFormat) else {
             throw GPUError.unsupported("Vulkan render pipelines require a supported color format")
         }
@@ -528,15 +545,15 @@ extension VulkanDevice: RenderBackendDevice {
             throw GPUError.unsupported("Vulkan binding arrays are not implemented")
         }
         let f = native.f, g = native.g, device = native.device
-        var vertexModule: UInt64 = 0, fragmentModule: UInt64 = 0, layout: UInt64 = 0, renderPass: UInt64 = 0, handle: UInt64 = 0
+        var modules: [UInt64] = []
+        var layout: UInt64 = 0, renderPass: UInt64 = 0, handle: UInt64 = 0
         var setLayouts: [UInt64] = []
         func cleanup() {
             if handle != 0 { f.destroyPipeline(device, handle, nil) }
             if renderPass != 0 { g.destroyRenderPass(device, renderPass, nil) }
             if layout != 0 { f.destroyPipelineLayout(device, layout, nil) }
             setLayouts.forEach { f.destroyDescriptorSetLayout(device, $0, nil) }
-            if vertexModule != 0 { f.destroyShaderModule(device, vertexModule, nil) }
-            if fragmentModule != 0 { f.destroyShaderModule(device, fragmentModule, nil) }
+            modules.forEach { f.destroyShaderModule(device, $0, nil) }
         }
         func makeModule(_ words: [UInt32]) throws -> UInt64 {
             var module: UInt64 = 0
@@ -550,9 +567,8 @@ extension VulkanDevice: RenderBackendDevice {
             return module
         }
         do {
-            vertexModule = try makeModule(vertexWords)
-            fragmentModule = try makeModule(fragmentWords)
-            let stages = VK.Stage.vertex | VK.Stage.fragment
+            for spec in stageSpecs { modules.append(try makeModule(spec.words)) }
+            let stages = stageSpecs.reduce(0) { $0 | $1.stage }
             let setCount = (types.keys.map(\.group).max()).map { Int($0) + 1 } ?? 0
             for group in 0..<setCount {
                 let bindings = vulkanLayoutBindings(types: types, group: group, stages: stages)
@@ -600,16 +616,14 @@ extension VulkanDevice: RenderBackendDevice {
                                                        format: attributeFormat, offset: attribute.offset))
                 }
             }
-            let entryVertex = vertex.entryPoint, entryFragment = fragment.entryPoint
-            try entryVertex.withCString { vertexName in
-                try entryFragment.withCString { fragmentName in
-                    var stageInfos = [VkPipelineShaderStageCreateInfo(), VkPipelineShaderStageCreateInfo()]
-                    stageInfos[0].stage = VK.Stage.vertex
-                    stageInfos[0].module = vertexModule
-                    stageInfos[0].pName = vertexName
-                    stageInfos[1].stage = VK.Stage.fragment
-                    stageInfos[1].module = fragmentModule
-                    stageInfos[1].pName = fragmentName
+            try withCStringArray(stageSpecs.map(\.entryPoint)) { entryNames in
+                try ({
+                    var stageInfos = [VkPipelineShaderStageCreateInfo](repeating: VkPipelineShaderStageCreateInfo(), count: stageSpecs.count)
+                    for (index, spec) in stageSpecs.enumerated() {
+                        stageInfos[index].stage = spec.stage
+                        stageInfos[index].module = modules[index]
+                        stageInfos[index].pName = entryNames![index]
+                    }
                     var topology: UInt32
                     switch pipeline.primitive.topology {
                     case .pointList: topology = 0
@@ -691,10 +705,11 @@ extension VulkanDevice: RenderBackendDevice {
                                         try withUnsafePointer(to: &blendState) { cb in
                                         try withUnsafePointer(to: &dynamic) { dy in
                                             var info = VkGraphicsPipelineCreateInfo()
-                                            info.stageCount = 2
+                                            info.stageCount = UInt32(stageInfos.count)
                                             info.pStages = UnsafeRawPointer(stagePointer.baseAddress)
-                                            info.pVertexInputState = UnsafeRawPointer(vi)
-                                            info.pInputAssemblyState = UnsafeRawPointer(ia)
+                                            // Mesh pipelines take no vertex input or input assembly.
+                                            info.pVertexInputState = meshStages ? nil : UnsafeRawPointer(vi)
+                                            info.pInputAssemblyState = meshStages ? nil : UnsafeRawPointer(ia)
                                             info.pViewportState = UnsafeRawPointer(vp)
                                             info.pRasterizationState = UnsafeRawPointer(rs)
                                             info.pMultisampleState = UnsafeRawPointer(ms)
@@ -712,14 +727,14 @@ extension VulkanDevice: RenderBackendDevice {
                             }
                         }
                     }
-                }
+                } as () throws -> Void)()
             }
         } catch {
             cleanup()
             throw error
         }
         renderPipelines[pipeline.id] = RenderPipelineState(
-            model: pipeline, vertexModule: vertexModule, fragmentModule: fragmentModule, setLayouts: setLayouts,
+            model: pipeline, modules: modules, setLayouts: setLayouts,
             layout: layout, pipeline: handle, renderPass: renderPass, descriptorTypes: types)
     }
 
@@ -730,8 +745,7 @@ extension VulkanDevice: RenderBackendDevice {
         native.g.destroyRenderPass(native.device, state.renderPass, nil)
         f.destroyPipelineLayout(native.device, state.layout, nil)
         state.setLayouts.forEach { f.destroyDescriptorSetLayout(native.device, $0, nil) }
-        f.destroyShaderModule(native.device, state.vertexModule, nil)
-        f.destroyShaderModule(native.device, state.fragmentModule, nil)
+        state.modules.forEach { f.destroyShaderModule(native.device, $0, nil) }
     }
 
     /// A single-subpass render pass with one color attachment that stays in GENERAL layout.
@@ -1137,7 +1151,9 @@ extension VulkanDevice {
             }
         }
         if let occlusion = plan.occlusion { g.cmdBeginQuery(commandBuffer, occlusion.pool, occlusion.index, 0) }
-        if let arguments = plan.indirectArguments {
+        if let groups = plan.meshGroups, let drawMeshTasks = native.drawMeshTasks {
+            drawMeshTasks(commandBuffer, groups.0, groups.1, groups.2)
+        } else if let arguments = plan.indirectArguments {
             if let indexed = plan.indexed {
                 g.cmdBindIndexBuffer(commandBuffer, indexed.buffer, indexed.offset, indexed.type)
                 g.cmdDrawIndexedIndirect(commandBuffer, arguments.buffer, arguments.offset, 1, 20)
@@ -1174,8 +1190,7 @@ extension VulkanDevice {
         native.g.destroyRenderPass(native.device, state.renderPass, nil)
         f.destroyPipelineLayout(native.device, state.layout, nil)
         state.setLayouts.forEach { f.destroyDescriptorSetLayout(native.device, $0, nil) }
-        f.destroyShaderModule(native.device, state.vertexModule, nil)
-        f.destroyShaderModule(native.device, state.fragmentModule, nil)
+        state.modules.forEach { f.destroyShaderModule(native.device, $0, nil) }
     }
 }
 

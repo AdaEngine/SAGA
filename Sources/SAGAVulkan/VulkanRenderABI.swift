@@ -18,6 +18,8 @@ extension VK {
 
     enum Stage {
         static let vertex: UInt32 = 0x1
+        static let task: UInt32 = 0x40
+        static let mesh: UInt32 = 0x80
         static let fragment: UInt32 = 0x10
         static let pipelineTopOfPipe: UInt32 = 0x1
         static let pipelineColorAttachmentOutput: UInt32 = 0x400
