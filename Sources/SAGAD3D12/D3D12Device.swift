@@ -74,6 +74,8 @@ public actor D3D12Device: ComputeBackendDevice, PlanarExternalTextureBackendDevi
     let compilerDirectories: [String]
     var compiler: D3D12ShaderCompiler?
     var validator: Pipeline?
+    var meshValidator: Pipeline?
+    var meshCommandSignature: COMObject?
     var dispatchCommandSignature: COMObject?
     var drawCommandSignature: COMObject?
     var drawIndexedCommandSignature: COMObject?
@@ -604,9 +606,37 @@ public actor D3D12Device: ComputeBackendDevice, PlanarExternalTextureBackendDevi
                     try recordDraw(command, list: list, transition: transition, arena: &arena, heapsSet: &heapsSet,
                                    renderTargets: &renderTargets)
                 case .drawMesh:
-                    let (equivalent, groups) = try equivalentRender(for: command)
+                    let (equivalent, groups, indirect) = try equivalentRender(for: command)
+                    var validated: COMObject?
+                    if let indirect {
+                        // GPU-authored group counts go through the mesh dispatch validator into a scratch buffer.
+                        guard let source = buffers[indirect.buffer], indirect.offset % 4 == 0, indirect.offset <= source.descriptor.size,
+                              source.descriptor.size - indirect.offset >= 12 else {
+                            throw GPUError.validation("Invalid Direct3D 12 indirect mesh draw arguments")
+                        }
+                        let helper = try validatorPipeline(mesh: true)
+                        let target = try makeBuffer(size: 16, heap: D3D12.heapDefault, state: D3D12.stateCommon,
+                                                    flags: D3D12.flagAllowUnorderedAccess)
+                        retained.objects.append(target)
+                        func manual(_ resource: COMObject, _ before: UInt32, _ after: UInt32) {
+                            var barrier = D3D12ResourceBarrier(type: D3D12.barrierTransition, resource: resource.pointer,
+                                                               subresource: 0xFFFF_FFFF, stateBefore: before, stateAfter: after)
+                            list.slot(26, Barrier.self)(list.pointer, 1, &barrier)
+                        }
+                        manual(target, D3D12.stateCommon, D3D12.stateUnorderedAccess)
+                        transition(indirect.buffer, to: D3D12.stateNonPixelShaderResource)
+                        list.slot(29, SetRoot.self)(list.pointer, helper.rootSignature.pointer)
+                        typealias SetPipeline = @convention(c) (UnsafeMutableRawPointer, UnsafeMutableRawPointer) -> Void
+                        list.slot(25, SetPipeline.self)(list.pointer, helper.state.pointer)
+                        list.slot(39, SetAddress.self)(list.pointer, 0, source.address + indirect.offset)
+                        list.slot(41, SetAddress.self)(list.pointer, 1, gpuAddress(target))
+                        list.slot(14, Dispatch.self)(list.pointer, 1, 1, 1)
+                        uavBarrier(target)
+                        manual(target, D3D12.stateUnorderedAccess, D3D12.stateIndirectArgument)
+                        validated = target
+                    }
                     try recordDraw(equivalent, list: list, transition: transition, arena: &arena, heapsSet: &heapsSet,
-                                   renderTargets: &renderTargets, meshGroups: groups)
+                                   renderTargets: &renderTargets, meshGroups: groups, meshIndirect: validated)
                 case .dispatchCompute, .dispatchComputeRanges, .dispatchComputeIndirect:
                     guard let dispatch = command.computeDispatch, let pipeline = pipelines[dispatch.pipeline.id],
                           pipeline.model == dispatch.pipeline else {
@@ -825,8 +855,9 @@ public actor D3D12Device: ComputeBackendDevice, PlanarExternalTextureBackendDevi
 #if os(Windows)
 extension D3D12Device {
     /// Zeroes GPU-authored workgroup counts that exceed the Direct3D 12 per-dimension limit.
-    func validatorPipeline() throws -> Pipeline {
-        if let validator { return validator }
+    func validatorPipeline(mesh: Bool = false) throws -> Pipeline {
+        if mesh, let meshValidator { return meshValidator }
+        if !mesh, let validator { return validator }
         if compiler == nil { compiler = try D3D12ShaderCompiler(directories: compilerDirectories) }
         let hlsl = """
             ByteAddressBuffer source : register(t0);
@@ -835,6 +866,7 @@ extension D3D12Device {
             void validate() {
                 uint3 counts = source.Load3(0);
                 bool invalid = any(counts > 65535u) || any(counts == 0u);
+                \(mesh ? "if (!invalid) { uint xy = counts.x * counts.y; invalid = counts.z > 4194304u / xy || xy > 4194304u; }" : "")
                 destination.Store3(0, invalid ? uint3(0, 0, 0) : counts);
             }
             """
@@ -853,7 +885,7 @@ extension D3D12Device {
         try d3dCheck(created, "validator pipeline creation")
         let model = ComputePipeline(id: ResourceID(device: 0, serial: 0), storageBindings: [], uniformBindings: [])
         let pipeline = Pipeline(model: model, rootSignature: root, state: state!)
-        validator = pipeline
+        if mesh { meshValidator = pipeline } else { validator = pipeline }
         return pipeline
     }
 
@@ -879,6 +911,17 @@ extension D3D12Device {
         let signature = created!
         dispatchCommandSignature = signature
         return signature
+    }
+
+    /// The command signature for a `DispatchMesh` argument.
+    func meshSignature() throws -> COMObject {
+        if let meshCommandSignature { return meshCommandSignature }
+        typealias CreateSignature = @convention(c) (UnsafeMutableRawPointer, UnsafeRawPointer, UnsafeMutableRawPointer?, UnsafeRawPointer,
+                                                    UnsafeMutablePointer<UnsafeMutableRawPointer?>) -> HRESULT
+        let (result, created) = Self.makeSignature(device, argumentType: 10, stride: 12, create: device.slot(41, CreateSignature.self))
+        try d3dCheck(result, "command signature creation")
+        meshCommandSignature = created!
+        return created!
     }
 
     /// The command signature for `DrawInstanced` (16-byte) or `DrawIndexedInstanced` (20-byte) arguments.

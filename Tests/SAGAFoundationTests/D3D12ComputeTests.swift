@@ -303,6 +303,38 @@ private func d3d12MeshPixel(withTask: Bool) async throws -> UInt32? {
     #expect(pixel == 0xff00_ff00)
 }
 
+@Test(.enabled(if: d3d12Available), .gpuExclusive) func d3d12MeshDrawsReadValidatedIndirectGroupCounts() async throws {
+    let backend = try D3D12Backend.makeDevice(shaderCompilerDirectories: dxcDirectories)
+    let device = try await Device.make(backend: backend)
+    do {
+        guard backend.capabilities.features.contains(.meshShaders) else { await device.close(); return }
+        let source = d3d12MeshSource(withTask: false)
+        let compiler = IndependentShaderCompiler()
+        let pipeline = try await device.createMeshPipeline(
+            mesh: try compiler.compileReflectedMeshStage(.wgsl(source), entryPoint: "mesh_plain", to: .hlsl),
+            fragment: try compiler.compileRenderStage(.wgsl(source), entryPoint: "fragment", to: .hlsl), colorFormat: .rgba8Unorm)
+        let target = try await device.createTexture(.init(width: 8, height: 8, format: .rgba8Unorm, usage: [.renderAttachment, .copySource]))
+        let arguments = try await device.createBuffer(.init(size: 32, usage: [.indirect, .copyDestination]))
+        let read = try await device.createBuffer(.init(size: 1824, usage: [.copyDestination, .mapRead]))
+        let blue = RenderClearColor(red: 0, green: 0, blue: 1, alpha: 1)
+        func draw(offset: UInt64) -> BufferCommand {
+            .drawMesh(pipeline: pipeline, target: target, colorLoad: .clear(blue), workgroups: .init(x: 0),
+                      indirectBuffer: arguments, indirectOffset: offset)
+        }
+        let snapshot: [BufferCommand] = [
+            .copyTextureToBuffer(source: target, destination: read, bytesPerRow: 256), .read(buffer: read, byteCount: 1824)]
+        let ticket = try await device.submitCommands([
+            .write(buffer: arguments, offset: 0, words: [1, 1, 1, 5_000_000, 1, 1]),
+            draw(offset: 0),
+        ] + snapshot + [draw(offset: 12)] + snapshot)  // 5,000,000 groups exceed the per-dimension limit, so nothing is drawn
+        let snapshots = try await ticket.wait()
+        try #require(snapshots.count == 2)
+        #expect(snapshots[0][3 * 64 + 3] == 0xff00_ff00)
+        #expect(snapshots[1][3 * 64 + 3] == 0xffff_0000)
+        await device.close()
+    } catch { await device.close(); throw error }
+}
+
 @Test(.enabled(if: d3d12Available), .gpuExclusive) func d3d12RendersVertexBuffersTexturesUniformsAndIndexedDraws() async throws {
     let backend = try D3D12Backend.makeDevice(shaderCompilerDirectories: dxcDirectories)
     let device = try await Device.make(backend: backend)

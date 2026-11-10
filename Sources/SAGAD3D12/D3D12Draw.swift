@@ -8,7 +8,7 @@ extension D3D12Device {
     func recordDraw(
         _ command: BufferCommand, list: COMObject, transition: (ResourceID, UInt32) -> Void,
         arena: inout D3D12DescriptorArena?, heapsSet: inout Bool, renderTargets: inout D3D12RenderTargetArena?,
-        meshGroups: (UInt32, UInt32, UInt32)? = nil
+        meshGroups: (UInt32, UInt32, UInt32)? = nil, meshIndirect: COMObject? = nil
     ) throws {
         let pipeline: RenderPipeline, target: ResourceID?, colorLoad: RenderColorLoadAction
         let vertexBuffers: [VertexBufferBinding], uniforms: [ComputeBindingSlot: ComputeBufferBinding]
@@ -271,7 +271,9 @@ extension D3D12Device {
             typealias SetVertexBuffers = @convention(c) (UnsafeMutableRawPointer, UInt32, UInt32, UnsafeRawPointer) -> Void
             views.withUnsafeBytes { list.slot(44, SetVertexBuffers.self)(list.pointer, 0, UInt32(bound.count), $0.baseAddress!) }
         }
-        if let meshGroups {
+        if let meshIndirect {
+            try executeIndirectMesh(list: list, arguments: meshIndirect)
+        } else if let meshGroups {
             try dispatchMesh(list: list, groups: meshGroups)
         } else if let indirect {
             guard state.drawParametersRoot == nil else {

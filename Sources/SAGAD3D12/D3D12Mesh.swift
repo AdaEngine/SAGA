@@ -189,14 +189,15 @@ extension D3D12Device: MeshBackendDevice {
     }
 
     /// Plans `drawMesh` as the equivalent render command; the caller dispatches the mesh groups.
-    func equivalentRender(for command: BufferCommand) throws -> (BufferCommand, (UInt32, UInt32, UInt32)) {
+    func equivalentRender(
+        for command: BufferCommand
+    ) throws -> (BufferCommand, (UInt32, UInt32, UInt32), (buffer: ResourceID, offset: UInt64)?) {
         guard case .drawMesh(let pipeline, let target, let colorLoad, let workgroups, let taskBuffers, let meshBuffers,
                              let taskTextures, let meshTextures, let taskSamplers, let meshSamplers, let additional, let colorStore,
-                             let resolve, let depth, let indirect, _, let fragmentBuffers, let fragmentTextures, let fragmentSamplers,
+                             let resolve, let depth, let indirect, let indirectOffset, let fragmentBuffers, let fragmentTextures, let fragmentSamplers,
                              let raster) = command, let state = renderPipelines[pipeline.id], meshPipelines[pipeline.id] != nil else {
             throw GPUError.validation("Unknown Direct3D 12 mesh pipeline")
         }
-        guard indirect == nil else { throw GPUError.unsupported("Direct3D 12 does not implement indirect mesh draws yet") }
         let buffers = taskBuffers.merging(meshBuffers) { first, _ in first }.merging(fragmentBuffers) { first, _ in first }
         let equivalent = BufferCommand.render(
             pipeline: state.model, target: target, colorLoad: colorLoad, vertexCount: 0, vertexBuffers: [], firstVertex: 0,
@@ -205,7 +206,15 @@ extension D3D12Device: MeshBackendDevice {
             samplers: taskSamplers.merging(meshSamplers) { first, _ in first }.merging(fragmentSamplers) { first, _ in first },
             targetMipLevel: 0, targetDepthSlice: nil, depth: depth, resolve: resolve, blendConstant: .transparentBlack,
             additionalColors: additional, raster: raster, storageBuffers: buffers, immediates: [], colorStore: colorStore)
-        return (equivalent, (workgroups.x, workgroups.y, workgroups.z))
+        return (equivalent, (workgroups.x, workgroups.y, workgroups.z), indirect.map { ($0, indirectOffset) })
+    }
+
+    /// Executes validated GPU-authored group counts through a `DispatchMesh` command signature.
+    func executeIndirectMesh(list: COMObject, arguments: COMObject) throws {
+        typealias ExecuteIndirect = @convention(c) (UnsafeMutableRawPointer, UnsafeMutableRawPointer, UInt32, UnsafeMutableRawPointer, UInt64,
+                                                    UnsafeMutableRawPointer?, UInt64) -> Void
+        let signature = try meshSignature()
+        list.slot(59, ExecuteIndirect.self)(list.pointer, signature.pointer, 1, arguments.pointer, 0, nil, 0)
     }
 
     /// Records `DispatchMesh` through `ID3D12GraphicsCommandList6`.
