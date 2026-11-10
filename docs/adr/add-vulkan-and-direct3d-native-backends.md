@@ -79,8 +79,8 @@ Constraints that carry over:
 | 5j. Indirect mesh draws with GPU-side group-count validation (verified); whole Vulkan suite passes with the validation layer clean after fixing buffer usage flags and a per-submission helper pipeline leak | done | indirect mesh test |
 | 5k. Task stages (TaskEXT with a `TaskPayloadWorkgroupEXT` payload, dispatch size clamped to the portable limits, merged task bindings, task-aware indirect limits); verified with validation layers | done | task payload and oversized dispatch tests |
 | 5l. Ray queries, external textures | not started | |
-| 6c. Direct3D 12 planar external textures in compute and render pipelines (three plane SRVs plus a root CBV of parameter words; HLSL helpers made DXC-compatible) | done | `d3d12` external texture test |
-| 6d. Direct3D 12 mesh and task shaders (HLSL ms_6_5/as_6_5, ID3D12Device2 pipeline-state streams, DispatchMesh; payload copied member by member because DXC crashes on struct copies); GPU-authored mesh group counts validated into a scratch buffer, then ExecuteIndirect | done | mesh, task+mesh and indirect mesh tests |
+| 6k. Direct3D 12 planar external textures in compute and render pipelines (three plane SRVs plus a root CBV of parameter words; HLSL helpers made DXC-compatible) | done | `d3d12` external texture test |
+| 6l. Direct3D 12 mesh and task shaders (HLSL ms_6_5/as_6_5, ID3D12Device2 pipeline-state streams, DispatchMesh; payload copied member by member because DXC crashes on struct copies); GPU-authored mesh group counts validated into a scratch buffer, then ExecuteIndirect | done | mesh, task+mesh and indirect mesh tests |
 | 6a. Direct3D 12 compute: HLSL through DXC (dxcompiler.dll, dxil.dll found at runtime), root-descriptor buffer bindings (CBV, SRV, UAV), copies, fills, direct dispatch, readback | done | `d3d12` compute test |
 | 6b. Direct3D 12 immediates and workgroup counts as root constants, indirect dispatch with GPU-side limit validation (ExecuteIndirect) | done | immediates and indirect test |
 | 6c. Direct3D 12 2D/array/3D color textures, buffer-texture copies and uploads, samplers, sampled and storage textures in compute (descriptor tables; debug layer clean) | done | texture compute test |
@@ -90,7 +90,7 @@ Constraints that carry over:
 | 6g. Direct3D 12 indirect draws (ExecuteIndirect, indexed and not) and window presentation through a DXGI flip swap chain that follows the presented texture size | done | indirect draw and present tests |
 | 6h. Direct3D 12 texture views (mip range, array layers, dimension) for sampling, storage and attachments; compute binding arrays of buffers, textures and samplers | done | view and binding-array tests |
 | 6i. Direct3D 12 binding arrays in render shaders (textures, samplers, storage buffers) and depth/stencil aspect views for sampling | done | render array and depth-view tests |
-| 6j. Direct3D 12 mesh shaders, ray queries, cooperative matrices, external textures | not started | |
+| 6j. Direct3D 12 ray queries and cooperative matrices (mesh shaders and external textures are 6k and 6l) | not started | |
 
 Compiler additions: `compileCompute(to: .spirv)` and `compileRenderStage(to: .spirv)` take reflection from the GLSL
 writer over the same IR and the binary from the SPIR-V writer, so layout and code come from one module. They inherit
