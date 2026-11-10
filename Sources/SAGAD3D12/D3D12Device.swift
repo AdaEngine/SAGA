@@ -144,16 +144,32 @@ public actor D3D12Device: ComputeBackendDevice, PlanarExternalTextureBackendDevi
         if hasTimestamps { features.insert(.timestampQuery) }
         if meshSupported { features.insert(.meshShaders) }
         if Self.supportsRayQueries(device) { features.insert(.rayQuery) }
+        // The HLSL cooperative matrix lowering spreads a tile over a 32-lane wave with wave intrinsics.
+        let cooperativeSupported = Self.hasFixedWaveSize32(device)
+        var cooperativeProperties: [CooperativeMatrixProperties] = []
+        if cooperativeSupported {
+            features.insert(.cooperativeMatrix)
+            features.formUnion([.subgroups, .subgroupSizeControl])
+            for m: UInt32 in [8, 16] {
+                for n: UInt32 in [8, 16] {
+                    for k: UInt32 in [8, 16] {
+                        cooperativeProperties.append(.init(mSize: m, nSize: n, kSize: k, inputType: .float32, accumulatorType: .float32))
+                    }
+                }
+            }
+        }
         capabilities = try DeviceCapabilities(
             maxBufferSize: 1 << 30,
             features: features,
             maxTextureDimension2D: 16_384,
             timestampPeriodNanoseconds: hasTimestamps ? 1e9 / Double(frequency) : 1,
             maxImmediateSize: 64,
+            subgroupSizeRange: cooperativeSupported ? 32...32 : nil,
             maxComputeWorkgroupStorageSize: 32 * 1024,
             maxComputeInvocationsPerWorkgroup: 1024,
             maxComputeWorkgroupSize: DispatchWorkgroups(x: 1024, y: 1024, z: 64),
             maxComputeWorkgroupsPerDimension: 65_535,
+            cooperativeMatrixProperties: cooperativeProperties,
             maxTaskWorkgroupTotalCount: meshSupported ? 4_194_304 : nil,
             maxTaskWorkgroupsPerDimension: meshSupported ? 65_535 : nil,
             maxMeshWorkgroupTotalCount: meshSupported ? 4_194_304 : nil,

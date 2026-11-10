@@ -15,6 +15,16 @@ extension D3D12Device: ComputeAccelerationStructureBackendDevice {
 
     static let stateAccelerationStructure: UInt32 = 0x400000
 
+    /// True when wave operations exist and every wave has exactly 32 lanes, read from `D3D12_FEATURE_D3D12_OPTIONS1`.
+    nonisolated static func hasFixedWaveSize32(_ device: COMObject) -> Bool {
+        typealias CheckSupport = @convention(c) (UnsafeMutableRawPointer, UInt32, UnsafeMutableRawPointer, UInt32) -> HRESULT
+        var options = [UInt32](repeating: 0, count: 6)  // WaveOps, WaveLaneCountMin, WaveLaneCountMax, TotalLaneCount, ...
+        let result = options.withUnsafeMutableBytes {
+            device.slot(13, CheckSupport.self)(device.pointer, 8, $0.baseAddress!, 24)
+        }
+        return result >= 0 && options[0] != 0 && options[1] == 32 && options[2] == 32
+    }
+
     /// Ray queries need DXR tier 1.1, read from `D3D12_FEATURE_D3D12_OPTIONS5`.
     nonisolated static func supportsRayQueries(_ device: COMObject) -> Bool {
         typealias CheckSupport = @convention(c) (UnsafeMutableRawPointer, UInt32, UnsafeMutableRawPointer, UInt32) -> HRESULT

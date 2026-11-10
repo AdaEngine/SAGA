@@ -519,6 +519,74 @@ private func d3d12MeshPixel(withTask: Bool) async throws -> UInt32? {
     } catch { await device.close(); throw error }
 }
 
+@Test(.enabled(if: d3d12Available), .gpuExclusive) func d3d12MultipliesCooperativeMatrices() async throws {
+    let backend = try D3D12Backend.makeDevice(shaderCompilerDirectories: dxcDirectories)
+    let device = try await Device.make(backend: backend)
+    do {
+        let shape = CooperativeMatrixProperties(mSize: 16, nSize: 16, kSize: 16, inputType: .float32, accumulatorType: .float32)
+        guard backend.capabilities.features.contains(.cooperativeMatrix),
+              backend.capabilities.cooperativeMatrixProperties.contains(shape) else {
+            await device.close()
+            return
+        }
+        let source = """
+            enable wgpu_cooperative_matrix;
+            @group(0) @binding(0) var<storage, read> factors: array<f32, 512>;
+            @group(0) @binding(1) var<storage, read_write> accumulators: array<f32, 512>;
+
+            @compute @workgroup_size(32)
+            fn main() {
+                let a = coopLoad<coop_mat16x16<f32, A>>(&factors[0]);
+                let b = coopLoad<coop_mat16x16<f32, B>>(&factors[256]);
+                let c = coopLoad<coop_mat16x16<f32, C>>(&accumulators[0]);
+                coopStore(coopMultiplyAdd(a, b, c), &accumulators[256]);
+            }
+            """
+        let pipeline = try await device.createComputePipeline(
+            try IndependentShaderCompiler().compileCompute(.wgsl(source), to: .hlsl))
+        let factors = try await device.createBuffer(.init(size: 2048, usage: [.storage, .copyDestination]))
+        let accumulators = try await device.createBuffer(.init(size: 2048, usage: [.storage, .copyDestination, .copySource]))
+        let readback = try await device.createBuffer(.init(size: 1024, usage: [.copyDestination, .mapRead]))
+        let ticket = try await device.submitCommands([
+            .write(buffer: factors, offset: 0, words: [UInt32](repeating: Float(1).bitPattern, count: 256)
+                   + [UInt32](repeating: Float(2).bitPattern, count: 256)),
+            .dispatchCompute(pipeline: pipeline, bindings: [ComputeBindingSlot(binding: 0): factors,
+                                                             ComputeBindingSlot(binding: 1): accumulators],
+                             workgroups: .init(x: 1)),
+            .copy(source: accumulators, sourceOffset: 1024, destination: readback, byteCount: 1024),
+            .read(buffer: readback, byteCount: 1024),
+        ])
+        let words = try await ticket.wait()[0]
+        // Every element is the sum of 16 products of 1.0 and 2.0.
+        #expect(words.allSatisfy { Float(bitPattern: $0) == 32 })
+        await device.close()
+    } catch { await device.close(); throw error }
+}
+
+@Test(.enabled(if: d3d12Available), .gpuExclusive) func d3d12RunsSubgroupOperationsWhenAdvertised() async throws {
+    let backend = try D3D12Backend.makeDevice(shaderCompilerDirectories: dxcDirectories)
+    let device = try await Device.make(backend: backend)
+    do {
+        guard backend.capabilities.features.contains(.subgroups) else { await device.close(); return }
+        let shader = try IndependentShaderCompiler().compileCompute(.wgsl("""
+            enable subgroups;
+            @group(0) @binding(3) var<storage, read_write> destination: array<u32, 4>;
+            @compute @workgroup_size(4) fn run(@builtin(local_invocation_index) i: u32) { destination[i] = subgroupAdd(i + 1u); }
+            """), to: .hlsl)
+        let pipeline = try await device.createComputePipeline(shader)
+        let output = try await device.createBuffer(.init(size: 16, usage: [.storage, .copySource]))
+        let readback = try await device.createBuffer(.init(size: 16, usage: [.copyDestination, .mapRead]))
+        let ticket = try await device.submitCommands([
+            .dispatchCompute(pipeline: pipeline, bindings: [ComputeBindingSlot(binding: 3): output], workgroups: .init(x: 1)),
+            .copy(source: output, destination: readback, byteCount: 16),
+            .read(buffer: readback, byteCount: 16),
+        ])
+        // The four invocations share a wave, so each sees 1 + 2 + 3 + 4.
+        #expect(try await ticket.wait() == [[10, 10, 10, 10]])
+        await device.close()
+    } catch { await device.close(); throw error }
+}
+
 @Test(.enabled(if: d3d12Available), .gpuExclusive) func d3d12RendersVertexBuffersTexturesUniformsAndIndexedDraws() async throws {
     let backend = try D3D12Backend.makeDevice(shaderCompilerDirectories: dxcDirectories)
     let device = try await Device.make(backend: backend)
