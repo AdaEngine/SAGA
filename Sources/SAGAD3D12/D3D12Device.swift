@@ -23,7 +23,7 @@ public enum D3D12Backend {
 }
 
 /// A compute-capable Direct3D 12 device: buffers, copies, direct dispatch and readback.
-public actor D3D12Device: ComputeBackendDevice {
+public actor D3D12Device: ComputeBackendDevice, PlanarExternalTextureBackendDevice {
     public nonisolated let capabilities: DeviceCapabilities
     public nonisolated let supportsPresentation: Bool
     var presenter: D3D12Presenter?
@@ -34,8 +34,17 @@ public actor D3D12Device: ComputeBackendDevice {
         var address: UInt64
     }
 
+    /// An external texture: its plane resources and an upload-heap constant buffer holding the parameter words.
+    struct ExternalTexture {
+        var planes: [ResourceID]
+        var parameters: COMObject
+        var address: UInt64
+    }
+
     struct Pipeline {
         var model: ComputePipeline
+        /// External texture layouts with the root parameter of each constant buffer of parameter words.
+        var externalLayouts: [(layout: ComputeShaderArtifact.ExternalTextureLayout, root: Int)] = []
         var rootSignature: COMObject
         var state: COMObject
         /// Root parameter indices of the 32-bit constant blocks, when the shader uses them.
@@ -77,6 +86,7 @@ public actor D3D12Device: ComputeBackendDevice {
     var textureViews: [ResourceID: TextureViewState] = [:]
     var renderPipelines: [ResourceID: D3D12RenderPipelineState] = [:]
     var samplers: [ResourceID: SamplerDescriptor] = [:]
+    var externalTextures: [ResourceID: ExternalTexture] = [:]
     var terminal = false
     var quarantine: [Retained] = []
 
@@ -151,10 +161,38 @@ public actor D3D12Device: ComputeBackendDevice {
 
     public func destroyBuffer(id: ResourceID) { buffers[id] = nil }
 
+    public func allocatePlanarExternalTexture(id: ResourceID, descriptor: PlanarExternalTextureDescriptor) throws {
+        try requireActive()
+        guard externalTextures[id] == nil, descriptor.planes.count == descriptor.format.planeComponents.count else {
+            throw GPUError.validation("Invalid Direct3D 12 external texture descriptor")
+        }
+        var first: (width: UInt32, height: UInt32)?
+        for (index, plane) in descriptor.planes.enumerated() {
+            let view = textureViews[plane]
+            guard plane.device == id.device, let texture = textures[view?.texture ?? plane] else {
+                throw GPUError.validation("Unknown Direct3D 12 external texture plane")
+            }
+            let resource = view.map { TextureViewResource(texture: $0.texture, levels: $0.levels, aspect: $0.aspect, layers: $0.layers, dimension: $0.dimension) }
+            let extent = try descriptor.planeExtent(at: index, texture: texture.descriptor, view: resource, capabilities: capabilities)
+            if index == 0 { first = extent }
+        }
+        guard let first else { throw GPUError.validation("External texture requires a first plane") }
+        let words = try descriptor.parameterWords(planeWidth: first.width, planeHeight: first.height)
+        let size = max(UInt64(ComputeShaderArtifact.ExternalTextureLayout.parameterByteSize), UInt64(words.count * 4))
+        let buffer = try makeBuffer(size: size, heap: D3D12.heapUpload, state: D3D12.stateGenericRead)
+        try map(buffer, count: words.count * 4) { destination in
+            words.withUnsafeBytes { destination.copyMemory(from: $0.baseAddress!, byteCount: $0.count) }
+        }
+        externalTextures[id] = ExternalTexture(planes: descriptor.planes, parameters: buffer, address: gpuAddress(buffer))
+    }
+
+    public func destroyExternalTexture(id: ResourceID) { externalTextures[id] = nil }
+
     public func close(owner: UInt64) {
         for id in buffers.keys where id.device == owner { buffers[id] = nil }
         for id in textures.keys where id.device == owner { textures[id] = nil }
         for id in samplers.keys where id.device == owner { samplers[id] = nil }
+        for id in externalTextures.keys where id.device == owner { externalTextures[id] = nil }
         for id in querySets.keys where id.device == owner { querySets[id] = nil }
         for id in pipelines.keys where id.device == owner { pipelines[id] = nil }
         for id in renderPipelines.keys where id.device == owner { renderPipelines[id] = nil }
@@ -192,10 +230,11 @@ public actor D3D12Device: ComputeBackendDevice {
             throw GPUError.validation("Direct3D 12 compute pipeline layout does not match compiled shader")
         }
         guard pipelines[pipeline.id] == nil else { throw GPUError.validation("Duplicate Direct3D 12 compute pipeline") }
-        guard pipeline.externalTextureBindings.isEmpty, pipeline.accelerationStructureBindings.isEmpty,
+        guard pipeline.accelerationStructureBindings.isEmpty,
+              shader.externalTextureLayouts.count == pipeline.externalTextureBindings.count,
               pipeline.immediateByteSize == 0 || shader.immediateLayout?.hlslBinding != nil,
               pipeline.textureBindings.allSatisfy({ !$0.isMultisampled }) else {
-            throw GPUError.unsupported("Direct3D 12 compute pipelines do not support external textures, acceleration structures or multisampled textures")
+            throw GPUError.unsupported("Direct3D 12 compute pipelines do not support acceleration structures or multisampled textures")
         }
         if compiler == nil { compiler = try D3D12ShaderCompiler(directories: compilerDirectories) }
         let dxil = try compiler!.compile(source, entryPoint: shader.entryPoint, profile: profile)
@@ -254,6 +293,12 @@ public actor D3D12Device: ComputeBackendDevice {
             parameters.append(D3D12RootParameter(parameterType: D3D12.rootParameterConstants, shaderRegister: binding.binding,
                                                  registerSpace: binding.group, unionTail: 4))
         }
+        var externalLayouts: [(layout: ComputeShaderArtifact.ExternalTextureLayout, root: Int)] = []
+        for layout in shader.externalTextureLayouts {
+            externalLayouts.append((layout, parameters.count))
+            parameters.append(D3D12RootParameter(parameterType: D3D12.rootParameterCBV, shaderRegister: layout.parametersBindingIndex,
+                                                 registerSpace: layout.binding.group))
+        }
         var viewLayout: [(slot: ComputeBindingSlot, storage: Bool)] = []
         var viewRanges: [D3D12DescriptorRange] = [], samplerRanges: [D3D12DescriptorRange] = []
         var viewUsed: UInt32 = 0, samplerUsed: UInt32 = 0
@@ -266,6 +311,14 @@ public actor D3D12Device: ComputeBackendDevice {
         addRanges(readArrays, type: 0, to: &viewRanges, used: &viewUsed)
         addRanges(writeArrays, type: 1, to: &viewRanges, used: &viewUsed)
         let bufferViewLayout = ordered(readArrays).map { ($0, true) } + ordered(writeArrays).map { ($0, false) }
+        // Each external texture takes three consecutive SRVs after every other view.
+        for entry in externalLayouts {
+            for index in entry.layout.planeBindingIndices {
+                viewRanges.append(D3D12DescriptorRange(rangeType: 0, baseShaderRegister: index, registerSpace: entry.layout.binding.group,
+                                                       offsetInDescriptors: viewUsed))
+                viewUsed += 1
+            }
+        }
         addRanges(pipeline.samplerBindings.map(\.slot), type: 3, to: &samplerRanges, used: &samplerUsed)
         let samplerLayout = ordered(pipeline.samplerBindings.map(\.slot))
         let viewMemory = UnsafeMutablePointer<D3D12DescriptorRange>.allocate(capacity: max(1, viewRanges.count))
@@ -305,7 +358,7 @@ public actor D3D12Device: ComputeBackendDevice {
         var stateIID = IID.pipelineState
         let (created, stateObject) = Self.createState(device, root: root, dxil: dxil, stateIID: &stateIID, create: device.slot(11, CreatePipeline.self))
         try d3dCheck(created, "compute pipeline creation")
-        pipelines[pipeline.id] = Pipeline(model: pipeline, rootSignature: root, state: stateObject!, immediateRoot: immediateRoot,
+        pipelines[pipeline.id] = Pipeline(model: pipeline, externalLayouts: externalLayouts, rootSignature: root, state: stateObject!, immediateRoot: immediateRoot,
                                           countRoot: countRoot, immediateWords: immediateWords, viewRoot: viewRoot,
                                           samplerRoot: samplerRoot, viewLayout: viewLayout,
                                           samplerLayout: samplerLayout, bufferViewLayout: bufferViewLayout,
@@ -358,7 +411,7 @@ public actor D3D12Device: ComputeBackendDevice {
         let samplerDescriptors = samplers
         let pinned = Set(submission.resources)
         for id in submission.resources
-        where buffers[id] == nil && pipelines[id] == nil && textures[id] == nil && textureViews[id] == nil && samplers[id] == nil
+        where buffers[id] == nil && pipelines[id] == nil && textures[id] == nil && textureViews[id] == nil && samplers[id] == nil && externalTextures[id] == nil
             && renderPipelines[id] == nil && querySets[id] == nil {
             throw GPUError.validation("Unknown Direct3D 12 resource")
         }
@@ -424,7 +477,8 @@ public actor D3D12Device: ComputeBackendDevice {
                                       maxVertexBuffers: capabilities.maxVertexBuffers,
                                       maxBindGroupsPlusVertexBuffers: capabilities.maxBindGroupsPlusVertexBuffers,
                                       querySets: querySets.mapValues { $0.descriptor },
-                                      features: capabilities.features,
+                                      features: capabilities.features, externalTextures: Set(externalTextures.keys),
+                                      externalPlanes: externalTextures.mapValues(\.planes),
                                       maxComputeWorkgroupsPerDimension: capabilities.maxComputeWorkgroupsPerDimension) }
                 let (command, timestamps, occlusion) = recorded.recordedPass
                 let measurement = timestamps == nil && occlusion == nil ? nil
@@ -593,7 +647,7 @@ public actor D3D12Device: ComputeBackendDevice {
                         }
                         typealias SetTable = @convention(c) (UnsafeMutableRawPointer, UInt32, UInt64) -> Void
                         if let root = pipeline.viewRoot {
-                            let base = try heaps.allocateViews(pipeline.viewLayout.count + pipeline.bufferViewLayout.count)
+                            let base = try heaps.allocateViews(pipeline.viewLayout.count + pipeline.bufferViewLayout.count + 3 * pipeline.externalLayouts.count)
                             for (offset, entry) in pipeline.bufferViewLayout.enumerated() {
                                 guard let supplied = dispatch.bindings[entry.slot], let buffer = buffers[supplied.buffer] else {
                                     throw GPUError.validation("Missing Direct3D 12 buffer array binding")
@@ -613,6 +667,20 @@ public actor D3D12Device: ComputeBackendDevice {
                                 transition(id, to: entry.storage ? D3D12.stateUnorderedAccess : D3D12.stateNonPixelShaderResource)
                                 createView(texture, storage: entry.storage, at: base.cpu + UInt(slotIndex) * heaps.viewIncrement)
                             }
+                            let externalBase = pipeline.viewLayout.count + pipeline.bufferViewLayout.count
+                            for (index, entry) in pipeline.externalLayouts.enumerated() {
+                                let slot = ComputeBindingSlot(group: entry.layout.binding.group, binding: entry.layout.binding.binding)
+                                guard let id = dispatch.textures[slot], let external = externalTextures[id] else {
+                                    throw GPUError.validation("Missing Direct3D 12 external texture binding")
+                                }
+                                for plane in 0..<3 {
+                                    let planeID = external.planes[plane < external.planes.count ? plane : 0]
+                                    guard let texture = texture(for: planeID) else { throw GPUError.validation("Unknown Direct3D 12 external texture plane") }
+                                    transition(planeID, to: D3D12.stateNonPixelShaderResource)
+                                    createView(texture, storage: false,
+                                               at: base.cpu + UInt(externalBase + 3 * index + plane) * heaps.viewIncrement)
+                                }
+                            }
                             list.slot(31, SetTable.self)(list.pointer, UInt32(root), base.gpu)
                         }
                         if let root = pipeline.samplerRoot {
@@ -625,6 +693,13 @@ public actor D3D12Device: ComputeBackendDevice {
                             }
                             list.slot(31, SetTable.self)(list.pointer, UInt32(root), base.gpu)
                         }
+                    }
+                    for entry in pipeline.externalLayouts {
+                        let slot = ComputeBindingSlot(group: entry.layout.binding.group, binding: entry.layout.binding.binding)
+                        guard let id = dispatch.textures[slot], let external = externalTextures[id] else {
+                            throw GPUError.validation("Missing Direct3D 12 external texture binding")
+                        }
+                        list.slot(37, SetAddress.self)(list.pointer, UInt32(entry.root), external.address)
                     }
                     var written: [COMObject] = writtenArrays
                     for rootBuffer in pipeline.rootBuffers {

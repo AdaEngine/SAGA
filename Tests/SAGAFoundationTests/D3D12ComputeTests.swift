@@ -153,6 +153,47 @@ private let d3d12Available: Bool = {
 #endif
 
 #if os(Windows)
+@Test(.enabled(if: d3d12Available), .gpuExclusive) func d3d12LoadsPlanarExternalTexturesInCompute() async throws {
+    let backend = try D3D12Backend.makeDevice(shaderCompilerDirectories: dxcDirectories)
+    let device = try await Device.make(backend: backend)
+    do {
+        let source = """
+            @group(0) @binding(0) var rgba: texture_external;
+            @group(0) @binding(1) var nv12: texture_external;
+            @group(0) @binding(2) var<storage, read_write> output: array<vec4f, 3>;
+            @compute @workgroup_size(1) fn run() {
+                output[0] = textureLoad(rgba, vec2u(1, 0));
+                output[1] = textureLoad(nv12, vec2u(0));
+                output[2] = textureLoad(nv12, vec2u(1, 0));
+            }
+            """
+        let pipeline = try await device.createComputePipeline(try IndependentShaderCompiler().compileCompute(.wgsl(source), to: .hlsl))
+        let usage: TextureUsage = [.textureBinding, .copyDestination]
+        let color = try await device.createTexture(.init(width: 2, height: 1, format: .rgba8Unorm, usage: usage))
+        let luma = try await device.createTexture(.init(width: 2, height: 1, format: .r8Unorm, usage: usage))
+        let chroma = try await device.createTexture(.init(width: 1, height: 1, format: .rg8Unorm, usage: usage))
+        let frame = try await device.importExternalTexture(.init(format: .rgba, planes: [color]))
+        let video = try await device.importExternalTexture(.init(format: .nv12, planes: [luma, chroma]))
+        let output = try await device.createBuffer(.init(size: 48, usage: [.storage, .copySource]))
+        let read = try await device.createBuffer(.init(size: 48, usage: [.copyDestination, .mapRead]))
+        let ticket = try await device.submitCommands([
+            .writeTexture(destination: color, data: [255, 0, 0, 255, 0, 255, 0, 255], region: .init(width: 2, height: 1)),
+            .writeTexture(destination: luma, data: [255, 0], region: .init(width: 2, height: 1)),
+            .writeTexture(destination: chroma, data: [128, 128], region: .init(width: 1, height: 1)),
+            .dispatchCompute(pipeline: pipeline, bindings: [ComputeBindingSlot(binding: 2): output], workgroups: .init(x: 1),
+                             textures: [ComputeBindingSlot(binding: 0): frame, ComputeBindingSlot(binding: 1): video]),
+            .copy(source: output, destination: read),
+            .read(buffer: read, byteCount: 48),
+        ])
+        let values = try await ticket.wait()[0].map { Float(bitPattern: $0) }
+        #expect(values[0] == 0 && values[1] == 1 && values[2] == 0 && values[3] == 1)  // the green RGBA texel
+        // With the identity conversion matrix the planes read as (Y, Cb, Cr) in RGB.
+        #expect(values[4] == 1 && abs(values[5] - 128.0 / 255) < 0.01 && abs(values[6] - 128.0 / 255) < 0.01)
+        #expect(values[8] == 0)
+        await device.close()
+    } catch { await device.close(); throw error }
+}
+
 @Test(.enabled(if: d3d12Available), .gpuExclusive) func d3d12RendersVertexBuffersTexturesUniformsAndIndexedDraws() async throws {
     let backend = try D3D12Backend.makeDevice(shaderCompilerDirectories: dxcDirectories)
     let device = try await Device.make(backend: backend)

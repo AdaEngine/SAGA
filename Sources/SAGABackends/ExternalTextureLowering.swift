@@ -146,7 +146,7 @@ private struct ExternalTextureLanguage {
     }
 
     var compareExtent: String { format == .glsl ? "any(greaterThanEqual(pixel, size))" : "any(pixel >= size)" }
-    var hasLogicalSize: String { format == .glsl ? "all(notEqual(words[12].xy, uvec2(0u)))" : "all(words[12].xy != uint2(0u))" }
+    var hasLogicalSize: String { format == .glsl ? "all(notEqual(words[12].xy, uvec2(0u, 0u)))" : "all(words[12].xy != uint2(0u, 0u))" }
 }
 
 func externalTexturePrelude(_ format: ShaderOutputFormat) -> [String] {
@@ -165,13 +165,13 @@ func externalTexturePrelude(_ format: ShaderOutputFormat) -> [String] {
             \(f3) encoded = (\(bit(0)) * y + \(bit(1)) * uv.x + \(bit(2)) * uv.y + \(bit(3))).xyz;
             \(f4) source = \(bit(7));
             \(f4) target = \(bit(8));
-            \(f3) linear;
+            \(f3) lin;
             for (int inputLane = 0; inputLane < 3; ++inputLane) {
                 float sourceValue = encoded[inputLane];
-                linear[inputLane] = sourceValue < source.w * source.y ? sourceValue / source.w :
+                lin[inputLane] = sourceValue < source.w * source.y ? sourceValue / source.w :
                     pow(max((sourceValue + source.x - 1.0) / source.x, 0.0), source.z);
             }
-            \(f3) converted = \(bit(4)).xyz * linear.x + \(bit(5)).xyz * linear.y + \(bit(6)).xyz * linear.z;
+            \(f3) converted = \(bit(4)).xyz * lin.x + \(bit(5)).xyz * lin.y + \(bit(6)).xyz * lin.z;
             for (int outputLane = 0; outputLane < 3; ++outputLane) {
                 float destinationValue = converted[outputLane];
                 encoded[outputLane] = destinationValue < target.y ? target.w * destinationValue :
@@ -179,10 +179,10 @@ func externalTexturePrelude(_ format: ShaderOutputFormat) -> [String] {
             }
             return \(f4)(encoded, 1.0);
         }
-        \(f2) saga_external_sample_coords(\(f2) point, \(f2) low, \(f2) high, \(u2) size) {
+        \(f2) saga_external_sample_coords(\(f2) pt, \(f2) low, \(f2) high, \(u2) size) {
             \(f2) center = (low + high) * 0.5;
-            \(f2) inset = \(f2)(0.5) / \(f2)(size);
-            return clamp(point, min(low + inset, center), max(high - inset, center));
+            \(f2) inset = \(f2)(0.5, 0.5) / \(f2)(size);
+            return clamp(pt, min(low + inset, center), max(high - inset, center));
         }
         \(f4) saga_external_sample(\(planes), \(words)\(lang.sampler), \(f2) uv) {
             \(f4) transform = \(bit(9));
@@ -190,28 +190,28 @@ func externalTexturePrelude(_ format: ShaderOutputFormat) -> [String] {
             \(f2) opposite = origin + transform.xy + transform.zw;
             \(f2) low = min(origin, opposite);
             \(f2) high = max(origin, opposite);
-            \(f2) point = origin + transform.xy * uv.x + transform.zw * uv.y;
-            \(f2) c0 = saga_external_sample_coords(point, low, high, saga_external_plane_size(p0));
+            \(f2) pt = origin + transform.xy * uv.x + transform.zw * uv.y;
+            \(f2) c0 = saga_external_sample_coords(pt, low, high, saga_external_plane_size(p0));
             \(f4) first = \(lang.sample("p0", coordinate: "c0"));
             if (words[12].z == 1u) { return first; }
-            \(f2) c1 = saga_external_sample_coords(point, low, high, saga_external_plane_size(p1));
+            \(f2) c1 = saga_external_sample_coords(pt, low, high, saga_external_plane_size(p1));
             \(f2) chroma = \(lang.sample("p1", coordinate: "c1")).xy;
             if (words[12].z == 3u) {
-                \(f2) c2 = saga_external_sample_coords(point, low, high, saga_external_plane_size(p2));
+                \(f2) c2 = saga_external_sample_coords(pt, low, high, saga_external_plane_size(p2));
                 chroma.y = \(lang.sample("p2", coordinate: "c2")).x;
             }
             return saga_external_convert(first.x, chroma, words);
         }
         \(u2) saga_external_subsampled_pixel(\(u2) pixel, \(u2) fromSize, \(u2) toSize) {
-            return min(\(u2)(floor(\(f2)(pixel) * \(f2)(toSize) / \(f2)(fromSize))), toSize - \(u2)(1u));
+            return min(\(u2)(floor(\(f2)(pixel) * \(f2)(toSize) / \(f2)(fromSize))), toSize - \(u2)(1u, 1u));
         }
         \(f4) saga_external_load(\(planes), \(words), \(u2) pixel) {
             \(u2) size = saga_external_dimensions(p0, words);
-            if (\(lang.compareExtent)) { return \(f4)(0.0); }
+            if (\(lang.compareExtent)) { return \(f4)(0.0, 0.0, 0.0, 0.0); }
             \(f4) transform = \(bit(11));
-            \(f2) point = \(bit(10)).zw * float(pixel.x) + transform.xy * float(pixel.y) + transform.zw;
+            \(f2) pt = \(bit(10)).zw * float(pixel.x) + transform.xy * float(pixel.y) + transform.zw;
             \(u2) planeSize = saga_external_plane_size(p0);
-            \(u2) c0 = \(u2)(clamp(round(point), \(f2)(0.0), \(f2)(planeSize - \(u2)(1u))));
+            \(u2) c0 = \(u2)(clamp(round(pt), \(f2)(0.0, 0.0), \(f2)(planeSize - \(u2)(1u, 1u))));
             \(f4) first = \(lang.load("p0", coordinate: "c0"));
             if (words[12].z == 1u) { return first; }
             \(u2) c1 = saga_external_subsampled_pixel(c0, planeSize, saga_external_plane_size(p1));
