@@ -1,3 +1,4 @@
+import Foundation
 import SAGACompiler
 import SAGAFrontends
 import SAGAShaderIR

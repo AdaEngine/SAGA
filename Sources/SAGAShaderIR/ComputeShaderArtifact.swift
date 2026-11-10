@@ -287,3 +287,28 @@ public struct ComputeShaderArtifact: Sendable, Equatable {
         self.hlslWorkgroupCountBinding = hlslWorkgroupCountBinding
     }
 }
+
+extension ComputeShaderArtifact {
+    /// Replaces the emitted code with a SPIR-V module whose entry point keeps its source name. Resource
+    /// reflection is unchanged: SPIR-V binds each resource by descriptor set (group) and binding, so the
+    /// flat indices of the reflecting writer are unused. Text-target-only fields are cleared.
+    package func withSPIRV(_ words: [UInt32]) -> ComputeShaderArtifact {
+        ComputeShaderArtifact(
+            artifact: .spirv(words), sourceEntryPoint: sourceEntryPoint, entryPoint: sourceEntryPoint,
+            workgroupSize: workgroupSize, storageBindings: storageBindings, uniformBindings: uniformBindings,
+            accelerationStructures: accelerationStructures, sampledTextures: sampledTextures,
+            storageTextures: storageTextures, externalTextures: externalTextures,
+            externalTextureLayouts: externalTextureLayouts, samplerBindings: samplerBindings,
+            glslTextureSamplerBindings: glslTextureSamplerBindings, workgroupStorageByteSize: workgroupStorageByteSize,
+            metalRuntimeLengthBuffer: nil, hlslWorkgroupCountBinding: nil, usesTextureBarrier: usesTextureBarrier,
+            requiresShaderF16: requiresShaderF16, requiresUniformBufferStandardLayout: requiresUniformBufferStandardLayout,
+            requiresSubgroups: requiresSubgroups, requiresSubgroupID: requiresSubgroupID, hlslProfile: nil,
+            requiresShaderInt64AtomicMinMax: requiresShaderInt64AtomicMinMax,
+            requiresShaderInt64AtomicAllOps: requiresShaderInt64AtomicAllOps,
+            requiresShaderInt64: requiresShaderInt64, requiresShaderInt16: requiresShaderInt16,
+            requiresDebugPrintf: requiresDebugPrintf, immediateLayout: immediateLayout,
+            usesGlobalInvocationIndex: usesGlobalInvocationIndex, usesWorkgroupIndex: usesWorkgroupIndex,
+            requiredSubgroupSize: requiredSubgroupSize, requiresSubgroupUniformity: requiresSubgroupUniformity,
+            requiresCooperativeMatrix: requiresCooperativeMatrix)
+    }
+}

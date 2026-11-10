@@ -991,7 +991,7 @@ package struct RenderCodeGenerator {
         var declarations: [String] = []
         if !varyings.isEmpty || !structuredBuiltins.isEmpty {
             declarations = try structure("SagaFragmentInput", fields: varyings, vertexOutput: false, module: module)
-            declarations.insert(contentsOf: structuredBuiltins, at: declarations.count - 1)
+            declarations.insert(contentsOf: structuredBuiltins, at: format == .hlsl ? 1 : declarations.count - 1)  // Direct3D links stages by register order: system values lead, as in the vertex output
             switch format {
             case .msl: parameters.append("SagaFragmentInput saga_input [[stage_in]]")
             case .hlsl: parameters.append("SagaFragmentInput saga_input")

@@ -142,7 +142,10 @@ public struct IndependentShaderCompiler: Sendable {
         _ input: ShaderInput, entryPoint: String?, to output: ShaderOutputFormat, constants: [String: Double],
         bindingArrayLengths: [IRResourceBinding: UInt32], webGPU: Bool
     ) throws -> ComputeShaderArtifact {
-        let generator = try generator(for: input, output: output, bindingArrayLengths: bindingArrayLengths, webGPU: webGPU)
+        // SPIR-V has no text writer. The GLSL writer reflects the same specialized IR and the SPIR-V
+        // writer supplies the binary, so the reflected layout always describes the emitted module.
+        let generator = try generator(for: input, output: output == .spirv ? .glsl : output,
+                                      bindingArrayLengths: bindingArrayLengths, webGPU: webGPU)
         let (validated, validator) = try validatePipelineInput(input, output: output,
             bindingArrayLengths: bindingArrayLengths, webGPU: webGPU)
         let entries = validated.module.entryPoints
@@ -150,7 +153,13 @@ public struct IndependentShaderCompiler: Sendable {
         let specialized = try specializeOverrides(validated, entry: entry, constants: constants,
                                                    retainLinkedStages: false, validator: validator)
         let module = try specializeGlobalParameters(specialized, validator: validator)
-        let compiled = try generator.generateCompute(module, onlyReachableBindings: entryPoint != nil || entries.count > 1)
+        var compiled = try generator.generateCompute(module, onlyReachableBindings: entryPoint != nil || entries.count > 1)
+        if output == .spirv {
+            guard case .spirv(let words) = try SPIRVCodeGenerator(bindingArrayLengths: bindingArrayLengths).generate(module) else {
+                throw ShaderFailure.incompatibleArtifact
+            }
+            compiled = compiled.withSPIRV(words)
+        }
         if webGPU, case .wgsl = input, compiled.storageBindings.contains(where: { !$0.memoryDecorations.isEmpty }) {
             throw ShaderFailure.unsupported("Browser WGSL does not support native storage memory attributes")
         }
@@ -356,9 +365,17 @@ public struct IndependentShaderCompiler: Sendable {
         let module = try pipelineModule(input, output: output, entryPoint: entryPoint, constants: constants,
                                         bindingArrayLengths: bindingArrayLengths, webGPU: webGPU,
                                         glslPipelineFamily: glslPipelineFamily)
-        let compiled = try RenderCodeGenerator(output, bindingArrayLengths: bindingArrayLengths, webGPU: webGPU,
-                                               metalVertexBuffers: metalVertexBuffers, glslPipelineFamily: glslPipelineFamily)
+        // SPIR-V reuses the GLSL writer's reflection and takes its binary from the SPIR-V writer.
+        var compiled = try RenderCodeGenerator(output == .spirv ? .glsl : output, bindingArrayLengths: bindingArrayLengths,
+                                               webGPU: webGPU, metalVertexBuffers: metalVertexBuffers,
+                                               glslPipelineFamily: glslPipelineFamily)
             .generate(module, entryPoint: entryPoint)
+        if output == .spirv {
+            guard case .spirv(let words) = try SPIRVCodeGenerator(bindingArrayLengths: bindingArrayLengths).generate(module) else {
+                throw ShaderFailure.incompatibleArtifact
+            }
+            compiled = compiled.withSPIRV(words)
+        }
         if webGPU, compiled.usesVertexWritableStorage {
             throw ShaderFailure.unsupported("Browser WebGPU does not support vertex writable storage")
         }

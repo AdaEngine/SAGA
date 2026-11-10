@@ -177,3 +177,29 @@ public struct RenderStageArtifact: Sendable, Equatable {
         self.glslTextureSamplerBindings = glslTextureSamplerBindings
     }
 }
+
+extension RenderStageArtifact {
+    /// Replaces the emitted code with a SPIR-V module whose entry point keeps its source name. Interface and
+    /// resource reflection come from a text writer over the same IR; text-only fields are cleared.
+    package func withSPIRV(_ words: [UInt32]) -> RenderStageArtifact {
+        RenderStageArtifact(
+            artifact: .spirv(words), stage: stage, sourceEntryPoint: sourceEntryPoint, entryPoint: sourceEntryPoint,
+            varyings: varyings, vertexInputs: vertexInputs, hlslProfile: nil, uniformBindings: uniformBindings,
+            storageBindings: storageBindings, metalRuntimeLengthBuffer: nil, sampledTextures: sampledTextures,
+            storageTextures: storageTextures, externalTextures: externalTextures,
+            externalTextureLayouts: externalTextureLayouts, samplerBindings: samplerBindings,
+            glslTextureSamplerBindings: glslTextureSamplerBindings, colorOutputKinds: colorOutputKinds,
+            colorOutputComponentCounts: colorOutputComponentCounts, writesDepth: writesDepth,
+            writesSampleMask: writesSampleMask, invariantPosition: invariantPosition, clipDistanceCount: clipDistanceCount,
+            readsPrimitiveIndex: readsPrimitiveIndex, requiresBarycentrics: requiresBarycentrics,
+            readsViewIndex: readsViewIndex, fragmentInputBuiltinSlots: fragmentInputBuiltinSlots,
+            requiresShaderF16: requiresShaderF16, requiresUniformBufferStandardLayout: requiresUniformBufferStandardLayout,
+            requiresSubgroups: requiresSubgroups, dualSourceComponentCount: dualSourceComponentCount,
+            earlyDepthTest: earlyDepthTest, metalTextureAtomicGuardBufferIndex: nil,
+            requiresShaderInt64AtomicMinMax: requiresShaderInt64AtomicMinMax,
+            requiresShaderInt64AtomicAllOps: requiresShaderInt64AtomicAllOps, requiresShaderInt64: requiresShaderInt64,
+            requiresShaderInt16: requiresShaderInt16, requiresDebugPrintf: requiresDebugPrintf,
+            immediateLayout: immediateLayout, requiresSubgroupUniformity: requiresSubgroupUniformity,
+            metalVertexPullingLayout: nil)
+    }
+}
