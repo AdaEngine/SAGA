@@ -184,6 +184,13 @@ extension D3D12Device {
             let words: [UInt32] = [first, firstInstance]
             words.withUnsafeBytes { list.slot(36, SetConstants.self)(list.pointer, UInt32(root), 2, $0.baseAddress!, 0) }
         }
+        for entry in state.externalLayouts {
+            let slot = ComputeBindingSlot(group: entry.layout.binding.group, binding: entry.layout.binding.binding)
+            guard let id = sampledTextures[slot], let external = externalTextures[id] else {
+                throw GPUError.validation("Missing Direct3D 12 external texture binding")
+            }
+            list.slot(38, SetAddress.self)(list.pointer, UInt32(entry.root), external.address)
+        }
         if state.viewRoot != nil || state.samplerRoot != nil {
             if arena == nil { arena = try D3D12DescriptorArena(device: device) }
             let heaps = arena!
@@ -194,7 +201,7 @@ extension D3D12Device {
                 heapsSet = true
             }
             if let root = state.viewRoot {
-                let base = try heaps.allocateViews(state.viewLayout.count + state.bufferViewLayout.count)
+                let base = try heaps.allocateViews(state.viewLayout.count + state.bufferViewLayout.count + 3 * state.externalLayouts.count)
                 for (offset, entry) in state.bufferViewLayout.enumerated() {
                     guard let supplied = storageBuffers[entry.slot], let buffer = buffers[supplied.buffer] else {
                         throw GPUError.validation("Missing Direct3D 12 buffer array binding")
@@ -213,6 +220,22 @@ extension D3D12Device {
                     transition(id, entry.storage ? D3D12.stateUnorderedAccess
                                : D3D12.stateNonPixelShaderResource | D3D12.statePixelShaderResource)
                     createView(bound, storage: entry.storage, at: base.cpu + UInt(index) * heaps.viewIncrement)
+                }
+                let externalBase = state.viewLayout.count + state.bufferViewLayout.count
+                for (index, entry) in state.externalLayouts.enumerated() {
+                    let slot = ComputeBindingSlot(group: entry.layout.binding.group, binding: entry.layout.binding.binding)
+                    guard let id = sampledTextures[slot], let external = externalTextures[id] else {
+                        throw GPUError.validation("Missing Direct3D 12 external texture binding")
+                    }
+                    for plane in 0..<3 {
+                        let planeID = external.planes[plane < external.planes.count ? plane : 0]
+                        guard let planeTexture = self.texture(for: planeID) else {
+                            throw GPUError.validation("Unknown Direct3D 12 external texture plane")
+                        }
+                        transition(planeID, D3D12.stateNonPixelShaderResource | D3D12.statePixelShaderResource)
+                        createView(planeTexture, storage: false,
+                                   at: base.cpu + UInt(externalBase + 3 * index + plane) * heaps.viewIncrement)
+                    }
                 }
                 list.slot(32, SetTable.self)(list.pointer, UInt32(root), base.gpu)
             }

@@ -194,6 +194,38 @@ private let d3d12Available: Bool = {
     } catch { await device.close(); throw error }
 }
 
+@Test(.enabled(if: d3d12Available), .gpuExclusive) func d3d12RendersWithExternalTexturesInFragmentShaders() async throws {
+    let backend = try D3D12Backend.makeDevice(shaderCompilerDirectories: dxcDirectories)
+    let device = try await Device.make(backend: backend)
+    do {
+        let source = """
+            @group(0) @binding(0) var frame: texture_external;
+            @vertex fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f {
+                let xy = array<vec2f, 3>(vec2f(-1, -1), vec2f(3, -1), vec2f(-1, 3));
+                return vec4f(xy[i], 0.5, 1);
+            }
+            @fragment fn fs() -> @location(0) vec4f { return textureLoad(frame, vec2u(1, 0)); }
+            """
+        let compiler = IndependentShaderCompiler()
+        let pipeline = try await device.createRenderPipeline(
+            vertex: try compiler.compileRenderStage(.wgsl(source), entryPoint: "vs", to: .hlsl),
+            fragment: try compiler.compileRenderStage(.wgsl(source), entryPoint: "fs", to: .hlsl), colorFormat: .rgba8Unorm)
+        let target = try await device.createTexture(.init(width: 8, height: 8, format: .rgba8Unorm, usage: [.renderAttachment, .copySource]))
+        let color = try await device.createTexture(.init(width: 2, height: 1, format: .rgba8Unorm, usage: [.textureBinding, .copyDestination]))
+        let frame = try await device.importExternalTexture(.init(format: .rgba, planes: [color]))
+        let read = try await device.createBuffer(.init(size: 1824, usage: [.copyDestination, .mapRead]))
+        let ticket = try await device.submitCommands([
+            .writeTexture(destination: color, data: [255, 0, 0, 255, 0, 255, 0, 255], region: .init(width: 2, height: 1)),
+            .render(pipeline: pipeline, target: target, clear: .init(red: 0, green: 0, blue: 1, alpha: 1), vertexCount: 3,
+                    textures: [ComputeBindingSlot(binding: 0): frame]),
+            .copyTextureToBuffer(source: target, destination: read, bytesPerRow: 256),
+            .read(buffer: read, byteCount: 1824),
+        ])
+        #expect(try await ticket.wait()[0][3 * 64 + 3] == 0xff00_ff00)  // the second texel is green
+        await device.close()
+    } catch { await device.close(); throw error }
+}
+
 @Test(.enabled(if: d3d12Available), .gpuExclusive) func d3d12RendersVertexBuffersTexturesUniformsAndIndexedDraws() async throws {
     let backend = try D3D12Backend.makeDevice(shaderCompilerDirectories: dxcDirectories)
     let device = try await Device.make(backend: backend)

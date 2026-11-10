@@ -81,6 +81,8 @@ struct D3D12RenderPipelineState {
     var rootStorage: [(binding: RenderPipeline.StorageBufferBinding, root: Int)]
     /// Root constants that carry the first vertex and first instance when shader model 6.8 is unavailable.
     var drawParametersRoot: Int?
+    /// External texture layouts of both stages with the root parameter of each parameter-word constant buffer.
+    var externalLayouts: [(layout: ComputeShaderArtifact.ExternalTextureLayout, root: Int)] = []
 }
 
 func d3d12VertexFormat(_ format: VertexFormat) -> UInt32? {
@@ -160,7 +162,7 @@ extension D3D12Device {
         }
         guard pipeline.multiviewMask == nil,
               pipeline.additionalColorTargets.isEmpty, !pipeline.alphaToCoverageEnabled, !pipeline.primitive.unclippedDepth,
-              pipeline.externalTextureBindings.isEmpty, !pipeline.colorState.usesSecondBlendSource,
+              !pipeline.colorState.usesSecondBlendSource,
               pipeline.uniforms.allSatisfy({ $0.slot.arrayElement == nil }),
               pipeline.sampledTextures.allSatisfy({ !$0.requirement.isMultisampled }) else {
             throw GPUError.unsupported("Direct3D 12 render pipelines support one single-sampled color target without depth in this release")
@@ -219,6 +221,13 @@ extension D3D12Device {
             parameters.append(D3D12RootParameter(parameterType: D3D12.rootParameterConstants, shaderRegister: 15, registerSpace: 5,
                                                  unionTail: 2))
         }
+        var externalLayouts: [(layout: ComputeShaderArtifact.ExternalTextureLayout, root: Int)] = []
+        for layout in vertex.externalTextureLayouts + fragment.externalTextureLayouts
+        where !externalLayouts.contains(where: { $0.layout.binding == layout.binding }) {
+            externalLayouts.append((layout, parameters.count))
+            parameters.append(D3D12RootParameter(parameterType: D3D12.rootParameterCBV, shaderRegister: layout.parametersBindingIndex,
+                                                 registerSpace: layout.binding.group))
+        }
         // Binding arrays declare their first register in the artifact of the stage that uses them.
         var arrayInfo: [IRResourceBinding: (count: UInt32, base: UInt32)] = [:]
         for stage in [vertex, fragment] {
@@ -257,6 +266,14 @@ extension D3D12Device {
         addRanges(readArrays, type: 0, to: &viewRanges, used: &viewUsed)
         addRanges(writeArrays, type: 1, to: &viewRanges, used: &viewUsed)
         let bufferViewLayout = ordered(readArrays).map { ($0, true) } + ordered(writeArrays).map { ($0, false) }
+        // Each external texture takes three consecutive SRVs after every other view.
+        for entry in externalLayouts {
+            for index in entry.layout.planeBindingIndices {
+                viewRanges.append(D3D12DescriptorRange(rangeType: 0, baseShaderRegister: index, registerSpace: entry.layout.binding.group,
+                                                       offsetInDescriptors: viewUsed))
+                viewUsed += 1
+            }
+        }
         addRanges(pipeline.samplerBindings.map(\.handle.slot), type: 3, to: &samplerRanges, used: &samplerUsed)
         let samplerLayout = ordered(pipeline.samplerBindings.map(\.handle.slot))
         let viewMemory = UnsafeMutablePointer<D3D12DescriptorRange>.allocate(capacity: max(1, viewRanges.count))
@@ -399,7 +416,7 @@ extension D3D12Device {
                                         samplerRoot: samplerRoot, viewLayout: viewLayout,
                                         samplerLayout: samplerLayout, bufferViewLayout: bufferViewLayout,
                                         rootStorage: rootStorage,
-                                        drawParametersRoot: drawParametersRoot)
+                                        drawParametersRoot: drawParametersRoot, externalLayouts: externalLayouts)
     }
 
     typealias CreateGraphics = @convention(c) (UnsafeMutableRawPointer, UnsafeRawPointer, UnsafeRawPointer,
