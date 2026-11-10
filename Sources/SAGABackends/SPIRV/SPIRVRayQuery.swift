@@ -15,6 +15,34 @@ extension SPIRVBinaryWriter {
         extensions.insert("SPV_KHR_ray_query")
     }
 
+    mutating func requireRayPositionFetch() {
+        capabilities.insert(5391)  // RayQueryPositionFetchKHR
+        extensions.insert("SPV_KHR_ray_tracing_position_fetch")
+    }
+
+    /// The three vertex positions of the pending or committed triangle hit, zero when there is none.
+    mutating func writeRayQueryVertexPositions(
+        query: IRHandle<IRExpression>, committed: Bool, type: IRHandle<IRType>, in state: inout SPIRVFunctionState
+    ) throws -> UInt32 {
+        requireRayQuery()
+        requireRayPositionFetch()
+        let (variable, aux) = try rayQueryLocal(query, in: state)
+        guard case .array(_, .constant(3), _) = try module.types.value(for: type).kind else {
+            throw unsupported("requires the ray vertex return layout")
+        }
+        let u32 = try scalarTypeID(.u32), bool = try scalarTypeID(.bool)
+        let array = try typeID(type)
+        let condition = committed ? try and(rayQueryFlag(aux, mask: 4), rayQueryFlag(aux, mask: 2)) : try candidatePending(aux)
+        let choice = try unsignedConstantID(committed ? 1 : 0)
+        return try valueWhen(condition, type: array) { writer in
+            let hitType = try writer.rawValueInstruction(4479, type: u32, operands: [variable, choice])
+            let isTriangle = try writer.rawValueInstruction(170, type: bool, operands: [hitType, writer.unsignedConstantID(committed ? 1 : 0)])
+            return try writer.valueWhen(isTriangle, type: array) { writer in
+                try writer.rawValueInstruction(5340, type: array, operands: [variable, choice])
+            }
+        }
+    }
+
     /// Declares the state variables that accompany one query local; they must lead the function's first block.
     mutating func declareRayQueryAuxiliaries() throws -> SPIRVRayQueryLocal {
         let u32 = try scalarTypeID(.u32), f32 = try scalarTypeID(.f32)

@@ -503,8 +503,8 @@ extension SPIRVBinaryWriter {
             }
         case .rayQueryGetIntersection(let query, let committed):
             return try writeRayQueryIntersection(query: query, committed: committed, type: type, in: &state)
-        case .rayQueryVertexPositions:
-            throw unsupported("does not lower ray query vertex positions")
+        case .rayQueryVertexPositions(let query, let committed):
+            return try writeRayQueryVertexPositions(query: query, committed: committed, type: type, in: &state)
         case .arrayLength(let pointer):
             return try writeRuntimeArrayLength(pointer, resultType: typeID(type), in: &state)
         case .accessIndex(let base, let index):

@@ -16,6 +16,8 @@ final class VulkanNativeDevice: Sendable {
     let drawMeshTasksIndirect: (@convention(c) (UInt, UInt64, UInt64, UInt32, UInt32) -> Void)?
     /// Whether ray queries are enabled: buffers then carry device addresses and structures can be built.
     let deviceAddresses: Bool
+    /// Whether ray hits can return triangle vertex positions; structures are then built with data access allowed.
+    let positionFetch: Bool
     let ray: VulkanRayFunctions?
 
     var f: VulkanFunctions { instance.functions }
@@ -60,9 +62,15 @@ final class VulkanNativeDevice: Sendable {
             chain.rayQuery = 1
             for name in VulkanFeatureSupport.rayQueryExtensions where !deviceExtensions.contains(name) { deviceExtensions.append(name) }
         }
+        if support.canEnablePositionFetch {
+            chain.rayPositionFetch = 1
+            deviceExtensions.append(VulkanFeatureSupport.positionFetchExtension)
+        }
         chain.relink(float16: support.canEnableFloat16, cooperative: support.canEnableCooperativeMatrix,
-                     mesh: support.canEnableMeshShaders, rayQuery: support.canEnableRayQuery)
+                     mesh: support.canEnableMeshShaders, rayQuery: support.canEnableRayQuery,
+                     positionFetch: support.canEnablePositionFetch)
         deviceAddresses = support.canEnableRayQuery
+        positionFetch = support.canEnablePositionFetch
         instance = adapter.instance
         var meshDraw: (@convention(c) (UInt, UInt32, UInt32, UInt32) -> Void)?
         if support.canEnableMeshShaders, let library = VulkanLibrary.open(), let address = library.symbol("vkGetInstanceProcAddr") {

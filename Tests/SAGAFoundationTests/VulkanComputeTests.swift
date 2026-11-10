@@ -1509,6 +1509,58 @@ private func vulkanTaskMeshPixel(taskSize: String) async throws -> UInt32? {
     } catch { await device.close(); throw error }
 }
 
+@Test(.enabled(if: vulkanAvailable), .gpuExclusive) func vulkanRayQueryReturnsHitVertexPositions() async throws {
+    let backend = try VulkanBackend.makeDevice()
+    let device = try await Device.make(backend: backend)
+    do {
+        guard backend.capabilities.features.contains(.rayQuery) else { await device.close(); return }
+        let shader: ComputeShaderArtifact
+        do {
+            shader = try IndependentShaderCompiler().compileCompute(.wgsl("""
+                enable wgpu_ray_query, wgpu_ray_query_vertex_return;
+                @group(0) @binding(0) var<storage, read_write> output: array<vec4f, 4>;
+                @group(0) @binding(1) var scene: acceleration_structure<vertex_return>;
+                @compute @workgroup_size(1) fn main() {
+                    var q: ray_query<vertex_return>;
+                    rayQueryInitialize(&q, scene, RayDesc(0u, 255u, 0.1, 10.0, vec3f(0.25, 0.25, 0.0), vec3f(0.0, 0.0, 1.0)));
+                    while rayQueryProceed(&q) {
+                        let p = getCandidateHitVertexPositions(&q);
+                        output[0] = vec4f(p[1], 1.0);
+                        rayQueryConfirmIntersection(&q);
+                    }
+                    let p = getCommittedHitVertexPositions(&q);
+                    output[1] = vec4f(p[0], 1.0);
+                    output[2] = vec4f(p[1], 1.0);
+                    output[3] = vec4f(p[2], 1.0);
+                }
+                """), to: .spirv)
+        }
+        let pipeline: ComputePipeline
+        do { pipeline = try await device.createComputePipeline(shader) } catch GPUError.backendFailure { await device.close(); return }
+        let vertices = try await device.createBuffer(.init(size: 36, usage: [.vertex, .copyDestination]))
+        let output = try await device.createBuffer(.init(size: 64, usage: [.storage, .copySource]))
+        let readback = try await device.createBuffer(.init(size: 64, usage: [.copyDestination, .mapRead]))
+        let bottom = try await device.createAccelerationStructure(.init(maxTriangleCount: 1))
+        let top = try await device.createAccelerationStructure(.init(maxInstanceCount: 1))
+        let geometry = AccelerationStructureTriangleGeometry(vertexBuffer: vertices, vertexStride: 12, vertexCount: 3)
+        let one = Float(1).bitPattern, four = Float(4).bitPattern
+        let ticket = try await device.submitCommands([
+            .write(buffer: vertices, offset: 0, words: [0, 0, four, one, 0, four, 0, one, four]),
+            .buildAccelerationStructure(destination: bottom, geometry: geometry),
+            .buildTopLevelAccelerationStructure(destination: top, instances: [.init(accelerationStructure: bottom)]),
+            .dispatchCompute(pipeline: pipeline, bindings: [.init(binding: 0): output], workgroups: .init(x: 1),
+                             accelerationStructures: [.init(binding: 1): top]),
+            .copy(source: output, destination: readback, byteCount: 64), .read(buffer: readback, byteCount: 64),
+        ])
+        let values = try await ticket.wait()[0].map { Float(bitPattern: $0) }
+        #expect(Array(values[0..<4]) == [1, 0, 4, 1])  // candidate vertex 1
+        #expect(Array(values[4..<8]) == [0, 0, 4, 1])  // committed vertices
+        #expect(Array(values[8..<12]) == [1, 0, 4, 1])
+        #expect(Array(values[12..<16]) == [0, 1, 4, 1])
+        await device.close()
+    } catch { await device.close(); throw error }
+}
+
 @Test(.enabled(if: vulkanAvailable), .gpuExclusive) func vulkanDrawsLineMeshes() async throws {
     let backend = try VulkanBackend.makeDevice()
     let device = try await Device.make(backend: backend)

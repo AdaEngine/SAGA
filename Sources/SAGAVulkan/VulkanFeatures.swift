@@ -18,6 +18,7 @@ struct VulkanFeatureSupport: Sendable {
     var rayQuery = false
     var accelerationStructure = false
     var bufferDeviceAddress = false
+    var rayPositionFetch = false
     var memoryModel = false
     var memoryModelDeviceScope = false
     var cooperativeProperties: [CooperativeMatrixProperties] = []
@@ -68,6 +69,11 @@ struct VulkanFeatureSupport: Sendable {
                                      "VK_KHR_buffer_device_address", "VK_KHR_spirv_1_4", "VK_KHR_shader_float_controls",
                                      "VK_EXT_descriptor_indexing", "VK_KHR_maintenance3"]
 
+    static let positionFetchExtension = "VK_KHR_ray_tracing_position_fetch"
+
+    /// Vertex positions of ray hits need the extension and feature on top of ray queries.
+    var canEnablePositionFetch: Bool { canEnableRayQuery && rayPositionFetch && deviceExtensions.contains(Self.positionFetchExtension) }
+
     /// Ray queries need the three features and every extension that carries them.
     var canEnableRayQuery: Bool {
         rayQuery && accelerationStructure && bufferDeviceAddress && Self.rayQueryExtensions.allSatisfy(deviceExtensions.contains)
@@ -107,6 +113,8 @@ final class VulkanFeatureChain {
         (memory + 488).storeBytes(of: 1000150013, as: UInt32.self)  // acceleration structure features
         (memory + 488).storeBytes(of: UInt(bitPattern: memory + 528), toByteOffset: 8, as: UInt.self)
         (memory + 528).storeBytes(of: 1000348013, as: UInt32.self)  // ray query features
+        (memory + 528).storeBytes(of: UInt(bitPattern: memory + 552), toByteOffset: 8, as: UInt.self)
+        (memory + 552).storeBytes(of: 1000481000, as: UInt32.self)  // ray tracing position fetch features
         // Mesh features link onward to the ray structures so a full query sees every one.
         (memory + 416).storeBytes(of: UInt(bitPattern: memory + 456), toByteOffset: 8, as: UInt.self)
     }
@@ -118,6 +126,10 @@ final class VulkanFeatureChain {
     var accelerationStructure: UInt32 {
         get { (memory + 488).load(fromByteOffset: 16, as: UInt32.self) }
         set { (memory + 488).storeBytes(of: newValue, toByteOffset: 16, as: UInt32.self) }
+    }
+    var rayPositionFetch: UInt32 {
+        get { (memory + 552).load(fromByteOffset: 16, as: UInt32.self) }
+        set { (memory + 552).storeBytes(of: newValue, toByteOffset: 16, as: UInt32.self) }
     }
     var rayQuery: UInt32 {
         get { (memory + 528).load(fromByteOffset: 16, as: UInt32.self) }
@@ -149,12 +161,13 @@ final class VulkanFeatureChain {
     var memoryModelDeviceScope: UInt32 { (memory + 384).load(fromByteOffset: 20, as: UInt32.self) }
 
     /// Chains only the optional structures that will be enabled.
-    func relink(float16: Bool, cooperative: Bool, mesh: Bool = false, rayQuery: Bool = false) {
+    func relink(float16: Bool, cooperative: Bool, mesh: Bool = false, rayQuery: Bool = false, positionFetch: Bool = false) {
         var order: [Int] = [256]
         if float16 { order += [288, 320] }
         if cooperative { order += [352, 384] }
         if mesh { order.append(416) }
         if rayQuery { order += [456, 488, 528] }
+        if positionFetch { order.append(552) }
         memory.storeBytes(of: UInt(bitPattern: memory + 256), toByteOffset: 8, as: UInt.self)
         for (index, offset) in order.enumerated() {
             let next = index + 1 < order.count ? UInt(bitPattern: memory + order[index + 1]) : 0
@@ -215,6 +228,7 @@ func vulkanQueryFeatures(physical: UInt, instance: VulkanInstance) -> VulkanFeat
     support.bufferDeviceAddress = chain.bufferDeviceAddress != 0
     support.accelerationStructure = chain.accelerationStructure != 0
     support.rayQuery = chain.rayQuery != 0
+    support.rayPositionFetch = chain.rayPositionFetch != 0
     support.memoryModel = chain.vulkanMemoryModel != 0
     support.memoryModelDeviceScope = chain.memoryModelDeviceScope != 0
     if support.cooperativeMatrix { support.cooperativeProperties = vulkanCooperativeProperties(physical: physical, instance: instance) }

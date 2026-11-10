@@ -82,7 +82,8 @@ extension VulkanDevice {
     private func buildInfoWords(top: Bool, geometry: UnsafeRawPointer, destination: UInt64, scratch: UInt64) -> [UInt64] {
         var words = [UInt64](repeating: 0, count: 10)
         words[0] = 1000150000
-        words[2] = (top ? 0 : 1) | UInt64(0x4) << 32  // type, PREFER_FAST_TRACE
+        // Type, PREFER_FAST_TRACE and, with position fetch, ALLOW_DATA_ACCESS.
+        words[2] = (top ? 0 : 1) | UInt64(native.positionFetch ? 0x14 : 0x4) << 32
         words[3] = 0  // BUILD
         words[5] = destination
         words[6] = 1  // geometryCount

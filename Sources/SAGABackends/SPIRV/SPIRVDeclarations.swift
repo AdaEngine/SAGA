@@ -208,13 +208,13 @@ extension SPIRVBinaryWriter {
         case .bindingArray(let element, .dynamic):
             id = try descriptorArrayTypeID(element: element, count: nil)
         case .accelerationStructure(let vertexReturn):
-            guard !vertexReturn else { throw unsupported("does not lower vertex-returning acceleration structures") }
             requireRayQuery()
+            if vertexReturn { requireRayPositionFetch() }
             id = try allocateID()
             try declare(5341, [id]) // OpTypeAccelerationStructureKHR
         case .rayQuery(let vertexReturn):
-            guard !vertexReturn else { throw unsupported("does not lower vertex-returning ray queries") }
             requireRayQuery()
+            if vertexReturn { requireRayPositionFetch() }
             id = try allocateID()
             try declare(4472, [id]) // OpTypeRayQueryKHR
         case .sampler:
