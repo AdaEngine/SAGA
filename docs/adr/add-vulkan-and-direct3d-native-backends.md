@@ -75,7 +75,7 @@ Constraints that carry over:
 | 5f. Multiview (render pass view masks, array attachment views, view-index shaders) | done | multiview test |
 | 5g. Cooperative matrices (VK_KHR_cooperative_matrix; subgroup-scope f16 and f32 shapes read from the driver) | done | cooperative matrix multiply test |
 | 5h. Mesh shaders (VK_EXT_mesh_shader): SPIR-V mesh stage (triangles, position and location outputs, no task stage), reflected SPIR-V mesh artifacts, mesh graphics pipelines and drawMesh; verified with validation layers | partial | mesh draw test |
-| 5i. Line mesh outputs (verified); point mesh outputs (written, not run: needs point size handling) | partial | line mesh test |
+| 5i. Line and point mesh outputs (verified); mesh vertex positions now negate Y like vertex stages, fixing a vertical flip found by the point test | done | line and point mesh tests |
 | 5j. Indirect mesh draws with GPU-side group-count validation (verified); whole Vulkan suite passes with the validation layer clean after fixing buffer usage flags and a per-submission helper pipeline leak | done | indirect mesh test |
 | 5k. Task stages (TaskEXT with a `TaskPayloadWorkgroupEXT` payload, dispatch size clamped to the portable limits, merged task bindings, task-aware indirect limits); verified with validation layers | done | task payload and oversized dispatch tests |
 | 5l. Ray queries, external textures | not started | |

@@ -249,7 +249,12 @@ extension SPIRVBinaryWriter {
                 let pointer = try pointerTypeID(storageClass: 3, pointee: vector)
                 let target = try rawValueInstruction(65, type: pointer, operands: [meshVertices, index, zero])
                 _ = block
-                try emit(62, [target, value])
+                // Vulkan clip space has +Y down; negate Y like the vertex stage so output matches WebGPU.
+                let scalar = try scalarTypeID(.f32)
+                let y = try rawValueInstruction(81, type: scalar, operands: [value, 1])  // OpCompositeExtract
+                let flipped = try rawValueInstruction(127, type: scalar, operands: [y])  // OpFNegate
+                let adjusted = try rawValueInstruction(82, type: vector, operands: [flipped, value, 1])  // OpCompositeInsert
+                try emit(62, [target, adjusted])
             }
             for varying in plan.vertexVaryings {
                 let value = try source(arrayMember: plan.verticesMember, elementType: plan.vertexType, index: index,
