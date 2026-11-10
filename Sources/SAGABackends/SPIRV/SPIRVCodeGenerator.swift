@@ -81,7 +81,7 @@ struct SPIRVBinaryWriter {
     private var nextID: UInt32 = 1
     var capabilities: Set<UInt32> = [1] // Shader
     var extensions: Set<String> = []
-    var usesMeshShading = false
+    var requiresSpirv14 = false
     /// Ids of the task payload variable and the pointers derived from it, which use a different storage class.
     var taskPayloadIDs: Set<UInt32> = []
     /// Module-scope variables, listed in every entry point interface when the module targets SPIR-V 1.4.
@@ -174,7 +174,7 @@ struct SPIRVBinaryWriter {
         }
         for entry in pendingEntries {
             // SPIR-V 1.4 requires every referenced global variable in the interface, so list all of them.
-            let extra = usesMeshShading ? globalVariableIDs.filter { !entry.interface.contains($0) } : []
+            let extra = requiresSpirv14 ? globalVariableIDs.filter { !entry.interface.contains($0) } : []
             entryPoints += try instruction(15, [entry.model, entry.id] + entry.name + entry.interface + extra) // OpEntryPoint
         }
         if usesCooperativeMatrix && usesStorageDeviceScopeAtomics {
@@ -184,7 +184,7 @@ struct SPIRVBinaryWriter {
             throw unsupported("does not support coherent or volatile storage decorations with the Vulkan memory model")
         }
         try budget.consume(.words, amount: 5)
-        var words: [UInt32] = [0x07230203, usesMeshShading ? 0x00010400 : 0x00010300, 0, nextID, 0]
+        var words: [UInt32] = [0x07230203, requiresSpirv14 ? 0x00010400 : 0x00010300, 0, nextID, 0]
         for capability in capabilities.sorted() { words += try instruction(17, [capability]) }
         for name in extensions.sorted() { words += try instruction(10, stringWords(name)) }
         if let glslInstructions {

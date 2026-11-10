@@ -14,6 +14,9 @@ final class VulkanNativeDevice: Sendable {
     /// vkCmdDrawMeshTasksEXT, present only when mesh shaders are enabled.
     let drawMeshTasks: (@convention(c) (UInt, UInt32, UInt32, UInt32) -> Void)?
     let drawMeshTasksIndirect: (@convention(c) (UInt, UInt64, UInt64, UInt32, UInt32) -> Void)?
+    /// Whether ray queries are enabled: buffers then carry device addresses and structures can be built.
+    let deviceAddresses: Bool
+    let ray: VulkanRayFunctions?
 
     var f: VulkanFunctions { instance.functions }
     let graphics: VulkanGraphicsFunctions
@@ -51,8 +54,15 @@ final class VulkanNativeDevice: Sendable {
                 deviceExtensions.append(name)
             }
         }
+        if support.canEnableRayQuery {
+            chain.bufferDeviceAddress = 1
+            chain.accelerationStructure = 1
+            chain.rayQuery = 1
+            for name in VulkanFeatureSupport.rayQueryExtensions where !deviceExtensions.contains(name) { deviceExtensions.append(name) }
+        }
         chain.relink(float16: support.canEnableFloat16, cooperative: support.canEnableCooperativeMatrix,
-                     mesh: support.canEnableMeshShaders)
+                     mesh: support.canEnableMeshShaders, rayQuery: support.canEnableRayQuery)
+        deviceAddresses = support.canEnableRayQuery
         instance = adapter.instance
         var meshDraw: (@convention(c) (UInt, UInt32, UInt32, UInt32) -> Void)?
         if support.canEnableMeshShaders, let library = VulkanLibrary.open(), let address = library.symbol("vkGetInstanceProcAddr") {
@@ -100,6 +110,7 @@ final class VulkanNativeDevice: Sendable {
         var queueHandle: UInt = 0
         adapter.instance.functions.getDeviceQueue(handle, adapter.queueFamily, 0, &queueHandle)
         queue = queueHandle
+        ray = deviceAddresses ? VulkanRayFunctions(instance: adapter.instance) : nil
     }
 
     deinit {
@@ -135,6 +146,8 @@ extension VulkanNativeDevice {
         info.size = size
         info.usage = VK.BufferUsage.transferSource | VK.BufferUsage.transferDestination | VK.BufferUsage.storageBuffer |
             VK.BufferUsage.uniformBuffer | VK.BufferUsage.indirectBuffer | VK.BufferUsage.indexBuffer | VK.BufferUsage.vertexBuffer
+        // Structure builds read vertex and index data by address, and structures live in storage buffers.
+        if deviceAddresses { info.usage |= 0x20000 | 0x80000 | 0x100000 }
         var buffer: UInt64 = 0
         try vulkanCheck(withUnsafePointer(to: &info) { f.createBuffer(device, UnsafeRawPointer($0), nil, &buffer) }, "buffer creation")
         var requirements = VkMemoryRequirements()
@@ -147,7 +160,12 @@ extension VulkanNativeDevice {
         allocation.allocationSize = requirements.size
         allocation.memoryTypeIndex = type
         var memory: UInt64 = 0
-        let allocated = withUnsafePointer(to: &allocation) { f.allocateMemory(device, UnsafeRawPointer($0), nil, &memory) }
+        // VkMemoryAllocateFlagsInfo with VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT.
+        var flagsInfo: [UInt32] = [1000060000, 0, 0, 0, 2, 0]
+        let allocated: VkResult = flagsInfo.withUnsafeMutableBytes { flags in
+            if deviceAddresses { allocation.pNext = UnsafeRawPointer(flags.baseAddress) }
+            return withUnsafePointer(to: &allocation) { f.allocateMemory(device, UnsafeRawPointer($0), nil, &memory) }
+        }
         guard allocated == VK.success else {
             f.destroyBuffer(device, buffer, nil)
             try vulkanCheck(allocated, "memory allocation")
@@ -178,7 +196,7 @@ extension VulkanNativeDevice {
 ///
 /// Buffers use host-visible coherent memory in this slice. Textures, samplers, render passes,
 /// indirect dispatch, immediates, queries and presentation are rejected with `GPUError.unsupported`.
-public actor VulkanDevice: ComputeBackendDevice, PlanarExternalTextureBackendDevice {
+public actor VulkanDevice: ComputeAccelerationStructureBackendDevice, PlanarExternalTextureBackendDevice {
     public nonisolated let capabilities: DeviceCapabilities
     public nonisolated let adapterName: String
     public nonisolated let adapterKind: VulkanAdapterKind
@@ -219,6 +237,8 @@ public actor VulkanDevice: ComputeBackendDevice, PlanarExternalTextureBackendDev
     var textureViews: [ResourceID: TextureViewState] = [:]
     var querySets: [ResourceID: VulkanQuerySetState] = [:]
     var cachedValidator: Pipeline?
+    var cachedIndexSanitizer: Pipeline?
+    var accelerationStructures: [ResourceID: AccelerationStructureState] = [:]
     var cachedDrawValidator: Pipeline?
     var terminal = false
     /// Native objects of timed-out batches stay alive: the GPU may still be using them.
@@ -245,6 +265,7 @@ public actor VulkanDevice: ComputeBackendDevice, PlanarExternalTextureBackendDev
         if support.canEnableFloat16 { features.insert(.shaderF16) }
         if support.supportsSubgroups { features.insert(.subgroups) }
         if support.canEnableMeshShaders, support.meshLimits.meshInvocations > 0 { features.insert(.meshShaders) }
+        if support.canEnableRayQuery { features.insert(.rayQuery) }
         let meshEnabled = features.contains(.meshShaders)
         if support.canEnableCooperativeMatrix, support.supportsSubgroups { features.insert(.cooperativeMatrix) }
         let multiviewViews = support.multiview ? min(support.maxMultiviewViewCount, 32) : 0
@@ -338,6 +359,9 @@ public actor VulkanDevice: ComputeBackendDevice, PlanarExternalTextureBackendDev
 
     public func close(owner: UInt64) {
         destroyHelper(cachedValidator)
+        destroyHelper(cachedIndexSanitizer)
+        cachedIndexSanitizer = nil
+        for id in accelerationStructures.keys where id.device == owner { destroyAccelerationStructureNow(id: id) }
         destroyHelper(cachedDrawValidator)
         cachedValidator = nil
         cachedDrawValidator = nil
@@ -363,8 +387,8 @@ public actor VulkanDevice: ComputeBackendDevice, PlanarExternalTextureBackendDev
             throw GPUError.validation("Vulkan compute pipeline layout does not match compiled shader")
         }
         guard pipelines[pipeline.id] == nil else { throw GPUError.validation("Duplicate Vulkan compute pipeline") }
-        guard pipeline.accelerationStructureBindings.isEmpty else {
-            throw GPUError.unsupported("Vulkan compute pipelines do not support acceleration structures")
+        guard pipeline.accelerationStructureBindings.isEmpty || native.ray != nil else {
+            throw GPUError.unsupported("Vulkan compute pipelines need ray query support for acceleration structures")
         }
         pipelines[pipeline.id] = try makePipeline(pipeline, words: words, entryPoint: shader.entryPoint)
     }
@@ -382,6 +406,7 @@ public actor VulkanDevice: ComputeBackendDevice, PlanarExternalTextureBackendDev
         }
         types.merge(try vulkanHandleDescriptorTypes(sampled: pipeline.textureBindings, storage: pipeline.storageTextureBindings, samplers: pipeline.samplerBindings)) { first, _ in first }
         types.merge(vulkanExternalDescriptorTypes(pipeline.externalTextureBindings)) { first, _ in first }
+        for slot in pipeline.accelerationStructureBindings { types[slot] = Self.accelerationDescriptorType }
         let setCount = (types.keys.map(\.group).max()).map { Int($0) + 1 } ?? 0
         let f = native.f
         let device = native.device
@@ -475,6 +500,7 @@ public actor VulkanDevice: ComputeBackendDevice, PlanarExternalTextureBackendDev
         case resetQuery(pool: UInt64, index: UInt32)
         case writeTimestamp(pool: UInt64, index: UInt32, end: Bool)
         case resolveQueries(QueryResolve)
+        case buildStructure(BufferCommand)
     }
 
     struct DispatchPlan {
@@ -503,6 +529,7 @@ public actor VulkanDevice: ComputeBackendDevice, PlanarExternalTextureBackendDev
         var mipLevels: UInt32 = 1
         var sampler: UInt64 = 0
         var arrayElement: UInt32 = 0
+        var accelerationStructure: UInt64 = 0
     }
 
     /// Native objects of one submitted batch. They are released only after the GPU retires the fence.
@@ -510,6 +537,8 @@ public actor VulkanDevice: ComputeBackendDevice, PlanarExternalTextureBackendDev
         var staging: VulkanHostBuffer?
         var readback: VulkanHostBuffer?
         var scratch: VulkanHostBuffer?
+        /// Host buffers of acceleration structure builds, released with the batch.
+        var owned: [VulkanHostBuffer] = []
         var views: [UInt64] = []
         var renderPasses: [UInt64] = []
         var framebuffers: [UInt64] = []
@@ -526,7 +555,7 @@ public actor VulkanDevice: ComputeBackendDevice, PlanarExternalTextureBackendDev
         let pinned = Set(submission.resources)
         let textureDescriptors = textures.mapValues(\.descriptor)
         for id in submission.resources
-        where buffers[id] == nil && pipelines[id] == nil && textures[id] == nil && renderPipelines[id] == nil && samplers[id] == nil && textureViews[id] == nil && querySets[id] == nil && externalTextures[id] == nil {
+        where buffers[id] == nil && pipelines[id] == nil && textures[id] == nil && renderPipelines[id] == nil && samplers[id] == nil && textureViews[id] == nil && querySets[id] == nil && externalTextures[id] == nil && accelerationStructures[id] == nil {
             throw GPUError.validation("Unknown Vulkan resource")
         }
 
@@ -557,6 +586,7 @@ public actor VulkanDevice: ComputeBackendDevice, PlanarExternalTextureBackendDev
                                   maxMultiviewViewCount: capabilities.maxMultiviewViewCount,
                                   features: capabilities.features, externalTextures: Set(externalTextures.keys),
                                   externalPlanes: externalTextures.mapValues(\.planes),
+                                  accelerationStructures: accelerationStructures.mapValues(\.descriptor),
                                   maxComputeWorkgroupsPerDimension: capabilities.maxComputeWorkgroupsPerDimension)
             let (command, timestamps, occlusion) = recorded.recordedPass
             let measurement = timestamps == nil && occlusion == nil ? nil
@@ -643,6 +673,14 @@ public actor VulkanDevice: ComputeBackendDevice, PlanarExternalTextureBackendDev
                     throw GPUError.unsupported("Vulkan does not implement this command yet")
                 }
                 operations.append(.imageCopy(plan))
+            case .buildAccelerationStructure, .buildTopLevelAccelerationStructure:
+                guard native.ray != nil else { throw GPUError.unsupported("This Vulkan device does not support ray queries") }
+                if case .buildAccelerationStructure(_, let geometry) = command, geometry.indexBuffer != nil {
+                    // The index sanitizer binds one set of three storage buffers.
+                    descriptorTotals.sets += 1
+                    descriptorTotals.add(VK.DescriptorType.storageBuffer, 3)
+                }
+                operations.append(.buildStructure(command))
             case .dispatchCompute, .dispatchComputeRanges, .dispatchComputeIndirect:
                 guard let dispatch = command.computeDispatch,
                       let pipeline = pipelines[dispatch.pipeline.id], pipeline.model == dispatch.pipeline else {
@@ -658,7 +696,9 @@ public actor VulkanDevice: ComputeBackendDevice, PlanarExternalTextureBackendDev
                     storageTextures: pipeline.model.storageTextureBindings.map(\.slot),
                     samplerSlots: pipeline.model.samplerBindings.map(\.slot),
                     textureResources: dispatch.textures, samplerResources: dispatch.samplers,
-                    externalSlots: pipeline.model.externalTextureBindings, totals: &descriptorTotals)
+                    externalSlots: pipeline.model.externalTextureBindings,
+                    accelerationSlots: pipeline.model.accelerationStructureBindings,
+                    accelerationResources: dispatch.accelerationStructures, totals: &descriptorTotals)
                 descriptorTotals.sets += UInt32(pipeline.setLayouts.count)
                 switch dispatch.source {
                 case .direct(let groups):
@@ -691,6 +731,7 @@ public actor VulkanDevice: ComputeBackendDevice, PlanarExternalTextureBackendDev
             if let staging = batch.staging { native.destroy(staging) }
             if let readback = batch.readback { native.destroy(readback) }
             if let scratch = batch.scratch { native.destroy(scratch) }
+            batch.owned.forEach { native.destroy($0) }
             batch.framebuffers.forEach { native.g.destroyFramebuffer(device, $0, nil) }
             batch.renderPasses.forEach { native.g.destroyRenderPass(device, $0, nil) }
             batch.views.forEach { native.g.destroyImageView(device, $0, nil) }
@@ -778,6 +819,8 @@ public actor VulkanDevice: ComputeBackendDevice, PlanarExternalTextureBackendDev
                     native.g.cmdResetQueryPool(commandBuffer, pool, index, 1)
                 case .writeTimestamp(let pool, let index, let end):
                     native.g.cmdWriteTimestamp(commandBuffer, end ? VulkanQuery.bottomOfPipe : VulkanQuery.topOfPipe, pool, index)
+                case .buildStructure(let command):
+                    try recordStructureBuild(command, commandBuffer: commandBuffer, batch: &batch, barrier: { barrier() })
                 case .resolveQueries(let resolve):
                     f.cmdFillBuffer(commandBuffer, resolve.destination, resolve.destinationOffset, UInt64(resolve.count) * 8, 0)
                     barrier()

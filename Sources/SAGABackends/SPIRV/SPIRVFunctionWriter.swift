@@ -37,6 +37,8 @@ struct SPIRVFunctionState {
     /// Function variable that receives the dispatch size a task entry returns.
     var taskResult: UInt32?
     var layoutDescriptorCounts: [UInt32: UInt32] = [:]
+    /// Auxiliary state variables of each ray query local, by local index.
+    var rayQueries: [Int: SPIRVRayQueryLocal] = [:]
     /// External texture values by the id of their first loaded plane.
     var externalTextures: [UInt32: SPIRVExternalValue] = [:]
     var bufferArrays: [UInt32: SPIRVBufferArrayGlobal] = [:]
@@ -90,10 +92,17 @@ extension SPIRVBinaryWriter {
             state.arguments.append(argument)
         }
         try emit(248, [allocateID()]) // OpLabel
-        for local in function.localVariables.values {
+        for (localIndex, local) in function.localVariables.values.enumerated() {
             let type = try typeID(local.type)
             let pointer = try pointerTypeID(storageClass: 7, pointee: type)
             let id = try allocateID()
+            if case .rayQuery = try module.types.value(for: local.type).kind {
+                try debugName(id, local.name)
+                try emit(59, [pointer, id, 7]) // OpVariable Function, without an initializer
+                state.locals.append(id)
+                state.rayQueries[localIndex] = try declareRayQueryAuxiliaries()
+                continue
+            }
             let initializer = try local.initializer.map { try value($0, in: &state) } ?? zeroID(typeID: type)
             try debugName(id, local.name)
             try emit(59, [pointer, id, 7, initializer]) // OpVariable Function
@@ -316,6 +325,8 @@ extension SPIRVBinaryWriter {
                     try emit(253)
                 }
                 return true
+            case .rayQuery(let query, let function):
+                try writeRayQueryStatement(query: query, function: function, in: &state)
             case .kill:
                 try emit(252) // OpKill
                 return true
@@ -490,6 +501,10 @@ extension SPIRVBinaryWriter {
                 let record = try writer.rawValueInstruction(61, type: buffer.blockType, operands: [pointer])
                 return try writer.repackBufferRecord(record, from: buffer.blockType, to: resultType, element: buffer.element)
             }
+        case .rayQueryGetIntersection(let query, let committed):
+            return try writeRayQueryIntersection(query: query, committed: committed, type: type, in: &state)
+        case .rayQueryVertexPositions:
+            throw unsupported("does not lower ray query vertex positions")
         case .arrayLength(let pointer):
             return try writeRuntimeArrayLength(pointer, resultType: typeID(type), in: &state)
         case .accessIndex(let base, let index):

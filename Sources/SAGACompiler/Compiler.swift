@@ -461,7 +461,7 @@ public struct IndependentShaderCompiler: Sendable {
         if output != .msl { capabilities.insert(.shaderInt64AtomicAllOps) }
         if [.hlsl, .glsl, .spirv, .dot].contains(output) { capabilities.insert(.float64) }
         if !webGPU { capabilities.formUnion([.cooperativeMatrix, .meshShader, .meshShaderPointTopology]) }
-        if !webGPU && [.msl, .hlsl, .glsl].contains(output) { capabilities.insert(.rayQuery) }
+        if !webGPU && [.msl, .hlsl, .glsl, .spirv].contains(output) { capabilities.insert(.rayQuery) }
         if !webGPU && output == .glsl { capabilities.insert(.rayHitVertexPosition) }
         let usesNagaSource = !webGPU && wgslSourceProfile == .nagaNative
         let nativeTarget = switch output {

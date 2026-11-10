@@ -207,6 +207,16 @@ extension SPIRVBinaryWriter {
             id = try descriptorArrayTypeID(element: element, count: count)
         case .bindingArray(let element, .dynamic):
             id = try descriptorArrayTypeID(element: element, count: nil)
+        case .accelerationStructure(let vertexReturn):
+            guard !vertexReturn else { throw unsupported("does not lower vertex-returning acceleration structures") }
+            requireRayQuery()
+            id = try allocateID()
+            try declare(5341, [id]) // OpTypeAccelerationStructureKHR
+        case .rayQuery(let vertexReturn):
+            guard !vertexReturn else { throw unsupported("does not lower vertex-returning ray queries") }
+            requireRayQuery()
+            id = try allocateID()
+            try declare(4472, [id]) // OpTypeRayQueryKHR
         case .sampler:
             if let sampler = declarationState.sampler {
                 id = sampler
@@ -554,7 +564,9 @@ extension SPIRVBinaryWriter {
             }
         } else {
             element = kind
-            guard element.isTextureOrSampler else { throw unsupported("does not lower this resource type") }
+            var isAccelerationStructure = false
+            if case .accelerationStructure = kind { isAccelerationStructure = true }
+            guard element.isTextureOrSampler || isAccelerationStructure else { throw unsupported("does not lower this resource type") }
             valueType = try typeID(global.type)
             layoutResolvedCount = nil
         }

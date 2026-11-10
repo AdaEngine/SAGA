@@ -86,7 +86,8 @@ extension VulkanDevice {
         suppliedBuffers: [ComputeBindingSlot: StorageBufferBinding], sampledTextures: [ComputeBindingSlot],
         storageTextures: [ComputeBindingSlot], samplerSlots: [ComputeBindingSlot],
         textureResources: [ComputeBindingSlot: ResourceID], samplerResources: [ComputeBindingSlot: ResourceID],
-        externalSlots: [ComputeBindingSlot] = [], totals: inout DescriptorTotals
+        externalSlots: [ComputeBindingSlot] = [], accelerationSlots: [ComputeBindingSlot] = [],
+        accelerationResources: [ComputeBindingSlot: ResourceID] = [:], totals: inout DescriptorTotals
     ) throws -> [DescriptorWrite] {
         var writes: [DescriptorWrite] = []
         for (slot, usage) in bufferBindings {
@@ -125,6 +126,14 @@ extension VulkanDevice {
             totals.add(type)
             writes.append(.init(set: Int(slot.group), binding: slot.binding, type: type, buffer: 0, offset: 0, range: 0,
                                 sampler: sampler.handle, arrayElement: slot.arrayElement ?? 0))
+        }
+        for slot in accelerationSlots {
+            guard let id = accelerationResources[slot], let structure = accelerationStructures[id] else {
+                throw GPUError.validation("Missing Vulkan acceleration structure binding")
+            }
+            totals.add(Self.accelerationDescriptorType)
+            writes.append(.init(set: Int(slot.group), binding: slot.binding, type: Self.accelerationDescriptorType, buffer: 0, offset: 0,
+                                range: 0, accelerationStructure: structure.handle))
         }
         // An external texture is three plane images and a block of parameter words at derived binding numbers.
         for slot in externalSlots {
@@ -168,6 +177,8 @@ extension VulkanDevice {
             try vulkanCheck(withUnsafePointer(to: &info) { f.allocateDescriptorSets(device, UnsafeRawPointer($0), &sets) },
                             "descriptor set allocation")
         }
+        var accelerationHandles = writeList.map(\.accelerationStructure)
+        var accelerationInfos = [VkWriteDescriptorSetAccelerationStructure](repeating: .init(), count: writeList.count)
         var bufferInfos = [VkDescriptorBufferInfo](repeating: .init(), count: writeList.count)
         var imageInfos = [VkDescriptorImageInfo](repeating: .init(), count: writeList.count)
         for (index, write) in writeList.enumerated() {
@@ -191,8 +202,13 @@ extension VulkanDevice {
                 bufferInfos[index] = VkDescriptorBufferInfo(buffer: write.buffer, offset: write.offset, range: write.range)
             }
         }
+        accelerationHandles.withUnsafeMutableBufferPointer { handlePointer in
+            for index in accelerationInfos.indices {
+                accelerationInfos[index].pAccelerationStructures = UnsafeRawPointer(handlePointer.baseAddress! + index)
+            }
         bufferInfos.withUnsafeBufferPointer { bufferPointer in
             imageInfos.withUnsafeBufferPointer { imagePointer in
+              accelerationInfos.withUnsafeBufferPointer { accelerationPointer in
                 let writes = writeList.enumerated().map { index, write in
                     var native = VkWriteDescriptorSet()
                     native.dstSet = sets[write.set]
@@ -202,6 +218,8 @@ extension VulkanDevice {
                     switch write.type {
                     case VK.DescriptorType.sampler, VK.DescriptorType.sampledImage, VK.DescriptorType.storageImage:
                         native.pImageInfo = UnsafeRawPointer(imagePointer.baseAddress! + index)
+                    case Self.accelerationDescriptorType:
+                        native.pNext = UnsafeRawPointer(accelerationPointer.baseAddress! + index)
                     default:
                         native.pBufferInfo = bufferPointer.baseAddress! + index
                     }
@@ -210,7 +228,9 @@ extension VulkanDevice {
                 writes.withUnsafeBufferPointer {
                     f.updateDescriptorSets(device, UInt32($0.count), UnsafeRawPointer($0.baseAddress), 0, nil)
                 }
+              }
             }
+        }
         }
         sets.withUnsafeBufferPointer {
             f.cmdBindDescriptorSets(commandBuffer, bindPoint, layout, 0, UInt32($0.count), $0.baseAddress!, 0, nil)

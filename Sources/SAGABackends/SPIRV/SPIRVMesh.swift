@@ -306,7 +306,7 @@ extension SPIRVBinaryWriter {
     }
 
     mutating func requiredMeshCapabilities() {
-        usesMeshShading = true
+        requiresSpirv14 = true
         capabilities.insert(5283)  // MeshShadingEXT
         extensions.insert("SPV_EXT_mesh_shader")
     }
