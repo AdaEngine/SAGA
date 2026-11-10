@@ -69,6 +69,12 @@ extension VulkanDevice {
             return .init(vk: format.rawValue + 113, bytes: compression.block.bytes, blockWidth: compression.block.width,
                          blockHeight: compression.block.height)
         }
+        // ASTC HDR formats (72...85) are VK_FORMAT_ASTC_*_SFLOAT_BLOCK, numbered from 1000066000 in the same block order.
+        if let compression = format.compression, (72...85).contains(format.rawValue) {
+            guard capabilities.features.contains(.textureCompressionASTCHDR) else { return nil }
+            return .init(vk: 1_000_066_000 + format.rawValue - 72, bytes: compression.block.bytes, blockWidth: compression.block.width,
+                         blockHeight: compression.block.height)
+        }
         switch format {
         case .depth16Unorm: return pick([(124, 2, depth)])
         case .depth32Float, .depth24Plus: return pick([(126, 4, depth)])

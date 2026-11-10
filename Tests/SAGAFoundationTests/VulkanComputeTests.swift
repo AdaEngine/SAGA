@@ -37,7 +37,7 @@ private let destinationSlot = ComputeBindingSlot(binding: 3)
     #expect(capabilities.maxComputeInvocationsPerWorkgroup >= 128)
     #expect(capabilities.maxComputeWorkgroupsPerDimension >= 65_535)
     #expect(capabilities.maxComputeWorkgroupSize.x >= 128)
-    #expect(capabilities.features.isSubset(of: [.timestampQuery, .depth32FloatStencil8, .shaderF16, .shaderInt16, .shaderInt64, .subgroups, .multiview, .selectiveMultiview, .textureCompressionBC, .textureCompressionETC2, .textureCompressionASTC, .cooperativeMatrix, .meshShaders, .rayQuery]))  // only probed, supported features
+    #expect(capabilities.features.isSubset(of: [.timestampQuery, .depth32FloatStencil8, .shaderF16, .shaderInt16, .shaderInt64, .subgroups, .multiview, .selectiveMultiview, .textureCompressionBC, .textureCompressionETC2, .textureCompressionASTC, .cooperativeMatrix, .meshShaders, .rayQuery, .textureCompressionASTCHDR]))  // only probed, supported features
 }
 
 @Test(.enabled(if: vulkanAvailable), .gpuExclusive) func vulkanReadbacksAreZeroInitializedAndSnapshotOrdered() async throws {

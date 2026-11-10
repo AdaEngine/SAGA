@@ -62,13 +62,17 @@ final class VulkanNativeDevice: Sendable {
             chain.rayQuery = 1
             for name in VulkanFeatureSupport.rayQueryExtensions where !deviceExtensions.contains(name) { deviceExtensions.append(name) }
         }
+        if support.canEnableASTCHDR {
+            chain.astcHDR = 1
+            deviceExtensions.append(VulkanFeatureSupport.astcHDRExtension)
+        }
         if support.canEnablePositionFetch {
             chain.rayPositionFetch = 1
             deviceExtensions.append(VulkanFeatureSupport.positionFetchExtension)
         }
         chain.relink(float16: support.canEnableFloat16, cooperative: support.canEnableCooperativeMatrix,
                      mesh: support.canEnableMeshShaders, rayQuery: support.canEnableRayQuery,
-                     positionFetch: support.canEnablePositionFetch)
+                     positionFetch: support.canEnablePositionFetch, astcHDR: support.canEnableASTCHDR)
         deviceAddresses = support.canEnableRayQuery
         positionFetch = support.canEnablePositionFetch
         instance = adapter.instance
@@ -281,6 +285,7 @@ public actor VulkanDevice: ComputeAccelerationStructureBackendDevice, PlanarExte
         if support.core[22] != 0 { features.insert(.textureCompressionBC) }
         if support.core[20] != 0 { features.insert(.textureCompressionETC2) }
         if support.core[21] != 0 { features.insert(.textureCompressionASTC) }
+        if support.canEnableASTCHDR { features.insert(.textureCompressionASTCHDR) }
         if limits.depthStencilFormats.contains(130) { features.insert(.depth32FloatStencil8) }
         capabilities = try DeviceCapabilities(
             maxBufferSize: min(UInt64(limits.maxStorageBufferRange), largestHeap / 2), features: features,
