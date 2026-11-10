@@ -117,13 +117,7 @@ package struct ComputeCodeGenerator: ShaderCodeGenerator {
             return kind.isExternalTexture
         })
         let resources = globals.enumerated().filter { !unusedBindings.contains($0.offset) }.map(\.element)
-        if outputFormat == .glsl && (usesRayQuery || resources.contains(where: { global in
-            if case .accelerationStructure = try? module.types.value(for: global.type).kind { return true }
-            return false
-        })) {
-            throw unsupported("GLSL ray queries require validated traversal semantics and compiler verification")
-        }
-        let handles = try handleResourceGlobals(resources, module: module, bindingArrayLengths: bindingArrayLengths, allowAccelerationStructures: outputFormat == .msl || outputFormat == .hlsl || outputFormat == .glsl)
+        let handles = try handleResourceGlobals(resources, module: module, bindingArrayLengths: bindingArrayLengths, allowAccelerationStructures: outputFormat == .msl || outputFormat == .hlsl || outputFormat == .glsl, allowVertexReturn: outputFormat == .glsl)
         if webGPU {
             let active = resources.filter { $0.binding != nil }
             let widths = try helpers.nativeIntegerWidths(in: module, entry: entry.function, resources: active)
@@ -241,7 +235,7 @@ package struct ComputeCodeGenerator: ShaderCodeGenerator {
                 continue
             }
             if global.space == .handle, case .accelerationStructure(let vertexReturn) = try module.types.value(for: global.type).kind {
-                guard (outputFormat == .msl || outputFormat == .hlsl || outputFormat == .glsl), !vertexReturn, let binding = global.binding,
+                guard (outputFormat == .msl || outputFormat == .hlsl || outputFormat == .glsl), (!vertexReturn || outputFormat == .glsl), let binding = global.binding,
                       let flat = flatBindings[binding] else {
                     throw unsupported("Metal acceleration structure binding")
                 }
@@ -396,13 +390,14 @@ package struct ComputeCodeGenerator: ShaderCodeGenerator {
         default:
             declarations.insert(contentsOf: [
                 usesRayQuery || !accelerationStructures.isEmpty ? "#version 460 core" : "#version 450 core",
-            ] + (usesRayQuery || !accelerationStructures.isEmpty ? ["#extension GL_EXT_ray_query : require"] : []) + glslUnsigned64Extensions(module: module, storageTextures: storageTextures) +
+            ] + (usesRayQuery || !accelerationStructures.isEmpty ? ["#extension GL_EXT_ray_query : require", "#extension GL_EXT_ray_flags_primitive_culling : require"] : []) + (module.types.values.contains { if case .rayQuery(true) = $0.kind { return true }; return false } ? ["#extension GL_EXT_ray_tracing_position_fetch : require"] : []) + glslUnsigned64Extensions(module: module, storageTextures: storageTextures) +
                 (usesFloat16 ? [glslFloat16Extension] : []) +
                 (usesInt16 ? [glslInt16Extension] : []) +
                 (usesGLSL16BitStorage ? [glslStorage16BitExtension] : []) +
                 (usesCooperativeMatrix ? ["#extension GL_KHR_memory_scope_semantics : require",
                                           "#extension GL_KHR_cooperative_matrix : require"] : []) + helpers.glslExtensions +
-                helpers.glslSubgroupExtensions(requiresSubgroups: requiresSubgroups) + [
+                helpers.glslSubgroupExtensions(requiresSubgroups: requiresSubgroups) +
+                (usesRayQuery || !accelerationStructures.isEmpty ? ["layout(primitive_culling);"] : []) + [
                 "layout(local_size_x = \(size.x), local_size_y = \(size.y), local_size_z = \(size.z)) in;",
             ], at: 0)
             attributes = []
@@ -429,9 +424,6 @@ package struct ComputeCodeGenerator: ShaderCodeGenerator {
         } else {
             profile = needsHLSL66 ? "cs_6_6" : usesRayQuery ? "cs_6_5" : usesFloat16 || usesInt16 ? "cs_6_2" : "cs_6_0"
         }
-        guard outputFormat != .hlsl || (accelerationStructures.isEmpty && !usesRayQuery) else {
-            throw unsupported("HLSL ray queries require validated traversal semantics and compiler verification")
-        }
         return .init(
             artifact: .text(format: outputFormat, source: source), sourceEntryPoint: entry.name,
             entryPoint: entryPoint, workgroupSize: size, storageBindings: layout, uniformBindings: uniformLayout,
@@ -455,7 +447,7 @@ package struct ComputeCodeGenerator: ShaderCodeGenerator {
     }
 }
 
-private struct WorkgroupVariable {
+struct WorkgroupVariable {
     enum Layout {
         case flat(ComputeStorageField)
         case composite(IRHandle<IRType>)
@@ -703,7 +695,7 @@ func resourceBindingArrayCount(
 
 func handleResourceGlobals(
     _ globals: [IRGlobalVariable], module: IRModule,
-    bindingArrayLengths: [IRResourceBinding: UInt32] = [:], allowAccelerationStructures: Bool = false
+    bindingArrayLengths: [IRResourceBinding: UInt32] = [:], allowAccelerationStructures: Bool = false, allowVertexReturn: Bool = false
 ) throws
     -> (accelerationStructures: [IRGlobalVariable], textures: [IRGlobalVariable], samplers: [IRGlobalVariable], storageTextures: [IRGlobalVariable],
         externalTextures: [IRGlobalVariable],
@@ -732,7 +724,7 @@ func handleResourceGlobals(
         case let kind where kind.isExternalTexture: externalTextures.append(global)
         case let kind where kind.storageTexture != nil: storageTextures.append(global)
         case .sampler: samplers.append(global)
-        case .accelerationStructure(let vertexReturn) where allowAccelerationStructures && !vertexReturn && global.binding.map({ arrayCounts[$0] == nil }) == true:
+        case .accelerationStructure(let vertexReturn) where allowAccelerationStructures && (!vertexReturn || allowVertexReturn) && global.binding.map({ arrayCounts[$0] == nil }) == true:
             accelerationStructures.append(global)
         default: throw ShaderFailure.unsupported("Unsupported texture or sampler binding")
         }
@@ -1317,7 +1309,7 @@ struct StorageBufferShaderBinding {
     }
 }
 
-private struct ComputeStorageField {
+struct ComputeStorageField {
     let offset: UInt32
     let element: IRHandle<IRType>
     let scalar: IRScalar

@@ -28,10 +28,12 @@ def main():
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--spirv-as", type=Path, help="opt in using this SPIRV-Tools assembler executable")
     parser.add_argument("--swiftpm-bin-path", type=Path, help="reuse existing SwiftPM modules and objects without rebuilding")
+    parser.add_argument("--profile", choices=("strict", "naga-native"), default="strict",
+                        help="opt in to Naga/native frontend and validation compatibility; not WebGPU conformance")
     args = parser.parse_args()
     out = args.output.resolve()
     out.mkdir(parents=True, exist_ok=True)
-    configured = plan(args.reference.resolve(), args.spirv_as, out / "spirv-binaries")
+    configured = plan(args.reference.resolve(), args.spirv_as, out / "spirv-binaries", args.profile)
     (out / "plan.json").write_text(json.dumps(configured, indent=2, allow_nan=False) + "\n")
     build = ["/usr/bin/swift", "build", "--scratch-path", ".build-validation",
              "-Xswiftc", "-warnings-as-errors", "-Xswiftc", "-strict-concurrency=complete"]
@@ -42,7 +44,7 @@ def main():
         else:
             subprocess.run(build, cwd=ROOT, stdout=log, stderr=subprocess.STDOUT, check=True)
             binary = Path(subprocess.check_output(build[:4] + ["--show-bin-path"], cwd=ROOT, text=True).strip())
-        subprocess.run(["/usr/bin/swiftc", "-parse-as-library", "-warnings-as-errors", "-strict-concurrency=complete",
+        subprocess.run(["/usr/bin/swiftc", "-parse-as-library", "-warnings-as-errors", "-strict-concurrency=complete", "-package-name", "saga",
                         "-I", str(binary / "Modules"), "-module-cache-path", str(binary / "ModuleCache"),
                         str(ROOT / "docs/tools/run_configured_frontend_corpus.swift"),
                         *objects(binary, ["SAGAFrontends", "SAGAShaderIR", "SAGAValidation"]),

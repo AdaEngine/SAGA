@@ -117,3 +117,30 @@ func rejectsInvalidVolumeTextureOperations(expression: String) throws {
     await device.close()
 }
 #endif
+
+#if canImport(Metal)
+@Test func copiesPartialSingleVolumePlaneOnMetal() async throws {
+    let device = try await Device.make(backend: MetalBackend.makeDevice())
+    do {
+        let texture = try await device.createTexture(.init(width: 2, height: 2, format: .rgba8Unorm,
+            usage: [.copySource, .copyDestination], dimension: .d3, depth: 2))
+        let upload = try await device.createBuffer(.init(size: 260, usage: [.copySource, .copyDestination]))
+        let read = try await device.createBuffer(.init(size: 264, usage: [.copyDestination, .mapRead]))
+        let ticket = try await device.submitCommands([
+            .write(buffer: upload, offset: 0, words: [0xff0000ff]),
+            .write(buffer: upload, offset: 256, words: [0xff00ff00]),
+            .copyBufferToTexture(source: upload, layout: .init(bytesPerRow: 256), destination: texture,
+                                 region: .init(width: 1, height: 2, z: 1)),
+            .copyTextureToBuffer(source: texture, destination: read, bytesPerRow: 256, z: 1),
+            .read(buffer: read, byteCount: 264),
+        ])
+        let snapshots = try await ticket.wait()
+        #expect(snapshots[0][0] == 0xff0000ff)
+        #expect(snapshots[0][64] == 0xff00ff00)
+    } catch {
+        await device.close()
+        throw error
+    }
+    await device.close()
+}
+#endif

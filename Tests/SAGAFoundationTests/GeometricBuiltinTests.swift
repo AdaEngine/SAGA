@@ -43,6 +43,10 @@ func emitsGeometricAndPackedDotBuiltins(format: ShaderOutputFormat) throws {
     if format == .wgsl {
         #expect(source.contains("faceForward(") && source.contains("dot4I8Packed("))
         _ = try compiler.parseAndValidate(.wgsl(source))
+    } else if format == .hlsl {
+        #expect(!source.contains("faceforward("))
+        #expect(source.contains("_face_incidence") && source.contains("_face_reference"))
+        #expect(source.contains(" < 0.0f ? ") && source.contains("abs("))
     } else {
         #expect(source.contains("faceforward(") && source.contains("abs("))
     }

@@ -687,10 +687,13 @@ public struct TextureBufferLayout: Sendable, Equatable {
     public let offset: UInt64
     /// Required for multiple rows. When present, it is a multiple of 256 bytes.
     public let bytesPerRow: UInt32?
+    /// Number of block rows between consecutive images; defaults to the copy height in block rows.
+    public let rowsPerImage: UInt32?
 
-    public init(offset: UInt64 = 0, bytesPerRow: UInt32? = nil) {
+    public init(offset: UInt64 = 0, bytesPerRow: UInt32? = nil, rowsPerImage: UInt32? = nil) {
         self.offset = offset
         self.bytesPerRow = bytesPerRow
+        self.rowsPerImage = rowsPerImage
     }
 
     package func rowStride(width: UInt32, block: TextureCopyBlock) -> UInt64 {
@@ -700,6 +703,9 @@ public struct TextureBufferLayout: Sendable, Equatable {
     package func byteCount(width: UInt32, height: UInt32, block: TextureCopyBlock, depth: UInt32 = 1) throws -> UInt64 {
         let rowBytes = block.rowBytes(width: width)
         let blockRows = height / block.height
+        guard rowsPerImage.map({ $0 >= blockRows }) ?? true else {
+            throw GPUError.validation("Invalid texture copy image stride")
+        }
         if let bytesPerRow {
             guard bytesPerRow % 256 == 0, UInt64(bytesPerRow) >= rowBytes else {
                 throw GPUError.validation("Invalid texture copy row stride")
@@ -707,11 +713,15 @@ public struct TextureBufferLayout: Sendable, Equatable {
         } else if blockRows > 1 || depth > 1 {
             throw GPUError.validation("Texture copies with multiple rows or planes require a row stride")
         }
-        if blockRows == 0 || depth == 0 { return 0 }
-        let rows = UInt64(blockRows) * UInt64(depth) - 1
+        if depth == 0 { return 0 }
+        let (imageRows, imageOverflow) = UInt64(rowsPerImage ?? blockRows)
+            .multipliedReportingOverflow(by: UInt64(depth - 1))
+        let (rows, rowsOverflow) = imageRows.addingReportingOverflow(UInt64(blockRows == 0 ? 0 : blockRows - 1))
+        guard !imageOverflow, !rowsOverflow else { throw GPUError.validation("Texture copy byte count overflows") }
         let (padding, overflow) = rows.multipliedReportingOverflow(by: rowStride(width: width, block: block))
-        guard !overflow, padding <= UInt64.max - rowBytes else { throw GPUError.validation("Texture copy byte count overflows") }
-        return padding + rowBytes
+        let lastRowBytes = blockRows == 0 ? 0 : rowBytes
+        guard !overflow, padding <= UInt64.max - lastRowBytes else { throw GPUError.validation("Texture copy byte count overflows") }
+        return padding + lastRowBytes
     }
 }
 
@@ -1007,6 +1017,15 @@ public struct RenderPipeline: Sendable, Equatable {
     package let storageTextures: [StorageTextureBinding]
     package let samplerBindings: [SamplerBinding]
     package let webBindingIndices: [ComputeBindingSlot: UInt32]
+    package func validateBindGroupsPlusVertexBuffers(against capabilities: DeviceCapabilities) throws {
+        let slots = uniforms.map(\.slot) + storageBuffers.map(\.handle.slot)
+            + sampledTextures.map(\.handle.slot) + storageTextures.map(\.handle.slot)
+            + samplerBindings.map(\.handle.slot) + externalTextureBindings.map(\.slot)
+        let groups = slots.map(\.group).max().map { UInt64($0) + 1 } ?? 0
+        guard groups + UInt64(vertexBuffers.count) <= UInt64(capabilities.maxBindGroupsPlusVertexBuffers) else {
+            throw GPUError.validation("Bind group layouts and vertex buffer layouts exceed the combined limit")
+        }
+    }
     /// Explicit and shader-inferred nearest-only sampler slots.
     public var nonFilteringSamplers: Set<ComputeBindingSlot> {
         Set(samplerBindings.filter { $0.requirement.requiresNonFiltering }.map { $0.handle.slot })

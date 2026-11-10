@@ -9,6 +9,7 @@ private struct RenderField {
     var perVertexElement: IRHandle<IRType>? = nil
     var clipDistanceCount: Int? = nil
     var invariantPosition = false
+    var perPrimitive = false
     var name: String { "saga_member_\(index)" }
     var global: String { varying.map { "saga_varying_\($0.location)" } ?? "gl_Position" }
     var perVertexLocal: String { "saga_per_vertex_\(index)" }
@@ -107,15 +108,18 @@ package struct RenderCodeGenerator {
     private let bindingArrayLengths: [IRResourceBinding: UInt32]
     private let webGPU: Bool
     private let metalVertexBuffers: [VertexBufferLayout]?
+    private let glslPipelineFamily: GLSLRenderPipelineFamily?
 
     package init(
         _ format: ShaderOutputFormat, bindingArrayLengths: [IRResourceBinding: UInt32] = [:],
-        webGPU: Bool = false, metalVertexBuffers: [VertexBufferLayout]? = nil
+        webGPU: Bool = false, metalVertexBuffers: [VertexBufferLayout]? = nil,
+        glslPipelineFamily: GLSLRenderPipelineFamily? = nil
     ) {
         self.format = format
         self.bindingArrayLengths = bindingArrayLengths
         self.webGPU = webGPU
         self.metalVertexBuffers = metalVertexBuffers
+        self.glslPipelineFamily = glslPipelineFamily
     }
 
     package func generate(_ validated: ValidatedModule<IRModule>, entryPoint: String) throws -> RenderStageArtifact {
@@ -125,6 +129,12 @@ package struct RenderCodeGenerator {
         }
         let vertex = entry.stage == .vertex
         guard vertex || entry.stage == .fragment else { throw unsupported("expected a vertex or fragment stage") }
+        if glslPipelineFamily != nil, format != .glsl {
+            throw unsupported("GLSL pipeline family requires GLSL output")
+        }
+        if vertex, glslPipelineFamily == .mesh {
+            throw unsupported("a vertex entry point cannot use the GLSL mesh pipeline family")
+        }
         if metalVertexBuffers != nil, !vertex || format != .msl {
             throw unsupported("vertex pulling requires an MSL vertex entry point")
         }
@@ -167,7 +177,14 @@ package struct RenderCodeGenerator {
               slotCount(activeHandles.samplers) <= UInt64(ComputeShaderArtifact.samplerBindingCapacity) else {
             throw unsupported("render resource count exceeds the per-stage limit")
         }
-        let renderEntries = module.entryPoints.filter { $0.stage == .vertex || $0.stage == .fragment }.map(\.function)
+        // Mesh pipelines share OpenGL resource namespaces across task, mesh and fragment stages.
+        // Retain the existing vertex/fragment mapping for conventional render pipelines.
+        let meshLinked = format == .glsl && !vertex && (glslPipelineFamily.map { $0 == .mesh }
+            ?? module.entryPoints.contains { $0.stage == .task || $0.stage == .mesh })
+        let renderEntries = module.entryPoints.filter {
+            meshLinked ? ($0.stage == .task || $0.stage == .mesh || $0.stage == .fragment)
+                       : ($0.stage == .vertex || $0.stage == .fragment)
+        }.map(\.function)
         let aggregateBuffers = try helpers.aggregateBufferGlobals(module: module, entry: entry.function,
                                                                  sharedEntries: format == .glsl ? renderEntries : [])
         let linkedGlobals = format == .glsl
@@ -175,6 +192,7 @@ package struct RenderCodeGenerator {
         let reusedBindings = format == .glsl ? reusedResourceBindings(globals) : []
         // OpenGL uses shared namespaces across linked stages. Unused arrays need no range.
         let mapped = format == .glsl ? try globals.enumerated().compactMap { index, global in
+            if meshLinked || glslPipelineFamily != nil { return linkedGlobals.contains(index) ? global : nil }
             if !linkedGlobals.contains(index) {
                 if let binding = global.binding, reusedBindings.contains(binding) { return nil }
                 let kind = try module.types.value(for: global.type).kind
@@ -183,10 +201,20 @@ package struct RenderCodeGenerator {
             }
             return global
         } : active
-        let namespaceCount: UInt32 = format == .glsl ? 2 : 1
+        if meshLinked {
+            let buffers = mapped.filter { $0.space == .uniform || isStorageBuffer($0) }.compactMap(\.binding)
+            let handles = mapped.filter { $0.space == .handle }.compactMap(\.binding)
+            guard Set(buffers).count == buffers.count, Set(handles).count == handles.count else {
+                throw unsupported("GLSL task, mesh and fragment bindings alias across linked stages")
+            }
+        }
+        let namespaceCount: UInt32 = meshLinked ? 3 : (format == .glsl ? 2 : 1)
         let sampled = format == .glsl
             ? try handleResourceGlobals(mapped, module: module, bindingArrayLengths: bindingArrayLengths)
             : activeHandles
+        if meshLinked && !sampled.externalTextures.isEmpty {
+            throw unsupported("GLSL mesh external textures")
+        }
         let nativeExternal = format == .wgsl ? [] : sampled.externalTextures
         func linkedArrayCounts(_ resources: [IRGlobalVariable]) throws -> [IRResourceBinding: UInt32] {
             guard !reusedBindings.isEmpty else { return sampled.arrayCounts }
@@ -209,7 +237,9 @@ package struct RenderCodeGenerator {
         let flatTextures = try flatResourceBindingIndices(textureResources,
             capacity: ComputeShaderArtifact.sampledTextureBindingCapacity * namespaceCount, arrayCounts: textureCounts)
         let mappedStorage: [IRGlobalVariable]
-        if format == .glsl, !activeHandles.storageTextures.isEmpty {
+        if meshLinked {
+            mappedStorage = sampled.storageTextures
+        } else if format == .glsl, !activeHandles.storageTextures.isEmpty {
             let linkedBindings = Set(linkedGlobals.compactMap { globals[$0].binding })
             mappedStorage = sampled.storageTextures.filter { $0.binding.map(linkedBindings.contains) == true }
         } else {
@@ -370,9 +400,14 @@ package struct RenderCodeGenerator {
             return false
         }
         let perVertexInputs = inputFields.filter { $0.perVertexElement != nil }
+        let perPrimitiveInputs = inputFields.contains { $0.perPrimitive }
+        guard glslPipelineFamily != .vertex || !perPrimitiveInputs else {
+            throw unsupported("GLSL per-primitive input requires a mesh pipeline family")
+        }
         guard !webGPU || !requiresBarycentrics else { throw unsupported("WebGPU fragment barycentrics") }
         guard !webGPU || !readsViewIndex else { throw unsupported("WebGPU multiview index") }
         guard !webGPU || perVertexInputs.isEmpty else { throw unsupported("WebGPU per-vertex interpolation") }
+        guard !webGPU || !perPrimitiveInputs else { throw unsupported("WebGPU per-primitive input") }
         let requiresSubgroups = fragmentBuiltins.contains(.subgroupSize) ||
             fragmentBuiltins.contains(.subgroupInvocationId) || !helpers.subgroupExtensions.isEmpty
         let fragmentInputBuiltinSlots = fragmentBuiltins.filter {
@@ -439,12 +474,15 @@ package struct RenderCodeGenerator {
         case .hlsl:
             let needsHLSL66 = usesInt64Atomics(module) || usedStorageTextures.contains { $0.reflection.format == .r64Uint }
             let profile: String
-            if helpers.comparisonSampleHLSLMinorVersion > 0 {
+            if perPrimitiveInputs {
+                profile = "6_\(max(5, helpers.comparisonSampleHLSLMinorVersion, needsHLSL66 ? 6 : 0))"
+            } else if helpers.comparisonSampleHLSLMinorVersion > 0 {
                 profile = "6_\(helpers.comparisonSampleHLSLMinorVersion)"
             } else if needsHLSL66 { profile = "6_6" }
             else if usesFloat16 || usesInt16 { profile = "6_2" }
             else { profile = requiresBarycentrics || readsViewIndex || !perVertexInputs.isEmpty ? "6_1" : "6_0" }
             let needsHLSL68 = vertexBuiltins.contains(.vertexIndex) || vertexBuiltins.contains(.instanceIndex)
+                || vertexBuiltins.contains(.baseInstance)
             hlslProfile = vertex ? "vs_\(needsHLSL68 ? "6_8" : profile)" : "ps_\(profile)"
             let semantic = returnsVoid ? "" : " : \(vertex ? "SV_Position" : directBinding)"
             signature = "\(invariantPosition ? "precise " : "")\(directType) \(name)(\(parameter))\(semantic)"
@@ -454,7 +492,8 @@ package struct RenderCodeGenerator {
                 resultTarget = vertex ? .direct : .fragmentValue(directField, metalType: nil)
             }
         case .glsl:
-            declarations = [vertexBuiltins.contains(.instanceIndex) ? "#version 460 core" : "#version 450 core"]
+            declarations = [vertexBuiltins.contains(.instanceIndex) || vertexBuiltins.contains(.baseInstance) || vertexBuiltins.contains(.drawIndex)
+                ? "#version 460 core" : "#version 450 core"]
             declarations += glslUnsigned64Extensions(module: module, storageTextures: usedStorageTextures.map(\.reflection))
             if usesFloat16 { declarations.append(glslFloat16Extension) }
             if usesInt16 { declarations.append(glslInt16Extension) }
@@ -462,6 +501,7 @@ package struct RenderCodeGenerator {
             declarations += helpers.glslExtensions
             declarations += helpers.glslSubgroupExtensions(requiresSubgroups: requiresSubgroups)
             if requiresBarycentrics { declarations.append("#extension GL_EXT_fragment_shader_barycentric : require") }
+            if perPrimitiveInputs { declarations.append("#extension GL_EXT_mesh_shader : require") }
             if readsViewIndex { declarations.append("#extension GL_EXT_multiview : require") }
             if helpers.demotesToHelperInvocation {
                 declarations.append("#extension GL_EXT_demote_to_helper_invocation : require")
@@ -502,6 +542,7 @@ package struct RenderCodeGenerator {
                 (readsPrimitiveIndex, "enable primitive_index;"),
                 (vertexBuiltins.contains(.drawIndex), "enable draw_index;"),
                 (!perVertexInputs.isEmpty, "enable wgpu_per_vertex;"),
+                (perPrimitiveInputs, "enable wgpu_mesh_shader;"),
                 (requiresSubgroups, "enable subgroups;"),
                 (dualSourceComponentCount != nil, "enable dual_source_blending;"),
             ]
@@ -735,22 +776,38 @@ package struct RenderCodeGenerator {
                 return "saga_index"
             }
             if binding == .builtIn(.instanceIndex), kind == .scalar(.u32) {
+                let hasBaseInstance = builtins.contains(.baseInstance)
                 builtins.append(.instanceIndex)
                 switch format {
                 case .msl: builtinParameters.append("uint saga_instance [[instance_id]]")
                 case .hlsl:
-                    builtinParameters += ["uint saga_instance : SV_InstanceID", "uint saga_first_instance : SV_StartInstanceLocation"]
+                    builtinParameters.append("uint saga_instance : SV_InstanceID")
+                    if !hasBaseInstance { builtinParameters.append("uint saga_first_instance : SV_StartInstanceLocation") }
                     return "(saga_instance + saga_first_instance)"
                 case .wgsl: builtinParameters.append("@builtin(instance_index) saga_instance: u32")
                 default: return "(uint(gl_InstanceID) + uint(gl_BaseInstance))"
                 }
                 return "saga_instance"
             }
+            if binding == .builtIn(.baseInstance), kind == .scalar(.u32) {
+                let hasInstanceIndex = builtins.contains(.instanceIndex)
+                builtins.append(.baseInstance)
+                switch format {
+                case .msl: builtinParameters.append("uint saga_base_instance [[base_instance]]")
+                case .hlsl:
+                    if !hasInstanceIndex { builtinParameters.append("uint saga_first_instance : SV_StartInstanceLocation") }
+                    return "saga_first_instance"
+                case .glsl: return "uint(gl_BaseInstance)"
+                default: throw unsupported("base_instance has no WGSL builtin")
+                }
+                return "saga_base_instance"
+            }
             if binding == .builtIn(.drawIndex), kind == .scalar(.u32) {
-                guard format == .wgsl, !webGPU else {
-                    throw unsupported("draw_index requires native WGSL or SPIR-V output")
+                guard !webGPU, format == .wgsl || format == .glsl else {
+                    throw unsupported("draw_index requires native WGSL, GLSL or SPIR-V output")
                 }
                 builtins.append(.drawIndex)
+                if format == .glsl { return "uint(gl_DrawID)" }
                 builtinParameters.append("@builtin(draw_index) saga_draw_index: u32")
                 return "saga_draw_index"
             }
@@ -1003,15 +1060,19 @@ package struct RenderCodeGenerator {
     private func field(
         _ index: Int, type: IRHandle<IRType>, binding: IRBinding?, module: IRModule
     ) throws -> RenderField {
-        guard case .location(let location, let declaredInterpolation, let declaredSampling, nil, false) = binding else {
+        guard case .location(let location, let declaredInterpolation, let declaredSampling, nil, let perPrimitive) = binding else {
             throw unsupported("expected a varying with a location")
         }
-        let interpolation = declaredInterpolation ?? .perspective
-        let sampling = declaredSampling ?? (interpolation == .flat ? .first : .center)
+        let interpolation = perPrimitive ? IRInterpolation.flat : (declaredInterpolation ?? .perspective)
+        let sampling = perPrimitive ? IRSampling.first : (declaredSampling ?? (interpolation == .flat ? .first : .center))
         var element: IRHandle<IRType>?
         switch interpolation {
         case .flat:
             guard sampling == .first || sampling == .either else { throw unsupported("unsupported flat sampling") }
+            // GLSL does not guarantee the first provoking vertex for flat inputs.
+            if format == .glsl && declaredSampling == .first && !perPrimitive {
+                throw unsupported("GLSL flat first sampling")
+            }
         case .perspective, .linear:
             guard sampling == .center || sampling == .centroid || sampling == .sample else {
                 throw unsupported("unsupported interpolation sampling")
@@ -1035,8 +1096,9 @@ package struct RenderCodeGenerator {
             throw unsupported("unsupported varying scalar type")
         }
         return RenderField(index: index, type: type, varying: .init(
-            location: location, componentCount: width, scalar: scalar, interpolation: interpolation, sampling: sampling),
-            perVertexElement: element)
+            location: location, componentCount: width, scalar: scalar, interpolation: interpolation, sampling: sampling,
+            perPrimitive: perPrimitive),
+            perVertexElement: element, perPrimitive: perPrimitive)
     }
 
     private func structure(
@@ -1083,17 +1145,18 @@ package struct RenderCodeGenerator {
                 return ["    \(type) \(field.name) [[user(locn\(varying.location))\(attribute)]];"]
             case .hlsl:
                 let qualifier = varyingQualifiers(varying, flat: "nointerpolation")
-                return ["    \(qualifier)\(type) \(field.name) : TEXCOORD\(varying.location);"]
+                return ["    \(qualifier)\(type) \(field.name) : TEXCOORD\(varying.location)\(field.perPrimitive ? " : primitive" : "");"]
             case .wgsl:
                 let attribute: String
                 switch (varying.interpolation, varying.sampling) {
+                case _ where field.perPrimitive: attribute = ""
                 case (.perspective, .center): attribute = ""
                 case (.linear, .center), (.flat, .first):
                     attribute = " @interpolate(\(varying.interpolation.rawValue))"
                 default:
                     attribute = " @interpolate(\(varying.interpolation.rawValue), \(varying.sampling.rawValue))"
                 }
-                return ["    @location(\(varying.location))\(attribute) \(field.name): \(type),"]
+                return ["    \(field.perPrimitive ? "@per_primitive " : "")@location(\(varying.location))\(attribute) \(field.name): \(type),"]
             default:
                 return ["    \(type) \(field.name);"]
             }
@@ -1113,7 +1176,7 @@ package struct RenderCodeGenerator {
         try fields.compactMap { field in
             guard let varying = field.varying else { return nil }
             let type = try shaderValueType(field.type, module: module, format: .glsl, structures: [:])
-            let qualifier = varyingQualifiers(varying, flat: "flat")
+            let qualifier = field.perPrimitive ? "perprimitiveEXT " : varyingQualifiers(varying, flat: "flat")
             return "layout(location = \(varying.location)) \(qualifier)\(output ? "out" : "in") \(type) \(field.global);"
         }
     }

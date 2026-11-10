@@ -19,6 +19,7 @@ import SAGAMetal
         .clearBuffer(buffer: destination, offset: 4, byteCount: 12),
         .writeBytes(buffer: destination, offset: 8, bytes: [99, 1, 2, 3, 4], dataOffset: 1, byteCount: 4),
         .writeBytes(buffer: destination, offset: 24, bytes: [], byteCount: 0),
+        .write(buffer: destination, offset: 24, words: []),
     ]
     for command in valid {
         try command.validate(device: 1, descriptors: descriptors)
@@ -40,6 +41,9 @@ import SAGAMetal
         .writeBytes(buffer: destination, offset: 0, bytes: [], dataOffset: .max, byteCount: 0),
         .writeBytes(buffer: destination, offset: 24, bytes: [1, 2, 3, 4]),
         .writeBytes(buffer: storage, offset: 0, bytes: []),
+        .write(buffer: storage, offset: 0, words: []),
+        .write(buffer: destination, offset: 2, words: []),
+        .write(buffer: destination, offset: 28, words: []),
     ]
     for command in invalid {
         #expect(throws: GPUError.self) { try command.validate(device: 1, descriptors: descriptors) }
@@ -63,6 +67,7 @@ import SAGAMetal
         .copy(source: source, sourceOffset: 20, destination: destination, destinationOffset: 24, byteCount: 0),
         .clearBuffer(buffer: destination, offset: 24),
         .writeBytes(buffer: destination, offset: 24, bytes: []),
+        .write(buffer: destination, offset: 24, words: []),
         .copy(source: destination, destination: readback),
     ])
     let mapping = try await device.mapBuffer(readback, mode: .read)

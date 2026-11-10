@@ -1,43 +1,9 @@
 import Testing
 import SAGAShaderIR
 import SAGAFrontends
+import SAGACompiler
 import SAGAValidation
 @testable import SAGABackends
-
-@Test func hlslRayQueryFailsClosedBeforeTraversalIsVerified() throws {
-    let module = try WGSLFrontend(options: .init(capabilities: [.rayQuery])).parse(.wgsl("""
-    enable wgpu_ray_query;
-    @group(1) @binding(2) var scene: acceleration_structure;
-    @compute @workgroup_size(1) fn main() {
-        var query: ray_query;
-        rayQueryInitialize(&query, scene, RayDesc(RAY_FLAG_NONE, 255u, 0.1, 10.0, vec3<f32>(0.0), vec3<f32>(1.0)));
-        while rayQueryProceed(&query) {}
-        rayQueryTerminate(&query);
-    }
-    """))
-    let validated = try ValidatedModule.checking(module, with: ShaderSemanticValidator(capabilities: [.rayQuery]))
-    #expect(throws: ShaderFailure.unsupported("Compute code generation: HLSL ray queries require validated traversal semantics and compiler verification")) {
-        try #require(ComputeCodeGenerator(.hlsl)).generateCompute(validated)
-    }
-}
-
-@Test func hlslRayQueryIntersectionFailsClosed() throws {
-    let module = try WGSLFrontend(options: .init(capabilities: [.rayQuery])).parse(.wgsl("""
-    enable wgpu_ray_query;
-    @group(0) @binding(0) var scene: acceleration_structure;
-    @group(0) @binding(1) var<storage, read_write> output: array<u32>;
-    @compute @workgroup_size(1) fn main() {
-        var query: ray_query;
-        rayQueryInitialize(&query, scene, RayDesc(RAY_FLAG_NONE, 255u, 0.1, 10.0, vec3<f32>(0.0), vec3<f32>(1.0)));
-        while rayQueryProceed(&query) {}
-        output[0] = rayQueryGetCommittedIntersection(&query).kind;
-    }
-    """))
-    let validated = try ValidatedModule.checking(module, with: ShaderSemanticValidator(capabilities: [.rayQuery]))
-    #expect(throws: ShaderFailure.self) {
-        try #require(ComputeCodeGenerator(.hlsl)).generateCompute(validated)
-    }
-}
 
 @Test func hlslRayQueryTerminationUsesInitializationState() throws {
     let module = try WGSLFrontend(options: .init(capabilities: [.rayQuery])).parse(.wgsl("""
@@ -94,7 +60,7 @@ import SAGAValidation
 
 @Test func hlslRayQueryValidatesDynamicFlagCombinations() {
     let condition = hlslRayFlagsValidation("flags")
-    #expect(condition.contains("(flags & ~1023u) == 0u"))
+    #expect(!condition.contains("~1023u"))
     #expect(condition.contains("countbits(flags & 195u) <= 1u"))
     #expect(condition.contains("countbits(flags & 304u) <= 1u"))
     #expect(condition.contains("(flags & 768u) != 768u"))
@@ -102,10 +68,11 @@ import SAGAValidation
 
 @Test func hlslRayDescriptorMatchesNagaNaNAndExtentChecks() {
     let condition = hlslRayDescriptorValidation(fields: ["flags", "mask", "tmin", "tmax", "origin", "direction"])
-    #expect(condition.contains("!any(isnan(origin))"))
-    #expect(condition.contains("!any(isnan(direction))"))
-    #expect(condition.contains("!isnan(tmin)"))
-    #expect(condition.contains("!isnan(tmax)"))
+    for value in ["origin", "direction", "tmin", "tmax"] {
+        #expect(condition.contains("asuint(\(value))"))
+    }
+    #expect(condition.contains("0x7f800000u"))
+    #expect(condition.contains("0x007fffffu"))
     #expect(condition.contains("tmin >= 0.0f && tmin <= tmax"))
     #expect(!condition.contains("isfinite"))
     #expect(!condition.contains("direction !="))
@@ -117,4 +84,89 @@ import SAGAValidation
     #expect(line.contains("rq.Abort()"))
     #expect(!line.contains("state |="))
     #expect(!line.contains("state & 4u"))
+}
+
+@Test func dynamicPublicRayQueryReflectsHLSLBindings() throws {
+ let source = """
+ enable wgpu_ray_query;
+ @group(1) @binding(2) var scene: acceleration_structure;
+ @group(1) @binding(3) var<storage, read_write> result: array<u32>;
+ @compute @workgroup_size(1) fn main() {
+  var q: ray_query;
+  rayQueryInitialize(&q, scene, RayDesc(result[0], 255u, 0.1, 10.0, vec3f(0.0), vec3f(1.0)));
+  while rayQueryProceed(&q) { let c = rayQueryGetCandidateIntersection(&q); result[1] = c.kind; rayQueryConfirmIntersection(&q); rayQueryGenerateIntersection(&q, 1.0); }
+  result[2] = rayQueryGetCommittedIntersection(&q).kind;
+  rayQueryTerminate(&q);
+ }
+ """
+ let result = try IndependentShaderCompiler().compileCompute(.wgsl(source), to: .hlsl)
+ #expect(result.hlslProfile == "cs_6_5")
+ #expect(result.accelerationStructures.first?.binding == .init(group: 1, binding: 2))
+ #expect(result.storageBindings.first?.binding == .init(group: 1, binding: 3))
+ guard case .text(.hlsl, let code) = result.artifact else { throw ShaderFailure.invalidHandle }
+ #expect(code.contains("register(t2, space1)"))
+ #expect(code.contains("register(u3, space1)"))
+
+}
+@Test func publicHLSLRejectsRayVertexReturn() {
+ for getter in ["getCandidateHitVertexPositions", "getCommittedHitVertexPositions"] {
+ let source = """
+ enable wgpu_ray_query, wgpu_ray_query_vertex_return;
+ @group(0) @binding(0) var scene: acceleration_structure<vertex_return>;
+ @compute @workgroup_size(1) fn main() {
+  var q: ray_query<vertex_return>;
+  rayQueryInitialize(&q, scene, RayDesc(0u, 255u, 0.1, 10.0, vec3f(0.0), vec3f(1.0)));
+  let positions = \(getter)(&q);
+ }
+ """
+ #expect(throws: ShaderFailure.self) { try IndependentShaderCompiler().compileCompute(.wgsl(source), to: .hlsl) }
+ }
+}
+
+@Test func publicHLSLRejectsRayVertexReturnWithoutPositionGetter() {
+ let source = """
+ enable wgpu_ray_query, wgpu_ray_query_vertex_return;
+ @group(0) @binding(0) var scene: acceleration_structure<vertex_return>;
+ @compute @workgroup_size(1) fn main() {
+  var q: ray_query<vertex_return>;
+  rayQueryInitialize(&q, scene, RayDesc(0u, 255u, 0.1, 10.0, vec3f(0.0), vec3f(1.0)));
+  while rayQueryProceed(&q) {}
+ }
+ """
+ #expect(throws: ShaderFailure.self) { try IndependentShaderCompiler().compileCompute(.wgsl(source), to: .hlsl) }
+}
+
+@Test func hlslRayDescriptorChecksNaNByBits() throws {
+ let source = """
+ enable wgpu_ray_query;
+ @group(0) @binding(0) var scene: acceleration_structure;
+ @compute @workgroup_size(1) fn main() {
+  var q: ray_query;
+  rayQueryInitialize(&q, scene, RayDesc(0u, 255u, 0.1, 10.0, vec3f(0.0), vec3f(1.0)));
+  while rayQueryProceed(&q) {}
+ }
+ """
+ let result = try IndependentShaderCompiler().compileCompute(.wgsl(source), to: .hlsl)
+ guard case .text(.hlsl, let code) = result.artifact else { throw ShaderFailure.invalidHandle }
+ #expect(code.contains("asuint("))
+ #expect(!code.contains("isnan("))
+}
+
+@Test func hlslRayQueryAcceptsAccelerationStructureHelperArgument() throws {
+    let source = """
+    enable wgpu_ray_query;
+    @group(0) @binding(0) var scene: acceleration_structure;
+    fn trace(geometry: acceleration_structure) -> u32 {
+        var q: ray_query;
+        rayQueryInitialize(&q, geometry, RayDesc(0u, 255u, 0.1, 10.0, vec3f(0.0), vec3f(1.0)));
+        while rayQueryProceed(&q) {}
+        return rayQueryGetCommittedIntersection(&q).kind;
+    }
+    @group(0) @binding(1) var<storage, read_write> result: array<u32>;
+    @compute @workgroup_size(1) fn main() { result[0] = trace(scene); }
+    """
+    let result = try IndependentShaderCompiler().compileCompute(.wgsl(source), to: .hlsl)
+    guard case .text(.hlsl, let code) = result.artifact else { throw ShaderFailure.invalidHandle }
+    #expect(code.contains("RaytracingAccelerationStructure"))
+    #expect(code.contains("TraceRayInline"))
 }

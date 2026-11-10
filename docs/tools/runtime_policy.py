@@ -3,7 +3,31 @@ import json, pathlib, re, subprocess
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 POLICY = json.loads((ROOT/'docs/runtime-policy.json').read_text())
 WEB_FILES = {'web/index.html','web/reactor.mjs','web/wasi.mjs','web/webgpu.mjs',
-             'scripts/test-web-diagnostic.mjs'}
+             'scripts/test-web-diagnostic.mjs','scripts/test-web-error-scopes.mjs',
+             'scripts/test-web-host-close.mjs','scripts/test-web-texture-layout.mjs',
+                                                   'scripts/test-web-resource-limits.mjs',
+                                                   'scripts/test-web-core-limits.mjs',
+                                                   'scripts/test-web-sparse-vertex-slots.mjs',
+                                                   'scripts/test-web-resource-limits-browser.mjs',
+                                                   'scripts/test-web-immediate-limit.mjs',
+                                                   'scripts/test-web-immediate-limit-browser.mjs',
+             'scripts/test-web-empty-query-resolve.mjs', 'scripts/test-web-indexed-indirect-capacity.mjs',
+             'scripts/test-web-volume-self-copy.mjs',
+             'scripts/test-web-indexed-indirect-capacity-browser.mjs',
+             'scripts/test-web-wgsl-concretization-browser.mjs',
+             'scripts/test-web-sampler-address.mjs', 'scripts/test-web-concurrent-buffer.mjs',
+             'scripts/test-web-sampler-lod-browser.mjs', 'scripts/test-web-map-release.mjs',
+             'scripts/test-web-buffer-release-allocation.mjs',
+             'scripts/test-web-resource-release-allocation.mjs',
+             'scripts/test-web-texture-view-release-race.mjs',
+             'scripts/test-web-external-texture-closed-submission.mjs',
+             'scripts/test-web-external-texture-closed-submission-browser.mjs',
+             'scripts/test-web-texture-view-release-race-browser.mjs',
+             'scripts/test-web-present-release-race-browser.mjs',
+             'scripts/test-web-submission-release-race-browser.mjs', 'scripts/test-web-submission-read-release.mjs',
+             'scripts/test-web-submission-read-release-browser.mjs',
+             'scripts/test-web-external-texture-release-race-browser.mjs',
+             'scripts/test-web-map-unmap.mjs', 'scripts/test-web-map-unmap-browser.mjs'}
 WEB_REACTOR = 'Sources/SAGAWebDiagnostic/WebReactor.swift'
 
 def is_docc_markdown(path):

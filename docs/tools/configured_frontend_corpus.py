@@ -29,6 +29,22 @@ MAX_ASSEMBLER_BYTES = 64 * 1024 * 1024
 UNMAPPED_ASSEMBLY = "SPIR-V assembler/binary provenance not yet mapped; not a pass"
 
 
+def profile_options(profile):
+    if profile not in ("strict", "naga-native"):
+        raise ValueError("unknown frontend corpus profile: " + profile)
+    enabled = profile == "naga-native"
+    return dict(allow_vertex_writable_storage=enabled, allow_1d_texture_sample_level_offset=enabled,
+                naga_float_rounding=enabled, naga_integer_concretization=enabled,
+                allow_mixed_workgroup_dimension_types=enabled,
+                allow_legacy_naga_subgroups=enabled)
+
+
+def profile_options_match(actual, expected):
+    return isinstance(actual, dict) and actual.keys() == expected.keys() and all(
+        type(actual[key]) is bool and actual[key] == value for key, value in expected.items()
+    )
+
+
 def sha(data):
     return hashlib.sha256(data).hexdigest()
 
@@ -206,7 +222,8 @@ def pinned_files(reference):
     return blobs
 
 
-def plan(reference, assembler=None, assembly_output=None):
+def plan(reference, assembler=None, assembly_output=None, profile="strict"):
+    options = profile_options(profile)
     blobs = pinned_files(reference)
     names = dict((name, int(bit)) for name, bit in re.findall(
         r"const ([A-Z][A-Z0-9_]*) = 1 << (\d+);", re.search(r"pub struct Capabilities: u64 \{(.*?)^    \}", blobs["naga/src/valid/mod.rs"].decode(), re.S | re.M).group(1)))
@@ -234,13 +251,22 @@ def plan(reference, assembler=None, assembly_output=None):
         rows.append(dict(source=source,path=str(reference/source),sha256=sha(blobs[source]),format="wgsl",stage="compute",
                          expected_parse="rejected",expected_semantic="not-run",expectation_source="naga/tests/naga/wgsl_errors.rs",
                          **configuration({},"wgsl",names)))
+    for row in rows:
+        row.update(profile=profile, profile_options=options.copy())
     return dict(schema=1,reference_revision=PIN,scope="frontend snapshot acceptance only, not full parity",
+                profile=profile, profile_options=options,
                 oracle_hashes={p:sha(blobs[p]) for p in ["naga-test/src/lib.rs","naga/tests/naga/snapshots.rs","naga/tests/naga/wgsl_errors.rs","naga/src/valid/mod.rs"]},
                 copied_shader_bytes=0, rows=rows)
 
 
 def summarize(plan, actual):
     rows = plan["rows"]
+    if "profile" in plan:
+        expected = profile_options(plan["profile"])
+        if not profile_options_match(plan.get("profile_options"), expected) or any(
+            row.get("profile") != plan["profile"] or not profile_options_match(row.get("profile_options"), expected) for row in rows
+        ):
+            raise ValueError("plan profile provenance mismatch")
     ids = [r["source"] for r in rows]
     observed = [r["source"] for r in actual]
     if len(set(ids)) != len(ids) or len(set(observed)) != len(observed) or set(ids) != set(observed):
@@ -249,10 +275,12 @@ def summarize(plan, actual):
     results = []
     for row in rows:
         result = by_id[row["source"]]
+        if "profile_options" in row and not profile_options_match(result.get("profile_options"), row["profile_options"]):
+            raise ValueError("result configuration mismatch: profile_options")
         if result.get("sha256") != row["sha256"]:
             raise ValueError("result source hash mismatch")
         for field in ["capabilities", "parse_doc_comments", "strict_capabilities", "adjust_coordinate_space",
-                      "stage", "format", "config_source", "config_sha256", "validation"]:
+                      "stage", "format", "config_source", "config_sha256", "validation", "profile", "profile_options"]:
             if field in row and (field not in result or type(result[field]) is not type(row[field]) or result[field] != row[field]):
                 raise ValueError("result configuration mismatch: " + field)
         if row.get("format") == "spirv-assembly":
@@ -278,8 +306,11 @@ def summarize(plan, actual):
         else:
             outcome = "pass"
         results.append(dict(row,actual=result,outcome=outcome))
-    return dict(schema=1,reference_revision=PIN,denominator=len(rows),counts=dict(collections.Counter(r["outcome"] for r in results)),
-                scope=plan["scope"],full_saga5_complete=False,rows=results)
+    report = dict(schema=1,reference_revision=PIN,denominator=len(rows),counts=dict(collections.Counter(r["outcome"] for r in results)),
+                  scope=plan["scope"],full_saga5_complete=False,rows=results)
+    if "profile" in plan:
+        report.update(profile=plan["profile"], profile_options=plan["profile_options"])
+    return report
 
 
 def main():
@@ -288,8 +319,9 @@ def main():
     parser.add_argument("--output",type=Path,required=True)
     parser.add_argument("--actual",type=Path)
     parser.add_argument("--spirv-as", type=Path, help="opt in using this SPIRV-Tools assembler executable")
+    parser.add_argument("--profile", choices=("strict", "naga-native"), default="strict")
     args = parser.parse_args()
-    p = plan(args.reference.resolve(), args.spirv_as, args.output.resolve().parent / "spirv-binaries")
+    p = plan(args.reference.resolve(), args.spirv_as, args.output.resolve().parent / "spirv-binaries", args.profile)
     result = summarize(p,json.loads(args.actual.read_text())) if args.actual else p
     args.output.write_text(json.dumps(result,indent=2,allow_nan=False)+"\n")
     print(json.dumps(result.get("counts",dict(inputs=len(result["rows"]))),sort_keys=True))

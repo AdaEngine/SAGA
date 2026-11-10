@@ -256,6 +256,7 @@ private struct SemanticChecker {
   var layouts: [TypeLayout] = []
   var functionStages: [Set<IRStage>] = []
   var functionImmediates: [Set<IRHandle<IRGlobalVariable>>] = []
+  var functionPayloads: [Set<IRHandle<IRGlobalVariable>>] = []
   var reusedResourceBindings: Set<IRResourceBinding> = []
   var functionResourceAliases: [Set<IRHandle<IRGlobalVariable>>] = []
   var functionUniform: [UniformityRequirements] = []
@@ -270,7 +271,7 @@ private struct SemanticChecker {
   var synchronizedWorkgroupProofs: [Int: SynchronizedWorkgroupProof] = [:]
   var activeSynchronizedLoads: Set<IRHandle<IRExpression>> = []
   var atomicCompareResults: [IRHandle<IRType>: IRScalar] = [:]
-  let allStages: Set<IRStage> = [.vertex, .fragment, .compute]
+  let allStages: Set<IRStage> = [.vertex, .fragment, .compute, .task, .mesh]
   var subgroupScope: UniformScopes { module.requiresSubgroupUniformity ? .subgroup : .whole }
 
   func fail(_ code: ShaderDiagnosticCode, _ message: String, _ location: ShaderLocation? = nil)
@@ -732,6 +733,13 @@ private struct SemanticChecker {
         }
       case .immediate:
         try need(g.binding == nil, .invalidBinding, "Immediate data cannot have a resource binding", g.location)
+      case .taskPayload:
+        try cap(.meshShader, g.location)
+        guard case .structure = try type(resourceType) else {
+          try unsupported("Task payload subset requires a structure", g.location)
+        }
+        try need(g.binding == nil && g.initializer == nil && layout.constructible && layout.sized,
+                 .invalidAddressSpace, "Invalid task payload global", g.location)
       default: try unsupported("Global address space \(g.space) not implemented", g.location)
       }
       let allowedDecorations: IRMemoryDecorations
@@ -800,6 +808,7 @@ private struct SemanticChecker {
         entryFunctions.insert(ep.function).inserted, .invalidReference,
         "Entrypoint function reuse not implemented", ep.location)
       let f = try module.functions.value(for: ep.function)
+      try validatePayloadUsage(ep)
       try need(
         functionStages[ep.function.index].contains(ep.stage), .invalidControlFlow,
         "Operation incompatible with entrypoint stage", ep.location)
@@ -816,7 +825,9 @@ private struct SemanticChecker {
                    global.location)
         }
       }
-      guard ep.meshInfo == nil, ep.taskPayload == nil, ep.incomingRayPayload == nil else {
+      if ep.stage == .task { try validateTaskEntry(ep, function: f) }
+      if ep.stage == .mesh { try validateMeshEntry(ep, function: f) }
+      guard (ep.stage == .mesh || ep.meshInfo == nil), (ep.stage == .task || ep.stage == .mesh || ep.taskPayload == nil), ep.incomingRayPayload == nil else {
         try unsupported("Extended entrypoint metadata not implemented", ep.location)
       }
       if let overrides = ep.workgroupOverrides {
@@ -879,6 +890,85 @@ private struct SemanticChecker {
     }
   }
 
+  private mutating func validatePayloadUsage(_ ep: IREntryPoint) throws {
+    let payloads = functionPayloads[ep.function.index]
+    try budget.consume(.work, amount: payloads.count)
+    for handle in payloads {
+      let global = try module.globalVariables.value(for: handle)
+      try need((ep.stage == .task || ep.stage == .mesh) && ep.taskPayload == handle,
+               .invalidBinding, "Entry point uses an undeclared task payload", global.location)
+      try need(try layout(global.type).size >= 4, .invalidType,
+               "Task payload must be at least four bytes", global.location)
+    }
+  }
+
+  private mutating func validateTaskEntry(_ ep: IREntryPoint, function f: IRFunction) throws {
+    try cap(.meshShader, ep.location)
+    guard let payload = ep.taskPayload else {
+      try fail(.invalidBinding, "Task entrypoint requires a payload", ep.location)
+    }
+    let global = try module.globalVariables.value(for: payload)
+    try need(global.space == .taskPayload, .invalidAddressSpace, "Invalid task payload address space", ep.location)
+    guard let result = f.result, result.binding == .builtIn(.meshTaskSize),
+          try type(result.type) == .vector(size: .three, scalar: .u32) else {
+      try fail(.invalidBinding, "Task entrypoint requires mesh task size result", ep.location)
+    }
+    let size = ep.workgroupSize
+    try need((1...0x4000).contains(size.x) && (1...0x4000).contains(size.y) && (1...0x4000).contains(size.z),
+             .invalidType, "Invalid task workgroup size", ep.location)
+  }
+
+  private mutating func validateMeshEntry(_ ep: IREntryPoint, function f: IRFunction) throws {
+    try cap(.meshShader, ep.location)
+    guard let info = ep.meshInfo else { try fail(.invalidBinding, "Mesh entrypoint requires output metadata", ep.location) }
+    try need(f.result == nil, .invalidType, "Mesh entrypoint cannot return a value", ep.location)
+    let size = ep.workgroupSize
+    try need((1...0x4000).contains(size.x) && (1...0x4000).contains(size.y) && (1...0x4000).contains(size.z), .invalidType, "Invalid mesh workgroup size", ep.location)
+    if info.topology == .points { try cap(.meshShaderPointTopology, ep.location) }
+    guard info.maxVerticesOverride == nil && info.maxPrimitivesOverride == nil else {
+      try unsupported("Mesh output overrides not implemented", ep.location)
+    }
+    let global = try module.globalVariables.value(for: info.outputVariable)
+    try need(global.space == .workgroup, .invalidAddressSpace, "Mesh output requires workgroup address space", ep.location)
+    guard case .structure(let members, _) = try type(global.type) else {
+      try fail(.invalidType, "Mesh output must be a structure", ep.location)
+    }
+    var seen = Set<String>()
+    for member in members {
+      guard case .builtIn(let builtin) = member.binding else { try fail(.invalidBinding, "Mesh output requires builtin members", member.location) }
+      try need(seen.insert(String(describing: builtin)).inserted, .invalidBinding, "Duplicate mesh output builtin", member.location)
+      switch builtin {
+      case .vertices, .primitives:
+        guard case .array(let base, .constant(let count), _) = try type(member.type) else { try fail(.invalidType, "Mesh output requires fixed arrays", member.location) }
+        let expectedType = builtin == .vertices ? info.vertexOutputType : info.primitiveOutputType
+        let expectedCount = builtin == .vertices ? info.maxVertices : info.maxPrimitives
+        try need(base == expectedType && count == expectedCount && count > 0, .invalidType, "Mesh output metadata does not match array", member.location)
+      case .vertexCount, .primitiveCount:
+        try need(try type(member.type) == .scalar(.u32), .invalidType, "Mesh output count must be u32", member.location)
+      default: try fail(.invalidBinding, "Invalid mesh output builtin", member.location)
+      }
+    }
+    try need(seen.contains("vertices") && seen.contains("primitives"), .invalidBinding, "Mesh output requires vertices and primitives", ep.location)
+    var locations = Set<UInt32>()
+    var builtins = Set<String>()
+    guard case .structure = try type(info.vertexOutputType), case .structure(let primitives, _) = try type(info.primitiveOutputType) else { try fail(.invalidType, "Mesh outputs must be structures", ep.location) }
+    try interface(info.vertexOutputType, binding: nil, stage: .vertex, output: true, locations: &locations, builtins: &builtins)
+    try need(builtins.contains("position"), .invalidBinding, "Mesh vertex output requires position", ep.location)
+    locations = []; builtins = []
+    var indices = 0
+    for member in primitives {
+      if case .builtIn(let builtin) = member.binding, builtin == .pointIndex || builtin == .lineIndices || builtin == .triangleIndices {
+        indices += 1
+        let expected: IRTypeKind = builtin == .pointIndex ? .scalar(.u32) : .vector(size: builtin == .lineIndices ? .two : .three, scalar: .u32)
+        let topology: IRMeshOutputTopology = builtin == .pointIndex ? .points : (builtin == .lineIndices ? .lines : .triangles)
+        try need(info.topology == topology && (try type(member.type)) == expected, .invalidType, "Mesh primitive indices mismatch topology or type", member.location)
+      } else {
+        try interface(member.type, binding: member.binding, stage: .vertex, output: true, locations: &locations, builtins: &builtins, location: member.location, member: true, meshPrimitive: true)
+      }
+    }
+    try need(indices == 1, .invalidBinding, "Mesh primitive output requires one indices builtin", ep.location)
+  }
+
   mutating func validateRaySpecialTypes() throws {
     func check(_ handle: IRHandle<IRType>, _ span: UInt32, _ offsets: [UInt32], _ kinds: [IRTypeKind]) throws {
       guard case .structure(let members, let actualSpan) = try type(handle),
@@ -938,6 +1028,8 @@ private struct SemanticChecker {
       try need(
         l.constructible && l.sized, .invalidAddressSpace,
         "Private/function store type must be constructible and sized", location)
+    case .taskPayload:
+      try need(l.constructible && l.sized, .invalidAddressSpace, "Task payload must be sized and constructible", location)
     case .workgroup:
       if l.containsWideAtomic { try cap(.shaderInt64AtomicAllOps, location) }
       try need(
@@ -1077,7 +1169,7 @@ private struct SemanticChecker {
       try storeType(base, space: space, location: loc)
       try need(pointee.data, .invalidType, "Pointer base must be a plain type", loc)
       switch space {
-      case .function, .private, .workgroup, .uniform, .immediate: break
+      case .function, .private, .workgroup, .uniform, .immediate, .taskPayload: break
       case .storage(let a):
         try need(
           a.rawValue > 0 && a.rawValue & ~UInt8(7) == 0, .invalidAddressSpace,
@@ -1150,8 +1242,16 @@ private struct SemanticChecker {
           try fail(.invalidType, "Cooperative matrices cannot be structure members", m.location ?? loc)
         }
         let b = try layout(m.type)
+        var memberAlignment = b.alignment
+        if let explicit = m.explicitAlignment {
+          let value = UInt64(explicit)
+          try need(
+            value > 0 && value & (value - 1) == 0 && value >= b.alignment && value <= UInt64(Int32.max),
+            .invalidType, "Invalid explicit member alignment", m.location ?? loc)
+          memberAlignment = value
+        }
         try need(
-          b.data && UInt64(m.offset) >= end && UInt64(m.offset) % b.alignment == 0, .invalidType,
+          b.data && UInt64(m.offset) >= end && UInt64(m.offset) % memberAlignment == 0, .invalidType,
           "Invalid member offset/type", m.location ?? loc)
         if !b.sized {
           guard case .array(_, .dynamic, _) = try type(m.type), j == members.count - 1 else {
@@ -1161,7 +1261,7 @@ private struct SemanticChecker {
           }
         }
         end = UInt64(m.offset) + b.size
-        align = max(align, b.alignment)
+        align = max(align, memberAlignment)
         sized = b.sized
         host = host && b.host
         constructible = constructible && b.constructible
@@ -2100,6 +2200,81 @@ private struct SemanticChecker {
     }
   }
 
+  private mutating func analyzeFunctionStages(
+    _ f: IRFunction, index: Int, entryIndices: Set<Int>
+  ) throws {
+    var stages = allStages
+    var immediates: Set<IRHandle<IRGlobalVariable>> = []
+    var payloads: Set<IRHandle<IRGlobalVariable>> = []
+    var resourceAliases: Set<IRHandle<IRGlobalVariable>> = []
+    for e in f.expressions.values {
+      try budget.consume(.work)
+      switch e.kind {
+      case .cooperativeLoad, .cooperativeMultiplyAdd: stages.formIntersection([.compute])
+      default: break
+      }
+      if requiresImplicitDerivatives(e.kind) {
+        stages.formIntersection([.fragment])
+      }
+      if case .globalVariable(let g) = e.kind {
+        let global = try module.globalVariables.value(for: g)
+        if global.space == .taskPayload {
+          payloads.insert(g)
+          stages.formIntersection([.task, .mesh])
+        }
+        if let binding = global.binding, reusedResourceBindings.contains(binding) { resourceAliases.insert(g) }
+        if global.space == .immediate, immediates.count < 2 { immediates.insert(g) }
+        if global.space == .workgroup { stages.formIntersection([.compute, .task, .mesh]) }
+        if !allowsVertexWritableStorage {
+          if case .storage(let access) = global.space, access.contains(.store) {
+            stages.formIntersection([.compute, .fragment])
+          }
+          if try type(bindingArrayElement(of: global)).storageTexture?.access.contains(.store) == true {
+            stages.formIntersection([.compute, .fragment])
+          }
+        }
+      }
+    }
+    for s in f.statements.values {
+      try budget.consume(.work)
+      switch s.kind {
+      case .store(let pointer, _):
+        if case .pointer(_, .taskPayload) = try type(f.expressions.value(for: pointer).type) {
+          stages.formIntersection([.task])
+        }
+      case .kill, .demoteToHelperInvocation: stages.formIntersection([.fragment])
+      case .subgroupGather, .subgroupBallot, .subgroupCollectiveOperation:
+        try cap(.subgroup, s.location)
+        stages.formIntersection([.compute, .fragment, .task, .mesh])
+      case .imageStore, .imageAtomic:
+        if !allowsVertexWritableStorage { stages.formIntersection([.compute, .fragment]) }
+      case .controlBarrier, .memoryBarrier, .workgroupUniformLoad:
+        stages.formIntersection([.compute, .task, .mesh])
+      case .cooperativeStore:
+        stages.formIntersection([.compute])
+      case .call(let target, _, _):
+        try need(
+          target.index < index, .invalidReference, "Recursive/forward function calls forbidden",
+          s.location)
+        try need(!entryIndices.contains(target.index), .invalidControlFlow, "Cannot call an entry point", s.location)
+        stages.formIntersection(functionStages[target.index])
+        try budget.consume(.work, amount: functionPayloads[target.index].count)
+        payloads.formUnion(functionPayloads[target.index])
+        let calleeAliases = functionResourceAliases[target.index]
+        try budget.consume(.work, amount: calleeAliases.count)
+        resourceAliases.formUnion(calleeAliases)
+        for immediate in functionImmediates[target.index] where immediates.count < 2 {
+          immediates.insert(immediate)
+        }
+      default: break
+      }
+    }
+    functionStages.append(stages)
+    functionImmediates.append(immediates)
+    functionPayloads.append(payloads)
+    functionResourceAliases.append(resourceAliases)
+  }
+
   mutating func function(_ f: IRFunction, index: Int, entryIndices: Set<Int>, computeEntry: Bool) throws {
     try text(f.name)
     try budget.consume(.nodes)
@@ -2153,61 +2328,7 @@ private struct SemanticChecker {
     try expressions(f.expressions, function: f, currentFunction: index)
     uniformity = FunctionUniformity(computeEntry: computeEntry)
     activeSynchronizedLoads = synchronizedWorkgroupLoads[index] ?? []
-    var stages = allStages
-    var immediates: Set<IRHandle<IRGlobalVariable>> = []
-    var resourceAliases: Set<IRHandle<IRGlobalVariable>> = []
-    for e in f.expressions.values {
-      try budget.consume(.work)
-      switch e.kind {
-      case .cooperativeLoad, .cooperativeMultiplyAdd: stages.formIntersection([.compute])
-      default: break
-      }
-      if requiresImplicitDerivatives(e.kind) {
-        stages.formIntersection([.fragment])
-      }
-      if case .globalVariable(let g) = e.kind {
-        let global = try module.globalVariables.value(for: g)
-        if let binding = global.binding, reusedResourceBindings.contains(binding) { resourceAliases.insert(g) }
-        if global.space == .immediate, immediates.count < 2 { immediates.insert(g) }
-        if global.space == .workgroup { stages.formIntersection([.compute]) }
-        if !allowsVertexWritableStorage {
-          if case .storage(let access) = global.space, access.contains(.store) {
-            stages.formIntersection([.compute, .fragment])
-          }
-          if try type(bindingArrayElement(of: global)).storageTexture?.access.contains(.store) == true {
-            stages.formIntersection([.compute, .fragment])
-          }
-        }
-      }
-    }
-    for s in f.statements.values {
-      try budget.consume(.work)
-      switch s.kind {
-      case .kill, .demoteToHelperInvocation: stages.formIntersection([.fragment])
-      case .subgroupGather, .subgroupBallot, .subgroupCollectiveOperation:
-        try cap(.subgroup, s.location)
-        stages.formIntersection([.compute, .fragment])
-      case .imageStore, .imageAtomic:
-        if !allowsVertexWritableStorage { stages.formIntersection([.compute, .fragment]) }
-      case .controlBarrier, .memoryBarrier, .workgroupUniformLoad:
-        stages.formIntersection([.compute])
-      case .cooperativeStore:
-        stages.formIntersection([.compute])
-      case .call(let target, _, _):
-        try need(
-          target.index < index, .invalidReference, "Recursive/forward function calls forbidden",
-          s.location)
-        try need(!entryIndices.contains(target.index), .invalidControlFlow, "Cannot call an entry point", s.location)
-        stages.formIntersection(functionStages[target.index])
-        let calleeAliases = functionResourceAliases[target.index]
-        try budget.consume(.work, amount: calleeAliases.count)
-        resourceAliases.formUnion(calleeAliases)
-        for immediate in functionImmediates[target.index] where immediates.count < 2 {
-          immediates.insert(immediate)
-        }
-      default: break
-      }
-    }
+    try analyzeFunctionStages(f, index: index, entryIndices: entryIndices)
     var available = Set<IRHandle<IRExpression>>()
     let isEntry = entryIndices.contains(index)
     var uniform: [UniformValue] = []
@@ -2289,9 +2410,6 @@ private struct SemanticChecker {
         whole: uniformity.parameters(of: uniformity.returns.whole, budget: &budget),
         subgroup: uniformity.parameters(of: uniformity.returns.subgroup, budget: &budget))
     }
-    functionStages.append(stages)
-    functionImmediates.append(immediates)
-    functionResourceAliases.append(resourceAliases)
     functionUniform.append(requiresUniform)
     if collectDescriptorUniformity, !uniformity.nonUniformDescriptorAccesses.isEmpty {
       nonUniformDescriptorAccesses[index] = uniformity.nonUniformDescriptorAccesses
@@ -2683,7 +2801,7 @@ private struct SemanticChecker {
         try fail(.typeMismatch, "Store requires pointer", loc)
       }
       switch space {
-      case .function, .private, .workgroup: break
+      case .function, .private, .workgroup, .taskPayload: break
       case .storage(let access):
         try need(access.contains(.store), .invalidAddressSpace, "Read-only store", loc)
       default: try fail(.invalidAddressSpace, "Read-only address space", loc)
@@ -2858,11 +2976,11 @@ private struct SemanticChecker {
       // Demoted invocations can continue computing derivatives after reconvergence.
       break
     case .break:
-      try need((loopDepth > 0 || switchDepth > 0) && !inContinuing, .invalidControlFlow, "Invalid break target", loc)
+      try need((loopDepth > 0 || switchDepth > 0), .invalidControlFlow, "Invalid break target", loc)
       try recordLocalBreak(locals)
       step = .breakTarget
     case .continue:
-      try need(loopDepth > 0 && !inContinuing, .invalidControlFlow, "Invalid loop jump", loc)
+      try need(loopDepth > 0, .invalidControlFlow, "Invalid loop jump", loc)
       try recordLocalContinue(locals, control: ctrl, available: available)
       step = .continueTarget
     default: try unsupported("Statement rule family not implemented", loc)
@@ -2875,7 +2993,7 @@ private struct SemanticChecker {
     f: IRFunction, available: Set<IRHandle<IRExpression>>, uniform: inout [UniformValue],
     locals: inout [UniformValue], control: UniformValue, active: Set<IRHandle<IRBlock>>,
     seen: inout Set<IRHandle<IRBlock>>, statements: inout Set<IRHandle<IRStatement>>,
-    callResults: inout Set<IRHandle<IRExpression>>, loopDepth: Int, switchDepth: Int
+    callResults: inout Set<IRHandle<IRExpression>>, loopDepth: Int, switchDepth: Int, inContinuing: Bool
   ) throws -> StatementFlow {
     // Reserve header values before walking the body so each load sees both entry and backedge values.
     let headerControl = try uniformity.loopHeader(control, budget: &budget)
@@ -2890,7 +3008,7 @@ private struct SemanticChecker {
     let bodyResult = try block(
       body, f: f, available: available, uniform: &uniform, locals: &bodyLocals, controlUniform: headerControl, active: active,
       seen: &seen, statements: &statements, callResults: &callResults,
-      loopDepth: loopDepth, inContinuing: false, switchDepth: switchDepth)
+      loopDepth: loopDepth, inContinuing: inContinuing, switchDepth: switchDepth)
     let entersContinuing = bodyResult.flow.contains(.next) || bodyResult.flow.contains(.continueTarget)
     let loop = uniformity.loops[uniformity.loops.count - 1]
     var continuingLocals = loop.continues ?? bodyLocals
@@ -2908,7 +3026,7 @@ private struct SemanticChecker {
     let continuingResult = try block(
       continuing, f: f, available: continuingScope, uniform: &uniform, locals: &continuingLocals,
       controlUniform: continuingControl, active: active, seen: &seen, statements: &statements,
-      callResults: &callResults, loopDepth: loopDepth, inContinuing: true, breakIf: breakIf, switchDepth: switchDepth,
+      callResults: &callResults, loopDepth: 0, inContinuing: true, breakIf: breakIf, switchDepth: 0,
       reachableFromEntry: entersContinuing)
     var exits = loop.breaks
     if entersContinuing {
@@ -3090,7 +3208,7 @@ private struct SemanticChecker {
         step = try validateLoop(body, continuing: continuing, breakIf: breakIf, f: f, available: available,
                                 uniform: &uniform, locals: &locals, control: ctrl, active: active,
                                 seen: &seen, statements: &statements, callResults: &callResults,
-                                loopDepth: loopDepth + 1, switchDepth: switchDepth)
+                                loopDepth: loopDepth + 1, switchDepth: switchDepth, inContinuing: inContinuing)
       default:
         step = try validateLeafStatement(s, f: f, available: &available, uniform: &uniform, locals: &locals, ctrl: ctrl,
                                          callResults: &callResults, loopDepth: loopDepth, inContinuing: inContinuing,
@@ -3143,7 +3261,7 @@ private struct SemanticChecker {
   mutating func interface(
     _ t: IRHandle<IRType>, binding: IRBinding?, stage: IRStage, output: Bool,
     locations: inout Set<UInt32>, builtins: inout Set<String>, location: ShaderLocation? = nil,
-    member: Bool = false
+    member: Bool = false, meshPrimitive: Bool = false
   ) throws {
     try budget.consume(.work)
     try budget.enterDepth()
@@ -3166,7 +3284,11 @@ private struct SemanticChecker {
     do {
       switch binding {
       case .location(let n, let interp, let sampling, let blend, let primitive):
-        try need(!primitive, .unsupportedConstruct, "Per-primitive interface rules not implemented")
+        if primitive {
+          try cap(.meshShader, location)
+          try need(meshPrimitive || (stage == .fragment && !output), .invalidBinding,
+                   "Per-primitive locations require a fragment input or mesh primitive output", location)
+        }
         if let blend {
           try need(stage == .fragment && output && member && n == 0 && blend <= 1,
                    .invalidBinding, "Blend source must be a fragment output member at location 0")
@@ -3193,7 +3315,7 @@ private struct SemanticChecker {
           try fail(.typeMismatch, "Matrix cannot have direct location")
         }
         try need(s.kind != .bool, .typeMismatch, "Boolean location not allowed")
-        if varying && (s.kind == .uint || s.kind == .sint) {
+        if varying && !primitive && !meshPrimitive && (s.kind == .uint || s.kind == .sint) {
           try need(
             interp == .flat, .invalidBinding,
             "Integer interstage values need flat interpolation")
@@ -3212,13 +3334,17 @@ private struct SemanticChecker {
         let stages: Set<IRStage>
         let isOutput: Bool
         switch b {
-        case .localInvocationIndex, .globalInvocationIndex, .workgroupIndex:
+        case .localInvocationIndex:
+          expected = .scalar(.u32)
+          stages = [.compute, .task, .mesh]
+          isOutput = false
+        case .globalInvocationIndex, .workgroupIndex:
           expected = .scalar(.u32)
           stages = [.compute]
           isOutput = false
         case .localInvocationId, .globalInvocationId, .workgroupId, .numWorkgroups:
           expected = .vector(size: .three, scalar: .u32)
-          stages = [.compute]
+          stages = [.compute, .task, .mesh]
           isOutput = false
         case .vertexIndex, .instanceIndex, .baseInstance:
           expected = .scalar(.u32)
@@ -3241,8 +3367,8 @@ private struct SemanticChecker {
         case .primitiveIndex:
           try cap(.primitiveIndex)
           expected = .scalar(.u32)
-          stages = [.fragment]
-          isOutput = false
+          stages = meshPrimitive ? [.vertex] : [.fragment]
+          isOutput = meshPrimitive
         case .barycentric:
           try cap(.shaderBarycentrics)
           expected = .vector(size: .three, scalar: .f32)
@@ -3251,13 +3377,23 @@ private struct SemanticChecker {
         case .subgroupSize, .subgroupInvocationId:
           try cap(.subgroup)
           expected = .scalar(.u32)
-          stages = [.compute, .fragment]
+          stages = [.compute, .fragment, .task, .mesh]
           isOutput = false
         case .subgroupId, .numSubgroups:
           try cap(.subgroup)
           expected = .scalar(.u32)
-          stages = [.compute]
+          stages = [.compute, .task, .mesh]
           isOutput = false
+        case .meshTaskSize:
+          expected = .vector(size: .three, scalar: .u32)
+          stages = [.task]
+          isOutput = true
+        case .cullPrimitive:
+          try cap(.meshShader)
+          try need(meshPrimitive, .invalidBinding, "Cull primitive requires a mesh primitive output")
+          expected = .scalar(.bool)
+          stages = [.vertex]
+          isOutput = true
         case .position:
           expected = .vector(size: .four, scalar: .f32)
           stages = output ? [.vertex] : [.fragment]

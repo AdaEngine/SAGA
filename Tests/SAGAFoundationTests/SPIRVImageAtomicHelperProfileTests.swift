@@ -2,7 +2,7 @@ import SAGACompiler
 import SAGAShaderIR
 import Testing
 
-@Test func wgslImageAtomicHelpersRequireAGlobalTextureBinding() throws {
+@Test func wgslImageAtomicHelperIsNativeOnly() throws {
     let source = ShaderInput.wgsl("""
         @group(0) @binding(0) var atomicImage: texture_storage_2d<r32uint, atomic>;
 
@@ -14,13 +14,12 @@ import Testing
         }
         """)
     let compiler = IndependentShaderCompiler()
-    do {
-        _ = try compiler.parseAndValidate(source, capabilities: .referenceDefault.union(.textureAtomic))
-        Issue.record("WGSL accepted an image atomic on a helper parameter")
-    } catch ShaderFailure.diagnostics(let diagnostics) {
-        #expect(diagnostics.contains {
-            $0.code == .invalidReference && $0.message == "Texture atomics require a global texture binding"
-        })
+    _ = try compiler.parseAndValidate(source, capabilities: .referenceDefault.union(.textureAtomic))
+    let native = try compiler.compileCompute(source, entryPoint: "run", to: .msl)
+    #expect(native.storageTextures.map(\.binding) == [.init(group: 0, binding: 0)])
+    #expect(native.storageTextures.first?.access == [.load, .store, .atomic])
+    #expect(throws: ShaderFailure.self) {
+        try compiler.compileWebGPUCompute(source, entryPoint: "run")
     }
 }
 

@@ -168,7 +168,7 @@ extension ComputeShaderArtifact.SampledTextureBinding {
         }
     }
 
-    func requirement(nonFilteringSamplers: Set<ComputeBindingSlot>, slot: ComputeBindingSlot? = nil) -> SampledTextureRequirement {
+    package func requirement(nonFilteringSamplers: Set<ComputeBindingSlot>, slot: ComputeBindingSlot? = nil) -> SampledTextureRequirement {
         let type = isDepth ? TextureSampleType.depth : TextureSampleType(kind: sampleKind)
         let view: TextureViewDimension = switch dimension {
         case .cube: isArrayed ? .cubeArray : .cube

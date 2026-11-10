@@ -46,13 +46,19 @@ extension WGSLParser {
         if try eat("continuing") {
             try expect("{")
             let wasContinuing = body.continuing
+            let previousLoopDepth = body.continuingLoopDepth
+            let previousSwitchDepth = body.continuingSwitchDepth
             body.continuing = true
+            body.continuingLoopDepth = body.loopDepth
+            body.continuingSwitchDepth = body.switchDepth
             body.continuingVisibility[declarationScope] = body.loopScopes.last?.visibleAtFirstContinue
             body.scopes.append([:]); body.constScopes.append([:])
             defer {
                 body.scopes.removeLast(); body.constScopes.removeLast()
                 body.continuingVisibility.removeValue(forKey: declarationScope)
                 body.continuing = wasContinuing
+                body.continuingLoopDepth = previousLoopDepth
+                body.continuingSwitchDepth = previousSwitchDepth
             }
             while !isNext("}") {
                 guard token.kind != .end else { throw wgslError(.unexpectedToken,"Unterminated continuing",token) }

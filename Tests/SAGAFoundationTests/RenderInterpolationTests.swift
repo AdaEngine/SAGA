@@ -39,6 +39,12 @@ func emitsLinearAndFlatVaryingsWithTheirScalarTypes(format: ShaderOutputFormat) 
     let compiler = IndependentShaderCompiler()
     let source = ShaderInput.wgsl(interpolationProgram)
     let vertex = try compiler.compileRenderStage(source, entryPoint: "vs", to: format)
+    if format == .glsl {
+        #expect(throws: ShaderFailure.unsupported("Render code generation: GLSL flat first sampling")) {
+            try compiler.compileRenderStage(source, entryPoint: "fs", to: format)
+        }
+        return
+    }
     let fragment = try compiler.compileRenderStage(source, entryPoint: "fs", to: format)
     #expect(vertex.varyings == fragment.varyings)
     #expect(fragment.varyings.map(\.interpolation) == [.linear, .perspective, .flat, .flat])

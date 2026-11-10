@@ -46,6 +46,11 @@ extension WGSLParser {
               throw wgslError(.unsupportedCapability, "wgpu_ray_query_vertex_return requires rayHitVertexPosition", extensionName)
             }
             rayQueryVertexReturnEnabled = true
+          case "wgpu_mesh_shader":
+            guard options.capabilities.contains(.meshShader) else {
+              throw wgslError(.unsupportedCapability, "wgpu_mesh_shader requires meshShader", extensionName)
+            }
+            meshShaderEnabled = true
           case "wgpu_int16":
             guard options.capabilities.contains(.shaderInt16) else {
               throw wgslError(.unsupportedCapability, "wgpu_int16 requires shaderInt16", extensionName)

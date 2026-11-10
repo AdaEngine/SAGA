@@ -105,7 +105,8 @@ func start(_ maxBufferSize: UInt64, _ maxTextureDimension2D: UInt32, _ presentat
            _ maxComputeWorkgroupSizeY: UInt32, _ maxComputeWorkgroupSizeZ: UInt32,
            _ maxComputeWorkgroupsPerDimension: UInt32, _ maxVertexAttributes: UInt32,
            _ maxVertexBuffers: UInt32, _ maxVertexBufferArrayStride: UInt32, _ vertexFormatSnorm1010102: UInt32,
-           _ maxInterStageShaderVariables: UInt32, _ maxColorAttachments: UInt32, _ maxColorAttachmentBytesPerSample: UInt32) {
+           _ maxInterStageShaderVariables: UInt32, _ maxColorAttachments: UInt32, _ maxColorAttachmentBytesPerSample: UInt32,
+           _ maxBindGroupsPlusVertexBuffers: UInt32) {
     _Concurrency._createExecutors(factory: ReactorFactory.self)
     Task {
         let status: UInt32
@@ -157,6 +158,7 @@ func start(_ maxBufferSize: UInt64, _ maxTextureDimension2D: UInt32, _ presentat
                                                            y: maxComputeWorkgroupSizeY, z: maxComputeWorkgroupSizeZ),
                                                        maxComputeWorkgroupsPerDimension: maxComputeWorkgroupsPerDimension,
                                                        maxVertexAttributes: maxVertexAttributes, maxVertexBuffers: maxVertexBuffers,
+                                                       maxBindGroupsPlusVertexBuffers: maxBindGroupsPlusVertexBuffers,
                                                        maxVertexBufferArrayStride: maxVertexBufferArrayStride,
                                                        maxInterStageShaderVariables: maxInterStageShaderVariables,
                                                        maxColorAttachments: maxColorAttachments,

@@ -8,7 +8,7 @@ extension IRExpressionKind {
         func optional(_ value: SharedExpression?) throws -> SharedExpression? { try value.map(map) }
         switch self {
         case .globalVariable, .localVariable, .atomicResult, .workgroupUniformLoadResult,
-             .subgroupBallotResult, .subgroupOperationResult:
+             .subgroupBallotResult, .subgroupOperationResult, .rayQueryProceedResult:
             return self
         case .relational(let operation, let argument):
             return try .relational(function: operation, argument: map(argument))
@@ -18,6 +18,15 @@ extension IRExpressionKind {
         case .load(let pointer): return try .load(pointer: map(pointer))
         case .runtimeValue(let value): return try .runtimeValue(map(value))
         case .arrayLength(let pointer): return try .arrayLength(map(pointer))
+        case .rayQueryVertexPositions(let query, let committed):
+            return try .rayQueryVertexPositions(query: map(query), committed: committed)
+        case .rayQueryGetIntersection(let query, let committed):
+            return try .rayQueryGetIntersection(query: map(query), committed: committed)
+        case .cooperativeLoad(let columns, let rows, let role, let data):
+            return try .cooperativeLoad(columns: columns, rows: rows, role: role,
+                                        data: .init(pointer: map(data.pointer), stride: map(data.stride), rowMajor: data.rowMajor))
+        case .cooperativeMultiplyAdd(let a, let b, let c):
+            return try .cooperativeMultiplyAdd(a: map(a), b: map(b), c: map(c))
         case .derivative(let axis, let control, let operand):
             return try .derivative(axis: axis, control: control, expression: map(operand))
         case .imageSample(let sample):
@@ -85,6 +94,21 @@ extension IRStatementKind {
             return try .atomic(pointer: map(pointer), function: function, value: map(value), result: optional(result))
         case .workgroupUniformLoad(let pointer, let result):
             return try .workgroupUniformLoad(pointer: map(pointer), result: map(result))
+        case .rayQuery(let query, let operation):
+            let remapped: IRRayQueryFunction
+            switch operation {
+            case .initialize(let accelerationStructure, let descriptor):
+                remapped = try .initialize(accelerationStructure: map(accelerationStructure), descriptor: map(descriptor))
+            case .proceed(let result): remapped = try .proceed(result: map(result))
+            case .generateIntersection(let hitT): remapped = try .generateIntersection(hitT: map(hitT))
+            case .confirmIntersection, .terminate, .begin: remapped = operation
+            }
+            return try .rayQuery(query: map(query), function: remapped)
+        case .traceRay(let accelerationStructure, let descriptor, let payload):
+            return try .traceRay(accelerationStructure: map(accelerationStructure), descriptor: map(descriptor), payload: map(payload))
+        case .cooperativeStore(let target, let data):
+            return try .cooperativeStore(target: map(target),
+                                         data: .init(pointer: map(data.pointer), stride: map(data.stride), rowMajor: data.rowMajor))
         case .debugPrintf(let format, let arguments):
             return try .debugPrintf(format: format, arguments: arguments.map(map))
         default:

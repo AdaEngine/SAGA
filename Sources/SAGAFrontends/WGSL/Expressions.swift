@@ -192,6 +192,9 @@ extension WGSLParser {
     }
     func defaultMaterialize(_ value: WGSLValue, at t: WGSLToken) throws -> WGSLValue {
         let v = try loaded(value,at:t)
+        if options.nagaIntegerConcretization, let target = try defaultIntegerConcretization(v, at: t) {
+            return try coerce(v, to: target, at: t)
+        }
         switch types[v.type.index].kind {
         case .matrix(let c,let r,.abstractFloat):return try coerce(v,to:intern(.matrix(columns:c,rows:r,scalar:.f32)),at:t)
         case .vector(let n,let scalar) where scalar.kind == .abstractInt || scalar.kind == .abstractFloat:
@@ -371,6 +374,7 @@ extension WGSLParser {
             return t.text == "&" ? try addressOf(operand, at: t) : try dereference(operand, at: t)
         }
         if ["-","!","~"].contains(t.text) {
+            let unaryStart = cursor
             _ = try take()
             if t.text == "-", token.kind == .number, token.text.hasSuffix("li") {
                 let (literal, scalar) = try literal(take(), negativeInt64: true)
@@ -378,6 +382,13 @@ extension WGSLParser {
             }
             let v = try loaded(prefix(),at:t)
             if case .vector(_, let scalar) = types[v.type.index].kind {
+                if (t.text == "-" && [IRScalar.abstractInt, .abstractFloat].contains(scalar)) ||
+                   (t.text == "~" && scalar == .abstractInt) {
+                    guard case .vector(let value)? = try knownConstantValue(unaryStart..<cursor, at: t) else {
+                        throw wgslError(.typeMismatch, "Abstract vector unary operand must be constant", t)
+                    }
+                    return try vectorRuntimeValue(value, to: nil, at: t)
+                }
                 if t.text == "!", scalar == .bool {
                     return try expressionNode(.unary(op: .logicalNot, expression: v.handle), type: v.type, at: t)
                 }

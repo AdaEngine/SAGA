@@ -20,12 +20,14 @@ struct MetalVertexPulling {
             for attribute in layout.attributes { locations[attribute.location] = (slot, attribute.offset) }
         }
 
-        var parameters = layouts.indices.map { "device const uchar* saga_vertex_bytes_\($0) [[buffer(\($0))]]" }
+        var parameters = layouts.indices.filter { !layouts[$0].attributes.isEmpty }.map {
+            "device const uchar* saga_vertex_bytes_\($0) [[buffer(\($0))]]"
+        }
         parameters.append("constant ulong* saga_vertex_sizes [[buffer(\(RenderStageArtifact.metalVertexPullingSizeBufferIndex))]]")
-        if !builtins.contains(.vertexIndex), layouts.contains(where: { $0.stride != 0 && $0.stepMode == .vertex }) {
+        if !builtins.contains(.vertexIndex), layouts.contains(where: { !$0.attributes.isEmpty && $0.stride != 0 && $0.stepMode == .vertex }) {
             parameters.append("uint saga_index [[vertex_id]]")
         }
-        if !builtins.contains(.instanceIndex), layouts.contains(where: { $0.stride != 0 && $0.stepMode == .instance }) {
+        if !builtins.contains(.instanceIndex), layouts.contains(where: { !$0.attributes.isEmpty && $0.stride != 0 && $0.stepMode == .instance }) {
             parameters.append("uint saga_instance [[instance_id]]")
         }
         let declarations = ["""

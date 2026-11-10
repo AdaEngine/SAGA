@@ -26,7 +26,7 @@ public enum GPUFeature: String, Sendable, Hashable, CaseIterable {
     case indirectFirstInstance, clipDistances, primitiveIndex, depthClipControl, subgroups, subgroupID, dualSourceBlending
     case subgroupSizeControl, subgroupUniformity, shaderBarycentrics, shaderPerVertex, vertexFormatSnorm1010102
     case multiview, selectiveMultiview, multisampleArray, vertexWritableStorage
-    case memoryDecorationCoherent, shaderDebugPrintf, cooperativeMatrix, rayQuery
+    case memoryDecorationCoherent, shaderDebugPrintf, cooperativeMatrix, rayQuery, meshShaders
 }
 
 public enum CooperativeMatrixScalar: String, Sendable, Hashable {
@@ -61,8 +61,21 @@ public struct DeviceCapabilities: Sendable, Equatable {
     public let maxComputeInvocationsPerWorkgroup: UInt32
     public let maxComputeWorkgroupSize: DispatchWorkgroups
     public let maxComputeWorkgroupsPerDimension: UInt32
+    public let maxTaskWorkgroupTotalCount: UInt32
+    public let maxTaskWorkgroupsPerDimension: UInt32
+    public let maxMeshWorkgroupTotalCount: UInt32
+    public let maxMeshWorkgroupsPerDimension: UInt32
+    public let maxTaskInvocationsPerWorkgroup: UInt32
+    public let maxTaskInvocationsPerDimension: UInt32
+    public let maxMeshInvocationsPerWorkgroup: UInt32
+    public let maxMeshInvocationsPerDimension: UInt32
+    public let maxTaskPayloadSize: UInt32
+    public let maxMeshOutputVertices: UInt32
+    public let maxMeshOutputPrimitives: UInt32
     public let maxVertexAttributes: UInt32
     public let maxVertexBuffers: UInt32
+    /// Maximum combined span of assigned bind groups and vertex buffer slots.
+    public let maxBindGroupsPlusVertexBuffers: UInt32
     public let maxVertexBufferArrayStride: UInt32
     public let maxInterStageShaderVariables: UInt32
     public let maxColorAttachments: UInt32
@@ -84,15 +97,45 @@ public struct DeviceCapabilities: Sendable, Equatable {
                 maxComputeInvocationsPerWorkgroup: UInt32 = 256,
                 maxComputeWorkgroupSize: DispatchWorkgroups = .init(x: 256, y: 256, z: 64),
                 maxComputeWorkgroupsPerDimension: UInt32 = 65_535, maxVertexAttributes: UInt32 = 16,
-                maxVertexBuffers: UInt32 = 8, maxVertexBufferArrayStride: UInt32 = 2048,
+                maxVertexBuffers: UInt32 = 8, maxBindGroupsPlusVertexBuffers: UInt32 = 24,
+                maxVertexBufferArrayStride: UInt32 = 2048,
                 maxInterStageShaderVariables: UInt32 = 16, maxColorAttachments: UInt32 = 8,
                 maxColorAttachmentBytesPerSample: UInt32 = 32, maxMultiviewViewCount: UInt32 = 0,
-                cooperativeMatrixProperties: [CooperativeMatrixProperties] = []) throws {
+                cooperativeMatrixProperties: [CooperativeMatrixProperties] = [],
+                maxTaskWorkgroupTotalCount: UInt32? = nil, maxTaskWorkgroupsPerDimension: UInt32? = nil,
+                maxMeshWorkgroupTotalCount: UInt32? = nil, maxMeshWorkgroupsPerDimension: UInt32? = nil,
+                maxTaskInvocationsPerWorkgroup: UInt32? = nil, maxTaskInvocationsPerDimension: UInt32? = nil,
+                maxMeshInvocationsPerWorkgroup: UInt32? = nil, maxMeshInvocationsPerDimension: UInt32? = nil,
+                maxTaskPayloadSize: UInt32? = nil, maxMeshOutputVertices: UInt32 = 256,
+                maxMeshOutputPrimitives: UInt32 = 256) throws {
         guard maxBufferSize > 0 else { throw GPUError.validation("maxBufferSize must be positive") }
         guard maxTextureDimension2D > 0 else { throw GPUError.validation("maxTextureDimension2D must be positive") }
         guard maxImmediateSize.isMultiple(of: 4) else { throw GPUError.validation("maxImmediateSize must be word-aligned") }
         guard maxComputeInvocationsPerWorkgroup > 0, !maxComputeWorkgroupSize.isEmpty, maxComputeWorkgroupsPerDimension > 0 else {
             throw GPUError.validation("Compute workgroup limits must be positive")
+        }
+        let meshDefault: UInt32 = features.contains(.meshShaders) ? 1024 : 0
+        let taskTotal = maxTaskWorkgroupTotalCount ?? meshDefault
+        let taskDimension = maxTaskWorkgroupsPerDimension ?? meshDefault
+        let meshTotal = maxMeshWorkgroupTotalCount ?? meshDefault
+        let meshDimension = maxMeshWorkgroupsPerDimension ?? meshDefault
+        guard features.contains(.meshShaders)
+                ? taskTotal > 0 && taskDimension > 0 && meshTotal > 0 && meshDimension > 0
+                : taskTotal == 0 && taskDimension == 0 && meshTotal == 0 && meshDimension == 0 else {
+            throw GPUError.validation("Mesh dispatch limits must match the mesh shader feature")
+        }
+        let taskInvocations = maxTaskInvocationsPerWorkgroup ?? meshDefault
+        let taskInvocationDimension = maxTaskInvocationsPerDimension ?? meshDefault
+        let meshInvocations = maxMeshInvocationsPerWorkgroup ?? meshDefault
+        let meshInvocationDimension = maxMeshInvocationsPerDimension ?? meshDefault
+        let taskPayload = maxTaskPayloadSize ?? (features.contains(.meshShaders) ? 16_352 : 0)
+        guard features.contains(.meshShaders)
+                ? taskInvocations > 0 && taskInvocationDimension > 0 && meshInvocations > 0 && meshInvocationDimension > 0 && taskPayload > 0
+                : taskInvocations == 0 && taskInvocationDimension == 0 && meshInvocations == 0 && meshInvocationDimension == 0 && taskPayload == 0 else {
+            throw GPUError.validation("Mesh stage limits must match the mesh shader feature")
+        }
+        guard maxMeshOutputVertices > 0, maxMeshOutputPrimitives > 0 else {
+            throw GPUError.validation("Mesh output limits must be positive")
         }
         guard maxVertexBufferArrayStride.isMultiple(of: 4) else {
             throw GPUError.validation("Maximum vertex buffer stride must be word-aligned")
@@ -120,8 +163,20 @@ public struct DeviceCapabilities: Sendable, Equatable {
         self.maxComputeInvocationsPerWorkgroup = maxComputeInvocationsPerWorkgroup
         self.maxComputeWorkgroupSize = maxComputeWorkgroupSize
         self.maxComputeWorkgroupsPerDimension = maxComputeWorkgroupsPerDimension
+        self.maxTaskWorkgroupTotalCount = taskTotal
+        self.maxTaskWorkgroupsPerDimension = taskDimension
+        self.maxMeshWorkgroupTotalCount = meshTotal
+        self.maxMeshWorkgroupsPerDimension = meshDimension
+        self.maxTaskInvocationsPerWorkgroup = taskInvocations
+        self.maxTaskInvocationsPerDimension = taskInvocationDimension
+        self.maxMeshInvocationsPerWorkgroup = meshInvocations
+        self.maxMeshInvocationsPerDimension = meshInvocationDimension
+        self.maxTaskPayloadSize = taskPayload
+        self.maxMeshOutputVertices = maxMeshOutputVertices
+        self.maxMeshOutputPrimitives = maxMeshOutputPrimitives
         self.maxVertexAttributes = maxVertexAttributes
         self.maxVertexBuffers = maxVertexBuffers
+        self.maxBindGroupsPlusVertexBuffers = maxBindGroupsPlusVertexBuffers
         self.maxVertexBufferArrayStride = maxVertexBufferArrayStride
         self.maxInterStageShaderVariables = maxInterStageShaderVariables
         self.maxColorAttachments = maxColorAttachments

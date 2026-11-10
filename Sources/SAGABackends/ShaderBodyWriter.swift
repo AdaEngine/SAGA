@@ -339,7 +339,7 @@ struct ShaderBodyWriter {
         var lines: [String] = []
         for (index, local) in function.localVariables.values.enumerated() {
             if case .rayQuery(let vertexReturn) = try module.types.value(for: local.type).kind {
-                guard (outputFormat == .msl || outputFormat == .hlsl || outputFormat == .glsl), !vertexReturn, local.initializer == nil else {
+                guard (outputFormat == .msl || outputFormat == .hlsl || outputFormat == .glsl), (!vertexReturn || outputFormat == .glsl), local.initializer == nil else {
                     throw unsupported("ray query local target")
                 }
                 let name = localName(index)
@@ -765,6 +765,19 @@ struct ShaderBodyWriter {
             let target = try address(handle)
             guard case .native(let reference) = target.memory else {
                 throw unsupported("pointer argument must address a native variable")
+            }
+            if try packedVectorMember(handle) {
+                let temporary = "saga_pointer_\(statementIndex)_\(slot)"
+                let type = try typeName(pointee)
+                let valid = target.boundsCheck
+                try append("\(declaration(type, named: temporary)) = \(try zeroValue(pointee));", to: &lines)
+                try writeStatements(["\(temporary) = \(type)(\(reference));"], when: valid, to: &lines)
+                lowered.append(temporary)
+                if module.allowsPointerSubviews { lowered.append(valid ?? "true") }
+                if pointerWrites[callee.index]?.contains(slot) == true {
+                    copyBack.append(("\(reference) = \(temporary);", valid))
+                }
+                continue
             }
             if !module.allowsPointerSubviews {
                 guard target.boundsCheck == nil else {
@@ -1288,6 +1301,19 @@ struct ShaderBodyWriter {
                     }
                 }
             }
+            remember(handle)
+        case .rayQueryVertexPositions(let query, let committed) where outputFormat == .glsl:
+            guard case .localVariable(let local) = try function.expressions.value(for: query).kind else {
+                throw unsupported("GLSL ray query vertex positions")
+            }
+            let queryName = localName(local.index), state = "\(queryName)_state"
+            let name = "saga_ray_vertices_\(handle.index)", choice = committed ? "true" : "false"
+            let condition = committed ? "(\(state) & 4u) != 0u && (\(state) & 2u) != 0u" : "(\(state) & 2u) != 0u && (\(state) & 4u) == 0u"
+            let triangle = committed ? "gl_RayQueryCommittedIntersectionTriangleEXT" : "gl_RayQueryCandidateIntersectionTriangleEXT"
+            try append("\(try typeName(expression.type)) \(name) = \(try zeroValue(expression.type));", to: &lines)
+            try append("if (\(condition) && rayQueryGetIntersectionTypeEXT(\(queryName), \(choice)) == \(triangle)) {", to: &lines)
+            try append("    rayQueryGetIntersectionTriangleVertexPositionsEXT(\(queryName), \(choice), \(name).elements);", to: &lines)
+            try append("}", to: &lines)
             remember(handle)
         case .rayQueryGetIntersection(let query, let committed):
             if outputFormat == .glsl {
@@ -2491,7 +2517,8 @@ struct ShaderBodyWriter {
         if case .aggregate(let access) = source.memory {
             value = try loadNested(access)
         } else {
-            value = try source.memory.load(in: outputFormat)
+            let loaded = try source.memory.load(in: outputFormat)
+            value = try packedVectorMember(pointer) ? "\(typeName(type))(\(loaded))" : loaded
         }
         if let condition = source.boundsCheck, safeBufferRead {
             let captured = "\(name)_in_bounds"
@@ -3094,8 +3121,8 @@ struct ShaderBodyWriter {
         _ query: IRHandle<IRExpression>, operation: IRRayQueryFunction, to lines: inout [String]
     ) throws {
         guard case .localVariable(let local) = try function.expressions.value(for: query).kind,
-              case .rayQuery(false) = try module.types.value(for: function.localVariables.value(for: local).type).kind
-        else { throw unsupported("GLSL ray query must be a local without vertex return") }
+              case .rayQuery = try module.types.value(for: function.localVariables.value(for: local).type).kind
+        else { throw unsupported("GLSL ray query must be a local") }
         let name = localName(local.index), state = "\(name)_state"
         switch operation {
         case .begin: try append("\(state) = 0u;", to: &lines)
@@ -3109,7 +3136,7 @@ struct ShaderBodyWriter {
             try append("{", to: &lines)
             try append("    \(state) = 0u;", to: &lines)
             try append("    \(type) \(desc) = \(source);", to: &lines)
-            try append("    if (!any(isnan(\(fields[4]))) && !any(isinf(\(fields[4]))) && !any(isnan(\(fields[5]))) && !any(isinf(\(fields[5]))) && !isnan(\(fields[2])) && !isinf(\(fields[2])) && !isnan(\(fields[3])) && \(fields[2]) >= 0.0 && \(fields[2]) <= \(fields[3]) && \(glslRayFlagsValid(fields[0]))) {", to: &lines)
+            try append("    if (!any(isnan(\(fields[4]))) && !any(isinf(\(fields[4]))) && !any(isnan(\(fields[5]))) && !any(isinf(\(fields[5]))) && !isnan(\(fields[2])) && !isnan(\(fields[3])) && \(fields[2]) >= 0.0 && \(fields[2]) <= \(fields[3]) && \(glslRayFlagsValid(fields[0]))) {", to: &lines)
             try append("        rayQueryInitializeEXT(\(name), \(accel), \(fields[0]), \(fields[1]), \(fields[4]), \(fields[2]), \(fields[5]), \(fields[3]));", to: &lines)
             try append("        \(name)_tmax = \(fields[3]);", to: &lines)
             try append("        \(state) = 1u;", to: &lines)
@@ -3287,7 +3314,7 @@ struct ShaderBodyWriter {
         if case .accessIndex(let base, let index) = pointer.kind {
             let source = try function.expressions.value(for: base)
             if case .pointer(let pointee, let space) = try module.types.value(for: source.type).kind,
-               space == .function || space == .workgroup || space == .private,
+               space == .function || space == .workgroup || space == .private || space == .taskPayload,
                case .structure = try module.types.value(for: pointee).kind {
                 let parent = try address(base, guardIndexForUniformLoad: guardIndexForUniformLoad)
                 guard case .native(let reference) = parent.memory else { throw unsupported("structure storage address") }
@@ -3314,7 +3341,7 @@ struct ShaderBodyWriter {
         }
         let source = try function.expressions.value(for: base)
         if case .pointer(let pointee, let space) = try module.types.value(for: source.type).kind,
-           space == .function || space == .workgroup || space == .private,
+           space == .function || space == .workgroup || space == .private || space == .taskPayload,
            case .array(_, .constant(let count), _) = try module.types.value(for: pointee).kind,
            try storageLocation(source.kind)?.bound == nil {
             let parent = try address(base, guardIndexForUniformLoad: guardIndexForUniformLoad)
@@ -4070,8 +4097,30 @@ struct ShaderBodyWriter {
         let constructor = try structures[type]?.constructor ?? typeName(type)
         let aggregate = structures[type] != nil && outputFormat == .msl
         try budget.consume(.sourceBytes, amount: constructor.utf8.count + components.count * 2 + 2)
-        let values = components.joined(separator: ", ")
-        return aggregate ? "\(constructor){\(values)}" : "\(constructor)(\(values))"
+        var values = components
+        if aggregate, let structure = structures[type] {
+            values = components.enumerated().flatMap { index, component in
+                structure.paddingBeforeMembers.contains(index) ? ["{}", component] : [component]
+            }
+            if structure.hasTrailingPadding { values.append("{}") }
+        }
+        let valuesText = values.joined(separator: ", ")
+        return aggregate ? "\(constructor){\(valuesText)}" : "\(constructor)(\(valuesText))"
+    }
+
+    private func packedVectorMember(_ handle: IRHandle<IRExpression>) throws -> Bool {
+        guard outputFormat == .msl,
+              case .accessIndex(let base, let index) = try function.expressions.value(for: handle).kind else {
+            return false
+        }
+        let baseType = try function.expressions.value(for: base).type
+        let structureType: IRHandle<IRType>
+        if case .pointer(let pointee, _) = try module.types.value(for: baseType).kind {
+            structureType = pointee
+        } else {
+            structureType = baseType
+        }
+        return structures[structureType]?.packedMemberIndices.contains(Int(index)) == true
     }
 
     private func member(_ index: UInt32, of type: IRHandle<IRType>) throws -> String {
@@ -4133,6 +4182,7 @@ struct ShaderBodyWriter {
         case .workgroupUniformLoadResult where temporaries.contains(handle): return "saga_uniform_\(handle.index)"
         case .rayQueryProceedResult where temporaries.contains(handle): return "saga_ray_proceed_\(handle.index)"
         case .rayQueryGetIntersection where temporaries.contains(handle): return "saga_ray_intersection_\(handle.index)"
+        case .rayQueryVertexPositions where temporaries.contains(handle): return "saga_ray_vertices_\(handle.index)"
         case .subgroupOperationResult, .subgroupBallotResult:
             guard temporaries.contains(handle) else { throw unsupported("Unavailable subgroup result") }
             return "saga_subgroup_\(handle.index)"
@@ -4140,7 +4190,8 @@ struct ShaderBodyWriter {
         case .callResult where temporaries.contains(handle): return "saga_call_\(handle.index)"
         case .globalVariable(let global) where outputFormat == .msl || outputFormat == .hlsl || outputFormat == .glsl:
             guard storage.indices.contains(global.index),
-                  case .accelerationStructure(false) = try module.types.value(for: expression.type).kind
+                  case .accelerationStructure(let vertexReturn) = try module.types.value(for: expression.type).kind,
+                  !vertexReturn || outputFormat == .glsl
             else { throw unsupported("global value") }
             return storage[global.index].reference
         case .functionArgument(let argument):
@@ -4172,7 +4223,9 @@ struct ShaderBodyWriter {
                 return fields[field]
             }
             let field = try member(index, of: source.type)
-            return try value(base) + field
+            let reference = try value(base) + field
+            if try packedVectorMember(handle) { return "\(try typeName(expression.type))(\(reference))" }
+            return reference
         case .relational(let reduction, let operand) where reduction.isBooleanReduction:
             let operandType = try function.expressions.value(for: operand).type
             let argument = try value(operand)

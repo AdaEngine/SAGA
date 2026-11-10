@@ -110,3 +110,120 @@ func rejectsInvalidExplicitTextureSamplingOperands(call: String) {
     await device.close()
 }
 #endif
+
+@Test func samplerAddressModeWDefaultsToClamp() {
+    #expect(SamplerDescriptor().addressModeW == .clampToEdge)
+    #expect(SamplerDescriptor(addressModeW: .repeat).addressModeW == .repeat)
+    #expect(SamplerDescriptor(addressModeW: .mirrorRepeat).addressModeW == .mirrorRepeat)
+}
+
+#if canImport(Metal)
+@Test func samplerAddressesVolumeCoordinatesOnMetal() async throws {
+    let device = try await Device.make(backend: MetalBackend.makeDevice())
+    do {
+        let shader = """
+            @group(0) @binding(0) var image: texture_3d<f32>;
+            @group(0) @binding(1) var repeating: sampler;
+            @group(0) @binding(2) var mirrored: sampler;
+            @group(0) @binding(3) var clamped: sampler;
+            @group(0) @binding(4) var<storage, read_write> result: array<vec4f, 6>;
+            @compute @workgroup_size(1) fn run() {
+                result[0] = textureSampleLevel(image, repeating, vec3f(0.5, 0.5, 1.25), 0.0);
+                result[1] = textureSampleLevel(image, repeating, vec3f(0.5, 0.5, -0.25), 0.0);
+                result[2] = textureSampleLevel(image, mirrored, vec3f(0.5, 0.5, 1.25), 0.0);
+                result[3] = textureSampleLevel(image, mirrored, vec3f(0.5, 0.5, -0.25), 0.0);
+                result[4] = textureSampleLevel(image, clamped, vec3f(0.5, 0.5, 1.25), 0.0);
+                result[5] = textureSampleLevel(image, clamped, vec3f(0.5, 0.5, -0.25), 0.0);
+            }
+            """
+        let pipeline = try await device.createComputePipeline(
+            IndependentShaderCompiler().compileCompute(.wgsl(shader), to: .msl))
+        let repeating = try await device.createSampler(.init(addressModeW: .repeat))
+        let mirrored = try await device.createSampler(.init(addressModeW: .mirrorRepeat))
+        let clamped = try await device.createSampler(.init())
+        let image = try await device.createTexture(.init(width: 1, height: 1, format: .rgba8Unorm,
+            usage: [.copyDestination, .textureBinding], dimension: .d3, depth: 2))
+        let upload = try await device.createBuffer(.init(size: 8, usage: [.copyDestination, .copySource]))
+        let output = try await device.createBuffer(.init(size: 96, usage: [.storage, .copySource]))
+        let read = try await device.createBuffer(.init(size: 96, usage: [.copyDestination, .mapRead]))
+        let ticket = try await device.submitCommands([
+            .write(buffer: upload, offset: 0, words: [0xff0000ff, 0xff00ff00]),
+            .copyBufferToTexture(source: upload, layout: .init(), destination: image, region: .init(width: 1, height: 1)),
+            .copyBufferToTexture(source: upload, layout: .init(offset: 4), destination: image,
+                                 region: .init(width: 1, height: 1, z: 1)),
+            .dispatchCompute(pipeline: pipeline, bindings: [.init(binding: 4): output], workgroups: .init(x: 1),
+                textures: [.init(binding: 0): image], samplers: [.init(binding: 1): repeating,
+                    .init(binding: 2): mirrored, .init(binding: 3): clamped]),
+            .copy(source: output, destination: read, byteCount: 96), .read(buffer: read, byteCount: 96),
+        ])
+        let snapshots = try await ticket.wait()
+        let expected: [Float] = [1, 0, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1,
+                                 1, 0, 0, 1, 0, 1, 0, 1, 1, 0, 0, 1]
+        #expect(snapshots[0] == expected.map(\.bitPattern))
+    } catch {
+        await device.close()
+        throw error
+    }
+    await device.close()
+}
+#endif
+
+@Test func samplerLODClampDefaultsAndValidation() throws {
+    let defaults = SamplerDescriptor()
+    #expect(defaults.lodMinClamp == 0)
+    #expect(defaults.lodMaxClamp == 32)
+    try SamplerDescriptor(lodMinClamp: 1, lodMaxClamp: 2).validate()
+    try SamplerDescriptor(lodMinClamp: 2, lodMaxClamp: 2).validate()
+    for descriptor in [SamplerDescriptor(lodMinClamp: -1),
+                       SamplerDescriptor(lodMinClamp: 2, lodMaxClamp: 1),
+                       SamplerDescriptor(lodMinClamp: .nan),
+                       SamplerDescriptor(lodMaxClamp: .nan),
+                       SamplerDescriptor(lodMaxClamp: .infinity)] {
+        #expect(throws: GPUError.self) { try descriptor.validate() }
+    }
+}
+
+#if canImport(Metal)
+@Test func samplerLODClampSelectsMipLevelsOnMetal() async throws {
+    let device = try await Device.make(backend: MetalBackend.makeDevice())
+    do {
+        await #expect(throws: GPUError.validation("Invalid sampler LOD clamp range")) {
+            try await device.createSampler(.init(lodMinClamp: 2, lodMaxClamp: 1))
+        }
+        let shader = """
+            @group(0) @binding(0) var image: texture_2d<f32>;
+            @group(0) @binding(1) var minClamped: sampler;
+            @group(0) @binding(2) var maxClamped: sampler;
+            @group(0) @binding(3) var<storage, read_write> output: array<vec4f, 2>;
+            @compute @workgroup_size(1) fn run() {
+                output[0] = textureSampleLevel(image, minClamped, vec2f(0.5), 0.0);
+                output[1] = textureSampleLevel(image, maxClamped, vec2f(0.5), 1.0);
+            }
+            """
+        let pipeline = try await device.createComputePipeline(
+            IndependentShaderCompiler().compileCompute(.wgsl(shader), to: .msl))
+        let minSampler = try await device.createSampler(.init(lodMinClamp: 1))
+        let maxSampler = try await device.createSampler(.init(lodMaxClamp: 0))
+        let image = try await device.createTexture(.init(width: 2, height: 1, format: .rgba8Unorm,
+            usage: [.copyDestination, .textureBinding], mipLevelCount: 2))
+        let upload = try await device.createBuffer(.init(size: 12, usage: [.copyDestination, .copySource]))
+        let output = try await device.createBuffer(.init(size: 32, usage: [.storage, .copySource]))
+        let read = try await device.createBuffer(.init(size: 32, usage: [.copyDestination, .mapRead]))
+        let ticket = try await device.submitCommands([
+            .write(buffer: upload, offset: 0, words: [0xff0000ff, 0xff0000ff, 0xff00ff00]),
+            .copyBufferToTexture(source: upload, layout: .init(), destination: image, region: .init(width: 2, height: 1)),
+            .copyBufferToTexture(source: upload, layout: .init(offset: 8), destination: image,
+                                 region: .init(width: 1, height: 1, mipLevel: 1)),
+            .dispatchCompute(pipeline: pipeline, bindings: [.init(binding: 3): output], workgroups: .init(x: 1),
+                textures: [.init(binding: 0): image], samplers: [.init(binding: 1): minSampler, .init(binding: 2): maxSampler]),
+            .copy(source: output, destination: read, byteCount: 32), .read(buffer: read, byteCount: 32),
+        ])
+        let expected: [Float] = [0, 1, 0, 1, 1, 0, 0, 1]
+        #expect(try await ticket.wait() == [expected.map(\.bitPattern)])
+    } catch {
+        await device.close()
+        throw error
+    }
+    await device.close()
+}
+#endif

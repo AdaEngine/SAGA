@@ -4,7 +4,7 @@ internal import SAGAValidation
 
 func specializeOverrides(
     _ validated: ValidatedModule<IRModule>, entry: IREntryPoint?, constants: [String: Double],
-    retainLinkedStages: Bool, validator: ShaderSemanticValidator
+    retainLinkedStages: Bool, validator: ShaderSemanticValidator, glslPipelineFamily: GLSLRenderPipelineFamily? = nil
 ) throws -> ValidatedModule<IRModule> {
     let module = validated.module
     let isolateCompute = entry?.stage == .compute && module.entryPoints.count > 1
@@ -13,7 +13,8 @@ func specializeOverrides(
         throw ShaderFailure.unsupported("Override specialization requires a selected entry point")
     }
     var specializer = OverrideSpecializer(module: module, budget: ShaderBudget())
-    let specialized = try specializer.specialize(entry, constants: constants, retainLinkedStages: retainLinkedStages)
+    let specialized = try specializer.specialize(entry, constants: constants, retainLinkedStages: retainLinkedStages,
+                                                 glslPipelineFamily: glslPipelineFamily)
     return try ValidatedModule.checking(specialized, with: validator)
 }
 
@@ -23,7 +24,8 @@ private struct OverrideSpecializer {
     var values: [IRHandle<IROverride>: IRLiteral] = [:]
 
     mutating func specialize(
-        _ entry: IREntryPoint, constants: [String: Double], retainLinkedStages: Bool
+        _ entry: IREntryPoint, constants: [String: Double], retainLinkedStages: Bool,
+        glslPipelineFamily: GLSLRenderPipelineFamily?
     ) throws -> IRModule {
         var keys: [[UInt8]: IRHandle<IROverride>] = [:]
         for (index, declaration) in module.overrides.values.enumerated() {
@@ -41,9 +43,19 @@ private struct OverrideSpecializer {
             values[handle] = try literal(value, for: module.overrides.value(for: handle))
         }
         let live = try reachableFunctions(from: [entry.function])
-        // Retain the other render entry points for shared GLSL resource layout.
-        let retainedEntries = retainLinkedStages && entry.stage != .compute
-            ? module.entryPoints.filter { $0.stage != .compute } : [entry]
+        // GLSL allocates resource units across each compatible pipeline family.
+        // A vertex/fragment pipeline cannot link with a task/mesh pipeline.
+        let retainedEntries: [IREntryPoint]
+        let meshFamily = entry.stage == .task || entry.stage == .mesh ||
+            (entry.stage == .fragment && (glslPipelineFamily == .mesh ||
+                (glslPipelineFamily == nil && module.entryPoints.contains { $0.stage == .mesh })))
+        if retainLinkedStages && meshFamily {
+            retainedEntries = module.entryPoints.filter { $0.stage == .task || $0.stage == .mesh || $0.stage == .fragment }
+        } else if retainLinkedStages && (entry.stage == .vertex || entry.stage == .fragment) {
+            retainedEntries = module.entryPoints.filter { $0.stage == .vertex || $0.stage == .fragment }
+        } else {
+            retainedEntries = [entry]
+        }
         let retained = retainedEntries.count == 1 ? live : try reachableFunctions(from: retainedEntries.map(\.function))
         let used = try reachableOverrides(entry, functions: live, linkedFunctions: retained)
         // Validation requires dependencies to precede users in the override table.

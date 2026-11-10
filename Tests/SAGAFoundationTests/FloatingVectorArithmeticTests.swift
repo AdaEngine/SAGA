@@ -44,6 +44,10 @@ func emitsFloatingVectorArithmetic(format: ShaderOutputFormat) throws {
         #expect(source.contains("fmod("))
     case .glsl:
         #expect(source.contains("lessThan(") && source.contains("trunc("))
+        // The frontend broadcasts the scalar in `ah % 2h` before code generation.
+        #expect(source.split(separator: "\n").contains { line in
+            line.contains("f16vec4 saga_remainder_") && line.contains("_rhs = f16vec4(")
+        })
     default: Issue.record("Unexpected target")
     }
 }

@@ -304,12 +304,22 @@ public struct IRStructMember: Sendable, Equatable {
     public let binding: IRBinding?
     public let offset: UInt32
     public let location: ShaderLocation?
+    package let explicitAlignment: UInt32?
     public init(name: String? = nil, type: IRHandle<IRType>, binding: IRBinding? = nil, offset: UInt32, location: ShaderLocation? = nil) {
         self.name = name
         self.type = type
         self.binding = binding
         self.offset = offset
         self.location = location
+        self.explicitAlignment = nil
+    }
+    package init(name: String? = nil, type: IRHandle<IRType>, binding: IRBinding? = nil, offset: UInt32, location: ShaderLocation? = nil, explicitAlignment: UInt32?) {
+        self.name = name
+        self.type = type
+        self.binding = binding
+        self.offset = offset
+        self.location = location
+        self.explicitAlignment = explicitAlignment
     }
 }
 

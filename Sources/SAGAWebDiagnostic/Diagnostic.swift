@@ -77,6 +77,7 @@ func runWebDiagnostic(
         let bindings = [inputSlot: input, outputSlot: output]
         let ticket = try await device.submitCommands([
             .write(buffer: input, offset: 0, words: [0, 1, 2, .max]),
+            .write(buffer: input, offset: 16, words: []),
             .dispatchCompute(pipeline: pipeline, bindings: bindings, workgroups: .init(x: 0)),
             .copy(source: output, destination: readback, byteCount: 16),
             .read(buffer: readback, byteCount: 16),
@@ -89,6 +90,7 @@ func runWebDiagnostic(
         guard result == [[0, 0, 0, 0], [8, 12, 16, 7]] else {
             throw GPUError.backendFailure("Unexpected WebGPU readback: \(result)")
         }
+        try await explicitLayoutDiagnostic(device)
         let integerWords = try await integerDiagnostic(device)
         let runtimeArrayWords = try await runtimeArrayDiagnostic(device)
         let storageTailWords = try await storageTailDiagnostic(device)
@@ -111,10 +113,12 @@ func runWebDiagnostic(
         let matrixValues = try await matrixDiagnostic(device)
         let matrixBufferValues = try await matrixBufferDiagnostic(device)
         let switchWords = try await switchDiagnostic(device)
+        let continuingTargetsWords = try await continuingTargetsDiagnostic(device)
         let textureUploadWords = try await textureUploadDiagnostic(device)
         let textureLoadWords = try await textureLoadDiagnostic(device)
         let renderTexturePixels = try await renderTextureDiagnostic(device)
         let samplerValues = try await samplerDiagnostic(device)
+        try await samplerLODClampDiagnostic(device)
         let renderSamplerPixels = try await renderSamplerDiagnostic(device)
         let mipTextureWords = try await mipTextureDiagnostic(device)
         let textureViewWords = try await textureViewDiagnostic(device)
@@ -272,7 +276,7 @@ func runWebDiagnostic(
                        String(atomicRMWWords), String(atomicCompareWords), String(mixedAtomicWords), csv(uniformLoadWords),
                        csv(selectWords), csv(constantWords), csv(uniformWords), csv(renderUniformPixels),
                        matrixValues.map { String($0) }.joined(separator: ","),
-                       matrixBufferValues.map { String($0) }.joined(separator: ","), csv(switchWords),
+                       matrixBufferValues.map { String($0) }.joined(separator: ","), csv(switchWords + continuingTargetsWords),
                        csv(textureUploadWords), csv(textureLoadWords), csv(renderTexturePixels), csv(samplerValues),
                        csv(renderSamplerPixels), csv(mipTextureWords), csv(textureViewWords), csv(textureGatherLanes),
                        csv(storageTextureWords), csv(fragmentStorageTextureWords), csv(readWriteStorageWords),
@@ -280,7 +284,7 @@ func runWebDiagnostic(
                        csv(depthComparisonWords), csv(depthGatherLanes), rawDepthGather, csv(multisampleWords), csv(integerTextureWords), csv(integerGatherWords), csv(sampleCoverageWords), csv(fragmentDepthWords), csv(fragmentRasterWords), String(interpolationWord), csv(topologyWords), csv(blendWords), csv(alphaCoverageWords), csv(multipleColorWords), csv(viewportWords), csv(depthBiasWords), csv(stencilWords + msaaStencilWords), csv(readOnlyDepthWords), csv(aspectWords + msaaAspectWords), csv(stencilCopyWords), csv(textureCopyWords), csv(arrayWords), csv(layerViewWords), csv(arraySamplingWords), csv(storageArrayWords), String(storageFormats), csv(cubeWords), csv(volumeWords), csv(volumeStorageWords), csv(volumeRenderWords), csv(lineTextureWords), csv(bitcastWords), csv(integerBitWords), csv(packingWords), csv(geometricWords), csv(matrixBuiltinWords), csv(derivativeWords), csv(derivativeFilterWords), csv(numericBuiltinWords), csv(transcendentalWords), csv(decompositionWords), csv(halfPrecisionWords), csv(halfBufferWords), csv(halfMatrixWords), csv(halfGeometryWords), csv(halfBitcastWords), csv(halfNumericWords), csv(quantizeWords), csv(floatingVectorWords), csv(overrideWords), csv(computedOverrideWords), csv(overrideArrayWords), csv(pipelineBodyWords), csv(pipelineAggregateWords), csv(pipelineCompositeWords), csv(arrayConstantWords), csv(pipelineBuiltinWords), csv(conversionWords), csv(halfConversionWords), csv(localArrayWords), csv(workgroupAggregateWords), csv(privateVariableWords), csv(privateRenderWords), csv(pointerWords), csv(pointerSubviewWords), csv(sharedPointerWords), csv(swizzleAssignmentWords), csv(nestedStorageWords), csv(nestedHalfStorageWords), csv(nestedAtomicWords), csv(nestedUniformWords), csv(nestedHalfUniformWords), csv(standardUniformWords), csv(renderStorageBufferWords), csv(indirectDispatchWords), csv(indirectDrawWords), csv(clipDistancePixels), csv(primitiveIndexPixels), csv(invariantPositionPixels), csv(voidFragmentPixels), csv(discardContinuationWords), csv(depthClipWords), csv(timestampQueryWords), csv(occlusionQueryWords), csv(mappedBufferWords), csv(bufferRangeWords), csv(queueTextureWords), csv(subgroupGatherWords), csv(subgroupCollectiveWords), csv(subgroupIndexWords), csv(dualSourcePixels), csv(bcTextureWords), csv(etc2TextureWords), csv(astcTextureWords), csv(bcVolumeWords), csv(astcVolumeWords), csv(callStatementWords), csv(matrixCompoundWords), csv(float32TextureWords), csv(float32ColorWords), csv(halfTexelWords), csv(halfColorWords), csv(halfStorageWords), csv(integer16ColorWords), csv(integer16MSAAWords), csv(integer16StorageWords), csv(normalized16StorageWords), csv(normalized16ColorWords), csv(packedColorWords), csv(packedStorageWords), csv(srgbWords), csv(sharedExponentWords), csv(byteTransferWords), csv(byteColorWords), csv(byteStorageWords), csv(depthOnlyFormatWords), csv(depth32StencilWords), csv(stencilOnlyWords), csv(bgraStorageWords), csv(wideStorageWords), csv(forwardedResourceWords), csv(webBufferArrayWords), csv(externalTextureWords)]
         return (["swift"] + snapshots + metrics + [csv(immediateWords), csv(renderImmediateWords),
                                                    String(linearIndexingInvocations), String(requestedSubgroupSize),
-                                                   csv(subgroupUniformityWords)]).joined(separator: "|")
+                                                   csv(subgroupUniformityWords), String(device.capabilities.maxBindGroupsPlusVertexBuffers)]).joined(separator: "|")
     } catch {
         await device.close()
         throw error
@@ -386,7 +390,7 @@ private func renderImmediateDiagnostic(_ device: Device) async throws -> [UInt32
 private func integerDiagnostic(_ device: Device) async throws -> Int {
     let source = """
         @group(0) @binding(0) var<storage, read> input: array<u32, 6>;
-        @group(0) @binding(1) var<storage, read_write> output: array<u32, 20>;
+        @group(0) @binding(1) var<storage, read_write> output: array<u32, 24>;
         @compute @workgroup_size(1)
         fn run() {
             let a = vec2u(input[0u], input[3u]);
@@ -404,6 +408,8 @@ private func integerDiagnostic(_ device: Device) async throws -> Int {
             let urem = a % b;
             let bias = vec2u(lhs + 1i);
             let cmp = lhs < rhs;
+            let abstractNeg = vec2i(-(vec2(1, 2)));
+            let abstractNot = vec2i(~(vec2(1, 2)));
             output[0u] = sum.x; output[1u] = neg.x; output[2u] = div.x; output[3u] = rem.x;
             output[4u] = shr.x; output[5u] = shl.x; output[6u] = udiv.x; output[7u] = urem.x;
             output[8u] = sum.y; output[9u] = neg.y; output[10u] = div.y; output[11u] = rem.y;
@@ -411,25 +417,28 @@ private func integerDiagnostic(_ device: Device) async throws -> Int {
             output[16u] = bias.x; output[17u] = bias.y;
             if cmp.x { output[18u] = 1u; }
             if cmp.y { output[19u] = 1u; }
+            output[20u] = bitcast<u32>(abstractNeg.x); output[21u] = bitcast<u32>(abstractNeg.y);
+            output[22u] = bitcast<u32>(abstractNot.x); output[23u] = bitcast<u32>(abstractNot.y);
         }
         """
     let shader = try IndependentShaderCompiler().compileCompute(.wgsl(source), to: .wgsl)
     let pipeline = try await device.createComputePipeline(shader)
     let input = try await device.createBuffer(.init(size: 24, usage: [.storage, .copyDestination]))
-    let output = try await device.createBuffer(.init(size: 80, usage: [.storage, .copySource]))
-    let read = try await device.createBuffer(.init(size: 80, usage: [.mapRead, .copyDestination]))
+    let output = try await device.createBuffer(.init(size: 96, usage: [.storage, .copySource]))
+    let read = try await device.createBuffer(.init(size: 96, usage: [.mapRead, .copyDestination]))
     let ticket = try await device.submitCommands([
         .write(buffer: input, offset: 0, words: [0x80000000, .max, 32, 0xfffffff9, 0, 63]),
         .dispatchCompute(pipeline: pipeline, bindings: [.init(binding: 0): input, .init(binding: 1): output],
                          workgroups: .init(x: 1)),
-        .copy(source: output, destination: read, byteCount: 80),
-        .read(buffer: read, byteCount: 80),
+        .copy(source: output, destination: read, byteCount: 96),
+        .read(buffer: read, byteCount: 96),
     ])
     let result = try await ticket.wait()
     let expected: [UInt32] = [
         0x7fffffff, 0x80000000, 0x80000000, 0, 0x80000000, 0x80000000, 0, 0x80000000,
         0xfffffff9, 7, 0xfffffff9, 0, .max, 0x80000000, 0xfffffff9, 0,
         0x80000001, 0xfffffffa, 1, 1,
+        0xffffffff, 0xfffffffe, 0xfffffffe, 0xfffffffd,
     ]
     guard result == [expected] else { throw GPUError.backendFailure("Unexpected integer WebGPU readback: \(result)") }
     return expected.count
@@ -2140,12 +2149,14 @@ private func packedVertexProbes(
         let vertex = try compiler.compileWebGPURenderStage(source, entryPoint: "vs")
         let fragment = try compiler.compileWebGPURenderStage(source, entryPoint: "fs")
         let pipeline = try await device.createRenderPipeline(vertex: vertex, fragment: fragment, colorFormat: .rgba8Uint,
-            vertexBuffers: [.init(stride: 0, stepMode: .instance, attributes: attributes)])
+            vertexBuffers: [.init(stride: 0, attributes: []),
+                            .init(stride: 0, stepMode: .instance, attributes: attributes)])
         let stream = try await device.createBuffer(.init(size: UInt64(bytes.count), usage: [.vertex, .copyDestination]))
         commands += [
             .writeBytes(buffer: stream, offset: 0, bytes: bytes),
             .render(pipeline: pipeline, target: target, clear: .transparentBlack, vertexCount: 3,
-                    vertexBuffers: [.init(buffer: stream)]),
+                    vertexBuffers: [.init(buffer: stream, slot: device.capabilities.maxVertexBuffers - 1),
+                                    .init(buffer: stream, slot: 1)]),
             .copyTextureToBuffer(source: target, destination: readback, bytesPerRow: 256),
             .read(buffer: readback, byteCount: 4),
         ]
@@ -2442,6 +2453,47 @@ private func matrixBufferDiagnostic(_ device: Device) async throws -> [Float] {
     return values + roundTripValues
 }
 
+private func continuingTargetsDiagnostic(_ device: Device) async throws -> [UInt32] {
+    let source = """
+        @group(0) @binding(0) var<storage, read_write> output: u32;
+        @compute @workgroup_size(1) fn run() {
+            var n = 0u;
+            var total = 0u;
+            loop {
+                continuing {
+                    switch n {
+                        case 0u: { total += 2u; break; }
+                        default: { total += 5u; }
+                    }
+                    var j = 0u;
+                    loop {
+                        j++;
+                        if j < 2u { continue; }
+                        total += j;
+                        break;
+                    }
+                    n++;
+                    break if n == 3u;
+                }
+            }
+            output = total;
+        }
+        """
+    let shader = try IndependentShaderCompiler().compileCompute(.wgsl(source), to: .wgsl)
+    let pipeline = try await device.createComputePipeline(shader)
+    let output = try await device.createBuffer(.init(size: 4, usage: [.storage, .copySource]))
+    let readback = try await device.createBuffer(.init(size: 4, usage: [.mapRead, .copyDestination]))
+    let result = try await device.submitCommands([
+        .dispatchCompute(pipeline: pipeline, bindings: [.init(binding: 0): output], workgroups: .init(x: 1)),
+        .copy(source: output, destination: readback, byteCount: 4),
+        .read(buffer: readback, byteCount: 4),
+    ]).wait()
+    guard result == [[18]] else {
+        throw GPUError.backendFailure("Unexpected continuing targets readback: \(result)")
+    }
+    return result[0]
+}
+
 private func switchDiagnostic(_ device: Device) async throws -> [UInt32] {
     let source = ShaderInput.glsl("""
         precision highp float;
@@ -2695,6 +2747,12 @@ private func textureUploadDiagnostic(_ device: Device) async throws -> [UInt32] 
                                                     usage: [.copyDestination, .copySource]))
     let read = try await device.createBuffer(.init(size: 528, usage: [.copyDestination, .mapRead]))
     let texels: [UInt32] = [0xff112233, 0xff445566, 0xff778899, 0xffaabbcc]
+    // Distinct image strides exercise both directions and preserve the gaps.
+    let layered = try await device.createTexture(.init(width: 2, height: 2, format: .rgba8Unorm,
+        usage: [.copyDestination, .copySource], arrayLayerCount: 2))
+    let layeredSource = try await device.createBuffer(.init(size: 1036, usage: [.copySource, .copyDestination]))
+    let layeredRead = try await device.createBuffer(.init(size: 1296, usage: [.copyDestination, .mapRead]))
+    let sentinel: UInt32 = 0xdeadbeef
     let ticket = try await device.submitCommands([
         .write(buffer: source, offset: 4, words: Array(texels.prefix(2))),
         .write(buffer: source, offset: 260, words: Array(texels.suffix(2))),
@@ -2712,6 +2770,28 @@ private func textureUploadDiagnostic(_ device: Device) async throws -> [UInt32] 
                              destination: full, region: .init(width: 2, height: 1)),
         .copyTextureToBuffer(source: full, destination: read, bytesPerRow: 256),
         .read(buffer: read, byteCount: 8),
+        .write(buffer: layeredSource, offset: 4, words: [texels[0], texels[1]]),
+        .write(buffer: layeredSource, offset: 260, words: [texels[2], texels[3]]),
+        .write(buffer: layeredSource, offset: 772, words: [texels[1], texels[0]]),
+        .write(buffer: layeredSource, offset: 1028, words: [texels[3], texels[2]]),
+        .write(buffer: layeredRead, offset: 0, words: Array(repeating: sentinel, count: 324)),
+        .copyBufferToTexture(source: layeredSource, layout: .init(offset: 4, bytesPerRow: 256, rowsPerImage: 3),
+                             destination: layered, region: .init(width: 2, height: 2, depth: 2)),
+        .copyTextureToBuffer(source: layered, destination: layeredRead, bytesPerRow: 256,
+                             destinationOffset: 8, depth: 2, rowsPerImage: 4),
+        .copyTextureToBuffer(source: layered, destination: layeredRead, bytesPerRow: 256,
+                             destinationOffset: 1296, arrayLayer: 2, depth: 0),
+        .read(buffer: layeredRead, byteCount: 1296),
+        .write(buffer: layeredRead, offset: 0, words: Array(repeating: sentinel, count: 324)),
+        .copyTextureRegionToBuffer(source: layered, destination: layeredRead,
+            layout: .init(offset: 8, bytesPerRow: 256, rowsPerImage: 4),
+            region: .init(x: 1, y: 1, width: 1, height: 1, depth: 2)),
+        .read(buffer: layeredRead, byteCount: 1296),
+        .write(buffer: layeredRead, offset: 0, words: Array(repeating: sentinel, count: 324)),
+        .copyTextureRegionToBuffer(source: layered, destination: layeredRead,
+            layout: .init(offset: 8, bytesPerRow: 256),
+            region: .init(x: 1, width: 1, height: 2, depth: 2)),
+        .read(buffer: layeredRead, byteCount: 1296),
     ])
     try await device.destroyBuffer(source)
     let result = try await ticket.wait()
@@ -2720,7 +2800,18 @@ private func textureUploadDiagnostic(_ device: Device) async throws -> [UInt32] 
     first[129] = texels[2]; first[130] = texels[3]
     var second = first
     second[3] = texels[1]
-    guard result == [first, second, Array(texels.prefix(2))] else {
+    var layeredExpected = Array(repeating: sentinel, count: 324)
+    layeredExpected.replaceSubrange(2..<4, with: [texels[0], texels[1]])
+    layeredExpected.replaceSubrange(66..<68, with: [texels[2], texels[3]])
+    layeredExpected.replaceSubrange(258..<260, with: [texels[1], texels[0]])
+    layeredExpected.replaceSubrange(322..<324, with: [texels[3], texels[2]])
+    var regionExpected = Array(repeating: sentinel, count: 324)
+    regionExpected[2] = texels[3]
+    regionExpected[258] = texels[2]
+    var packedExpected = Array(repeating: sentinel, count: 324)
+    packedExpected[2] = texels[1]; packedExpected[66] = texels[3]
+    packedExpected[130] = texels[0]; packedExpected[194] = texels[2]
+    guard result == [first, second, Array(texels.prefix(2)), layeredExpected, regionExpected, packedExpected] else {
         throw GPUError.backendFailure("Unexpected WebGPU texture upload readback")
     }
     return [3, 65, 66, 129, 130].map { result[1][$0] }
@@ -2859,6 +2950,45 @@ private func renderTextureDiagnostic(_ device: Device) async throws -> [UInt32] 
         throw GPUError.backendFailure("Unexpected textured render pixels: \(pixels)")
     }
     return pixels
+}
+
+private func samplerLODClampDiagnostic(_ device: Device) async throws {
+    let source = ShaderInput.wgsl("""
+        @group(0) @binding(0) var<storage, read_write> out: array<vec4f, 2>;
+        @group(0) @binding(1) var image: texture_2d<f32>;
+        @group(0) @binding(2) var state: sampler;
+        @compute @workgroup_size(1) fn run() {
+            out[0] = textureSampleLevel(image, state, vec2f(0.5), 0.0);
+            out[1] = textureSampleLevel(image, state, vec2f(0.5), 8.0);
+        }
+        """)
+    let shader = try IndependentShaderCompiler().compileCompute(source, to: .wgsl)
+    let pipeline = try await device.createComputePipeline(shader)
+    let sampler = try await device.createSampler(.init(minFilter: .linear, magFilter: .linear,
+        mipmapFilter: .linear, lodMinClamp: 1, lodMaxClamp: 1, maxAnisotropy: 32))
+    let image = try await device.createTexture(.init(width: 4, height: 1, format: .rgba8Unorm,
+        usage: [.copyDestination, .textureBinding], mipLevelCount: 3))
+    let upload = try await device.createBuffer(.init(size: 28, usage: [.copyDestination, .copySource]))
+    let out = try await device.createBuffer(.init(size: 32, usage: [.storage, .copySource]))
+    let read = try await device.createBuffer(.init(size: 32, usage: [.copyDestination, .mapRead]))
+    let ticket = try await device.submitCommands([
+        .write(buffer: upload, offset: 0, words: [0xff0000ff, 0xff0000ff, 0xff0000ff, 0xff0000ff,
+                                                0xff00ff00, 0xff00ff00, 0xffff0000]),
+        .copyBufferToTexture(source: upload, layout: .init(), destination: image, region: .init(width: 4, height: 1)),
+        .copyBufferToTexture(source: upload, layout: .init(offset: 16), destination: image,
+                             region: .init(width: 2, height: 1, mipLevel: 1)),
+        .copyBufferToTexture(source: upload, layout: .init(offset: 24), destination: image,
+                             region: .init(width: 1, height: 1, mipLevel: 2)),
+        .dispatchCompute(pipeline: pipeline, bindings: [.init(binding: 0): out], workgroups: .init(x: 1),
+                         textures: [.init(binding: 1): image], samplers: [.init(binding: 2): sampler]),
+        .copy(source: out, destination: read, byteCount: 32),
+        .read(buffer: read, byteCount: 32),
+    ])
+    let snapshots = try await ticket.wait()
+    let expected: [Float] = [0, 1, 0, 1, 0, 1, 0, 1]
+    guard snapshots.first == expected.map(\.bitPattern) else {
+        throw GPUError.backendFailure("Unexpected WebGPU sampler LOD clamp readback: \(snapshots)")
+    }
 }
 
 private func samplerDiagnostic(_ device: Device) async throws -> [UInt32] {
@@ -5544,6 +5674,7 @@ private func arrayTextureDiagnostic(_ device: Device) async throws -> [UInt32] {
     let upload = try await device.createBuffer(.init(size: 16, usage: [.copySource, .copyDestination]))
     let out = try await device.createBuffer(.init(size: 80, usage: [.storage, .copySource]))
     let read = try await device.createBuffer(.init(size: 80, usage: [.copyDestination, .mapRead]))
+    let layeredRead = try await device.createBuffer(.init(size: 264, usage: [.copyDestination, .mapRead]))
     func load(_ texture: ResourceID) -> BufferCommand {
         .dispatchCompute(pipeline: pipeline, bindings: [.init(binding: 1): out], workgroups: .init(x: 1),
                          textures: [.init(binding: 0): texture])
@@ -5568,13 +5699,19 @@ private func arrayTextureDiagnostic(_ device: Device) async throws -> [UInt32] {
         .read(buffer: read, byteCount: 8),
         .copyTextureToBuffer(source: copied, destination: read, bytesPerRow: 256, arrayLayer: 2),
         .read(buffer: read, byteCount: 8),
+        .copyTextureToBuffer(source: copied, destination: layeredRead, bytesPerRow: 256, arrayLayer: 1, depth: 2),
+        .read(buffer: layeredRead, byteCount: 264),
     ])
     let expected: [UInt32] = [1, 2, 128, 240, 204, 221, 238, 255, 0, 0, 0, 0, 0, 0, 0, 0, 2, 1, 3, 1]
     let snapshots = try await ticket.wait()
-    guard snapshots == [expected, [0xf0800201, 0x04030201], [0xf0800201, 0x04030201], [0x08070605, 0xffeeddcc]] else {
+    guard snapshots.count == 5,
+          Array(snapshots.prefix(4)) == [expected, [0xf0800201, 0x04030201], [0xf0800201, 0x04030201], [0x08070605, 0xffeeddcc]],
+          snapshots[4].count == 66,
+          Array(snapshots[4][0..<2]) == [0xf0800201, 0x04030201],
+          Array(snapshots[4][64..<66]) == [0x08070605, 0xffeeddcc] else {
         throw GPUError.backendFailure("Unexpected array texture readback: \(snapshots)")
     }
-    return snapshots.flatMap { $0 }
+    return snapshots.prefix(4).flatMap { $0 }
 }
 
 private func arrayLayerViewDiagnostic(_ device: Device) async throws -> [UInt32] {
@@ -6120,7 +6257,7 @@ private func volumeTextureDiagnostic(_ device: Device) async throws -> [UInt32] 
     let shader = try IndependentShaderCompiler().compileCompute(.wgsl("""
         @group(0) @binding(0) var volume: texture_3d<f32>;
         @group(0) @binding(1) var nearest: sampler;
-        @group(0) @binding(2) var<storage, read_write> result: array<vec4f, 10>;
+        @group(0) @binding(2) var<storage, read_write> result: array<vec4f, 11>;
         @compute @workgroup_size(1) fn run() {
             result[0] = textureLoad(volume, vec3i(0, 0, 0), 0i);
             result[1] = textureLoad(volume, vec3u(0, 0, 1), 0u);
@@ -6133,6 +6270,7 @@ private func volumeTextureDiagnostic(_ device: Device) async throws -> [UInt32] 
             result[7] = vec4f(f32(size.x), f32(size.y), f32(size.z), f32(textureNumLevels(volume)));
             let invalid = textureDimensions(volume, 1u);
             result[8] = vec4f(f32(invalid.x), f32(invalid.y), f32(invalid.z), textureLoad(volume, vec3u(0), -1i).a);
+            result[10] = textureSampleLevel(volume, nearest, vec3f(0.25, 0.5, 1.5), 0.0);
             result[9] = textureSampleLevel(volume, nearest, vec3f(0.25, 0.5, 0.5), 0.0, vec3i(0, 0, -1));
         }
         """), to: .wgsl)
@@ -6141,15 +6279,23 @@ private func volumeTextureDiagnostic(_ device: Device) async throws -> [UInt32] 
         usage: [.copySource, .copyDestination, .textureBinding], mipLevelCount: 2, dimension: .d3, depth: 6)
     let source = try await device.createTexture(texture)
     let volume = try await device.createTexture(texture)
+    let arraySource = try await device.createTexture(.init(width: 1, height: 1, format: .rgba8Unorm,
+        usage: [.copySource, .copyDestination], arrayLayerCount: 4))
+    let arrayDestination = try await device.createTexture(.init(width: 1, height: 1, format: .rgba8Unorm,
+        usage: [.copySource, .copyDestination], arrayLayerCount: 4))
+    let mixedVolume = try await device.createTexture(.init(width: 1, height: 1, format: .rgba8Unorm,
+        usage: [.copySource, .copyDestination], dimension: .d3, depth: 4))
     let view = try await device.createTextureView(texture: volume, .init(baseMipLevel: 1))
     do {
         _ = try await device.createTextureView(texture: volume, .init(dimension: .d2))
         throw GPUError.backendFailure("Accepted a 2D view of a volume texture")
     } catch GPUError.validation("Texture view dimension does not match the texture") {}
     let nearest = try await device.createSampler(.init())
+    let repeating = try await device.createSampler(.init(addressModeW: .repeat))
+    let mirroring = try await device.createSampler(.init(addressModeW: .mirrorRepeat))
     let upload = try await device.createBuffer(.init(size: 264, usage: [.copySource, .copyDestination]))
-    let out = try await device.createBuffer(.init(size: 160, usage: [.storage, .copySource]))
-    let read = try await device.createBuffer(.init(size: 520, usage: [.copyDestination, .mapRead]))
+    let out = try await device.createBuffer(.init(size: 176, usage: [.storage, .copySource]))
+    let read = try await device.createBuffer(.init(size: 772, usage: [.copyDestination, .mapRead]))
     let region = TextureCopyRegion(width: 2, height: 1, mipLevel: 1, depth: 2)
     do {
         _ = try await device.submitCommands([.copyTextureToBuffer(source: volume, destination: read,
@@ -6165,19 +6311,53 @@ private func volumeTextureDiagnostic(_ device: Device) async throws -> [UInt32] 
             sourceRegion: .init(width: 1, height: 1, mipLevel: 1, z: 1), destinationOrigin: .init(x: 1, mipLevel: 1, z: 2)),
         .dispatchCompute(pipeline: pipeline, bindings: [.init(binding: 2): out], workgroups: .init(x: 1),
                          textures: [.init(binding: 0): view], samplers: [.init(binding: 1): nearest]),
-        .copy(source: out, destination: read, byteCount: 160), .read(buffer: read, byteCount: 160),
+        .copy(source: out, destination: read, byteCount: 176), .read(buffer: read, byteCount: 176),
+        .dispatchCompute(pipeline: pipeline, bindings: [.init(binding: 2): out], workgroups: .init(x: 1),
+                         textures: [.init(binding: 0): view], samplers: [.init(binding: 1): repeating]),
+        .copy(source: out, destination: read, byteCount: 176), .read(buffer: read, byteCount: 176),
+        .dispatchCompute(pipeline: pipeline, bindings: [.init(binding: 2): out], workgroups: .init(x: 1),
+                         textures: [.init(binding: 0): view], samplers: [.init(binding: 1): mirroring]),
+        .copy(source: out, destination: read, byteCount: 176), .read(buffer: read, byteCount: 176),
         .copyTextureToBuffer(source: volume, destination: read, bytesPerRow: 256, mipLevel: 1, depth: 3),
         .read(buffer: read, byteCount: 520),
+        .writeTexture(destination: arraySource, data: [11, 0, 0, 255, 21, 0, 0, 255, 31, 0, 0, 255, 41, 0, 0, 255],
+                      layout: .init(bytesPerRow: 4, rowsPerImage: 1), region: .init(width: 1, height: 1, depth: 4)),
+        .writeTexture(destination: mixedVolume, data: [51, 0, 0, 255, 52, 0, 0, 255, 53, 0, 0, 255, 54, 0, 0, 255],
+                      layout: .init(bytesPerRow: 4, rowsPerImage: 1), region: .init(width: 1, height: 1, depth: 4)),
+        .writeTexture(destination: arrayDestination, data: [61, 0, 0, 255, 62, 0, 0, 255, 63, 0, 0, 255, 64, 0, 0, 255],
+                      layout: .init(bytesPerRow: 4, rowsPerImage: 1), region: .init(width: 1, height: 1, depth: 4)),
+        .copyTextureToTexture(source: arraySource, destination: mixedVolume,
+                              sourceRegion: .init(width: 1, height: 1, arrayLayer: 1, depth: 2),
+                              destinationOrigin: .init(z: 1)),
+        .copyTextureToBuffer(source: mixedVolume, destination: read, bytesPerRow: 256, depth: 4),
+        .read(buffer: read, byteCount: 772),
+        .copyTextureToTexture(source: mixedVolume, destination: arrayDestination,
+                              sourceRegion: .init(width: 1, height: 1, z: 1, depth: 2),
+                              destinationOrigin: .init(arrayLayer: 1)),
+        .copyTextureToBuffer(source: arrayDestination, destination: read, bytesPerRow: 256, depth: 4),
+        .read(buffer: read, byteCount: 772),
+        .writeTexture(destination: mixedVolume, data: [51, 0, 0, 255, 52, 0, 0, 255, 53, 0, 0, 255, 54, 0, 0, 255],
+                      layout: .init(bytesPerRow: 4, rowsPerImage: 1), region: .init(width: 1, height: 1, depth: 4)),
+        .copyTextureToTexture(source: mixedVolume, destination: mixedVolume,
+                              sourceRegion: .init(width: 1, height: 1), destinationOrigin: .init(z: 2)),
+        .copyTextureToBuffer(source: mixedVolume, destination: read, bytesPerRow: 256, depth: 4),
+        .read(buffer: read, byteCount: 772),
     ])
     let snapshots = try await ticket.wait()
     let expected: [Float] = [1, 0, 0, 1, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                              0, 1, 0, 1, 0, 1, 0, 1, 2, 1, 3, 1, 0, 0, 0, 0, 1, 0, 0, 1]
-    let planes = [0, 1, 64, 65, 128, 129].map { snapshots[1][$0] }
-    guard snapshots[0] == expected.map(\.bitPattern),
-          planes == [0xff0000ff, 0xff0000ff, 0xff00ff00, 0xff00ff00, 0, 0xff00ff00] else {
+    let planes = [0, 1, 64, 65, 128, 129].map { snapshots[3][$0] }
+    guard Array(snapshots[0].prefix(40)) == expected.map(\.bitPattern),
+          Array(snapshots[0].suffix(4)) == [0, 0, 0, 0],
+          Array(snapshots[1].suffix(4)) == [0, 1, 0, 1].map({ Float($0).bitPattern }),
+          Array(snapshots[2].suffix(4)) == [0, 1, 0, 1].map({ Float($0).bitPattern }),
+          planes == [0xff0000ff, 0xff0000ff, 0xff00ff00, 0xff00ff00, 0, 0xff00ff00],
+          [0, 64, 128, 192].map({ snapshots[4][$0] }) == [0xff000033, 0xff000015, 0xff00001f, 0xff000036],
+          [0, 64, 128, 192].map({ snapshots[5][$0] }) == [0xff00003d, 0xff000015, 0xff00001f, 0xff000040],
+          [0, 64, 128, 192].map({ snapshots[6][$0] }) == [0xff000033, 0xff000034, 0xff000033, 0xff000036] else {
         throw GPUError.backendFailure("Unexpected volume texture readback: \(snapshots[0]), \(planes)")
     }
-    return snapshots[0] + planes
+    return Array(snapshots[0].prefix(40)) + planes
 }
 
 private func volumeStorageDiagnostic(_ device: Device) async throws -> [UInt32] {
@@ -10619,6 +10799,7 @@ private func occlusionQueryDiagnostic(_ device: Device) async throws -> [UInt32]
     let empty = BufferCommand.render(pipeline: render, target: color, colorLoad: clear, vertexCount: 0,
                                      vertexBuffers: streams, depth: depthClear)
     let capture: [BufferCommand] = [
+        .resolveQuerySet(querySet: query, firstQuery: 4, queryCount: 0, destination: result, destinationOffset: 256),
         .resolveQuerySet(querySet: query, firstQuery: 0, queryCount: 4, destination: result, destinationOffset: 256),
         .copy(source: result, destination: readback, byteCount: 288),
         .read(buffer: readback, byteCount: 288),
@@ -11626,6 +11807,8 @@ private func compressedVolumeDiagnostic(_ device: Device, format: TextureFormat,
     let inputView = try await device.createTextureView(texture: input, .init(baseMipLevel: 1, mipLevelCount: 1))
     let copiedView = try await device.createTextureView(texture: copied, .init(baseMipLevel: 1, mipLevelCount: 1))
     let staging = try await device.createBuffer(.init(size: UInt64(blockBytes), usage: [.copySource, .copyDestination]))
+    let layeredStaging = try await device.createBuffer(.init(size: UInt64(256 + blockBytes), usage: [.copySource, .copyDestination]))
+    let layered = try await device.createTexture(texture)
     let output = try await device.createBuffer(.init(size: 16, usage: [.storage, .copySource]))
     let readbackSize = UInt64(1280 + 2 * blockBytes)
     let readback = try await device.createBuffer(.init(size: readbackSize, usage: [.copyDestination, .mapRead]))
@@ -11646,10 +11829,20 @@ private func compressedVolumeDiagnostic(_ device: Device, format: TextureFormat,
                          textures: [.init(binding: 0): inputView, .init(binding: 1): copiedView]),
         .copy(source: output, destination: readback, byteCount: 16),
         .read(buffer: readback, byteCount: 16),
+        .write(buffer: layeredStaging, offset: 0, words: blocks[0]),
+        .write(buffer: layeredStaging, offset: 256, words: blocks[1]),
+        .copyBufferToTexture(source: layeredStaging, layout: .init(bytesPerRow: 256), destination: layered, region: pair),
+        .copyTextureToBuffer(source: layered, destination: readback, bytesPerRow: 256, mipLevel: 1, depth: 2),
+        .read(buffer: readback, byteCount: readbackSize),
     ]
     let snapshots = try await device.submitCommands(commands).wait()
-    guard snapshots.map(\.count) == [Int(readbackSize / 4), 4] else {
+    guard snapshots.map(\.count) == [Int(readbackSize / 4), 4, Int(readbackSize / 4)] else {
         throw GPUError.validation("Unexpected compressed volume readback size")
+    }
+    let blockWords = blocks[0].count
+    guard Array(snapshots[2][(64 + blockWords)..<(64 + 2 * blockWords)]) == blocks[0],
+          Array(snapshots[2][(192 + blockWords)..<(192 + 2 * blockWords)]) == blocks[1] else {
+        throw GPUError.validation("Compressed multi-layer buffer upload returned incorrect blocks")
     }
     let wordsPerRow = 2 * blocks[0].count
     return [0, 64, 128, 192, 256, 320].flatMap { offset in

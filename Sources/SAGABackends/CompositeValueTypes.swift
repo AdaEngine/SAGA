@@ -20,6 +20,7 @@ extension ShaderOutputFormat {
 
 func compositeValueDeclarations(
     module: IRModule, format: ShaderOutputFormat, roots: Set<IRHandle<IRType>>, constructed: Set<IRHandle<IRType>>,
+    metalPayloadTypes: Set<IRHandle<IRType>> = [],
     structures: inout [IRHandle<IRType>: ShaderStructure], budget: inout ShaderBudget
 ) throws -> [String] {
     var pending = Array(roots)
@@ -38,20 +39,62 @@ func compositeValueDeclarations(
         }
     }
     var lines: [String] = []
+    var payloadLayouts: [IRHandle<IRType>: (size: UInt32, alignment: UInt32)] = [:]
     // Validation ensures child type handles precede their containers.
     for handle in types.sorted(by: { $0.index < $1.index }) {
         try budget.consume(.work)
         let kind = try module.types.value(for: handle).kind
         switch kind {
-        case .structure(let members, _):
+        case .structure(let members, let span):
             let name = "SagaValue\(handle.index)"
-            let structure = ShaderStructure(typeName: name,
-                constructor: format == .hlsl ? "saga_make_value_\(handle.index)" : name)
+            let packed = format == .msl && metalPayloadTypes.contains(handle)
+                ? try metalPayloadPackedMembers(members, span: span, module: module, budget: &budget) : []
+            var structure = ShaderStructure(typeName: name,
+                constructor: format == .hlsl ? "saga_make_value_\(handle.index)" : name, packedMemberIndices: packed)
             let memberTypes = try members.map {
                 try budget.consume(.work)
                 return try compositeMemberType($0.type, module: module, format: format, structures: structures)
             }
-            let declaration = structure.declarations(memberTypes: memberTypes, in: format)
+            var declaration = structure.declarations(memberTypes: memberTypes, in: format)
+            for index in packed {
+                guard case .vector(_, let scalar) = try module.types.value(for: members[index].type).kind else { continue }
+                let type = try shaderVectorType(3, scalar: scalar, in: .msl)
+                declaration[index + 1] = "    alignas(\(Int(scalar.width) * 4)) packed_\(type) \(structure.memberName(index));"
+            }
+            if format == .msl && metalPayloadTypes.contains(handle) {
+                let structureAlignment = try metalPayloadLayout(handle, module: module, cache: &payloadLayouts, budget: &budget).alignment
+                var padded = ["struct alignas(\(structureAlignment)) \(name) {"]
+                var cursor: UInt32 = 0
+                for (index, member) in members.enumerated() {
+                    try budget.consume(.work)
+                    let layout = try metalPayloadLayout(member.type, module: module, cache: &payloadLayouts, budget: &budget)
+                    let nativeSize: UInt32
+                    if packed.contains(index), case .vector(_, let scalar) = try module.types.value(for: member.type).kind {
+                        nativeSize = UInt32(scalar.width) * 3
+                    } else {
+                        nativeSize = layout.size
+                    }
+                    guard member.offset >= cursor, member.offset % max(layout.alignment, member.explicitAlignment ?? 1) == 0 else {
+                        throw ShaderFailure.unsupported("Metal task payload member offset cannot be represented")
+                    }
+                    if member.offset > cursor {
+                        padded.append("    uchar saga_padding_\(index)[\(member.offset - cursor)];")
+                        structure.paddingBeforeMembers.insert(index)
+                    }
+                    padded.append(declaration[index + 1])
+                    let (end, overflow) = member.offset.addingReportingOverflow(nativeSize)
+                    guard !overflow, end <= span else {
+                        throw ShaderFailure.unsupported("Metal task payload member exceeds its span")
+                    }
+                    cursor = end
+                }
+                if span > cursor {
+                    padded.append("    uchar saga_padding_\(members.count)[\(span - cursor)];")
+                    structure.hasTrailingPadding = true
+                }
+                padded.append(declaration.last!)
+                declaration = padded
+            }
             for line in declaration { try budget.consume(.sourceBytes, amount: line.utf8.count + 1) }
             lines += declaration
             structures[handle] = structure

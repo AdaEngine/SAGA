@@ -48,7 +48,7 @@ extension WGSLParser {
             try budget.consume(.work)
             return .init(
               name: m.name, type: try ty(m.type), binding: m.binding, offset: m.offset,
-              location: m.location)
+              location: m.location, explicitAlignment: m.explicitAlignment)
           }, span: span)
       case .scalar, .vector, .matrix, .cooperativeMatrix, .atomic, .image, .sampler, .rayQuery, .accelerationStructure: kind = t.kind
       default:
@@ -265,6 +265,21 @@ extension WGSLParser {
     predeclaredTypes = try predeclaredTypes.compactMap {
       guard !abstractStructures.contains($0.type.index) else { return nil }
       return .init(kind: $0.kind, type: try ty($0.type))
+    }
+    entries = try entries.map { entry in
+      try budget.consume(.work)
+      let mesh = try entry.meshInfo.map { info in
+        IRMeshStageInfo(topology: info.topology, maxVertices: info.maxVertices,
+                        maxVerticesOverride: info.maxVerticesOverride, maxPrimitives: info.maxPrimitives,
+                        maxPrimitivesOverride: info.maxPrimitivesOverride,
+                        vertexOutputType: try ty(info.vertexOutputType),
+                        primitiveOutputType: try ty(info.primitiveOutputType), outputVariable: info.outputVariable)
+      }
+      return IREntryPoint(name: entry.name, stage: entry.stage, function: entry.function,
+                          earlyDepthTest: entry.earlyDepthTest, workgroupSize: entry.workgroupSize,
+                          workgroupOverrides: entry.workgroupOverrides, subgroupSize: entry.subgroupSize,
+                          meshInfo: mesh, taskPayload: entry.taskPayload,
+                          incomingRayPayload: entry.incomingRayPayload, location: entry.location)
     }
     for index in documentation.indices {
       try budget.consume(.work)

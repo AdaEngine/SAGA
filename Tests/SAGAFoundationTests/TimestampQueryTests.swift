@@ -66,7 +66,7 @@ private actor TimestampTestHost: BrowserGPUComputeHost, QuerySetBackendDevice {
         .timestamped(pass: pass, writes: .init(querySet: query, endOfPassWriteIndex: 4)),
         .timestamped(pass: timed, writes: .init(querySet: query, beginningOfPassWriteIndex: 1)),
         .timestamped(pass: .read(buffer: result, byteCount: 4), writes: .init(querySet: query, endOfPassWriteIndex: 1)),
-        .resolveQuerySet(querySet: query, firstQuery: 4, queryCount: 0, destination: result),
+        .resolveQuerySet(querySet: query, firstQuery: 5, queryCount: 0, destination: result),
         .resolveQuerySet(querySet: query, firstQuery: 3, queryCount: 2, destination: result),
         .resolveQuerySet(querySet: query, firstQuery: 0, queryCount: 1, destination: result, destinationOffset: 8),
         .resolveQuerySet(querySet: query, firstQuery: 0, queryCount: 1, destination: result, destinationOffset: 512),

@@ -13,7 +13,7 @@ func glslRayQueryConfirm(query: String, state: String) -> String {
 }
 
 func glslRayQueryTerminate(query: String, state: String) -> String {
-    "if ((\(state) & 1u) != 0u && (\(state) & 4u) == 0u) { rayQueryTerminateEXT(\(query)); \(state) |= 4u; }"
+    "if ((\(state) & 2u) != 0u && (\(state) & 4u) == 0u) { rayQueryTerminateEXT(\(query)); \(state) |= 4u; }"
 }
 
 // GLSL intersection getters are only valid for the corresponding hit kind.

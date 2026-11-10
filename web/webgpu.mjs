@@ -1,6 +1,37 @@
 const limit = 16 * 1024 * 1024;
 const text = new TextDecoder("utf-8", { fatal: true });
 
+export function textureBlockRows(format, height) {
+    const astc = /^astc-(\d+)x(\d+)-/.exec(format);
+    const blockHeight = astc ? Number(astc[2]) : /^(bc|etc2-|eac-)/.test(format) ? 4 : 1;
+    return height / blockHeight;
+}
+
+export function indirectDrawHasCapacity({ indexed, vertices, instances, count }) {
+    return (indexed || vertices > 0) && instances > 0 && count > 0;
+}
+
+export function webVertexBufferLayout(arrayStride, stepMode, attributes) {
+    return attributes.length ? { arrayStride, stepMode, attributes } : null;
+}
+
+export function indirectVertexCapacities(layouts, bindings) {
+    const maximumCapacity = 2 ** 32;
+    let vertices = maximumCapacity, instances = maximumCapacity;
+    const bySlot = new Map(bindings.map(binding => [binding.slot, binding]));
+    for (const [slot, layout] of layouts.entries()) {
+        if (layout.attributeEnd === 0) continue;
+        const binding = bySlot.get(slot);
+        if (!binding) throw new Error("Missing WebGPU vertex buffer binding");
+        const remaining = binding.buffer.size - binding.offset - layout.attributeEnd;
+        const capacity = remaining < 0 ? 0 : layout.arrayStride === 0 ? maximumCapacity :
+            Math.floor(remaining / layout.arrayStride) + 1;
+        if (layout.stepMode === "instance") instances = Math.min(instances, capacity);
+        else vertices = Math.min(vertices, capacity);
+    }
+    return { vertices, instances };
+}
+
 class Reader {
     constructor(bytes) {
         this.bytes = bytes;
@@ -233,6 +264,18 @@ export async function openWebGPU(canvas) {
         maxColorAttachments: adapter.limits.maxColorAttachments,
         maxColorAttachmentBytesPerSample: adapter.limits.maxColorAttachmentBytesPerSample,
     };
+    for (const name of ["maxBufferSize", "maxTextureDimension1D", "maxTextureDimension2D",
+        "maxTextureDimension3D", "maxTextureArrayLayers", "maxBindGroups", "maxBindingsPerBindGroup",
+        "maxDynamicUniformBuffersPerPipelineLayout", "maxDynamicStorageBuffersPerPipelineLayout",
+        "maxSampledTexturesPerShaderStage", "maxSamplersPerShaderStage", "maxStorageBuffersPerShaderStage",
+        "maxStorageTexturesPerShaderStage", "maxUniformBuffersPerShaderStage", "maxUniformBufferBindingSize",
+        "maxStorageBufferBindingSize"]) {
+        if (adapter.limits[name] !== undefined) requiredLimits[name] = adapter.limits[name];
+    }
+    if (navigator.gpu.wgslLanguageFeatures?.has("immediate_address_space") &&
+        adapter.limits.maxImmediateSize !== undefined) {
+        requiredLimits.maxImmediateSize = adapter.limits.maxImmediateSize;
+    }
     if (adapter.limits.maxBindGroupsPlusVertexBuffers !== undefined) {
         requiredLimits.maxBindGroupsPlusVertexBuffers = adapter.limits.maxBindGroupsPlusVertexBuffers;
     }
@@ -246,7 +289,10 @@ export async function openWebGPU(canvas) {
     }
     const indirectFirstInstance = device.features.has("indirect-first-instance");
     const buffers = new Map();
+    const pendingBufferAllocations = new Map();
+    const pendingResourceAllocations = new Map();
     const mappings = new Map();
+    const pendingMappings = new Map();
     const stagedSubmissions = new Map();
     const querySets = new Map();
     const textures = new Map();
@@ -254,6 +300,7 @@ export async function openWebGPU(canvas) {
     const videoFrames = new Map();
     let nextVideoFrame = 0n;
     const textureViews = new Map();
+    const viewParents = new WeakMap();
     const samplers = new Map();
     const pipelines = new Map();
     const renderPipelines = new Map();
@@ -267,10 +314,23 @@ export async function openWebGPU(canvas) {
     let lost;
     device.lost.then(info => { lost = info.message || info.reason; });
 
+    let submissionLookups;
     function lookup(map, id) {
         const resource = map.get(id);
         if (!resource) throw new Error(`Unknown browser resource ${id}`);
+        submissionLookups?.push([map, id, resource]);
         return resource;
+    }
+
+    function optionalResource(map, id) {
+        return map.has(id) ? lookup(map, id) : undefined;
+    }
+
+    function lookupView(id) {
+        const view = optionalResource(textureViews, id);
+        const parent = view && viewParents.get(view);
+        if (parent && submissionLookups) submissionLookups.push([textures, parent.id, parent.texture]);
+        return view;
     }
 
     function registerVideoFrame(frame) {
@@ -293,20 +353,48 @@ export async function openWebGPU(canvas) {
         return mapping.bytes.subarray(start, start + length);
     }
 
-    async function withErrors(operation) {
-        for (const filter of ["internal", "out-of-memory", "validation"]) device.pushErrorScope(filter);
+    let errorScopeQueue = Promise.resolve();
+    async function withErrors(operation, discard = undefined) {
+        // Error scopes form a device-wide stack, so overlapping asynchronous
+        // operations must not pop one another's scopes.
+        const previous = errorScopeQueue;
+        let release;
+        errorScopeQueue = new Promise(resolve => { release = resolve; });
+        await previous;
         try {
-            const result = await operation();
-            return result;
-        } finally {
-            const errors = await Promise.all([device.popErrorScope(), device.popErrorScope(), device.popErrorScope()]);
-            if (lost) throw Object.assign(new Error(lost), { status: 3 });
-            const error = errors.find(Boolean);
-            if (error) {
-                const status = error instanceof GPUValidationError ? 1 : error instanceof GPUOutOfMemoryError ? 2 : 5;
-                throw Object.assign(new Error(error.message), { status });
+            if (closed) throw Object.assign(new Error("WebGPU host closed"), { status: 3 });
+            for (const filter of ["internal", "out-of-memory", "validation"]) device.pushErrorScope(filter);
+            let result;
+            try {
+                try {
+                    result = await operation();
+                } finally {
+                    const errors = await Promise.all([device.popErrorScope(), device.popErrorScope(), device.popErrorScope()]);
+                    if (closed) throw Object.assign(new Error("WebGPU host closed"), { status: 3 });
+                    if (lost) throw Object.assign(new Error(lost), { status: 3 });
+                    const error = errors.find(Boolean);
+                    if (error) {
+                        const status = error instanceof GPUValidationError ? 1 : error instanceof GPUOutOfMemoryError ? 2 : 5;
+                        throw Object.assign(new Error(error.message), { status });
+                    }
+                }
+                return result;
+            } catch (error) {
+                if (result !== undefined) discard?.(result);
+                throw error;
             }
+        } finally {
+            release();
         }
+    }
+
+    function adopt(resource) {
+        // A close can run after withErrors resolves but before its caller resumes.
+        if (closed || lost) {
+            resource.destroy?.();
+            throw Object.assign(new Error(lost || "WebGPU host closed"), { status: 3 });
+        }
+        return resource;
     }
 
     let multisampledFloat32Mask = 0;
@@ -316,7 +404,7 @@ export async function openWebGPU(canvas) {
                 const texture = await withErrors(() => device.createTexture({
                     size: [1, 1], format, sampleCount: 4,
                     usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
-                }));
+                }), resource => resource.destroy());
                 texture.destroy();
                 multisampledFloat32Mask |= 1 << index;
             } catch (error) {
@@ -359,9 +447,9 @@ export async function openWebGPU(canvas) {
         bindingGroups(packet, () => {
             const binding = packet.word();
             const id = packet.id();
-            const external = externalTextures.get(id);
-            if (external) return { binding, resource: external };
-            const view = textureViews.get(id);
+            const external = optionalResource(externalTextures, id);
+            if (external) return { binding, resource: external.texture };
+            const view = lookupView(id);
             return view ? { binding, resource: view } : { binding, texture: lookup(textures, id) };
         }, groups);
         return bindingGroups(packet, () => {
@@ -403,6 +491,42 @@ export async function openWebGPU(canvas) {
         }
     }
 
+    function publish(map, id, resource, value = resource) {
+        adopt(resource);
+        if (map.has(id)) {
+            resource.destroy?.();
+            throw new Error("Duplicate WebGPU resource");
+        }
+        map.set(id, value);
+    }
+
+    async function createPublished(map, id, operation, value = resource => resource, validate = () => {}) {
+        let byID = pendingResourceAllocations.get(map);
+        if (!byID) pendingResourceAllocations.set(map, byID = new Map());
+        let allocations = byID.get(id);
+        if (!allocations) byID.set(id, allocations = new Set());
+        const allocation = { cancelled: false };
+        allocations.add(allocation);
+        let resource;
+        try {
+            resource = await withErrors(() => { validate(); return operation(); }, resource => resource.destroy?.());
+        } finally {
+            allocations.delete(allocation);
+            if (!allocations.size) byID.delete(id);
+            if (!byID.size) pendingResourceAllocations.delete(map);
+        }
+        if (allocation.cancelled) {
+            resource.destroy?.();
+            throw Object.assign(new Error("Browser resource released during allocation"), { status: 1 });
+        }
+        try { validate(); } catch (error) { resource.destroy?.(); throw error; }
+        publish(map, id, resource, value(resource));
+    }
+
+    function cancelResourceAllocations(map, id) {
+        for (const allocation of pendingResourceAllocations.get(map)?.get(id) ?? []) allocation.cancelled = true;
+    }
+
     async function allocatePipeline(packet) {
         const id = packet.id();
         const entryPoint = packet.string();
@@ -422,13 +546,12 @@ export async function openWebGPU(canvas) {
         });
         packet.done();
         if (pipelines.has(id)) throw new Error("Duplicate WebGPU pipeline");
-        const pipeline = await withErrors(async () => {
+        await createPublished(pipelines, id, async () => {
             return await device.createComputePipelineAsync({
                 layout: pipelineLayout(groups, immediateSize),
                 compute: { module: device.createShaderModule({ code }), entryPoint },
             });
         });
-        pipelines.set(id, pipeline);
     }
 
     function blendComponent(packet) {
@@ -509,7 +632,7 @@ export async function openWebGPU(canvas) {
                 return { shaderLocation, offset, format };
             });
             fetchLayouts.push({ arrayStride, stepMode, attributeEnd });
-            return { arrayStride, stepMode, attributes };
+            return webVertexBufferLayout(arrayStride, stepMode, attributes);
         });
         const groups = bindingGroups(packet, () => {
             const binding = packet.word();
@@ -547,7 +670,7 @@ export async function openWebGPU(canvas) {
         }
         packet.done();
         if (renderPipelines.has(id)) throw new Error("Duplicate WebGPU render pipeline");
-        const pipeline = await withErrors(() => device.createRenderPipelineAsync({
+        await createPublished(renderPipelines, id, () => device.createRenderPipelineAsync({
             layout: groups.size || immediateSize ? pipelineLayout(groups, immediateSize) : "auto",
             depthStencil,
             multisample: { count: sampleCount, mask, alphaToCoverageEnabled },
@@ -558,8 +681,7 @@ export async function openWebGPU(canvas) {
                 entryPoint: fragment.entryPoint, module: device.createShaderModule({ code: fragment.code }),
                 targets,
             } : undefined,
-        }));
-        renderPipelines.set(id, { pipeline, fetchLayouts });
+        }), pipeline => ({ pipeline, fetchLayouts }));
     }
 
     function decodeRender(packet, indexed, indirect) {
@@ -575,7 +697,7 @@ export async function openWebGPU(canvas) {
         render.blendConstant = [packet.float(), packet.float(), packet.float(), packet.float()];
         if (packet.word()) render.viewport = Array.from({ length: 6 }, () => packet.float());
         if (packet.word()) render.scissor = Array.from({ length: 4 }, () => packet.word());
-        render.vertexBuffers = packet.list(() => ({ buffer: lookup(buffers, packet.id()), offset: packet.size() }));
+        render.vertexBuffers = packet.list(() => ({ slot: packet.word(), buffer: lookup(buffers, packet.id()), offset: packet.size() }));
         render.bindings = decodeResourceBindings(packet);
         function readStoreOp() {
             const action = packet.word();
@@ -584,7 +706,7 @@ export async function openWebGPU(canvas) {
         }
         if (packet.word()) {
             const depthId = packet.id();
-            const depthView = textureViews.get(depthId);
+            const depthView = lookupView(depthId);
             const mipLevel = packet.word();
             const load = packet.word();
             if (load > 3) throw new Error("Invalid WebGPU depth load action");
@@ -609,7 +731,7 @@ export async function openWebGPU(canvas) {
         }
         function colorView() {
             const id = packet.id();
-            const view = textureViews.get(id);
+            const view = lookupView(id);
             const mipLevel = packet.word();
             return { view, texture: view ? undefined : lookup(textures, id), mipLevel };
         }
@@ -659,18 +781,23 @@ export async function openWebGPU(canvas) {
         }
         case 4: return { type: "read", buffer: lookup(buffers, packet.id()), size: packet.size() };
         case 5: return decodeRender(packet, false);
-        case 6: return { type: "copyTexture", source: lookup(textures, packet.id()),
-            destination: lookup(buffers, packet.id()), bytesPerRow: packet.word(), mipLevel: packet.word(),
-            aspect: textureAspect(packet.word()), offset: packet.size(), z: packet.word(), depth: packet.word() };
+        case 6: {
+            const command = { type: "copyTexture", source: lookup(textures, packet.id()),
+                destination: lookup(buffers, packet.id()), bytesPerRow: packet.word(), mipLevel: packet.word(),
+                aspect: textureAspect(packet.word()), offset: packet.size(), z: packet.word(), depth: packet.word() };
+            command.rowsPerImage = packet.word() ? packet.word() : undefined;
+            return command;
+        }
         case 7: return decodeRender(packet, true);
         case 8: {
             const source = lookup(buffers, packet.id());
             const destination = lookup(textures, packet.id());
             const offset = packet.size();
             const bytesPerRow = packet.word() ? packet.word() : undefined;
+            const rowsPerImage = packet.word() ? packet.word() : undefined;
             const origin = [packet.word(), packet.word(), packet.word()];
             const size = [packet.word(), packet.word(), packet.word()];
-            return { type: "uploadTexture", source, destination, offset, bytesPerRow, origin, size,
+            return { type: "uploadTexture", source, destination, offset, bytesPerRow, rowsPerImage, origin, size,
                 mipLevel: packet.word(), aspect: bufferCopyAspect(destination, textureAspect(packet.word())) };
         }
         case 9: {
@@ -738,6 +865,19 @@ export async function openWebGPU(canvas) {
             return { type: "writeTexture", destination: { texture, mipLevel, aspect, origin },
                 size, layout: { bytesPerRow, rowsPerImage }, bytes: packet.take(packet.word()) };
         }
+        case 18: {
+            const source = lookup(textures, packet.id());
+            const destination = lookup(buffers, packet.id());
+            const offset = packet.size();
+            const bytesPerRow = packet.word() ? packet.word() : undefined;
+            const rowsPerImage = packet.word() ? packet.word() : undefined;
+            const origin = [packet.word(), packet.word(), packet.word()];
+            const size = [packet.word(), packet.word(), packet.word()];
+            const mipLevel = packet.word();
+            const aspect = bufferCopyAspect(source, textureAspect(packet.word()));
+            return { type: "copyTextureRegionToBuffer", source, destination, offset, bytesPerRow,
+                rowsPerImage, origin, size, mipLevel, aspect };
+        }
         default: throw new Error("Unknown WebGPU command");
         }
     }
@@ -773,16 +913,7 @@ export async function openWebGPU(canvas) {
             });
         }
         const maximumCapacity = 2 ** 32;
-        let vertices = maximumCapacity;
-        let instances = maximumCapacity;
-        for (const [slot, layout] of command.fetchLayouts.entries()) {
-            const { buffer, offset } = command.vertexBuffers[slot];
-            const remaining = buffer.size - offset - layout.attributeEnd;
-            const capacity = remaining < 0 ? 0 : layout.arrayStride === 0 ? maximumCapacity :
-                Math.floor(remaining / layout.arrayStride) + 1;
-            if (layout.stepMode === "instance") instances = Math.min(instances, capacity);
-            else vertices = Math.min(vertices, capacity);
-        }
+        const { vertices, instances } = indirectVertexCapacities(command.fetchLayouts, command.vertexBuffers);
         const index = command.index;
         const indexCount = index ? Math.floor((index.size ?? (index.buffer.size - index.offset)) /
             (index.format === "uint16" ? 2 : 4)) : vertices;
@@ -794,7 +925,8 @@ export async function openWebGPU(canvas) {
         staging.push(args);
         // The first five words are reserved for the indirect command. The rest hold bounds.
         new Uint32Array(args.getMappedRange()).set([
-            Math.max(0, count - 1), Math.max(0, instances - 1), flags, Number(vertices > 0 && instances > 0 && count > 0),
+            Math.max(0, count - 1), Math.max(0, instances - 1), flags,
+            Number(indirectDrawHasCapacity({ indexed: Boolean(index), vertices, instances, count })),
         ], 5);
         args.unmap();
         encoder.copyBufferToBuffer(command.indirect.buffer, command.indirect.offset, args, 0, index ? 20 : 16);
@@ -836,8 +968,15 @@ export async function openWebGPU(canvas) {
     }
 
     async function submit(packet) {
-        const commands = packet.list(() => decodeCommand(packet));
-        packet.done();
+        const references = [];
+        let commands;
+        submissionLookups = references;
+        try {
+            commands = packet.list(() => decodeCommand(packet));
+            packet.done();
+        } finally {
+            submissionLookups = undefined;
+        }
         const length = commands.reduce((size, command) => size + (command.type === "read" ? command.size + 4 : 0), 4);
         if (length > limit) throw Object.assign(new Error("WebGPU readback exceeds bridge limit"), { status: 1 });
         const reply = new Uint8Array(length);
@@ -855,6 +994,17 @@ export async function openWebGPU(canvas) {
 
         try {
             await withErrors(async () => {
+                const validateReferences = () => {
+                    for (const [map, id, resource] of references) {
+                        if (map.get(id) !== resource) {
+                            throw Object.assign(new Error("Browser resource released during queued submission"), { status: 1 });
+                        }
+                        if (map === externalTextures && resource.frame.codedWidth === 0) {
+                            throw Object.assign(new Error("VideoFrame closed during queued submission"), { status: 1 });
+                        }
+                    }
+                };
+                validateReferences();
                 for (const command of commands) {
                     switch (command.type) {
                     case "write": {
@@ -937,8 +1087,8 @@ export async function openWebGPU(canvas) {
                         if (command.viewport) pass.setViewport(...command.viewport);
                         if (command.scissor) pass.setScissorRect(...command.scissor);
                         bindResources(pass, command.pipeline, command.bindings);
-                        for (const [slot, binding] of command.vertexBuffers.entries()) {
-                            pass.setVertexBuffer(slot, binding.buffer, binding.offset);
+                        for (const binding of command.vertexBuffers) {
+                            pass.setVertexBuffer(binding.slot, binding.buffer, binding.offset);
                         }
                         if (command.occlusion) pass.beginOcclusionQuery(command.occlusion.index);
                         if (indirect) {
@@ -969,6 +1119,7 @@ export async function openWebGPU(canvas) {
                     }
                     case "copyTexture": {
                         const { source, destination, bytesPerRow, mipLevel, offset, z, depth } = command;
+                        if (depth === 0) break;
                         const scale = 2 ** mipLevel;
                         const astc = /^astc-(\d+)x(\d+)-/.exec(source.format);
                         const block = /^(bc|etc2-|eac-)/.test(source.format) ? 4 : 1;
@@ -980,19 +1131,41 @@ export async function openWebGPU(canvas) {
                         });
                         const aspect = bufferCopyAspect(source, command.aspect);
                         getEncoder().copyTextureToBuffer({ texture: source, mipLevel, aspect, origin: [0, 0, z] },
-                            { buffer: destination, bytesPerRow, offset, rowsPerImage: size[1] / blockShape[1] }, [...size, depth]);
+                            { buffer: destination, bytesPerRow, offset, rowsPerImage: command.rowsPerImage ?? size[1] / blockShape[1] }, [...size, depth]);
                         break;
                     }
+                    case "copyTextureRegionToBuffer":
+                        if (!command.size.includes(0)) {
+                            getEncoder().copyTextureToBuffer(
+                                { texture: command.source, origin: command.origin, mipLevel: command.mipLevel, aspect: command.aspect },
+                                { buffer: command.destination, offset: command.offset, bytesPerRow: command.bytesPerRow,
+                                    rowsPerImage: command.rowsPerImage ?? (command.size[2] > 1
+                                        ? textureBlockRows(command.source.format, command.size[1]) : undefined) }, command.size);
+                        }
+                        break;
                     case "copyTextureRegion":
                         if (!command.size.includes(0)) {
-                            getEncoder().copyTextureToTexture(command.src, command.dst, command.size);
+                            if (command.src.texture === command.dst.texture &&
+                                command.src.texture.dimension === "3d" && command.src.mipLevel === command.dst.mipLevel) {
+                                // WebGPU treats the whole 3D mip as one subresource even when
+                                // the source and destination depth ranges are disjoint.
+                                const temporary = device.createTexture({ size: command.size, dimension: "3d",
+                                    format: command.src.texture.format,
+                                    usage: GPUTextureUsage.COPY_SRC | GPUTextureUsage.COPY_DST });
+                                staging.push(temporary);
+                                getEncoder().copyTextureToTexture(command.src, { texture: temporary }, command.size);
+                                getEncoder().copyTextureToTexture({ texture: temporary }, command.dst, command.size);
+                            } else {
+                                getEncoder().copyTextureToTexture(command.src, command.dst, command.size);
+                            }
                         }
                         break;
                     case "uploadTexture":
                         if (command.size.includes(0)) break;
                         getEncoder().copyBufferToTexture(
                             { buffer: command.source, offset: command.offset, bytesPerRow: command.bytesPerRow,
-                                rowsPerImage: command.size[2] > 1 ? command.size[1] : undefined },
+                                rowsPerImage: command.rowsPerImage ?? (command.size[2] > 1
+                                    ? textureBlockRows(command.destination.format, command.size[1]) : undefined) },
                             { texture: command.destination, origin: command.origin, mipLevel: command.mipLevel, aspect: command.aspect },
                             command.size,
                         );
@@ -1007,6 +1180,7 @@ export async function openWebGPU(canvas) {
                         flush();
                         await command.buffer.mapAsync(GPUMapMode.READ, 0, command.size);
                         try {
+                            validateReferences();
                             header.setUint32(offset, command.size / 4, true);
                             reply.set(new Uint8Array(command.buffer.getMappedRange(0, command.size)), offset + 4);
                             offset += command.size + 4;
@@ -1028,6 +1202,7 @@ export async function openWebGPU(canvas) {
     }
 
     async function handle(bytes) {
+        if (closed) throw Object.assign(new Error("WebGPU host closed"), { status: 3 });
         const packet = new Reader(bytes);
         const operation = packet.word();
         if (lost && ![2, 4, 5, 9, 11, 18, 22, 25].includes(operation)) throw Object.assign(new Error(lost), { status: 3 });
@@ -1040,7 +1215,25 @@ export async function openWebGPU(canvas) {
             packet.done();
             if (buffers.has(id)) throw new Error("Duplicate WebGPU buffer");
             if (usage & GPUBufferUsage.INDIRECT) usage |= GPUBufferUsage.COPY_SRC;
-            const buffer = await withErrors(() => device.createBuffer({ size, usage, mappedAtCreation }));
+            const allocation = { cancelled: false };
+            if (!pendingBufferAllocations.has(id)) pendingBufferAllocations.set(id, new Set());
+            pendingBufferAllocations.get(id).add(allocation);
+            let buffer;
+            try {
+                buffer = adopt(await withErrors(() => device.createBuffer({ size, usage, mappedAtCreation }), resource => resource.destroy()));
+            } finally {
+                const pending = pendingBufferAllocations.get(id);
+                pending?.delete(allocation);
+                if (pending?.size === 0) pendingBufferAllocations.delete(id);
+            }
+            if (allocation.cancelled) {
+                buffer.destroy();
+                throw Object.assign(new Error("Browser buffer released during allocation"), { status: 1 });
+            }
+            if (buffers.has(id)) {
+                buffer.destroy();
+                throw new Error("Duplicate WebGPU buffer");
+            }
             if (mappedAtCreation) {
                 try {
                     mappings.set(id, { offset: 0, bytes: new Uint8Array(buffer.getMappedRange()), writable: true });
@@ -1055,21 +1248,32 @@ export async function openWebGPU(canvas) {
         case 2: {
             const id = packet.id();
             packet.done();
+            for (const allocation of pendingBufferAllocations.get(id) ?? []) allocation.cancelled = true;
             buffers.get(id)?.destroy();
             buffers.delete(id);
             mappings.delete(id);
+            pendingMappings.delete(id);
             break;
         }
         case 3: await allocatePipeline(packet); break;
         case 4: {
             const id = packet.id();
             packet.done();
+            cancelResourceAllocations(pipelines, id);
             pipelines.delete(id);
             break;
         }
         case 5: {
             const prefix = `${packet.wide()}:`;
             packet.done();
+            for (const byID of pendingResourceAllocations.values()) {
+                for (const [id, allocations] of byID) {
+                    if (id.startsWith(prefix)) for (const allocation of allocations) allocation.cancelled = true;
+                }
+            }
+            for (const [id, allocations] of pendingBufferAllocations) {
+                if (id.startsWith(prefix)) for (const allocation of allocations) allocation.cancelled = true;
+            }
             for (const resources of [buffers, textures, querySets]) {
                 for (const [id, resource] of resources) {
                     if (id.startsWith(prefix)) { resource.destroy(); resources.delete(id); }
@@ -1079,6 +1283,7 @@ export async function openWebGPU(canvas) {
                 for (const id of states.keys()) if (id.startsWith(prefix)) states.delete(id);
             }
             for (const id of mappings.keys()) if (id.startsWith(prefix)) mappings.delete(id);
+            for (const id of pendingMappings.keys()) if (id.startsWith(prefix)) pendingMappings.delete(id);
             for (const id of stagedSubmissions.keys()) if (id.startsWith(prefix)) stagedSubmissions.delete(id);
             break;
         }
@@ -1097,12 +1302,13 @@ export async function openWebGPU(canvas) {
             const dimension = ["2d", "3d", "1d"][packet.word()];
             packet.done();
             if (!dimension || textures.has(id)) throw new Error("Invalid WebGPU texture dimension or duplicate texture");
-            textures.set(id, await withErrors(() => device.createTexture({ size, format, usage, mipLevelCount, sampleCount, dimension })));
+            await createPublished(textures, id, () => device.createTexture({ size, format, usage, mipLevelCount, sampleCount, dimension }));
             break;
         }
         case 9: {
             const id = packet.id();
             packet.done();
+            cancelResourceAllocations(textures, id);
             textures.get(id)?.destroy();
             textures.delete(id);
             break;
@@ -1111,13 +1317,15 @@ export async function openWebGPU(canvas) {
         case 11: {
             const id = packet.id();
             packet.done();
+            cancelResourceAllocations(renderPipelines, id);
             renderPipelines.delete(id);
             break;
         }
         case 12: {
-            const source = lookup(textures, packet.id());
+            const id = packet.id();
+            const source = lookup(textures, id);
             packet.done();
-            await present(source);
+            await present(id, source);
             break;
         }
         case 13: {
@@ -1126,29 +1334,37 @@ export async function openWebGPU(canvas) {
             const filters = ["nearest", "linear"];
             const addressModeU = addresses[packet.word()];
             const addressModeV = addresses[packet.word()];
+            const addressModeW = addresses[packet.word()];
             const minFilter = filters[packet.word()];
             const magFilter = filters[packet.word()];
             const mipmapFilter = filters[packet.word()];
+            const lodMinClamp = packet.float();
+            const lodMaxClamp = packet.float();
             const compareMode = packet.word();
             const compare = compareMode ? compareFunction(compareMode - 1) : undefined;
+            const maxAnisotropy = packet.word();
             packet.done();
-            if (!addressModeU || !addressModeV || !minFilter || !magFilter || !mipmapFilter) {
+            if (!addressModeU || !addressModeV || !addressModeW || !minFilter || !magFilter || !mipmapFilter ||
+                maxAnisotropy < 1 || maxAnisotropy > 65535 ||
+                (maxAnisotropy > 1 && (minFilter !== "linear" || magFilter !== "linear" || mipmapFilter !== "linear"))) {
                 throw new Error("Invalid WebGPU sampler descriptor");
             }
             if (samplers.has(id)) throw new Error("Duplicate WebGPU sampler");
-            samplers.set(id, await withErrors(() =>
-                device.createSampler({ addressModeU, addressModeV, minFilter, magFilter, mipmapFilter, compare })));
+            await createPublished(samplers, id, () =>
+                device.createSampler({ addressModeU, addressModeV, addressModeW, minFilter, magFilter, mipmapFilter, lodMinClamp, lodMaxClamp, compare, maxAnisotropy }));
             break;
         }
         case 14: {
             const id = packet.id();
             packet.done();
+            cancelResourceAllocations(samplers, id);
             samplers.delete(id);
             break;
         }
         case 15: {
             const id = packet.id();
-            const texture = lookup(textures, packet.id());
+            const textureId = packet.id();
+            const texture = lookup(textures, textureId);
             const baseMipLevel = packet.word();
             const mipLevelCount = packet.word() ? packet.word() : undefined;
             const aspect = textureAspect(packet.word());
@@ -1159,14 +1375,21 @@ export async function openWebGPU(canvas) {
             const arrayLayerCount = packet.word() ? packet.word() : undefined;
             packet.done();
             if (textureViews.has(id)) throw new Error("Duplicate WebGPU texture view");
-            textureViews.set(id, await withErrors(() => texture.createView({
-                baseMipLevel, mipLevelCount, aspect, dimension, baseArrayLayer, arrayLayerCount,
-            })));
+            await createPublished(textureViews, id, () => {
+                const view = texture.createView({ baseMipLevel, mipLevelCount, aspect, dimension, baseArrayLayer, arrayLayerCount });
+                viewParents.set(view, { id: textureId, texture });
+                return view;
+            }, resource => resource, () => {
+                if (textures.get(textureId) !== texture) {
+                    throw Object.assign(new Error("Browser texture released during allocation of view"), { status: 1 });
+                }
+            });
             break;
         }
         case 16: {
             const id = packet.id();
             packet.done();
+            cancelResourceAllocations(textureViews, id);
             textureViews.delete(id);
             break;
         }
@@ -1177,12 +1400,13 @@ export async function openWebGPU(canvas) {
             const label = packet.string();
             packet.done();
             if (!type || querySets.has(id)) throw new Error("Invalid WebGPU query set");
-            querySets.set(id, await withErrors(() => device.createQuerySet({ type, count, label })));
+            await createPublished(querySets, id, () => device.createQuerySet({ type, count, label }));
             break;
         }
         case 18: {
             const id = packet.id();
             packet.done();
+            cancelResourceAllocations(querySets, id);
             querySets.get(id)?.destroy();
             querySets.delete(id);
             break;
@@ -1194,14 +1418,26 @@ export async function openWebGPU(canvas) {
             const size = packet.size();
             packet.done();
             const buffer = lookup(buffers, id);
-            if (mappings.has(id)) throw Object.assign(new Error("Browser buffer already mapped"), { status: 1 });
+            if (mappings.has(id) || pendingMappings.has(id)) throw Object.assign(new Error("Browser buffer already mapped"), { status: 1 });
+            const request = {};
+            pendingMappings.set(id, request);
             try {
-                await withErrors(() => buffer.mapAsync(mode, offset, size));
+                await withErrors(() => {
+                    if (pendingMappings.get(id) !== request) throw Object.assign(new Error("Browser buffer mapping cancelled"), { status: 1 });
+                    return buffer.mapAsync(mode, offset, size);
+                });
+                if (closed || lost) throw Object.assign(new Error(lost || "WebGPU host closed"), { status: 3 });
+                if (buffers.get(id) !== buffer || pendingMappings.get(id) !== request) throw Object.assign(new Error("Browser buffer released or unmapped during mapping"), { status: 1 });
                 mappings.set(id, { offset, bytes: new Uint8Array(buffer.getMappedRange(offset, size)),
                     writable: mode === GPUMapMode.WRITE });
             } catch (error) {
-                if (buffer.mapState === "mapped") buffer.unmap();
+                // A later request may already own this buffer after cancellation.
+                if (buffer.mapState === "mapped" &&
+                    (pendingMappings.get(id) === request ||
+                     (!pendingMappings.has(id) && !mappings.has(id)))) buffer.unmap();
                 throw error;
+            } finally {
+                if (pendingMappings.get(id) === request) pendingMappings.delete(id);
             }
             break;
         }
@@ -1223,7 +1459,7 @@ export async function openWebGPU(canvas) {
         case 22: {
             const id = packet.id();
             packet.done();
-            if (mappings.has(id)) {
+            if (pendingMappings.delete(id) || mappings.has(id)) {
                 lookup(buffers, id).unmap();
                 mappings.delete(id);
             }
@@ -1270,20 +1506,26 @@ export async function openWebGPU(canvas) {
         }
         case 26: {
             const id = packet.id();
-            const frame = videoFrames.get(packet.wide());
+            const frameToken = packet.wide();
+            const frame = videoFrames.get(frameToken);
             const colorSpace = ["srgb", "display-p3"][packet.word()];
             packet.done();
             if (!frame || frame.codedWidth === 0) {
                 throw Object.assign(new Error("Unknown or closed VideoFrame"), { status: 1 });
             }
             if (!colorSpace || externalTextures.has(id)) throw new Error("Invalid external texture descriptor");
-            const resource = await withErrors(() => device.importExternalTexture({ source: frame, colorSpace }));
-            externalTextures.set(id, resource);
+            await createPublished(externalTextures, id, () => device.importExternalTexture({ source: frame, colorSpace }),
+                resource => ({ texture: resource, frame }), () => {
+                    if (videoFrames.get(frameToken) !== frame || frame.codedWidth === 0) {
+                        throw Object.assign(new Error("VideoFrame released or closed during external texture allocation"), { status: 1 });
+                    }
+                });
             break;
         }
         case 27: {
             const id = packet.id();
             packet.done();
+            cancelResourceAllocations(externalTextures, id);
             externalTextures.delete(id);
             break;
         }
@@ -1292,10 +1534,13 @@ export async function openWebGPU(canvas) {
         return new Uint8Array();
     }
 
-    async function present(source) {
+    async function present(id, source) {
         if (!context) throw new Error("Browser host does not have a presentation surface");
         const { width, height, format } = source;
         await withErrors(async () => {
+            if (textures.get(id) !== source) {
+                throw Object.assign(new Error("Browser texture released before presentation"), { status: 1 });
+            }
             if (canvas.width !== width) canvas.width = width;
             if (canvas.height !== height) canvas.height = height;
             if (configuredFormat !== format) {
@@ -1325,6 +1570,7 @@ export async function openWebGPU(canvas) {
         maxComputeWorkgroupsPerDimension: device.limits.maxComputeWorkgroupsPerDimension,
         maxVertexAttributes: device.limits.maxVertexAttributes,
         maxVertexBuffers: device.limits.maxVertexBuffers,
+        maxBindGroupsPlusVertexBuffers: device.limits.maxBindGroupsPlusVertexBuffers ?? 24,
         maxVertexBufferArrayStride: device.limits.maxVertexBufferArrayStride,
         maxInterStageShaderVariables: device.limits.maxInterStageShaderVariables,
         maxColorAttachments: device.limits.maxColorAttachments,
@@ -1376,9 +1622,8 @@ export async function openWebGPU(canvas) {
         close() {
             if (closed) return;
             closed = true;
-            stagedSubmissions.clear();
-            externalTextures.clear();
-            videoFrames.clear();
+            for (const resources of [buffers, mappings, pendingMappings, textures, textureViews, samplers, pipelines,
+                renderPipelines, querySets, stagedSubmissions, externalTextures, videoFrames]) resources.clear();
             if (ownsConfiguration) context.unconfigure();
             device.destroy();
         },

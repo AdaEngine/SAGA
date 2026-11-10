@@ -1,3 +1,25 @@
+# Configured frontend profiles — 2026-11-10
+
+The pinned 270-row corpus can run with the default `strict` profile or the opt-in
+`naga-native` profile. The latter enables the native compatibility options recorded
+in each result, including vertex writable storage, native 1D sampling offsets,
+Naga float rounding, abstract integer concretization, mixed workgroup dimension types and legacy subgroup syntax.
+Both profiles verify their plan and result provenance, including the integer concretization flag.
+Both profiles were rerun after the integer concretization change, reusing the
+SwiftPM objects from the focused build (the corpus runner does not verify object freshness):
+strict produced 224 pass, 8 fail, 36 unsupported assembly and 2 rejection-only;
+`naga-native` produced 230 pass, 2 fail, 36 unsupported assembly and 2
+rejection-only. The native failures are an intentionally rejected invalid operator
+case and the unsupported ray-tracing pipeline extension. These are frontend
+acceptance results, not backend, GPU or CTS conformance.
+
+Run `python3 -B docs/tools/verify_configured_frontend_corpus.py --reference ../wgpu
+--output /tmp/saga-corpus --profile naga-native` to rebuild the runner and execute
+the opt-in profile. Reusing `--swiftpm-bin-path` avoids a rebuild but does not
+verify object freshness. Omit `--profile` for strict behavior.
+
+---
+
 # Matrix arithmetic, configured acceptance and loop ownership — 2026-11-07
 
 **SAGA-5 remains open, not done.** Latest checks: **229 strict native tests PASS**, strict native build PASS, matched Swift6.3.2 Wasm compiler PASS (compile-only), **66 docs checks PASS, 0 skips**.

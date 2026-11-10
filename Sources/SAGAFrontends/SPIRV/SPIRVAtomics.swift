@@ -345,7 +345,7 @@ extension SPVDecoder {
                 guard let memberPaths = byMember[UInt32(index)] else { continue }
                 let fieldType = try atomicStorageType(field.type, paths: memberPaths, at: site)
                 upgraded[index] = .init(name: field.name, type: fieldType, binding: field.binding,
-                                        offset: field.offset, location: field.location)
+                                        offset: field.offset, location: field.location, explicitAlignment: field.explicitAlignment)
             }
             return try internAtomicType(.structure(members: upgraded, span: span))
         default: throw site.fail("Invalid atomic storage type")

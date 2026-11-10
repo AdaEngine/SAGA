@@ -31,6 +31,19 @@ func geometricStatements(
     if format == .wgsl {
         return ["let \(name) = \(function.rawValue)(\(arguments.joined(separator: ", ")));"]
     }
+    if format == .hlsl && function == .faceForward {
+        // HLSL's intrinsic multiplies by -sign(dot(...)), which returns zero
+        // at a zero dot product. WGSL selects the negated normal in that case.
+        let normal = "\(name)_face_normal"
+        let incidence = "\(name)_face_incidence"
+        let reference = "\(name)_face_reference"
+        return [
+            "\(resultType) \(normal) = \(arguments[0]);",
+            "\(resultType) \(incidence) = \(arguments[1]);",
+            "\(resultType) \(reference) = \(arguments[2]);",
+            "\(resultType) \(name) = dot(\(reference), \(incidence)) < 0.0f ? \(normal) : -\(normal);",
+        ]
+    }
     let expression: String
     var statements: [String] = []
     switch (function, operand) {

@@ -8,7 +8,7 @@ extension WGSLParser {
         body.scopes[last][wgslKey(n.text)] = v
     }
     func function(_ attrs: [String:Attribute]) throws {
-        try checkAttributes(attrs,allowed:["compute","fragment","vertex","workgroup_size","subgroup_size","diagnostic","early_depth_test","must_use"])
+        try checkAttributes(attrs,allowed:["compute","fragment","vertex","task","mesh","payload","workgroup_size","subgroup_size","diagnostic","early_depth_test","must_use"])
         let name = try ident(); try reserve(name)
         let diagnostic = try functionDiagnosticFilters(attrs)
         body = WGSLFunctionBody()
@@ -38,10 +38,10 @@ extension WGSLParser {
             try statement(.returnValue(nil),at:name)
             body.blocks[root.index] = IRBlock(statements:body.current,location:body.blocks[root.index].location); body.current = saved
         }
-        let stageNames = ["vertex","fragment","compute"].filter { attrs[$0] != nil }
+        let stageNames = ["vertex","fragment","compute","task","mesh"].filter { attrs[$0] != nil }
         guard stageNames.count <= 1 else { throw wgslError(.invalidBinding,"Conflicting stages",name) }
         if stageNames.isEmpty && attrs["workgroup_size"] != nil { throw wgslError(.invalidBinding,"workgroup_size requires compute stage",name) }
-        for s in stageNames {
+        for s in stageNames where s != "mesh" {
             if let a = attrs[s], !a.arguments.isEmpty { throw wgslError(.unexpectedToken,"Stage attribute has no arguments",a.name) }
         }
         let subgroupSize: IRSubgroupSize?
@@ -71,21 +71,33 @@ extension WGSLParser {
         }
         let fh = try IRHandle<IRFunction>(index:functions.count)
         if let s = stageNames.first {
-            let stage: IRStage = s == "compute" ? .compute : s == "vertex" ? .vertex : .fragment
+            guard let stage = IRStage(rawValue: s) else { throw ShaderFailure.invalidHandle }
+            if (s == "mesh" || s == "task") && !meshShaderEnabled {
+                throw wgslError(.unsupportedCapability, "Mesh and task stages require enable wgpu_mesh_shader", name)
+            }
+            if attrs["payload"] != nil && s != "mesh" && s != "task" {
+                throw wgslError(.invalidBinding, "payload requires a mesh or task stage", name)
+            }
+            let payload = try attrs["payload"].map { try meshGlobal($0) }
+            if let payload, globals[payload.index].space != .taskPayload {
+                throw wgslError(.invalidAddressSpace, "Payload must use task_payload address space", name)
+            }
+            let meshInfo = try attrs["mesh"].map { try meshOutput($0) }
             var workgroup = IRWorkgroupSize()
             var workgroupOverrides: IRWorkgroupOverrides?
-            if s == "compute" {
+            if s == "compute" || s == "mesh" || s == "task" {
                 guard let a = attrs["workgroup_size"], (1...3).contains(a.expressions.count) else {
                     throw wgslError(.invalidBinding, "Compute needs workgroup_size with 1...3 dimensions", name)
                 }
                 (workgroup, workgroupOverrides) = try workgroupConfiguration(a)
-                guard body.result == nil else { throw wgslError(.invalidBinding,"Compute cannot return a value",name) }
+                if s == "compute", body.result != nil { throw wgslError(.invalidBinding,"Compute cannot return a value",name) }
             } else if attrs["workgroup_size"] != nil { throw wgslError(.invalidBinding,"Non-compute workgroup_size",name) }
             try node()
             entries.append(.init(name: name.text, stage: stage, function: fh, earlyDepthTest: earlyDepthTest,
                                  workgroupSize: workgroup, workgroupOverrides: workgroupOverrides,
-                                 subgroupSize: subgroupSize, location: name.location))
+                                 subgroupSize: subgroupSize, meshInfo: meshInfo, taskPayload: payload, location: name.location))
         } else {
+            if attrs["payload"] != nil { throw wgslError(.invalidBinding, "payload requires a mesh or task stage", name) }
             guard body.arguments.allSatisfy({ $0.binding == nil }), body.result?.binding == nil else { throw wgslError(.invalidBinding,"Non-entry function has IO attributes",name) }
         }
         try node()
@@ -93,6 +105,47 @@ extension WGSLParser {
         functionNames[wgslKey(name.text)] = fh.index
         if attrs["must_use"] != nil { mustUseFunctions.insert(fh.index) }
         body = WGSLFunctionBody()
+    }
+    func meshGlobal(_ attribute: Attribute) throws -> IRHandle<IRGlobalVariable> {
+        guard attribute.expressions.count == 1, attribute.arguments.count == 1,
+              let name = attribute.arguments.first, name.kind == .word else {
+            throw wgslError(.invalidReference, "Expected a global variable name", attribute.name)
+        }
+        if globalNames[wgslKey(name.text)] == nil, let declaration = declarationNames[wgslKey(name.text)] {
+            try resolveDeclaration(declaration, at: name)
+        }
+        guard let index = globalNames[wgslKey(name.text)] else {
+            throw wgslError(.invalidReference, "Expected a global variable name", name)
+        }
+        return try IRHandle<IRGlobalVariable>(index: index)
+    }
+    func meshOutput(_ attribute: Attribute) throws -> IRMeshStageInfo {
+        let output = try meshGlobal(attribute)
+        guard globals[output.index].space == .workgroup,
+              case .structure(let members, _) = types[globals[output.index].type.index].kind else {
+            throw wgslError(.invalidType, "Mesh output must be a workgroup structure", attribute.name)
+        }
+        var vertex: (WType, UInt32)?
+        var primitive: (WType, UInt32)?
+        for member in members {
+            guard case .builtIn(let builtin) = member.binding else { continue }
+            guard builtin == .vertices || builtin == .primitives else { continue }
+            guard case .array(let base, .constant(let count), _) = types[member.type.index].kind else {
+                throw wgslError(.unsupportedCapability, "Mesh output arrays require constant lengths", attribute.name)
+            }
+            if builtin == .vertices { vertex = (base, count) } else { primitive = (base, count) }
+        }
+        guard let vertex, let primitive else { throw wgslError(.invalidType, "Mesh output requires vertices and primitives arrays", attribute.name) }
+        var topology: IRMeshOutputTopology = .triangles
+        if case .structure(let members, _) = types[primitive.0.index].kind {
+            for member in members {
+                if member.binding == .builtIn(.pointIndex) { topology = .points }
+                if member.binding == .builtIn(.lineIndices) { topology = .lines }
+                if member.binding == .builtIn(.triangleIndices) { topology = .triangles }
+            }
+        }
+        return .init(topology: topology, maxVertices: vertex.1, maxPrimitives: primitive.1,
+                     vertexOutputType: vertex.0, primitiveOutputType: primitive.0, outputVariable: output)
     }
     func block(newScope: Bool = true) throws -> IRHandle<IRBlock> {
         try enter(); defer { nesting -= 1 }
@@ -171,11 +224,11 @@ extension WGSLParser {
         if try eat("for") { try forStatement(at:start); return }
         if try eat("switch") { try switchStatement(at:start); return }
         if try eat("break") {
-            guard (body.loopDepth > 0 || body.switchDepth > 0) && !body.continuing else { throw wgslError(.invalidControlFlow,"Invalid break context",start) }
+            guard body.continuing ? (body.loopDepth > body.continuingLoopDepth || body.switchDepth > body.continuingSwitchDepth) : (body.loopDepth > 0 || body.switchDepth > 0) else { throw wgslError(.invalidControlFlow,"Invalid break context",start) }
             try expect(";"); try statement(.break,at:start); return
         }
         if try eat("continue") {
-            guard body.loopDepth > 0 && !body.continuing else { throw wgslError(.invalidControlFlow,"Invalid continue context",start) }
+            guard body.loopDepth > (body.continuing ? body.continuingLoopDepth : 0) else { throw wgslError(.invalidControlFlow,"Invalid continue context",start) }
             try noteContinue()
             try expect(";"); try statement(.continue,at:start); return
         }
@@ -297,8 +350,10 @@ extension WGSLParser {
                 case .access(let base, _), .accessIndex(let base, _): root = body.expressions[base.index].kind
                 case let kind: root = kind
                 }
-                guard case .globalVariable = root else {
-                    throw wgslError(.invalidReference, "Texture atomics require a global texture binding", start)
+                switch root {
+                case .globalVariable, .functionArgument: break
+                default:
+                    throw wgslError(.invalidReference, "Texture atomics require a texture binding or parameter", start)
                 }
                 try statement(.imageAtomic(image: image.handle, coordinate: coordinate.handle,
                                            arrayIndex: layer, function: textureAtomic, value: value.handle), at: start)

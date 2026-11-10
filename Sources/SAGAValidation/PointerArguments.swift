@@ -54,7 +54,13 @@ package struct ShaderPointerAccesses {
         }
         for expression in function.expressions.values {
             try budget.consume(.work)
-            if case .load(let pointer) = expression.kind { try record(roots[pointer.index], .read) }
+            switch expression.kind {
+            case .load(let pointer):
+                try record(roots[pointer.index], .read)
+            case .cooperativeLoad(_, _, _, let data):
+                try record(roots[data.pointer.index], .read)
+            default: break
+            }
         }
         for statement in function.statements.values {
             try budget.consume(.work)
@@ -65,6 +71,8 @@ package struct ShaderPointerAccesses {
                 try record(roots[pointer.index], [.read, .write])
             case .workgroupUniformLoad(let pointer, _):
                 try record(roots[pointer.index], .read)
+            case .cooperativeStore(_, let data):
+                try record(roots[data.pointer.index], .write)
             case .call(let target, let arguments, _):
                 guard let callee = callees[target.index] else { throw ShaderFailure.invalidHandle }
                 let signature = try module.functions.value(for: target).arguments

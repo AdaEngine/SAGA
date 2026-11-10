@@ -42,7 +42,7 @@ try {
     for (const [index, expected] of [242, 9, 4].entries()) {
         assert.ok(Math.abs(result.renderProbe[index] - expected) <= 1);
     }
-    assert.equal(result.integerWords, 20);
+    assert.equal(result.integerWords, 24);
     assert.equal(result.runtimeArrayWords, 17);
     assert.equal(result.storageTailWords, 5);
     assert.equal(result.storageVectors, 4);
@@ -56,6 +56,7 @@ try {
             dispatch: limits.maxComputeWorkgroupsPerDimension,
             vertexAttributes: limits.maxVertexAttributes,
             vertexBuffers: limits.maxVertexBuffers,
+            bindGroupsPlusVertexBuffers: limits.maxBindGroupsPlusVertexBuffers ?? 24,
             vertexStride: limits.maxVertexBufferArrayStride,
             interstage: limits.maxInterStageShaderVariables,
             colorAttachments: limits.maxColorAttachments,
@@ -68,6 +69,7 @@ try {
     assert.equal(result.maxComputeWorkgroupsPerDimension, adapterLimits.dispatch);
     assert.equal(result.maxVertexAttributes, adapterLimits.vertexAttributes);
     assert.equal(result.maxVertexBuffers, adapterLimits.vertexBuffers);
+    assert.equal(result.maxBindGroupsPlusVertexBuffers, adapterLimits.bindGroupsPlusVertexBuffers);
     assert.equal(result.maxVertexBufferArrayStride, adapterLimits.vertexStride);
     assert.equal(result.maxInterStageShaderVariables, adapterLimits.interstage);
     assert.equal(result.maxColorAttachments, adapterLimits.colorAttachments);
@@ -102,7 +104,7 @@ try {
         14, 11, -12, 33, 25, -27, 63, 43, -45, 93, 61, -63, 1, 4, -2, 5, 3, -6,
     ]);
     assert.deepEqual(result.matrixBufferValues, [0, 1, 55, 18, 2, 21, 45, 15]);
-    assert.deepEqual(result.switchWords, [7, 7, 11, 19, 39, 219, 23, 1, 28, 28, 50, 99, 38, 22, 64, 99, 40, 43, 0, 10, 20, 99, 40, 3]);
+    assert.deepEqual(result.switchWords, [7, 7, 11, 19, 39, 219, 23, 1, 28, 28, 50, 99, 38, 22, 64, 99, 40, 43, 0, 10, 20, 99, 40, 3, 18]);
     assert.deepEqual(result.textureUploadWords, [0xff445566, 0xff112233, 0xff445566, 0xff778899, 0xffaabbcc]);
     assert.deepEqual(result.textureLoadWords, [0, 0xffff0000, 0xff00ff00, 0, 0, 0, 0]);
     assert.deepEqual(result.renderTexturePixels, [0xffff0000, 0xff00ffff, 0xffff0000, 0xff0000ff]);
@@ -951,7 +953,7 @@ try {
         const [size, groups] = result.subgroupUniformityWords;
         assert.ok(size > 0 && size <= 128 && groups === Math.ceil(128 / size));
     }
-    assert.equal(result.submissions, (result.halfPrecisionWords === null ? 140 : 150) +
+    assert.equal(result.submissions, (result.halfPrecisionWords === null ? 143 : 153) +
         Number(standardLayout) + Number(supportsClipDistances) + Number(supportsPrimitiveIndex) +
         Number(supportsDepthClipControl) + 4 * Number(supportsTimestampQuery) + 2 * Number(supportsSubgroups) + Number(supportsSubgroupID) + Number(supportsDualSource) + Number(supportsBC) + Number(supportsETC2) + Number(supportsASTC) +
         Number(supportsBCVolume) + Number(supportsASTCVolume) + Number(supportsFloat32Filtering) + Number(supportsFloat32Blending) + supportedMultisamples.length + 5 * Number(supportsTier1Storage) + Number(supportsNormalized16) + Number(supportsDepth32Stencil) +

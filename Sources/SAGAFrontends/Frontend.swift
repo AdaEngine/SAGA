@@ -31,6 +31,7 @@ public struct WGSLFrontendOptions: Sendable, Equatable {
     public let allowLegacyNagaSubgroups: Bool
     package let allow1DTextureSampleLevelOffset: Bool
     package let nagaFloatRounding: Bool
+    package let nagaIntegerConcretization: Bool
     package let allowMixedWorkgroupDimensionTypes: Bool
     public init(
         parseDocComments: Bool = false, capabilities: ShaderCapabilities = .allKnown,
@@ -42,7 +43,8 @@ public struct WGSLFrontendOptions: Sendable, Equatable {
 
     package init(
         parseDocComments: Bool = false, capabilities: ShaderCapabilities, allow1DTextureSampleLevelOffset: Bool,
-        nagaFloatRounding: Bool = false, allowMixedWorkgroupDimensionTypes: Bool = false,
+        nagaFloatRounding: Bool = false, nagaIntegerConcretization: Bool = false,
+        allowMixedWorkgroupDimensionTypes: Bool = false,
         allowLegacyNagaSubgroups: Bool = false
     ) {
         self.parseDocComments = parseDocComments
@@ -50,6 +52,7 @@ public struct WGSLFrontendOptions: Sendable, Equatable {
         self.allowLegacyNagaSubgroups = allowLegacyNagaSubgroups
         self.allow1DTextureSampleLevelOffset = allow1DTextureSampleLevelOffset
         self.nagaFloatRounding = nagaFloatRounding
+        self.nagaIntegerConcretization = nagaIntegerConcretization
         self.allowMixedWorkgroupDimensionTypes = allowMixedWorkgroupDimensionTypes
     }
 }

@@ -4,7 +4,7 @@ import struct
 import tempfile
 import unittest
 from unittest.mock import patch
-from configured_frontend_corpus import configuration, summarize, map_spirv_assembly, DEFAULT_CAPS
+from configured_frontend_corpus import configuration, summarize, map_spirv_assembly, profile_options, DEFAULT_CAPS
 
 
 def assembly_row(root):
@@ -27,6 +27,51 @@ def fake_assembler(root, output, status=0):
     return path
 
 class ConfiguredCorpusTests(unittest.TestCase):
+    def test_profiles_are_explicit_and_unknown_profiles_fail(self):
+        self.assertEqual(profile_options("strict"), dict(allow_vertex_writable_storage=False,
+            allow_1d_texture_sample_level_offset=False, naga_float_rounding=False,
+            naga_integer_concretization=False,
+            allow_mixed_workgroup_dimension_types=False, allow_legacy_naga_subgroups=False))
+        self.assertTrue(all(profile_options("naga-native").values()))
+        with self.assertRaises(ValueError):
+            profile_options("unknown")
+
+    def test_integer_concretization_is_profiled_and_provenance_is_checked(self):
+        for profile, expected in (("strict", False), ("naga-native", True)):
+            options = profile_options(profile)
+            self.assertIs(options["naga_integer_concretization"], expected)
+            row = dict(source="a", sha256="hash", expected_parse="accepted", expected_semantic="accepted",
+                       validation=True, profile=profile, profile_options=options)
+            plan = dict(rows=[row], scope="test", profile=profile, profile_options=options)
+            actual = dict(row, parse="accepted", semantic="accepted")
+            self.assertEqual(summarize(plan, [actual])["profile_options"], options)
+            for invalid in (dict(options, naga_integer_concretization=not expected),
+                            {key: value for key, value in options.items() if key != "naga_integer_concretization"}):
+                with self.subTest(profile=profile, invalid=invalid), self.assertRaises(ValueError):
+                    summarize(plan, [dict(actual, profile_options=invalid)])
+                with self.subTest(profile=profile, invalid_plan=invalid), self.assertRaises(ValueError):
+                    summarize(dict(plan, profile_options=invalid), [actual])
+
+    def test_profile_provenance_is_required_and_cannot_drift(self):
+        options = profile_options("naga-native")
+        row = dict(source="a", sha256="hash", expected_parse="accepted", expected_semantic="accepted",
+                   validation=True, profile="naga-native", profile_options=options)
+        plan = dict(rows=[row], scope="test", profile="naga-native", profile_options=options)
+        actual = dict(row, parse="accepted", semantic="accepted")
+        report = summarize(plan, [actual])
+        self.assertEqual(report["profile"], "naga-native")
+        self.assertEqual(report["profile_options"], options)
+        for field in ("profile", "profile_options"):
+            absent = dict(actual); del absent[field]
+            with self.assertRaises(ValueError): summarize(plan, [absent])
+            with self.assertRaises(ValueError): summarize(plan, [dict(actual, **{field: "drift"})])
+        with self.assertRaises(ValueError):
+            summarize(dict(plan, profile="strict"), [actual])
+        for field in options:
+            forged = dict(options, **{field: 1})
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                summarize(plan, [dict(actual, profile_options=forged)])
+
     def test_pinned_defaults_differ_from_frontend_api_defaults(self):
         c = configuration({},"wgsl",{})
         self.assertEqual(c["capabilities"],DEFAULT_CAPS)

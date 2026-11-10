@@ -5,6 +5,26 @@ Date: 2026-11-06. Scope: SAGA-2 documentation, not a working WebGPU implementati
 
 ## Authorities and boundaries
 
+**Known unresolved query-resolve divergence (2026-11-10):** the pinned
+WebGPU snapshot requires `firstQuery` to be less than the query-set count even
+when `queryCount` is zero. Pinned wgpu checks only that the end of the range
+does not exceed the count, and SAGA currently follows that behavior. The
+browser host skips the zero-count native call, so this case is accepted through
+SAGA even though it does not satisfy the pinned WebGPU rule. The existing
+`EmptyQueryResolveTests` and browser diagnostic cover the current behavior;
+they are not conformance evidence for this case. This mismatch remains open.
+
+**Known unresolved 3D copy difference (2026-11-10):** SAGA rejects copies
+whose source and destination depth-slice ranges overlap within the same 3D mip.
+The pinned wgpu range check treats a 3D copy as one array layer and can accept
+distinct starting Z coordinates even when the depth ranges overlap. SAGA
+supports disjoint slice ranges, including through a browser intermediate.
+The pinned WebGPU snapshot identifies a 3D subresource by mip level and requires
+copy subresource sets to be disjoint; Chromium rejects a direct same-mip copy
+even for disjoint Z slices. SAGA's intermediate therefore implements the wgpu
+behavior as an extension, not evidence of strict WebGPU conformance. The
+overlapping case needs separate specification and backend-behavior review.
+
 1. **Normative WebGPU API/algorithms** and **WGSL language/validation/execution semantics** at the proposed immutable GPUWeb pin determine behavior. Editor's Draft revisions are proposed engineering baselines, not a W3C certification or final-standard claim. Living readable anchors may move: pinned source snapshots are authoritative for this baseline.
 2. **Independent GPUWeb CTS** is a separate conformance authority. Its pinned README says tests are normative and mismatches are bugs. A mismatch requires triage against the pinned spec, recording an upstream issue/resolution; do not silently change Swift behavior or weaken tests to copy a Rust result.
 3. **Native wgpu additions** are a separate parity product decision, not WebGPU requirements. `FeaturesWGPU` contains features overlapping newer spec capabilities (for example subgroups); classify by actual pinned normative semantics, never by bit/name alone.

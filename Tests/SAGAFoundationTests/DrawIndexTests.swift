@@ -48,7 +48,7 @@ private let drawIndexShader = ShaderInput.wgsl("""
     }
     for input in [drawIndexShader, .spirv(words)] {
         #expect(throws: ShaderFailure.self) { try compiler.compileWebGPURenderStage(input, entryPoint: "vs") }
-        for format in [ShaderOutputFormat.msl, .hlsl, .glsl] {
+        for format in [ShaderOutputFormat.msl, .hlsl] {
             #expect(throws: ShaderFailure.self) { try compiler.compileRenderStage(input, entryPoint: "vs", to: format) }
         }
     }

@@ -56,6 +56,8 @@ final class WGSLFunctionBody {
     var loopDepth = 0
     var switchDepth = 0
     var continuing = false
+    var continuingLoopDepth = 0
+    var continuingSwitchDepth = 0
     var loopScopes: [WGSLLoopScope] = []
     var continuingVisibility: [Int: Set<String>] = [:]
 }
@@ -86,6 +88,7 @@ final class WGSLParser {
     var entries: [IREntryPoint] = []
     var diagnosticFilters: [IRDiagnosticFilter] = []
     var float16Enabled = false
+    var meshShaderEnabled = false
     var int16Enabled = false
     var cooperativeMatrixEnabled = false
     var clipDistancesEnabled = false
@@ -217,7 +220,7 @@ final class WGSLParser {
             let key = n.text == "diagnostic" ? "diagnostic@\(n.start)" : n.text
             guard out[key] == nil else { throw wgslError(.duplicateName,"Duplicate attribute",n) }
             let hasParentheses = try eat("(")
-            if hasParentheses && ["invariant", "must_use", "coherent", "volatile"].contains(n.text) {
+            if hasParentheses && ["invariant", "must_use", "coherent", "volatile", "per_primitive"].contains(n.text) {
                 throw wgslError(.unexpectedToken, "@\(n.text) does not take parentheses", n)
             }
             let expressions: [[WGSLToken]]
@@ -268,7 +271,16 @@ final class WGSLParser {
         return try attributeValue(value,at:a.arguments.first ?? a.name)
     }
     func binding(_ attrs: [String: Attribute]) throws -> IRBinding? {
-        try checkAttributes(attrs,allowed:["builtin","location","interpolate","invariant","blend_src"])
+        try checkAttributes(attrs,allowed:["builtin","location","interpolate","invariant","blend_src","per_primitive"])
+        if let primitive = attrs["per_primitive"] {
+            guard meshShaderEnabled else {
+                throw wgslError(.unsupportedCapability, "@per_primitive requires enable wgpu_mesh_shader", primitive.name)
+            }
+            guard attrs["location"] != nil else {
+                throw wgslError(.invalidBinding, "@per_primitive requires @location", primitive.name)
+            }
+        }
+        let perPrimitive = attrs["per_primitive"] != nil
         let invariant = attrs["invariant"]
         if let invariant, attrs["builtin"]?.arguments.first?.text != "position" {
             throw wgslError(.invalidBinding,"@invariant requires @builtin(position)",invariant.name)
@@ -291,7 +303,7 @@ final class WGSLParser {
         if let a = attrs["location"] {
             let index = try attributeUInt(a)
             guard let attribute = attrs["interpolate"] else {
-                return .location(index:index,interpolation:nil,sampling:nil,blendSource:blendSource,perPrimitive:false)
+                return .location(index:index,interpolation:nil,sampling:nil,blendSource:blendSource,perPrimitive:perPrimitive)
             }
             let words = attribute.arguments
             guard (1...2).contains(words.count), attribute.expressions.count == words.count,
@@ -305,22 +317,35 @@ final class WGSLParser {
                 guard words.count == 1 || words[1].text == "center" else {
                     throw wgslError(.invalidBinding, "per_vertex only allows center sampling", words[1])
                 }
-                return .location(index:index,interpolation:.perVertex,sampling:nil,blendSource:blendSource,perPrimitive:false)
+                return .location(index:index,interpolation:.perVertex,sampling:nil,blendSource:blendSource,perPrimitive:perPrimitive)
             }
             guard let interpolation = IRInterpolation(rawValue: words[0].text), interpolation != .perVertex else {
                 throw wgslError(.invalidBinding,"Invalid interpolation type",attribute.name)
             }
             let sampling = words.count == 2 ? IRSampling(rawValue: words[1].text) :
-                (interpolation == .flat ? .first : .center)
-            let valid = interpolation == .flat ? sampling == .first || sampling == .either :
-                sampling == .center || sampling == .centroid || sampling == .sample
+                (perPrimitive ? (interpolation == .flat ? .first : .center) : nil)
+            let valid = words.count == 1 || (interpolation == .flat ? sampling == .first || sampling == .either :
+                sampling == .center || sampling == .centroid || sampling == .sample)
             guard valid else { throw wgslError(.invalidBinding,"Invalid interpolation sampling",attribute.name) }
-            return .location(index:index,interpolation:interpolation,sampling:sampling,blendSource:blendSource,perPrimitive:false)
+            return .location(index:index,interpolation:interpolation,sampling:sampling,blendSource:blendSource,perPrimitive:perPrimitive)
         }
         if let a = attrs["builtin"] {
             guard a.expressions.count == 1, a.arguments.count == 1, let t = a.arguments.first, t.kind == .word else { throw wgslError(.invalidBinding,"Expected builtin name",a.name) }
             let builtin: IRBuiltIn
             switch t.text {
+            case "mesh_task_size", "cull_primitive", "point_index", "line_indices", "triangle_indices", "vertex_count", "vertices", "primitive_count", "primitives":
+                guard meshShaderEnabled else { throw wgslError(.unsupportedCapability, "Mesh builtin requires enable wgpu_mesh_shader", t) }
+                switch t.text {
+                case "mesh_task_size": builtin = .meshTaskSize
+                case "cull_primitive": builtin = .cullPrimitive
+                case "point_index": builtin = .pointIndex
+                case "line_indices": builtin = .lineIndices
+                case "triangle_indices": builtin = .triangleIndices
+                case "vertex_count": builtin = .vertexCount
+                case "vertices": builtin = .vertices
+                case "primitive_count": builtin = .primitiveCount
+                default: builtin = .primitives
+                }
             case "global_invocation_id": builtin = .globalInvocationId
             case "global_invocation_index", "workgroup_index":
                 guard linearIndexingEnabled else {
@@ -623,7 +648,7 @@ final class WGSLParser {
                     throw wgslError(.invalidType,"Only a direct runtime array may be an unsized member",name)
                 }
             }
-            try checkAttributes(attrs, allowed: ["align", "size", "builtin", "location", "interpolate", "invariant", "blend_src"])
+            try checkAttributes(attrs, allowed: ["align", "size", "builtin", "location", "interpolate", "invariant", "blend_src", "per_primitive"])
             let l = try layout(ty)
             var memberAlignment = l.0, memberSize = l.1
             if let a = attrs["align"] {
@@ -643,7 +668,7 @@ final class WGSLParser {
             alignment = max(alignment,memberAlignment)
             let off = try aligned(size,to:memberAlignment,at:name)
             guard UInt64(off)+UInt64(memberSize) <= UInt64(Int32.max), let end = UInt32(exactly:UInt64(off)+UInt64(memberSize)) else { throw wgslError(.invalidType,"Struct layout overflow",name) }
-            try node(); members.append(IRStructMember(name:name.text,type:ty,binding:try binding(attrs.filter { $0.key != "align" && $0.key != "size" }),offset:off,location:name.location)); size = end
+            try node(); members.append(IRStructMember(name:name.text,type:ty,binding:try binding(attrs.filter { $0.key != "align" && $0.key != "size" }),offset:off,location:name.location,explicitAlignment:attrs["align"] == nil ? nil : memberAlignment)); size = end
             if !(try eat(",")) { break }
         }
         try expect("}")
@@ -673,6 +698,9 @@ final class WGSLParser {
             case "immediate": space = .immediate
             case "private": space = .private
             case "workgroup": space = .workgroup
+            case "task_payload":
+                guard meshShaderEnabled else { throw wgslError(.unsupportedCapability, "task_payload requires enable wgpu_mesh_shader", s) }
+                space = .taskPayload
             default: throw unsupported("global address space",at:s)
             }
         }

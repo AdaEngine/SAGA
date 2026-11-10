@@ -136,7 +136,7 @@ extension SPVDecoder {
             for (index, field) in left.enumerated() {
                 let type = try storageAliasWordType(.init(canonical: field.type, alias: right[index].type), cached: &cached)
                 if type != field.type {
-                    fields[index] = .init(name: field.name, type: type, binding: field.binding, offset: field.offset, location: field.location)
+                    fields[index] = .init(name: field.name, type: type, binding: field.binding, offset: field.offset, location: field.location, explicitAlignment: field.explicitAlignment)
                 }
             }
             normalized = .structure(members: fields, span: span)

@@ -36,14 +36,17 @@ func hlslRayIntersectionLines(
     return lines
 }
 
-// Reject unsupported bits and mutually exclusive DXR ray flags before traversal.
+// Reject mutually exclusive DXR ray flags before traversal.
 func hlslRayFlagsValidation(_ flags: String) -> String {
-    "(\(flags) & ~1023u) == 0u && countbits(\(flags) & 195u) <= 1u && countbits(\(flags) & 304u) <= 1u && (\(flags) & 768u) != 768u"
+    "countbits(\(flags) & 195u) <= 1u && countbits(\(flags) & 304u) <= 1u && (\(flags) & 768u) != 768u"
 }
 
 func hlslRayDescriptorValidation(fields: [String]) -> String {
     let tmin = fields[2], tmax = fields[3], origin = fields[4], direction = fields[5]
-    return "!isnan(\(tmin)) && !isnan(\(tmax)) && !any(isnan(\(origin))) && !any(isnan(\(direction))) && \(tmin) >= 0.0f && \(tmin) <= \(tmax)"
+    func nan(_ value: String) -> String {
+        "(((asuint(\(value)) & 0x7f800000u) == 0x7f800000u) & ((asuint(\(value)) & 0x007fffffu) != 0u))"
+    }
+    return "!\(nan(tmin)) && !\(nan(tmax)) && !any(\(nan(origin))) && !any(\(nan(direction))) && \(tmin) >= 0.0f && \(tmin) <= \(tmax)"
 }
 
 func hlslRayTerminate(query: String, state: String) -> String {

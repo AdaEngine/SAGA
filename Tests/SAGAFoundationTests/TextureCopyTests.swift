@@ -3,6 +3,25 @@ import SAGATypes
 import SAGACore
 import SAGAMetal
 
+@Test func validatesDisjointVolumeSliceCopies() throws {
+    let image = ResourceID(device: 1, serial: 1)
+    let volume = TextureDescriptor(width: 2, height: 1, format: .rgba8Unorm,
+        usage: [.copySource, .copyDestination], dimension: .d3, depth: 4)
+    func copy(_ z: UInt32, _ destinationZ: UInt32, depth: UInt32) throws {
+        try BufferCommand.copyTextureToTexture(source: image, destination: image,
+            sourceRegion: .init(width: 2, height: 1, z: z, depth: depth),
+            destinationOrigin: .init(z: destinationZ))
+            .validate(device: 1, descriptors: [:], textures: [image: volume])
+    }
+    try copy(0, 2, depth: 2)
+    #expect(throws: GPUError.validation("Texture copy subresources must be disjoint")) {
+        try copy(0, 1, depth: 2)
+    }
+    #expect(throws: GPUError.validation("Texture copy subresources must be disjoint")) {
+        try copy(0, 0, depth: 0)
+    }
+}
+
 @Test func validatesTextureCopySubresourcesFormatsAndDepthExtent() throws {
     let source = ResourceID(device: 1, serial: 1)
     let destination = ResourceID(device: 1, serial: 2)
@@ -32,6 +51,28 @@ import SAGAMetal
 }
 
 #if canImport(Metal)
+@Test func copiesDisjointVolumeSlicesOnMetal() async throws {
+    let device = try await Device.make(backend: MetalBackend.makeDevice())
+    do {
+        let image = try await device.createTexture(.init(width: 1, height: 1, format: .rgba8Unorm,
+            usage: [.copySource, .copyDestination], dimension: .d3, depth: 2))
+        let read = try await device.createBuffer(.init(size: 4, usage: [.copyDestination, .mapRead]))
+        let ticket = try await device.submitCommands([
+            .writeTexture(destination: image, data: [1, 2, 3, 4], layout: .init(),
+                          region: .init(width: 1, height: 1)),
+            .copyTextureToTexture(source: image, destination: image,
+                sourceRegion: .init(width: 1, height: 1), destinationOrigin: .init(z: 1)),
+            .copyTextureToBuffer(source: image, destination: read, bytesPerRow: 256, z: 1),
+            .read(buffer: read, byteCount: 4),
+        ])
+        #expect(try await ticket.wait() == [[0x04030201]])
+    } catch {
+        await device.close()
+        throw error
+    }
+    await device.close()
+}
+
 @Test func copiesColorRegionsBetweenMipsOnMetal() async throws {
     let device = try await Device.make(backend: MetalBackend.makeDevice())
     do {

@@ -36,7 +36,6 @@ actor CommandTestBackend: CommandBackendDevice {
         .write(buffer: a, offset: UInt64.max, words: [1]),
         .write(buffer: a, offset: 2, words: [1]),
         .write(buffer: a, offset: 4, words: [1, 2]),
-        .write(buffer: a, offset: 0, words: []),
         .dispatch(pipeline: p, input: a, output: b, count: 0),
         .dispatch(pipeline: p, input: a, output: b, count: UInt32.max),
         .dispatch(pipeline: p, input: a, output: a, count: 1),

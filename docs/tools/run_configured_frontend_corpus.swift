@@ -6,9 +6,30 @@ import SAGAValidation
 
 struct ConfiguredPlan: Decodable {
   let reference_revision: String
+  let profile: String
+  let profile_options: ProfileOptions
   let rows: [ConfiguredInput]
 }
+struct ProfileOptions: Codable, Equatable {
+  let allow_vertex_writable_storage: Bool
+  let allow_1d_texture_sample_level_offset: Bool
+  let naga_float_rounding: Bool
+  let naga_integer_concretization: Bool
+  let allow_mixed_workgroup_dimension_types: Bool
+  let allow_legacy_naga_subgroups: Bool
+
+  func matches(_ profile: String) -> Bool {
+    guard profile == "strict" || profile == "naga-native" else { return false }
+    let enabled = profile == "naga-native"
+    return allow_vertex_writable_storage == enabled && allow_1d_texture_sample_level_offset == enabled &&
+      naga_float_rounding == enabled && naga_integer_concretization == enabled &&
+      allow_mixed_workgroup_dimension_types == enabled &&
+      allow_legacy_naga_subgroups == enabled
+  }
+}
 struct ConfiguredInput: Decodable {
+  let profile: String
+  let profile_options: ProfileOptions
   let source: String
   let path: String
   let sha256: String
@@ -48,9 +69,14 @@ struct AssembledInput: Codable {
     guard args.count == 3 else {throw NSError(domain:"usage: corpus plan.json actual.json",code:1)}
     let plan = try JSONDecoder().decode(ConfiguredPlan.self,from:Data(contentsOf:URL(fileURLWithPath:args[1])))
     guard plan.reference_revision == "a55352911bb26a1b33bc8d5fc03bdebb0a967f5a" else {throw ShaderFailure.invalidHandle}
+    guard plan.profile_options.matches(plan.profile) else { throw ShaderFailure.invalidHandle }
     var rows: [[String:Any]] = []
     for input in plan.rows {
+      guard input.profile == plan.profile && input.profile_options == plan.profile_options else {
+        throw ShaderFailure.invalidHandle
+      }
       var row: [String:Any] = ["source":input.source,"sha256":input.sha256,"parse":"not-run","semantic":"not-run",
+        "profile":input.profile,"profile_options":try JSONSerialization.jsonObject(with: JSONEncoder().encode(input.profile_options)),
         "capabilities":input.capabilities,"parse_doc_comments":input.parse_doc_comments,"validation":input.validation,
         "format":input.format,"stage":input.stage,"strict_capabilities":input.strict_capabilities,
         "adjust_coordinate_space":input.adjust_coordinate_space,
@@ -89,7 +115,14 @@ struct AssembledInput: Codable {
         switch input.format {
         case "wgsl":
           let text = try strictUTF8(bytes)
-          module = try WGSLFrontend(options:.init(parseDocComments:input.parse_doc_comments)).parse(.wgsl(text.replacingOccurrences(of:"\r",with:"")))
+          let options = WGSLFrontendOptions(parseDocComments: input.parse_doc_comments,
+            capabilities: input.profile == "strict" ? .allKnown : .init(rawValue: input.capabilities),
+            allow1DTextureSampleLevelOffset: input.profile_options.allow_1d_texture_sample_level_offset,
+            nagaFloatRounding: input.profile_options.naga_float_rounding,
+            nagaIntegerConcretization: input.profile_options.naga_integer_concretization,
+            allowMixedWorkgroupDimensionTypes: input.profile_options.allow_mixed_workgroup_dimension_types,
+            allowLegacyNagaSubgroups: input.profile_options.allow_legacy_naga_subgroups)
+          module = try WGSLFrontend(options:options).parse(.wgsl(text.replacingOccurrences(of:"\r",with:"")))
         case "glsl":
           let text = try strictUTF8(bytes)
           let stage:ShaderStage = input.stage == "vertex" ? .vertex : input.stage == "fragment" ? .fragment : .compute
@@ -104,7 +137,8 @@ struct AssembledInput: Codable {
         row["parse"] = "accepted"
         if input.validation {
           do {
-            try ShaderSemanticValidator(capabilities:.init(rawValue:input.capabilities)).validate(module)
+            try ShaderSemanticValidator(capabilities:.init(rawValue:input.capabilities),
+              allowsVertexWritableStorage:input.profile_options.allow_vertex_writable_storage).validate(module)
             row["semantic"] = "accepted"
           } catch {row["semantic"] = "rejected";describe(error,&row)}
         }

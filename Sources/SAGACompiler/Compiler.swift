@@ -29,7 +29,7 @@ where Frontend.Module == Validator.Module, Validator.Module == Generator.Module 
 public enum WGSLSourceProfile: Sendable, Equatable {
     /// Enables native WGSL syntax for MSL, HLSL, GLSL, and SPIR-V translation.
     case targetDefault
-    /// Accepts Naga's mixed workgroup dimensions, implicit subgroups, and abstract float rounding.
+    /// Accepts Naga's mixed workgroup dimensions, implicit subgroups, and abstract numeric conversions.
     case nagaNative
 }
 
@@ -159,6 +159,150 @@ public struct IndependentShaderCompiler: Sendable {
         return compiled
     }
 
+    /// Compiles a native task entry point after validation and override specialization.
+    public func compileTaskStage(
+        _ input: ShaderInput, entryPoint: String, to output: ShaderOutputFormat,
+        constants: [String: Double] = [:], bindingArrayLengths: [IRResourceBinding: UInt32] = [:]
+    ) throws -> ShaderArtifact {
+        try compileTaskStage(input, entryPoint: entryPoint, to: output, constants: constants,
+                             bindingArrayLengths: bindingArrayLengths, hlslTaskDispatchLimits: nil)
+    }
+
+    /// Optionally guards HLSL mesh dispatches using limits supplied by the target device.
+    public func compileTaskStage(
+        _ input: ShaderInput, entryPoint: String, to output: ShaderOutputFormat,
+        constants: [String: Double] = [:], bindingArrayLengths: [IRResourceBinding: UInt32] = [:],
+        hlslTaskDispatchLimits: HLSLTaskDispatchLimits?
+    ) throws -> ShaderArtifact {
+        try compileTaskStage(input, entryPoint: entryPoint, to: output, constants: constants,
+                             bindingArrayLengths: bindingArrayLengths, hlslLimits: hlslTaskDispatchLimits, glslLimits: nil)
+    }
+
+    /// Optionally guards GLSL mesh dispatches using limits supplied by the target device.
+    public func compileTaskStage(
+        _ input: ShaderInput, entryPoint: String, to output: ShaderOutputFormat,
+        constants: [String: Double] = [:], bindingArrayLengths: [IRResourceBinding: UInt32] = [:],
+        glslTaskDispatchLimits: GLSLTaskDispatchLimits?
+    ) throws -> ShaderArtifact {
+        try compileTaskStage(input, entryPoint: entryPoint, to: output, constants: constants,
+                             bindingArrayLengths: bindingArrayLengths, hlslLimits: nil, glslLimits: glslTaskDispatchLimits)
+    }
+
+    private func compileTaskStage(
+        _ input: ShaderInput, entryPoint: String, to output: ShaderOutputFormat,
+        constants: [String: Double], bindingArrayLengths: [IRResourceBinding: UInt32],
+        hlslLimits: HLSLTaskDispatchLimits?, glslLimits: GLSLTaskDispatchLimits?
+    ) throws -> ShaderArtifact {
+        guard output == .msl || output == .hlsl || output == .glsl else { throw ShaderFailure.unsupported("Task shader target") }
+        guard (hlslLimits == nil || output == .hlsl), (glslLimits == nil || output == .glsl) else {
+            throw ShaderFailure.unsupported("Task dispatch limits do not match shader target")
+        }
+        let validator = ShaderSemanticValidator(capabilities: Self.compilationCapabilities.union(.meshShader),
+                                                allowsVertexWritableStorage: true)
+        let validated = try parseAndValidate(input, validator: validator, allow1DTextureSampleLevelOffset: output == .hlsl || output == .glsl,
+                                             allowMixedWorkgroupDimensionTypes: true,
+                                             allowLegacyNagaSubgroups: true, useNagaFloatRounding: wgslSourceProfile == .nagaNative,
+                                             useNagaIntegerConcretization: wgslSourceProfile == .nagaNative)
+        if !bindingArrayLengths.isEmpty { try validateBindingArrayLengths(bindingArrayLengths, in: validated.module) }
+        guard let entry = validated.module.entryPoints.first(where: { $0.name == entryPoint && $0.stage == .task }) else {
+            throw ShaderFailure.unsupported("Unknown task entry point")
+        }
+        let specialized = try specializeOverrides(validated, entry: entry, constants: constants,
+                                                   retainLinkedStages: output == .glsl, validator: validator)
+        let module = try specializeGlobalParameters(specialized, validator: validator)
+        if output == .msl, let selected = module.module.entryPoints.first(where: { $0.name == entryPoint && $0.stage == .task }) {
+            _ = try meshPayload(selected.taskPayload, in: module.module)
+        }
+        let artifact = try output == .glsl
+            ? TaskGLSLCodeGenerator(bindingArrayLengths: bindingArrayLengths, dispatchLimits: glslLimits).generate(module, entryPoint: entryPoint)
+            : TaskCodeGenerator(format: output, bindingArrayLengths: bindingArrayLengths, hlslTaskDispatchLimits: hlslLimits).generate(module, entryPoint: entryPoint)
+        try artifact.validateContainer(for: output)
+        return artifact
+    }
+
+    public func compileReflectedTaskStage(
+        _ input: ShaderInput, entryPoint: String, to output: ShaderOutputFormat, constants: [String: Double] = [:],
+        bindingArrayLengths: [IRResourceBinding: UInt32] = [:]
+    ) throws -> TaskStageArtifact {
+        guard output == .msl else { throw ShaderFailure.unsupported("Reflected task shader target") }
+        let validator = ShaderSemanticValidator(capabilities: Self.compilationCapabilities.union(.meshShader),
+                                                allowsVertexWritableStorage: true)
+        let validated = try parseAndValidate(input, validator: validator, allow1DTextureSampleLevelOffset: output == .hlsl,
+                                             allowMixedWorkgroupDimensionTypes: true,
+                                             allowLegacyNagaSubgroups: true, useNagaFloatRounding: wgslSourceProfile == .nagaNative,
+                                             useNagaIntegerConcretization: wgslSourceProfile == .nagaNative)
+        if !bindingArrayLengths.isEmpty { try validateBindingArrayLengths(bindingArrayLengths, in: validated.module) }
+        guard let entry = validated.module.entryPoints.first(where: { $0.name == entryPoint && $0.stage == .task }) else {
+            throw ShaderFailure.unsupported("Unknown task entry point")
+        }
+        let specialized = try specializeOverrides(validated, entry: entry, constants: constants,
+                                                   retainLinkedStages: false, validator: validator)
+        let module = try specializeGlobalParameters(specialized, validator: validator)
+        let generated = try TaskCodeGenerator(format: output, bindingArrayLengths: bindingArrayLengths).generateReflected(module, entryPoint: entryPoint)
+        try generated.artifact.validateContainer(for: output)
+        guard let selected = module.module.entryPoints.first(where: { $0.name == entryPoint && $0.stage == .task }) else { throw ShaderFailure.unsupported("Task metadata") }
+        let numeric = try meshNumericCapabilities(module: module.module, entry: selected)
+        return TaskStageArtifact(artifact: generated.artifact, sourceEntryPoint: entryPoint, workgroupSize: selected.workgroupSize, workgroupStorageByteSize: try meshWorkgroupStorageByteSize(module: module.module, entry: selected), payload: try meshPayload(selected.taskPayload, in: module.module), uniformBindings: generated.uniforms, storageBindings: generated.buffers, sampledTextures: generated.textures, samplerBindings: generated.samplers, storageTextures: generated.storageTextures, requiresSubgroups: generated.requiresSubgroups, requiresShaderF16: numeric.f16, requiresShaderInt16: numeric.int16, requiresShaderInt64: numeric.int64, requiresShaderInt64AtomicMinMax: numeric.atomicMinMax, requiresShaderInt64AtomicAllOps: numeric.atomicAllOps)
+    }
+
+    /// Compiles a native mesh entry point after validation and override specialization.
+    public func compileMeshStage(
+        _ input: ShaderInput, entryPoint: String, to output: ShaderOutputFormat,
+        constants: [String: Double] = [:], bindingArrayLengths: [IRResourceBinding: UInt32] = [:]
+    ) throws -> ShaderArtifact {
+        guard output == .msl || output == .hlsl || output == .glsl else { throw ShaderFailure.unsupported("Mesh shader target") }
+        let validator = ShaderSemanticValidator(capabilities: Self.compilationCapabilities.union([.meshShader, .meshShaderPointTopology]),
+                                                allowsVertexWritableStorage: true)
+        let validated = try parseAndValidate(input, validator: validator, allow1DTextureSampleLevelOffset: output == .hlsl || output == .glsl,
+                                             allowMixedWorkgroupDimensionTypes: true,
+                                             allowLegacyNagaSubgroups: true, useNagaFloatRounding: wgslSourceProfile == .nagaNative,
+                                             useNagaIntegerConcretization: wgslSourceProfile == .nagaNative)
+        if !bindingArrayLengths.isEmpty { try validateBindingArrayLengths(bindingArrayLengths, in: validated.module) }
+        guard let entry = validated.module.entryPoints.first(where: { $0.name == entryPoint && $0.stage == .mesh }) else {
+            throw ShaderFailure.unsupported("Unknown mesh entry point")
+        }
+        let specialized = try specializeOverrides(validated, entry: entry, constants: constants,
+                                                   retainLinkedStages: output == .glsl, validator: validator)
+        let module = try specializeGlobalParameters(specialized, validator: validator)
+        if output == .msl, let selected = module.module.entryPoints.first(where: { $0.name == entryPoint && $0.stage == .mesh }) {
+            _ = try meshPayload(selected.taskPayload, in: module.module)
+        }
+        let artifact: ShaderArtifact
+        switch output {
+        case .msl: artifact = try MeshMetalCodeGenerator().generate(module, entryPoint: entryPoint, bindingArrayLengths: bindingArrayLengths)
+        case .hlsl: artifact = try MeshHLSLCodeGenerator(bindingArrayLengths: bindingArrayLengths).generate(module, entryPoint: entryPoint)
+        case .glsl: artifact = try MeshGLSLCodeGenerator(bindingArrayLengths: bindingArrayLengths).generate(module, entryPoint: entryPoint)
+        default: throw ShaderFailure.unsupported("Mesh shader target")
+        }
+        try artifact.validateContainer(for: output)
+        return artifact
+    }
+
+    public func compileReflectedMeshStage(
+        _ input: ShaderInput, entryPoint: String, to output: ShaderOutputFormat, constants: [String: Double] = [:],
+        bindingArrayLengths: [IRResourceBinding: UInt32] = [:]
+    ) throws -> MeshStageArtifact {
+        guard output == .msl else { throw ShaderFailure.unsupported("Reflected mesh shader target") }
+        let validator = ShaderSemanticValidator(capabilities: Self.compilationCapabilities.union([.meshShader, .meshShaderPointTopology]),
+                                                allowsVertexWritableStorage: true)
+        let validated = try parseAndValidate(input, validator: validator, allow1DTextureSampleLevelOffset: output == .hlsl,
+                                             allowMixedWorkgroupDimensionTypes: true,
+                                             allowLegacyNagaSubgroups: true, useNagaFloatRounding: wgslSourceProfile == .nagaNative,
+                                             useNagaIntegerConcretization: wgslSourceProfile == .nagaNative)
+        if !bindingArrayLengths.isEmpty { try validateBindingArrayLengths(bindingArrayLengths, in: validated.module) }
+        guard let entry = validated.module.entryPoints.first(where: { $0.name == entryPoint && $0.stage == .mesh }) else {
+            throw ShaderFailure.unsupported("Unknown mesh entry point")
+        }
+        let specialized = try specializeOverrides(validated, entry: entry, constants: constants,
+                                                   retainLinkedStages: false, validator: validator)
+        let module = try specializeGlobalParameters(specialized, validator: validator)
+        let generated = try MeshMetalCodeGenerator().generateReflected(module, entryPoint: entryPoint, bindingArrayLengths: bindingArrayLengths)
+        try generated.artifact.validateContainer(for: output)
+        guard let selected = module.module.entryPoints.first(where: { $0.name == entryPoint && $0.stage == .mesh }), let info = selected.meshInfo else { throw ShaderFailure.unsupported("Mesh metadata") }
+        let numeric = try meshNumericCapabilities(module: module.module, entry: selected)
+        return MeshStageArtifact(artifact: generated.artifact, sourceEntryPoint: entryPoint, workgroupSize: selected.workgroupSize, workgroupStorageByteSize: try meshWorkgroupStorageByteSize(module: module.module, entry: selected), payload: try meshPayload(selected.taskPayload, in: module.module), topology: info.topology, maxVertices: info.maxVertices, maxPrimitives: info.maxPrimitives, vertexVaryings: try meshVaryings(info.vertexOutputType, in: module.module), primitiveVaryings: try meshVaryings(info.primitiveOutputType, in: module.module), uniformBindings: generated.uniforms, storageBindings: generated.buffers, sampledTextures: generated.textures, samplerBindings: generated.samplers, storageTextures: generated.storageTextures, requiresSubgroups: generated.requiresSubgroups, writesPrimitiveIndex: try meshWritesPrimitiveIndex(info.primitiveOutputType, in: module.module), requiresShaderF16: numeric.f16, requiresShaderInt16: numeric.int16, requiresShaderInt64: numeric.int64, requiresShaderInt64AtomicMinMax: numeric.atomicMinMax, requiresShaderInt64AtomicAllOps: numeric.atomicAllOps)
+    }
+
     public func compileRenderStage(
         _ input: ShaderInput, entryPoint: String, to output: ShaderOutputFormat
     ) throws -> RenderStageArtifact {
@@ -179,6 +323,20 @@ public struct IndependentShaderCompiler: Sendable {
                                bindingArrayLengths: bindingArrayLengths, webGPU: false)
     }
 
+    /// Selects the pre-rasterization family whose resources are linked with a GLSL render stage.
+    public func compileRenderStage(
+        _ input: ShaderInput, entryPoint: String, to output: ShaderOutputFormat,
+        glslPipelineFamily: GLSLRenderPipelineFamily, constants: [String: Double] = [:],
+        bindingArrayLengths: [IRResourceBinding: UInt32] = [:]
+    ) throws -> RenderStageArtifact {
+        guard output == .glsl else {
+            throw ShaderFailure.unsupported("GLSL pipeline family requires GLSL output")
+        }
+        return try compileRenderStage(input, entryPoint: entryPoint, to: output, constants: constants,
+                                      bindingArrayLengths: bindingArrayLengths, webGPU: false,
+                                      glslPipelineFamily: glslPipelineFamily)
+    }
+
     /// Compiles an MSL vertex entry that loads the supplied vertex streams directly.
     /// Pass the same layouts when creating a render pipeline with the returned artifact.
     public func compileMetalVertexStage(
@@ -191,13 +349,15 @@ public struct IndependentShaderCompiler: Sendable {
 
     private func compileRenderStage(
         _ input: ShaderInput, entryPoint: String, to output: ShaderOutputFormat, constants: [String: Double],
-        bindingArrayLengths: [IRResourceBinding: UInt32], webGPU: Bool, metalVertexBuffers: [VertexBufferLayout]? = nil
+        bindingArrayLengths: [IRResourceBinding: UInt32], webGPU: Bool, metalVertexBuffers: [VertexBufferLayout]? = nil,
+        glslPipelineFamily: GLSLRenderPipelineFamily? = nil
     ) throws -> RenderStageArtifact {
         try Task.checkCancellation()
         let module = try pipelineModule(input, output: output, entryPoint: entryPoint, constants: constants,
-                                        bindingArrayLengths: bindingArrayLengths, webGPU: webGPU)
+                                        bindingArrayLengths: bindingArrayLengths, webGPU: webGPU,
+                                        glslPipelineFamily: glslPipelineFamily)
         let compiled = try RenderCodeGenerator(output, bindingArrayLengths: bindingArrayLengths, webGPU: webGPU,
-                                               metalVertexBuffers: metalVertexBuffers)
+                                               metalVertexBuffers: metalVertexBuffers, glslPipelineFamily: glslPipelineFamily)
             .generate(module, entryPoint: entryPoint)
         if webGPU, compiled.usesVertexWritableStorage {
             throw ShaderFailure.unsupported("Browser WebGPU does not support vertex writable storage")
@@ -235,7 +395,8 @@ public struct IndependentShaderCompiler: Sendable {
 
     private func pipelineModule(
         _ input: ShaderInput, output: ShaderOutputFormat, entryPoint: String? = nil, constants: [String: Double],
-        bindingArrayLengths: [IRResourceBinding: UInt32], webGPU: Bool = false
+        bindingArrayLengths: [IRResourceBinding: UInt32], webGPU: Bool = false,
+        glslPipelineFamily: GLSLRenderPipelineFamily? = nil
     ) throws -> ValidatedModule<IRModule> {
         let (module, validator) = try validatePipelineInput(input, output: output,
             bindingArrayLengths: bindingArrayLengths, webGPU: webGPU)
@@ -245,8 +406,16 @@ public struct IndependentShaderCompiler: Sendable {
         } else {
             entries.count == 1 ? entries.first : nil
         }
+        if glslPipelineFamily == .mesh, entry?.stage == .vertex {
+            throw ShaderFailure.unsupported("GLSL mesh pipeline family cannot compile a vertex stage")
+        }
+        if output == .glsl, glslPipelineFamily == nil, entry?.stage == .fragment,
+           entries.contains(where: { $0.stage == .vertex }), entries.contains(where: { $0.stage == .mesh }) {
+            throw ShaderFailure.unsupported("GLSL fragment stage requires an unambiguous linked pipeline family")
+        }
         let specialized = try specializeOverrides(module, entry: entry, constants: constants,
-                                                  retainLinkedStages: output == .glsl, validator: validator)
+                                                  retainLinkedStages: output == .glsl, validator: validator,
+                                                  glslPipelineFamily: glslPipelineFamily)
         return try specializeGlobalParameters(specialized, validator: validator, lowerPointerSubviews: output == .spirv)
     }
 
@@ -257,8 +426,9 @@ public struct IndependentShaderCompiler: Sendable {
         var capabilities = Self.compilationCapabilities
         if output != .msl { capabilities.insert(.shaderInt64AtomicAllOps) }
         if [.hlsl, .glsl, .spirv, .dot].contains(output) { capabilities.insert(.float64) }
-        if !webGPU { capabilities.insert(.cooperativeMatrix) }
-        if !webGPU && output == .msl { capabilities.insert(.rayQuery) }
+        if !webGPU { capabilities.formUnion([.cooperativeMatrix, .meshShader]) }
+        if !webGPU && [.msl, .hlsl, .glsl].contains(output) { capabilities.insert(.rayQuery) }
+        if !webGPU && output == .glsl { capabilities.insert(.rayHitVertexPosition) }
         let usesNagaSource = !webGPU && wgslSourceProfile == .nagaNative
         let nativeTarget = switch output {
         case .msl, .hlsl, .glsl, .spirv: true
@@ -269,7 +439,8 @@ public struct IndependentShaderCompiler: Sendable {
                                           allow1DTextureSampleLevelOffset: output == .hlsl || output == .glsl || output == .spirv || output == .dot,
                                           allowMixedWorkgroupDimensionTypes: nativeTarget || usesNagaSource,
                                           allowLegacyNagaSubgroups: nativeTarget || usesNagaSource,
-                                          useNagaFloatRounding: usesNagaSource)
+                                          useNagaFloatRounding: usesNagaSource,
+                                          useNagaIntegerConcretization: usesNagaSource)
         if !bindingArrayLengths.isEmpty {
             try validateBindingArrayLengths(bindingArrayLengths, in: module.module)
         }

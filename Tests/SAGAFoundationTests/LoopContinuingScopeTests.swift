@@ -141,3 +141,96 @@ func continuingScopeChecksEveryContinueEdge(_ emitBeforeContinue: Bool) throws {
     await device.close()
 }
 #endif
+
+@Test(arguments: [ShaderOutputFormat.msl, .hlsl, .glsl])
+func continuingAllowsNestedControlTargets(_ format: ShaderOutputFormat) throws {
+    let source = """
+        @compute @workgroup_size(1) fn run() {
+            var n = 0u;
+            loop {
+                continuing {
+                    switch n { case 0u: { break; } default: {} }
+                    loop { n++; if n < 2u { continue; } break; }
+                    break if n >= 2u;
+                }
+            }
+        }
+        """
+    let result = try IndependentShaderCompiler().compileCompute(.wgsl(source), to: format)
+    guard case .text(_, let text) = result.artifact else { Issue.record("Expected text"); return }
+    #expect(text.contains("switch") && text.contains("continue;") && text.contains("break;"))
+}
+
+@Test(arguments: [
+    "continuing { if true { break; } }",
+    "continuing { if true { continue; } }",
+    "continuing { switch 0u { default: { continue; } } }",
+    "continuing { loop { return; } }",
+])
+func continuingRejectsEscapes(_ body: String) {
+    let source = "@compute @workgroup_size(1) fn run() { loop { \(body) } }"
+    #expect(throws: ShaderFailure.self) { try IndependentShaderCompiler().parseAndValidate(.wgsl(source)) }
+}
+
+@Test(arguments: [true, false])
+func rawIRContinuingNestedSwitchBreak(_ nested: Bool) throws {
+    let blocks = try (0..<4).map { try IRHandle<IRBlock>(index: $0) }
+    let statements = try (0..<3).map { try IRHandle<IRStatement>(index: $0) }
+    let scalar = try IRHandle<IRType>(index: 0)
+    let selector = try IRHandle<IRExpression>(index: 0)
+    let function = IRFunction(
+        expressions: IRTable([.init(type: scalar, kind: .literal(.u32(0)))]),
+        statements: IRTable([
+            .init(kind: .loop(body: blocks[1], continuing: blocks[2], breakIf: nil)),
+            .init(kind: .switchValue(selector: selector, cases: [.init(value: .default, body: blocks[3])])),
+            .init(kind: .break),
+        ]),
+        blocks: IRTable([
+            .init(statements: [statements[0]]), .init(),
+            .init(statements: [nested ? statements[1] : statements[2]]),
+            .init(statements: nested ? [statements[2]] : []),
+        ]), body: blocks[0])
+    let module = IRModule(types: IRTable([.init(kind: .scalar(.u32))]), functions: IRTable([function]))
+    if nested { try ShaderSemanticValidator().validate(module) }
+    else { #expect(throws: ShaderFailure.self) { try ShaderSemanticValidator().validate(module) } }
+}
+
+@Test(arguments: ["break", "continue", "return"])
+func rawIRContinuingNestedLoopTargets(_ jump: String) throws {
+    let blocks = try (0..<5).map { try IRHandle<IRBlock>(index: $0) }
+    let statements = try (0..<3).map { try IRHandle<IRStatement>(index: $0) }
+    let kind: IRStatementKind = jump == "break" ? .break : jump == "continue" ? .continue : .returnValue(nil)
+    let function = IRFunction(
+        statements: IRTable([
+            .init(kind: .loop(body: blocks[1], continuing: blocks[2], breakIf: nil)),
+            .init(kind: .loop(body: blocks[3], continuing: blocks[4], breakIf: nil)),
+            .init(kind: kind),
+        ]),
+        blocks: IRTable([
+            .init(statements: [statements[0]]), .init(), .init(statements: [statements[1]]),
+            .init(statements: [statements[2]]), .init(),
+        ]), body: blocks[0])
+    let module = IRModule(functions: IRTable([function]))
+    if jump == "return" { #expect(throws: ShaderFailure.self) { try ShaderSemanticValidator().validate(module) } }
+    else { try ShaderSemanticValidator().validate(module) }
+}
+
+@Test(arguments: [IRStatementKind.break, .continue, .returnValue(nil)])
+func rawIRContinuingRejectsDirectEscape(_ jump: IRStatementKind) throws {
+    let blocks = try (0..<3).map { try IRHandle<IRBlock>(index: $0) }
+    let statements = try (0..<2).map { try IRHandle<IRStatement>(index: $0) }
+    let function = IRFunction(
+        statements: IRTable([
+            .init(kind: .loop(body: blocks[1], continuing: blocks[2], breakIf: nil)),
+            .init(kind: jump),
+        ]),
+        blocks: IRTable([.init(statements: [statements[0]]), .init(), .init(statements: [statements[1]])]),
+        body: blocks[0])
+    let module = IRModule(functions: IRTable([function]))
+    do {
+        try ShaderSemanticValidator().validate(module)
+        Issue.record("Accepted an escape from continuing")
+    } catch ShaderFailure.diagnostics(let diagnostics) {
+        #expect(diagnostics.contains { $0.code == .invalidControlFlow })
+    }
+}

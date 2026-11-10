@@ -54,7 +54,7 @@ public enum MetalBackend {
 
 @MainActor
 public final class MetalDevice: ComputeAccelerationStructureBackendDevice, PresentationBackendDevice, SamplerBackendDevice, TextureViewBackendDevice,
-                                QuerySetBackendDevice, BufferMappingBackendDevice, PlanarExternalTextureBackendDevice {
+                                QuerySetBackendDevice, BufferMappingBackendDevice, PlanarExternalTextureBackendDevice, MeshBackendDevice {
     public nonisolated let capabilities: DeviceCapabilities
     public nonisolated let adapterName: String
     public nonisolated let supportsPresentation: Bool
@@ -97,6 +97,7 @@ public final class MetalDevice: ComputeAccelerationStructureBackendDevice, Prese
         let samplers: [any MTLSamplerState]
         let renderPipelines: [RenderState]
         let drawable: (any MTLDrawable)?
+        var meshPipelines: [any MTLRenderPipelineState] = []
         var counterSampleBuffers: [any MTLCounterSampleBuffer] = []
         var accelerationBuilds: [ResourceID: PendingAccelerationBuild] = [:]
         var retainedAccelerationBuilds: [MetalAccelerationStructureBuild] = []
@@ -169,10 +170,34 @@ public final class MetalDevice: ComputeAccelerationStructureBackendDevice, Prese
     private var textureViews: [ResourceID: TextureView] = [:]
     private var externalTextures: [ResourceID: ExternalTexture] = [:]
     private var renderPipelines: [ResourceID: RenderState] = [:]
+    private struct MeshState {
+        let pipeline: any MTLRenderPipelineState
+        let depth: (any MTLDepthStencilState)?
+        let writesDepth: Bool
+        let objectThreads: MTLSize
+        let meshThreads: MTLSize
+        let objectUniforms: [(ComputeBindingSlot, Int)]
+        let objectStorage: [(ComputeBindingSlot, Int)]
+        let meshUniforms: [(ComputeBindingSlot, Int)]
+        let meshStorage: [(ComputeBindingSlot, Int)]
+        let objectTextures: [(ComputeBindingSlot, Int)]
+        let meshTextures: [(ComputeBindingSlot, Int)]
+        let objectSamplers: [(ComputeBindingSlot, Int)]
+        let meshSamplers: [(ComputeBindingSlot, Int)]
+        let fragmentBuffers: [(ComputeBindingSlot, Int)]
+        let fragmentTextures: [(ComputeBindingSlot, Int)]
+        let fragmentSamplers: [(ComputeBindingSlot, Int)]
+        let fragmentLengths: [(ComputeBindingSlot, UInt32, UInt32)]
+        let fragmentTextureAtomicGuardBufferIndex: UInt32?
+        let objectLengths: [(ComputeBindingSlot, UInt32, UInt32)]
+        let meshLengths: [(ComputeBindingSlot, UInt32, UInt32)]
+    }
+    private var meshPipelines: [ResourceID: MeshState] = [:]
     private var surfacePipeline: (any MTLRenderPipelineState)?
     private var presenting = false
     private var indexValidator: MetalIndexValidator?
     private var dispatchValidator: MetalDispatchValidator?
+    private var meshDispatchValidator: MetalDispatchValidator?
     private var indirectDrawValidator: MetalIndirectDrawValidator?
     private var timestampMarkerPipeline: (any MTLComputePipelineState)?
     private var cachedDiagnosticPipeline: (any MTLComputePipelineState)?
@@ -219,6 +244,7 @@ public final class MetalDevice: ComputeAccelerationStructureBackendDevice, Prese
         // MSL short and ushort are available on every Metal device.
         var features: Set<GPUFeature> = [.storageTextureRead, .shaderF16, .shaderInt16, .indirectFirstInstance, .clipDistances,
                                          .shaderEarlyDepthTest, .linearIndexing, .subgroupUniformity]
+        if #available(macOS 13, iOS 16, *), native.supportsFamily(.metal3) { features.insert(.meshShaders) }
         if native.supportsRaytracing { features.insert(.rayQuery) }
         if supportsShaderLogging { features.insert(.shaderDebugPrintf) }
         var maxMultiviewViewCount: UInt32 = 1
@@ -344,6 +370,22 @@ public final class MetalDevice: ComputeAccelerationStructureBackendDevice, Prese
                 }
             }
         }
+        var taskWorkgroupCount: UInt32 = 0
+        var meshWorkgroupCount: UInt32 = 0
+        if features.contains(.meshShaders) {
+            var metal4 = false
+            if #available(macOS 26, iOS 26, tvOS 26, visionOS 26, *) {
+                metal4 = native.supportsFamily(.metal4)
+            }
+            taskWorkgroupCount = metal4 || native.supportsFamily(.apple7) ? UInt32.max : 1024
+            if #available(macOS 26, iOS 26, tvOS 26, visionOS 26, *), native.supportsFamily(.apple10) {
+                meshWorkgroupCount = 1 << 22
+            } else if native.supportsFamily(.apple9) {
+                meshWorkgroupCount = 1 << 20
+            } else {
+                meshWorkgroupCount = 1024
+            }
+        }
         capabilities = try DeviceCapabilities(maxBufferSize: UInt64(adapter.native.maxBufferLength), features: features,
                                              timestampPeriodNanoseconds: period, multisampledFloat32Formats: float32MSAA,
                                              maxImmediateSize: 4096,
@@ -355,7 +397,17 @@ public final class MetalDevice: ComputeAccelerationStructureBackendDevice, Prese
                                              maxColorAttachments: colorAttachmentSlots,
                                              maxColorAttachmentBytesPerSample: colorAttachmentBytes,
                                              maxMultiviewViewCount: maxMultiviewViewCount > 1 ? maxMultiviewViewCount : 0,
-                                             cooperativeMatrixProperties: cooperativeProperties)
+                                             cooperativeMatrixProperties: cooperativeProperties,
+                                             maxTaskWorkgroupTotalCount: taskWorkgroupCount,
+                                             maxTaskWorkgroupsPerDimension: taskWorkgroupCount,
+                                             maxMeshWorkgroupTotalCount: meshWorkgroupCount,
+                                             maxMeshWorkgroupsPerDimension: meshWorkgroupCount,
+                                             maxTaskInvocationsPerWorkgroup: features.contains(.meshShaders) ? 1024 : 0,
+                                             maxTaskInvocationsPerDimension: features.contains(.meshShaders) ? 1024 : 0,
+                                             maxMeshInvocationsPerWorkgroup: features.contains(.meshShaders) ? 1024 : 0,
+                                             maxMeshInvocationsPerDimension: features.contains(.meshShaders) ? 1024 : 0,
+                                             maxTaskPayloadSize: features.contains(.meshShaders) ? 16_352 : 0,
+                                             maxMeshOutputVertices: 256, maxMeshOutputPrimitives: 256)
         #else
         throw GPUError.adapterUnavailable
         #endif
@@ -509,6 +561,7 @@ public final class MetalDevice: ComputeAccelerationStructureBackendDevice, Prese
         pipelines = pipelines.filter { $0.key.device != owner }
         computePipelines = computePipelines.filter { $0.key.device != owner }
         renderPipelines = renderPipelines.filter { $0.key.device != owner }
+        meshPipelines = meshPipelines.filter { $0.key.device != owner }
         #endif
     }
 
@@ -829,9 +882,13 @@ public final class MetalDevice: ComputeAccelerationStructureBackendDevice, Prese
         let metal = MTLSamplerDescriptor()
         metal.sAddressMode = addressMode(descriptor.addressModeU)
         metal.tAddressMode = addressMode(descriptor.addressModeV)
+        metal.rAddressMode = addressMode(descriptor.addressModeW)
         metal.minFilter = descriptor.minFilter == .linear ? .linear : .nearest
         metal.magFilter = descriptor.magFilter == .linear ? .linear : .nearest
         metal.mipFilter = descriptor.mipmapFilter == .linear ? .linear : .nearest
+        metal.maxAnisotropy = Int(min(descriptor.maxAnisotropy, 16))
+        metal.lodMinClamp = descriptor.lodMinClamp
+        metal.lodMaxClamp = descriptor.lodMaxClamp
         if let compare = descriptor.compare { metal.compareFunction = compare.metal }
         guard let sampler = native.makeSamplerState(descriptor: metal) else { throw GPUError.outOfMemory }
         samplers[id] = .init(native: sampler, descriptor: descriptor)
@@ -874,6 +931,7 @@ public final class MetalDevice: ComputeAccelerationStructureBackendDevice, Prese
         try capabilities.validateInterstageInterfaces(vertex: vertex, fragment: fragment, topology: pipeline.primitive.topology,
                                                      multiviewMask: pipeline.multiviewMask)
         _ = try VertexBufferLayout.validate(pipeline.vertexBuffers, against: capabilities)
+        try pipeline.validateBindGroupsPlusVertexBuffers(against: capabilities)
         if let pulling = vertex.metalVertexPullingLayout,
            pulling != VertexBufferLayout.metalPullingSignature(pipeline.vertexBuffers) {
             throw GPUError.validation("Vertex buffers do not match the Metal pulling layout")
@@ -1083,7 +1141,7 @@ public final class MetalDevice: ComputeAccelerationStructureBackendDevice, Prese
             }
             if !vertex.usesMetalVertexPulling, !pipeline.vertexBuffers.isEmpty {
                 let vertexDescriptor = MTLVertexDescriptor()
-                for (slot, layout) in pipeline.vertexBuffers.enumerated() {
+                for (slot, layout) in pipeline.vertexBuffers.enumerated() where !layout.attributes.isEmpty {
                     let buffer = vertexDescriptor.layouts[slot]!
                     buffer.stride = layout.stride == 0 ? Int(layout.attributeEnd) : Int(layout.stride)
                     if layout.stride == 0 {
@@ -1118,6 +1176,227 @@ public final class MetalDevice: ComputeAccelerationStructureBackendDevice, Prese
         }
         #else
         throw GPUError.adapterUnavailable
+        #endif
+    }
+
+    public func allocateMeshPipeline(
+        _ pipeline: MeshPipeline, task: TaskStageArtifact?, mesh: MeshStageArtifact, fragment: RenderStageArtifact
+    ) throws {
+        try requireActive()
+        #if canImport(Metal)
+        guard #available(macOS 13, iOS 16, *), capabilities.features.contains(.meshShaders) else {
+            throw GPUError.unsupported("Metal mesh shaders are unavailable")
+        }
+        let threadgroupMemoryLimit = UInt64(native.maxThreadgroupMemoryLength)
+        guard mesh.workgroupStorageByteSize <= threadgroupMemoryLimit,
+              (task?.workgroupStorageByteSize ?? 0) <= threadgroupMemoryLimit else {
+            throw GPUError.validation("Metal mesh or object threadgroup storage exceeds the device limit")
+        }
+        if mesh.requiresSubgroups || task?.requiresSubgroups == true { try capabilities.require([.subgroups]) }
+        if mesh.requiresShaderF16 || task?.requiresShaderF16 == true { try capabilities.require([.shaderF16]) }
+        if mesh.requiresShaderInt16 || task?.requiresShaderInt16 == true { try capabilities.require([.shaderInt16]) }
+        if mesh.requiresShaderInt64 || task?.requiresShaderInt64 == true || fragment.requiresShaderInt64 {
+            try capabilities.require([.shaderInt64])
+        }
+        try capabilities.requireShaderInt64Atomics(
+            minMax: mesh.requiresShaderInt64AtomicMinMax || task?.requiresShaderInt64AtomicMinMax == true || fragment.requiresShaderInt64AtomicMinMax,
+            allOps: mesh.requiresShaderInt64AtomicAllOps || task?.requiresShaderInt64AtomicAllOps == true || fragment.requiresShaderInt64AtomicAllOps)
+        guard meshPipelines[pipeline.id] == nil, case .text(.msl, let meshSource) = mesh.artifact,
+              fragment.stage == .fragment, case .text(.msl, let fragmentSource) = fragment.artifact else {
+            throw GPUError.validation("Metal requires compiled MSL mesh and fragment stages")
+        }
+        do {
+            func compileOptions(_ textures: [ComputeShaderArtifact.StorageTextureBinding]) throws -> MTLCompileOptions {
+                let options = MTLCompileOptions()
+                if textures.contains(where: { $0.access.contains(.atomic) }) {
+                    guard #available(macOS 14, iOS 17, *) else {
+                        throw GPUError.unsupported("Metal texture atomics require Metal 3.1")
+                    }
+                    options.languageVersion = .version3_1
+                } else {
+                    options.languageVersion = .version3_0
+                }
+                return options
+            }
+            func function(_ source: String, _ name: String, textures: [ComputeShaderArtifact.StorageTextureBinding],
+                          meshGridLimit: UInt32? = nil) throws -> any MTLFunction {
+                let options = try compileOptions(textures)
+                if let meshGridLimit {
+                    options.preprocessorMacros = [TaskStageArtifact.metalMeshGridLimitMacro: NSNumber(value: meshGridLimit)]
+                }
+                let library = try native.makeLibrary(source: source, options: options)
+                guard let function = library.makeFunction(name: name) else {
+                    throw GPUError.backendFailure("Compiled Metal mesh entry point missing")
+                }
+                return function
+            }
+            let descriptor = MTLMeshRenderPipelineDescriptor()
+            descriptor.rasterSampleCount = Int(pipeline.sampleCount)
+            descriptor.meshFunction = try function(meshSource, mesh.entryPoint, textures: mesh.storageTextures)
+            let activeSamples = (UInt32(1) << pipeline.sampleCount) - 1
+            let sampleMask = pipeline.sampleMask & activeSamples
+            let fragmentOptions = try compileOptions(fragment.storageTextures)
+            if sampleMask != activeSamples {
+                fragmentOptions.preprocessorMacros = [RenderStageArtifact.metalPipelineSampleMaskMacro: NSNumber(value: sampleMask)]
+            }
+            let fragmentLibrary = try native.makeLibrary(source: fragmentSource, options: fragmentOptions)
+            guard let fragmentFunction = fragmentLibrary.makeFunction(name: fragment.entryPoint) else {
+                throw GPUError.backendFailure("Compiled Metal mesh fragment entry point missing")
+            }
+            descriptor.fragmentFunction = fragmentFunction
+            descriptor.isAlphaToCoverageEnabled = pipeline.alphaToCoverageEnabled
+            if let task {
+                guard case .text(.msl, let source) = task.artifact else {
+                    throw GPUError.validation("Metal requires compiled MSL task stage")
+                }
+                // Metal's pinned task-output total and per-axis limits are equal.
+                let meshGridLimit = min(capabilities.maxMeshWorkgroupsPerDimension, capabilities.maxMeshWorkgroupTotalCount)
+                descriptor.objectFunction = try function(source, task.entryPoint, textures: task.storageTextures,
+                                                         meshGridLimit: meshGridLimit)
+            }
+            for (location, format) in pipeline.colorFormats { descriptor.colorAttachments[Int(location)].pixelFormat = format.metal }
+            let depth: (any MTLDepthStencilState)?
+            if let state = pipeline.depthState {
+                if state.format.hasDepth { descriptor.depthAttachmentPixelFormat = state.format.metal }
+                let depthDescriptor = MTLDepthStencilDescriptor()
+                depthDescriptor.depthCompareFunction = state.compare.metal
+                depthDescriptor.isDepthWriteEnabled = state.writeEnabled
+                if state.format.hasStencil {
+                    descriptor.stencilAttachmentPixelFormat = state.format.metal
+                    let stencil = state.stencil ?? .init()
+                    let writeMask = stencil.writes(cullMode: pipeline.primitive.cullMode) ? stencil.writeMask : 0
+                    depthDescriptor.frontFaceStencil = stencil.front.metal(readMask: stencil.readMask, writeMask: writeMask)
+                    depthDescriptor.backFaceStencil = stencil.back.metal(readMask: stencil.readMask, writeMask: writeMask)
+                }
+                guard let value = native.makeDepthStencilState(descriptor: depthDescriptor) else { throw GPUError.backendFailure("Metal could not create a depth state") }
+                depth = value
+            } else { depth = nil }
+            let (state, _) = try native.makeRenderPipelineState(descriptor: descriptor, options: [])
+            func validateThreads(_ value: IRWorkgroupSize, maximum: Int) throws {
+                let dimensions = [UInt64(value.x), UInt64(value.y), UInt64(value.z)]
+                let product = dimensions.reduce(UInt64(1)) { partial, next in
+                    partial.multipliedReportingOverflow(by: next).overflow ? UInt64.max : partial * next
+                }
+                guard dimensions.allSatisfy({ $0 > 0 }), product <= UInt64(maximum) else {
+                    throw GPUError.validation("Metal mesh threadgroup exceeds the pipeline limit")
+                }
+            }
+            try validateThreads(mesh.workgroupSize, maximum: state.maxTotalThreadsPerMeshThreadgroup)
+            if let task { try validateThreads(task.workgroupSize, maximum: state.maxTotalThreadsPerObjectThreadgroup) }
+            func size(_ value: IRWorkgroupSize) -> MTLSize {
+                MTLSize(width: Int(value.x), height: Int(value.y), depth: Int(value.z))
+            }
+            func slots(_ uniforms: [ComputeShaderArtifact.UniformBinding],
+                       _ storage: [ComputeShaderArtifact.StorageBinding]) throws -> ([(ComputeBindingSlot, Int)], [(ComputeBindingSlot, Int)]) {
+                func mapped(_ values: [ShaderBindingIndex]) throws -> [(ComputeBindingSlot, Int)] {
+                    try values.map { slot, index in
+                        guard let index else { throw GPUError.validation("Missing Metal buffer index") }
+                        return (slot, Int(index))
+                    }
+                }
+                return (try uniforms.flatMap { try mapped($0.indexedSlots()) },
+                        try storage.flatMap { try mapped($0.indexedSlots()) })
+            }
+            let objectSlots = try slots(task?.uniformBindings ?? [], task?.storageBindings ?? [])
+            let meshSlots = try slots(mesh.uniformBindings, mesh.storageBindings)
+            let fragmentSlots = try slots(fragment.uniformBindings, fragment.storageBindings)
+            func resourceSlots(_ binding: IRResourceBinding, array: ComputeShaderArtifact.BindingArrayLayout?,
+                               index: UInt32?, limit: UInt32) throws -> [(ComputeBindingSlot, Int)] {
+                try binding.indexedSlots(array: array, limit: limit, first: index).map { slot, index in
+                    guard let index else { throw GPUError.validation("Missing Metal resource index") }
+                    return (slot, Int(index))
+                }
+            }
+            func textureSlots(_ values: [ComputeShaderArtifact.SampledTextureBinding]) throws -> [(ComputeBindingSlot, Int)] {
+                try values.flatMap { try resourceSlots($0.binding, array: $0.bindingArray, index: $0.flatBindingIndex,
+                                                        limit: ComputeShaderArtifact.sampledTextureBindingCapacity) }
+            }
+            func samplerSlots(_ values: [ComputeShaderArtifact.SamplerBinding]) throws -> [(ComputeBindingSlot, Int)] {
+                try values.flatMap { try resourceSlots($0.binding, array: $0.bindingArray, index: $0.flatBindingIndex,
+                                                        limit: ComputeShaderArtifact.samplerBindingCapacity) }
+            }
+            let objectTextureSlots = try textureSlots(task?.sampledTextures ?? [])
+            let meshTextureSlots = try textureSlots(mesh.sampledTextures)
+            func storageTextureSlots(_ values: [ComputeShaderArtifact.StorageTextureBinding]) throws -> [(ComputeBindingSlot, Int)] {
+                try values.flatMap { try resourceSlots($0.binding, array: $0.bindingArray, index: $0.flatBindingIndex,
+                                                        limit: ComputeShaderArtifact.storageTextureBindingCapacity) }
+            }
+            let objectStorageTextureSlots = try storageTextureSlots(task?.storageTextures ?? [])
+            let meshStorageTextureSlots = try storageTextureSlots(mesh.storageTextures)
+            let objectSamplerSlots = try samplerSlots(task?.samplerBindings ?? [])
+            let meshSamplerSlots = try samplerSlots(mesh.samplerBindings)
+            // Object and mesh stages use the compute-stage Metal binding ABI. In
+            // particular, buffer 8 is reserved for runtime array lengths.
+            func validateMeshStageLayout(
+                uniforms: [ComputeShaderArtifact.UniformBinding], storage: [ComputeShaderArtifact.StorageBinding],
+                textures: [ComputeShaderArtifact.SampledTextureBinding], storageTextures: [ComputeShaderArtifact.StorageTextureBinding],
+                samplers: [ComputeShaderArtifact.SamplerBinding], slots: ([(ComputeBindingSlot, Int)], [(ComputeBindingSlot, Int)]),
+                textureSlots: [(ComputeBindingSlot, Int)], storageTextureSlots: [(ComputeBindingSlot, Int)],
+                samplerSlots: [(ComputeBindingSlot, Int)]
+            ) throws {
+                let u = slots.0.map(\.1), s = slots.1.map(\.1)
+                let t = textureSlots.map(\.1), st = storageTextureSlots.map(\.1), sm = samplerSlots.map(\.1)
+                guard Set(u).count == u.count, u.allSatisfy({ (Int(ComputeShaderArtifact.uniformBindingBase)..<Int(ComputeShaderArtifact.uniformBindingBase + ComputeShaderArtifact.uniformBindingCapacity)).contains($0) }),
+                      Set(s).count == s.count, s.allSatisfy({ (0..<Int(ComputeShaderArtifact.storageBindingCapacity)).contains($0) }),
+                      Set(t + st).count == t.count + st.count,
+                      t.allSatisfy({ (0..<Int(ComputeShaderArtifact.sampledTextureBindingCapacity)).contains($0) }),
+                      st.allSatisfy({ (Int(ComputeShaderArtifact.sampledTextureBindingCapacity)..<Int(ComputeShaderArtifact.sampledTextureBindingCapacity + ComputeShaderArtifact.storageTextureBindingCapacity)).contains($0) }),
+                      Set(sm).count == sm.count, sm.allSatisfy({ (0..<Int(ComputeShaderArtifact.samplerBindingCapacity)).contains($0) }) else {
+                    throw GPUError.validation("Invalid Metal object or mesh resource layout")
+                }
+            }
+            try validateMeshStageLayout(uniforms: task?.uniformBindings ?? [], storage: task?.storageBindings ?? [],
+                textures: task?.sampledTextures ?? [], storageTextures: task?.storageTextures ?? [], samplers: task?.samplerBindings ?? [],
+                slots: objectSlots, textureSlots: objectTextureSlots, storageTextureSlots: objectStorageTextureSlots, samplerSlots: objectSamplerSlots)
+            try validateMeshStageLayout(uniforms: mesh.uniformBindings, storage: mesh.storageBindings,
+                textures: mesh.sampledTextures, storageTextures: mesh.storageTextures, samplers: mesh.samplerBindings,
+                slots: meshSlots, textureSlots: meshTextureSlots, storageTextureSlots: meshStorageTextureSlots, samplerSlots: meshSamplerSlots)
+            let fragmentSampledTextureSlots = try textureSlots(fragment.sampledTextures)
+            let fragmentStorageTextureSlots = try storageTextureSlots(fragment.storageTextures)
+            let fragmentTextureSlots = fragmentSampledTextureSlots + fragmentStorageTextureSlots
+            let fragmentSamplerSlots = try samplerSlots(fragment.samplerBindings)
+            let fragmentLengths = try runtimeLengthRequirements(fragment.storageBindings)
+            let uniformIndices = fragmentSlots.0.map(\.1)
+            let storageIndices = fragmentSlots.1.map(\.1)
+            let textureIndices = fragmentTextureSlots.map(\.1)
+            let samplerIndices = fragmentSamplerSlots.map(\.1)
+            guard Set(uniformIndices).count == uniformIndices.count,
+                  uniformIndices.allSatisfy({ (Int(ComputeShaderArtifact.uniformBindingBase)..<Int(ComputeShaderArtifact.uniformBindingBase + ComputeShaderArtifact.uniformBindingCapacity)).contains($0) }),
+                  Set(storageIndices).count == storageIndices.count,
+                  storageIndices.allSatisfy({ (Int(RenderStageArtifact.metalStorageBufferBase)..<Int(RenderStageArtifact.metalStorageLengthBufferIndex)).contains($0) }),
+                  Set(textureIndices).count == textureIndices.count,
+                  fragmentSampledTextureSlots.allSatisfy({ $0.1 >= 0 && $0.1 < Int(ComputeShaderArtifact.sampledTextureBindingCapacity) }),
+                  fragmentStorageTextureSlots.allSatisfy({ $0.1 >= Int(ComputeShaderArtifact.sampledTextureBindingCapacity) && $0.1 < Int(ComputeShaderArtifact.sampledTextureBindingCapacity + ComputeShaderArtifact.storageTextureBindingCapacity) }),
+                  Set(samplerIndices).count == samplerIndices.count, samplerIndices.allSatisfy({ $0 >= 0 && $0 < Int(ComputeShaderArtifact.samplerBindingCapacity) }),
+                  fragmentLengths.allSatisfy({ $0.1 > 0 }),
+                  fragment.metalRuntimeLengthBuffer == (fragmentLengths.isEmpty ? nil : RenderStageArtifact.metalStorageLengthBufferIndex),
+                  fragment.metalTextureAtomicGuardBufferIndex == (fragment.storageTextures.contains { $0.access.contains(.atomic) } ? RenderStageArtifact.metalTextureAtomicGuardSlot : nil) else {
+                throw GPUError.validation("Invalid Metal mesh fragment resource layout")
+            }
+            let objectLengths = try runtimeLengthRequirements(task?.storageBindings ?? [])
+            let meshLengths = try runtimeLengthRequirements(mesh.storageBindings)
+            guard (objectLengths + meshLengths).allSatisfy({ $0.1 > 0 }) else {
+                throw GPUError.validation("Invalid Metal mesh runtime array stride")
+            }
+            meshPipelines[pipeline.id] = MeshState(pipeline: state, depth: depth, writesDepth: fragment.writesDepth, objectThreads: task.map { size($0.workgroupSize) }
+                                                   ?? MTLSize(width: 1, height: 1, depth: 1),
+                                                   meshThreads: size(mesh.workgroupSize),
+                                                   objectUniforms: objectSlots.0, objectStorage: objectSlots.1,
+                                                   meshUniforms: meshSlots.0, meshStorage: meshSlots.1,
+                                                   objectTextures: objectTextureSlots + objectStorageTextureSlots, meshTextures: meshTextureSlots + meshStorageTextureSlots, objectSamplers: objectSamplerSlots, meshSamplers: meshSamplerSlots,
+                                                   fragmentBuffers: fragmentSlots.0 + fragmentSlots.1, fragmentTextures: fragmentTextureSlots, fragmentSamplers: fragmentSamplerSlots, fragmentLengths: fragmentLengths,
+                                                   fragmentTextureAtomicGuardBufferIndex: fragment.metalTextureAtomicGuardBufferIndex,
+                                                   objectLengths: objectLengths, meshLengths: meshLengths)
+        } catch let error as GPUError { throw error }
+        catch { throw GPUError.backendFailure("Mesh MSL compilation: \(error)") }
+        #else
+        throw GPUError.adapterUnavailable
+        #endif
+    }
+
+    public func destroyMeshPipeline(id: ResourceID) {
+        #if canImport(Metal)
+        meshPipelines.removeValue(forKey: id)
         #endif
     }
 
@@ -1228,7 +1507,7 @@ public final class MetalDevice: ComputeAccelerationStructureBackendDevice, Prese
         let pinned = Set(submission.resources)
         for id in submission.resources {
             guard buffers[id] != nil || textures[id] != nil || views[id] != nil || samplers[id] != nil ||
-                  querySets[id] != nil || externalPlanes[id] != nil || accelerationStructures[id] != nil else {
+                  querySets[id] != nil || externalPlanes[id] != nil || accelerationStructures[id] != nil || meshPipelines[id] != nil else {
                 throw GPUError.validation("Unknown Metal resource")
             }
             if let view = views[id], !pinned.contains(view.texture) {
@@ -1244,11 +1523,16 @@ public final class MetalDevice: ComputeAccelerationStructureBackendDevice, Prese
             }
             try recorded.validate(device: owner, descriptors: descriptors, textures: textureDescriptors,
                                   samplerDescriptors: samplerDescriptors, textureViews: views,
-                                  maximumViewportDimension: capabilities.maxTextureDimension2D, querySets: queryDescriptors,
+                                  maximumViewportDimension: capabilities.maxTextureDimension2D, maxVertexBuffers: capabilities.maxVertexBuffers,
+                                     maxBindGroupsPlusVertexBuffers: capabilities.maxBindGroupsPlusVertexBuffers, querySets: queryDescriptors,
                                   maxMultiviewViewCount: capabilities.maxMultiviewViewCount,
                                   features: capabilities.features, externalTextures: Set(externalPlanes.keys),
                                   externalPlanes: externalPlanes, accelerationStructures: accelerationStructures.mapValues(\.descriptor),
-                                  maxComputeWorkgroupsPerDimension: capabilities.maxComputeWorkgroupsPerDimension)
+                                  maxComputeWorkgroupsPerDimension: capabilities.maxComputeWorkgroupsPerDimension,
+                                  maxTaskWorkgroupTotalCount: capabilities.maxTaskWorkgroupTotalCount,
+                                  maxTaskWorkgroupsPerDimension: capabilities.maxTaskWorkgroupsPerDimension,
+                                  maxMeshWorkgroupTotalCount: capabilities.maxMeshWorkgroupTotalCount,
+                                  maxMeshWorkgroupsPerDimension: capabilities.maxMeshWorkgroupsPerDimension)
             let command = recorded.recordedPass.command
             if case .dispatch(let id, _, _, _) = command, pipelines[id] == nil {
                 throw GPUError.validation("Unknown Metal diagnostic pipeline")
@@ -1278,6 +1562,8 @@ public final class MetalDevice: ComputeAccelerationStructureBackendDevice, Prese
                                 case .triangles = source.descriptor.capacity else { return false }
                           return true
                       }) else { throw GPUError.validation("Invalid Metal top-level acceleration structure build") }
+            case .drawMesh(let pipeline, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _):
+                guard meshPipelines[pipeline.id] != nil else { throw GPUError.validation("Unknown Metal mesh pipeline") }
             case .render(let pipeline, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _),
                  .renderIndexed(let pipeline, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _),
                  .renderIndirect(let pipeline, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _):
@@ -1359,6 +1645,7 @@ public final class MetalDevice: ComputeAccelerationStructureBackendDevice, Prese
         var retainedCopyViews: [any MTLTexture] = []
         var retainedPipelines: [any MTLComputePipelineState] = []
         var retainedRenderPipelines: [RenderState] = []
+        var retainedMeshPipelines: [any MTLRenderPipelineState] = []
         var reads: [(any MTLBuffer, Int)] = []
         var accelerationBuilds: [ResourceID: PendingAccelerationBuild] = [:]
         var retainedAccelerationBuilds: [MetalAccelerationStructureBuild] = []
@@ -1463,6 +1750,130 @@ public final class MetalDevice: ComputeAccelerationStructureBackendDevice, Prese
             if let timestamps { writtenQueries[timestamps.querySet, default: []].formUnion(timestamps.indices) }
             if let occlusion { writtenQueries[occlusion.querySet, default: []].insert(occlusion.queryIndex) }
             switch command {
+            case .drawMesh(let pipeline, let target, let colorLoad, let workgroups, let taskBuffers, let meshBuffers, let taskTextures, let meshTextures, let taskSamplers, let meshSamplers, let additionalColors, let colorStore, let resolve, let depth, let indirectBuffer, let indirectOffset, let fragmentBuffers, let fragmentTextures, let fragmentSamplers, let raster):
+                guard #available(macOS 13, iOS 16, *) else { throw GPUError.unsupported("Metal mesh shaders are unavailable") }
+                let state = meshPipelines[pipeline.id]!
+                let indirect: (any MTLBuffer)?
+                if let indirectBuffer {
+                    if meshDispatchValidator == nil {
+                        meshDispatchValidator = try MetalDispatchValidator(device: native)
+                    }
+                    let axisLimit = pipeline.hasTaskShader ? capabilities.maxTaskWorkgroupsPerDimension : capabilities.maxMeshWorkgroupsPerDimension
+                    let totalLimit = pipeline.hasTaskShader ? capabilities.maxTaskWorkgroupTotalCount : capabilities.maxMeshWorkgroupTotalCount
+                    let validated = try meshDispatchValidator!.encode(on: commandBuffer, device: native, source: buffers[indirectBuffer]!.native,
+                        offset: Int(indirectOffset), maxWorkgroupsPerDimension: axisLimit, maximumLinearWorkgroupCount: totalLimit)
+                    retained.append(validated)
+                    indirect = validated
+                } else { indirect = nil }
+                let drawEnabled = indirect != nil || (workgroups.x > 0 && workgroups.y > 0 && workgroups.z > 0)
+                if drawEnabled {
+                    try initializeBoundTextures(taskTextures, on: commandBuffer, initialized: &initialized)
+                    try initializeBoundTextures(meshTextures, on: commandBuffer, initialized: &initialized)
+                    try initializeBoundTextures(fragmentTextures, on: commandBuffer, initialized: &initialized)
+                }
+                try initializeLoadedAttachments(target: target, level: 0, depthSlice: nil, colorLoad: colorLoad, depth: depth,
+                                                additionalColors: additionalColors, on: commandBuffer, initialized: &initialized)
+                let clear = colorLoad.clearColor.map { MTLClearColor(red: $0.red, green: $0.green, blue: $0.blue, alpha: $0.alpha) }
+                var visibility: (any MTLBuffer)?
+                if let occlusion {
+                    let buffer = querySets[occlusion.querySet]!.visibility!
+                    let offset = Int(occlusion.queryIndex) * 8
+                    guard let reset = commandBuffer.makeBlitCommandEncoder() else { throw GPUError.outOfMemory }
+                    reset.fill(buffer: buffer, range: offset..<(offset + 8), value: 0)
+                    reset.endEncoding()
+                    if drawEnabled { visibility = buffer }
+                }
+                if !drawEnabled, let timestamps, let start = timestamps.beginningOfPassWriteIndex {
+                    retained.append(try encodeTimestampMarker(commandBuffer, writes: .init(querySet: timestamps.querySet, beginningOfPassWriteIndex: start)))
+                }
+                let encoder = try renderEncoder(commandBuffer, target: nativeTexture(target), clear: clear, depth: depth, resolve: resolve, additionalColors: additionalColors, colorStore: colorStore, timestamps: drawEnabled ? timestamps : nil, visibility: visibility)
+                if drawEnabled {
+                    if let occlusion { encoder.setVisibilityResultMode(.boolean, offset: Int(occlusion.queryIndex) * 8) }
+                    encoder.setRenderPipelineState(state.pipeline)
+                    if let viewport = raster.viewport {
+                        encoder.setViewport(MTLViewport(originX: Double(viewport.x), originY: Double(viewport.y), width: Double(viewport.width), height: Double(viewport.height), znear: Double(viewport.minDepth), zfar: Double(viewport.maxDepth)))
+                    }
+                    if let scissor = raster.scissor {
+                        encoder.setScissorRect(MTLScissorRect(x: Int(scissor.x), y: Int(scissor.y), width: Int(scissor.width), height: Int(scissor.height)))
+                    }
+                    encoder.setFrontFacing(pipeline.primitive.frontFace == .clockwise ? .clockwise : .counterClockwise)
+                    if capabilities.features.contains(.depthClipControl) { encoder.setDepthClipMode(pipeline.primitive.unclippedDepth ? .clamp : .clip) }
+                    switch pipeline.primitive.cullMode {
+                    case .none: encoder.setCullMode(.none)
+                    case .front: encoder.setCullMode(.front)
+                    case .back: encoder.setCullMode(.back)
+                    }
+                    if state.writesDepth {
+                        var depthRange = SIMD2<Float>(raster.viewport?.minDepth ?? 0, raster.viewport?.maxDepth ?? 1)
+                        encoder.setFragmentBytes(&depthRange, length: MemoryLayout.size(ofValue: depthRange),
+                                                 index: RenderStageArtifact.metalViewportDepthBufferIndex)
+                    }
+                    if let depthState = state.depth { encoder.setDepthStencilState(depthState) }
+                    if let stencil = depth?.stencil { encoder.setStencilReferenceValue(stencil.reference & 0xff) }
+                    if let bias = pipeline.depthState?.bias, bias != .init() { encoder.setDepthBias(Float(bias.constant), slopeScale: bias.slopeScale, clamp: bias.clamp) }
+                    for (slot, index) in state.objectUniforms + state.objectStorage {
+                        let binding = taskBuffers[slot]!
+                        encoder.setObjectBuffer(buffers[binding.buffer]!.native, offset: Int(binding.offset), index: index)
+                    }
+                    for (slot, index) in state.meshUniforms + state.meshStorage {
+                        let binding = meshBuffers[slot]!
+                        encoder.setMeshBuffer(buffers[binding.buffer]!.native, offset: Int(binding.offset), index: index)
+                    }
+                    for (slot, index) in state.objectTextures { encoder.setObjectTexture(nativeTexture(taskTextures[slot]!), index: index) }
+                    for (slot, index) in state.meshTextures { encoder.setMeshTexture(nativeTexture(meshTextures[slot]!), index: index) }
+                    for (slot, index) in state.objectSamplers { encoder.setObjectSamplerState(samplers[taskSamplers[slot]!]!.native, index: index) }
+                    for (slot, index) in state.meshSamplers { encoder.setMeshSamplerState(samplers[meshSamplers[slot]!]!.native, index: index) }
+                    for (slot, index) in state.fragmentBuffers {
+                        let binding = fragmentBuffers[slot]!
+                        encoder.setFragmentBuffer(buffers[binding.buffer]!.native, offset: Int(binding.offset), index: index)
+                    }
+                    for (slot, index) in state.fragmentTextures { encoder.setFragmentTexture(nativeTexture(fragmentTextures[slot]!), index: index) }
+                    for binding in pipeline.taskStorageTextures where binding.access == .atomic {
+                        encoder.useResource(nativeTexture(taskTextures[binding.slot]!), usage: [.read, .write], stages: .object)
+                    }
+                    for binding in pipeline.meshStorageTextures where binding.access == .atomic {
+                        encoder.useResource(nativeTexture(meshTextures[binding.slot]!), usage: [.read, .write], stages: .mesh)
+                    }
+                    for binding in pipeline.fragmentStorageTextures where binding.access == .atomic {
+                        encoder.useResource(nativeTexture(fragmentTextures[binding.slot]!), usage: [.read, .write], stages: .fragment)
+                    }
+                    if let index = state.fragmentTextureAtomicGuardBufferIndex {
+                        var disabled: UInt32 = 0
+                        encoder.setFragmentBytes(&disabled, length: MemoryLayout<UInt32>.size, index: Int(index))
+                    }
+                    for (slot, index) in state.fragmentSamplers { encoder.setFragmentSamplerState(samplers[fragmentSamplers[slot]!]!.native, index: index) }
+                    let fragmentLengths = try runtimeLengthValues(state.fragmentLengths, bindings: fragmentBuffers)
+                    if !fragmentLengths.isEmpty {
+                        fragmentLengths.withUnsafeBytes { encoder.setFragmentBytes($0.baseAddress!, length: $0.count, index: Int(RenderStageArtifact.metalStorageLengthBufferIndex)) }
+                    }
+                    let objectLengths = try runtimeLengthValues(state.objectLengths, bindings: taskBuffers)
+                    let meshLengths = try runtimeLengthValues(state.meshLengths, bindings: meshBuffers)
+                    let lengthIndex = Int(ComputeShaderArtifact.storageBindingCapacity)
+                    if !objectLengths.isEmpty {
+                        objectLengths.withUnsafeBytes { encoder.setObjectBytes($0.baseAddress!, length: $0.count, index: lengthIndex) }
+                    }
+                    if !meshLengths.isEmpty {
+                        meshLengths.withUnsafeBytes { encoder.setMeshBytes($0.baseAddress!, length: $0.count, index: lengthIndex) }
+                    }
+                    if let indirect {
+                        encoder.drawMeshThreadgroups(indirectBuffer: indirect, indirectBufferOffset: 0,
+                            threadsPerObjectThreadgroup: state.objectThreads, threadsPerMeshThreadgroup: state.meshThreads)
+                    } else {
+                        encoder.drawMeshThreadgroups(MTLSize(width: Int(workgroups.x), height: Int(workgroups.y), depth: Int(workgroups.z)),
+                            threadsPerObjectThreadgroup: state.objectThreads, threadsPerMeshThreadgroup: state.meshThreads)
+                    }
+                }
+                if drawEnabled && occlusion != nil { encoder.setVisibilityResultMode(.disabled, offset: 0) }
+                encoder.endEncoding()
+                if !drawEnabled, let timestamps, let end = timestamps.endOfPassWriteIndex {
+                    retained.append(try encodeTimestampMarker(commandBuffer, writes: .init(querySet: timestamps.querySet, endOfPassWriteIndex: end)))
+                }
+                retainedMeshPipelines.append(state.pipeline)
+                markRenderedAttachments(target: target, level: 0, depthSlice: nil, depth: depth, resolve: resolve,
+                                        additionalColors: additionalColors, initialized: &initialized)
+                try clearDiscardedAttachments(commandBuffer, target: target, level: 0, layer: 0, colorStore: colorStore, depth: depth, additionalColors: additionalColors, viewCount: 1)
+                if let timestamps { writtenQueries[timestamps.querySet, default: []].formUnion(timestamps.indices) }
+                if let occlusion { writtenQueries[occlusion.querySet, default: []].insert(occlusion.queryIndex) }
             case .buildAccelerationStructure(let destination, let geometry):
                 let build = try MetalAccelerationStructureBuild.encode(device: native, commandBuffer: commandBuffer,
                     vertexBuffer: buffers[geometry.vertexBuffer]!.native, vertexOffset: Int(geometry.vertexOffset),
@@ -1496,6 +1907,7 @@ public final class MetalDevice: ComputeAccelerationStructureBackendDevice, Prese
                                    range: first..<(first + count), destination: buffers[destination]!.native,
                                    offset: Int(offset), on: commandBuffer)
             case .write(let id, let offset, let words):
+                if words.isEmpty { continue }
                 retained.append(try words.withUnsafeBytes {
                     try encodeUpload($0, to: buffers[id]!.native, offset: Int(offset), on: commandBuffer)
                 })
@@ -1540,11 +1952,11 @@ public final class MetalDevice: ComputeAccelerationStructureBackendDevice, Prese
                 let indirect: (any MTLBuffer)?
                 if case .indirect(let buffer, let offset) = source {
                     if dispatchValidator == nil {
-                        dispatchValidator = try MetalDispatchValidator(device: native,
-                            maxWorkgroupsPerDimension: capabilities.maxComputeWorkgroupsPerDimension)
+                        dispatchValidator = try MetalDispatchValidator(device: native)
                     }
                     let validated = try dispatchValidator!.encode(
                         on: commandBuffer, device: native, source: buffers[buffer]!.native, offset: Int(offset),
+                        maxWorkgroupsPerDimension: capabilities.maxComputeWorkgroupsPerDimension,
                         maximumLinearWorkgroupCount: pipeline.maximumLinearWorkgroupCount)
                     retained.append(validated)
                     indirect = validated
@@ -1631,7 +2043,7 @@ public final class MetalDevice: ComputeAccelerationStructureBackendDevice, Prese
                 let byteOffset = Int(index.offset + UInt64(draw.firstIndex) * UInt64(index.format.byteSize))
                 var indirect: (any MTLBuffer)?
                 var drawEnabled = draw.indexCount > 0 && draw.instances.count > 0 && !raster.hasEmptyScissor
-                if drawEnabled && pipeline.vertexBuffers.contains(where: { $0.stepMode == .vertex }) {
+                if drawEnabled && pipeline.vertexBuffers.contains(where: { $0.stepMode == .vertex && !$0.attributes.isEmpty }) {
                     let capacity = fetchCapacity(pipeline.vertexBuffers, bindings: vertexBuffers, stepMode: .vertex)
                     if capacity > 0 {
                         if indexValidator == nil { indexValidator = try MetalIndexValidator(device: native) }
@@ -1676,7 +2088,7 @@ public final class MetalDevice: ComputeAccelerationStructureBackendDevice, Prese
                     let args = try indirectDrawValidator!.encode(
                         on: commandBuffer, device: native, source: buffers[arguments]!.native, offset: Int(offset),
                         vertices: vertices, instances: instances,
-                        indices: indices, scanIndices: pipeline.vertexBuffers.contains { $0.stepMode == .vertex },
+                        indices: indices, scanIndices: pipeline.vertexBuffers.contains { $0.stepMode == .vertex && !$0.attributes.isEmpty },
                         primitiveRestart: pipeline.primitive.topology.isStrip)
                     retained.append(args)
                     validated = args
@@ -1696,7 +2108,8 @@ public final class MetalDevice: ComputeAccelerationStructureBackendDevice, Prese
                     }
                 }
             case .copyTextureToBuffer(let source, let destination, let bytesPerRow, let mipLevel, let aspect, let offset,
-                                      let layer, let z, let depth):
+                                      let layer, let z, let depth, let rowsPerImage):
+                if depth == 0 { continue }
                 let texture = textures[source]!
                 let extent = texture.descriptor.mipExtent(mipLevel)!
                 let physical = texture.descriptor.mipPhysicalExtent(mipLevel)!
@@ -1706,20 +2119,58 @@ public final class MetalDevice: ComputeAccelerationStructureBackendDevice, Prese
                     try initializeTexture(source, level: mipLevel, layer: plane, on: commandBuffer, initialized: &initialized)
                 }
                 guard let encoder = commandBuffer.makeBlitCommandEncoder() else { throw GPUError.outOfMemory }
-                let blockHeight = texture.descriptor.format.copyBlock(aspect: aspect)!.height
-                let imageStride = Int(bytesPerRow) * Int(physical.height / blockHeight)
+                let block = texture.descriptor.format.copyBlock(aspect: aspect)!
+                let blockHeight = block.height
+                let imageStride = depth > 1 ? Int(bytesPerRow) * Int(rowsPerImage ?? (physical.height / blockHeight)) : 0
+                let metalRowStride = depth == 1 && physical.height == blockHeight
+                    ? Int(block.rowBytes(width: physical.width)) : Int(bytesPerRow)
                 let options: MTLBlitOption = switch aspect {
                 case .stencilOnly where texture.descriptor.format.hasDepth: .stencilFromDepthStencil
                 case .depthOnly where texture.descriptor.format.hasStencil: .depthFromDepthStencil
                 default: []
                 }
-                encoder.copy(from: texture.native, sourceSlice: Int(layer), sourceLevel: Int(mipLevel),
-                             sourceOrigin: MTLOrigin(x: 0, y: 0, z: Int(z)),
-                             sourceSize: MTLSize(width: Int(extent.width), height: Int(extent.height), depth: Int(depth)),
-                             to: buffers[destination]!.native, destinationOffset: Int(offset),
-                             destinationBytesPerRow: Int(bytesPerRow),
-                             destinationBytesPerImage: texture.descriptor.dimension == .d3 ? imageStride : 0,
-                             options: options)
+                let volume = texture.descriptor.dimension == .d3
+                for slice in 0..<(volume ? 1 : Int(depth)) {
+                    encoder.copy(from: texture.native, sourceSlice: Int(layer) + slice, sourceLevel: Int(mipLevel),
+                                 sourceOrigin: MTLOrigin(x: 0, y: 0, z: Int(z)),
+                                 sourceSize: MTLSize(width: Int(extent.width), height: Int(extent.height),
+                                                     depth: volume ? Int(depth) : 1),
+                                 to: buffers[destination]!.native, destinationOffset: Int(offset) + slice * imageStride,
+                                 destinationBytesPerRow: metalRowStride,
+                                 destinationBytesPerImage: volume && depth > 1 ? imageStride : 0,
+                                 options: options)
+                }
+                encoder.endEncoding()
+            case .copyTextureRegionToBuffer(let source, let destination, let layout, let region, let aspect):
+                if region.isEmpty { continue }
+                let texture = textures[source]!
+                for plane in region.planes(in: texture.descriptor) {
+                    try initializeTexture(source, level: region.mipLevel, layer: plane, on: commandBuffer, initialized: &initialized)
+                }
+                let block = texture.descriptor.format.copyBlock(aspect: aspect)!
+                let stride = Int(layout.rowStride(width: region.width, block: block))
+                let imageStride = region.depth > 1 ? stride * Int(layout.rowsPerImage ?? (region.height / block.height)) : 0
+                let metalRowStride = region.depth == 1 && region.height == block.height
+                    ? Int(block.rowBytes(width: region.width)) : stride
+                let extent = texture.descriptor.mipExtent(region.mipLevel)!
+                let volume = texture.descriptor.dimension == .d3
+                let options: MTLBlitOption = switch aspect {
+                case .stencilOnly where texture.descriptor.format.hasDepth: .stencilFromDepthStencil
+                case .depthOnly where texture.descriptor.format.hasStencil: .depthFromDepthStencil
+                default: []
+                }
+                guard let encoder = commandBuffer.makeBlitCommandEncoder() else { throw GPUError.outOfMemory }
+                for slice in 0..<(volume ? 1 : Int(region.depth)) {
+                    encoder.copy(from: texture.native, sourceSlice: Int(region.arrayLayer) + slice,
+                                 sourceLevel: Int(region.mipLevel),
+                                 sourceOrigin: MTLOrigin(x: Int(region.x), y: Int(region.y), z: Int(region.z)),
+                                 sourceSize: MTLSize(width: Int(min(region.width, extent.width - region.x)),
+                                                     height: Int(min(region.height, extent.height - region.y)),
+                                                     depth: volume ? Int(region.depth) : 1),
+                                 to: buffers[destination]!.native, destinationOffset: Int(layout.offset) + slice * imageStride,
+                                 destinationBytesPerRow: metalRowStride,
+                                 destinationBytesPerImage: volume && region.depth > 1 ? imageStride : 0, options: options)
+                }
                 encoder.endEncoding()
             case .copyBufferToTexture(let source, let layout, let destination, let region, let aspect):
                 if region.isEmpty { continue }
@@ -1753,15 +2204,16 @@ public final class MetalDevice: ComputeAccelerationStructureBackendDevice, Prese
                     retainedCopyViews.append(view)
                 }
                 guard let encoder = commandBuffer.makeBlitCommandEncoder() else { throw GPUError.outOfMemory }
-                let volume = sourceTexture.descriptor.dimension == .d3
-                let size = MTLSize(width: Int(region.width), height: Int(region.height), depth: volume ? Int(region.depth) : 1)
-                for slice in 0..<(volume ? 1 : Int(region.depth)) {
-                    encoder.copy(from: sourceTexture.native, sourceSlice: Int(region.arrayLayer) + slice,
+                let sourceVolume = sourceTexture.descriptor.dimension == .d3
+                let destinationVolume = target.descriptor.dimension == .d3
+                let size = MTLSize(width: Int(region.width), height: Int(region.height), depth: 1)
+                for slice in 0..<Int(region.depth) {
+                    encoder.copy(from: sourceTexture.native, sourceSlice: sourceVolume ? 0 : Int(region.arrayLayer) + slice,
                                  sourceLevel: Int(region.mipLevel),
-                                 sourceOrigin: MTLOrigin(x: Int(region.x), y: Int(region.y), z: Int(region.z)), sourceSize: size,
-                                 to: destinationTexture, destinationSlice: Int(origin.arrayLayer) + slice,
+                                 sourceOrigin: MTLOrigin(x: Int(region.x), y: Int(region.y), z: sourceVolume ? Int(region.z) + slice : 0), sourceSize: size,
+                                 to: destinationTexture, destinationSlice: destinationVolume ? 0 : Int(origin.arrayLayer) + slice,
                                  destinationLevel: Int(origin.mipLevel),
-                                 destinationOrigin: MTLOrigin(x: Int(origin.x), y: Int(origin.y), z: Int(origin.z)))
+                                 destinationOrigin: MTLOrigin(x: Int(origin.x), y: Int(origin.y), z: destinationVolume ? Int(origin.z) + slice : 0))
                 }
                 encoder.endEncoding()
             case .read(let id, let size):
@@ -1778,7 +2230,7 @@ public final class MetalDevice: ComputeAccelerationStructureBackendDevice, Prese
             commandBuffer: commandBuffer, buffers: retained, pipelines: retainedPipelines,
             textures: resources.compactMap { textures[$0]?.native ?? textureViews[$0]?.native } + retainedCopyViews,
             samplers: resources.compactMap { samplers[$0]?.native }, renderPipelines: retainedRenderPipelines, drawable: nil,
-            counterSampleBuffers: resources.compactMap { querySets[$0]?.samples },
+            meshPipelines: retainedMeshPipelines, counterSampleBuffers: resources.compactMap { querySets[$0]?.samples },
             accelerationBuilds: accelerationBuilds, retainedAccelerationBuilds: retainedAccelerationBuilds)
         return (batch, reads)
     }
@@ -1946,7 +2398,9 @@ public final class MetalDevice: ComputeAccelerationStructureBackendDevice, Prese
         guard let encoder = commands.makeBlitCommandEncoder() else { throw GPUError.outOfMemory }
         let block = texture.descriptor.format.copyBlock(aspect: aspect)!
         let stride = Int(layout.rowStride(width: region.width, block: block))
-        let imageStride = stride * Int(region.height / block.height)
+        let imageStride = region.depth > 1 ? stride * Int(layout.rowsPerImage ?? (region.height / block.height)) : 0
+        let metalRowStride = region.depth == 1 && region.height == block.height
+            ? Int(block.rowBytes(width: region.width)) : stride
         let volume = texture.descriptor.dimension == .d3
         // Metal buffer blits take the logical mip extent even when they transfer a complete compression block.
         let extent = texture.descriptor.mipExtent(region.mipLevel)!
@@ -1956,7 +2410,7 @@ public final class MetalDevice: ComputeAccelerationStructureBackendDevice, Prese
         let origin = MTLOrigin(x: Int(region.x), y: Int(region.y), z: Int(region.z))
         for layer in 0..<(volume ? 1 : Int(region.depth)) {
             encoder.copy(from: source, sourceOffset: Int(layout.offset) + layer * imageStride,
-                         sourceBytesPerRow: stride, sourceBytesPerImage: volume ? imageStride : 0,
+                         sourceBytesPerRow: metalRowStride, sourceBytesPerImage: volume && region.depth > 1 ? imageStride : 0,
                          sourceSize: size, to: texture.native, destinationSlice: Int(region.arrayLayer) + layer,
                          destinationLevel: Int(region.mipLevel), destinationOrigin: origin,
                          options: aspect == .stencilOnly && texture.descriptor.format.hasDepth ? .stencilFromDepthStencil : [])
@@ -2121,11 +2575,18 @@ public final class MetalDevice: ComputeAccelerationStructureBackendDevice, Prese
             encoder.setFragmentBytes(&range, length: MemoryLayout.size(ofValue: range),
                                      index: RenderStageArtifact.metalViewportDepthBufferIndex)
         }
-        for (slot, binding) in vertexBuffers.enumerated() {
+        for (index, binding) in vertexBuffers.enumerated() {
+            let slot = binding.slot.map(Int.init) ?? index
+            guard slot < pipeline.vertexBuffers.count, !pipeline.vertexBuffers[slot].attributes.isEmpty else { continue }
             encoder.setVertexBuffer(buffers[binding.buffer]!.native, offset: Int(binding.offset), index: slot)
         }
-        if state.usesVertexPulling, !vertexBuffers.isEmpty {
-            let sizes = vertexBuffers.map { buffers[$0.buffer]!.descriptor.size - $0.offset }
+        if state.usesVertexPulling, !pipeline.vertexBuffers.isEmpty {
+            var sizes = [UInt64](repeating: 0, count: pipeline.vertexBuffers.count)
+            for (index, binding) in vertexBuffers.enumerated() {
+                let slot = binding.slot.map(Int.init) ?? index
+                guard slot < sizes.count, !pipeline.vertexBuffers[slot].attributes.isEmpty else { continue }
+                sizes[slot] = buffers[binding.buffer]!.descriptor.size - binding.offset
+            }
             sizes.withUnsafeBytes {
                 encoder.setVertexBytes($0.baseAddress!, length: $0.count,
                                        index: Int(RenderStageArtifact.metalVertexPullingSizeBufferIndex))
@@ -2185,7 +2646,11 @@ public final class MetalDevice: ComputeAccelerationStructureBackendDevice, Prese
         _ layouts: [VertexBufferLayout], bindings: [VertexBufferBinding], stepMode: VertexStepMode
     ) -> UInt64 {
         var count = MetalIndirectDrawValidator.maximumCapacity
-        for (layout, binding) in zip(layouts, bindings) where layout.stepMode == stepMode {
+        for (index, binding) in bindings.enumerated() {
+            let slot = binding.slot.map(Int.init) ?? index
+            guard slot < layouts.count else { continue }
+            let layout = layouts[slot]
+            guard layout.stepMode == stepMode, !layout.attributes.isEmpty else { continue }
             let available = buffers[binding.buffer]!.descriptor.size - binding.offset
             guard available >= layout.attributeEnd else { return 0 }
             if layout.stride > 0 {

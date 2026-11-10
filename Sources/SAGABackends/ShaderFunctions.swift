@@ -5,6 +5,9 @@ struct ShaderStructure {
     let typeName: String
     let constructor: String
     var memberNames: [String]? = nil
+    var packedMemberIndices: Set<Int> = []
+    var paddingBeforeMembers: Set<Int> = []
+    var hasTrailingPadding = false
 
     func memberName(_ index: Int) -> String {
         memberNames?[index] ?? "saga_member_\(index)"
@@ -596,6 +599,44 @@ struct ShaderFunctions {
         return widths
     }
 
+    mutating func reachableNumericCapabilities(in module: IRModule, entry: IREntryPoint) throws -> (f16: Bool, int16: Bool, int64: Bool, atomicMinMax: Bool, atomicAllOps: Bool) {
+        let resources = reachableGlobals.map { module.globalVariables.values[$0] }
+        let widths = try nativeIntegerWidths(in: module, entry: entry.function, resources: resources)
+        var types = Set(resources.map(\.type))
+        if let payload = entry.taskPayload { types.insert(try module.globalVariables.value(for: payload).type) }
+        if let mesh = entry.meshInfo { types.insert(mesh.vertexOutputType); types.insert(mesh.primitiveOutputType) }
+        for index in order + [entry.function.index] {
+            let function = module.functions.values[index]
+            try budget.consume(.work, amount: 1 + function.arguments.count + function.localVariables.count + function.expressions.count)
+            types.formUnion(function.arguments.map(\.type))
+            if let result = function.result { types.insert(result.type) }
+            types.formUnion(function.localVariables.values.map(\.type))
+            types.formUnion(function.expressions.values.map(\.type))
+        }
+        var pending = Array(types)
+        var f16 = false
+        var int16 = widths.contains(2)
+        var int64 = widths.contains(8)
+        var atomic64 = false
+        while let handle = pending.popLast() {
+            try budget.consume(.work)
+            let kind = try module.types.value(for: handle).kind
+            f16 = f16 || kind.usesFloat16
+            int16 = int16 || kind.nativeShaderIntegerWidth == 2
+            int64 = int64 || kind.nativeShaderIntegerWidth == 8
+            if case .atomic(let scalar) = kind, scalar.width == 8 { atomic64 = true }
+            switch kind {
+            case .pointer(let base, _), .array(let base, _, _), .bindingArray(let base, _):
+                if types.insert(base).inserted { pending.append(base) }
+            case .structure(let members, _):
+                try budget.consume(.work, amount: members.count)
+                for member in members where types.insert(member.type).inserted { pending.append(member.type) }
+            default: break
+            }
+        }
+        return (f16, int16, int64, atomic64 && !requiresShaderInt64AtomicAllOps, requiresShaderInt64AtomicAllOps)
+    }
+
     mutating func wgslDiagnosticLines(module: IRModule, function: IRFunction? = nil) throws -> [String] {
         var cursor = function == nil ? module.diagnosticFilter : function?.diagnosticFilter
         let parent = function == nil ? nil : module.diagnosticFilter
@@ -612,9 +653,14 @@ struct ShaderFunctions {
         return Array(lines.reversed())
     }
 
+    mutating func metalPayloadTypes(_ root: IRHandle<IRType>, module: IRModule) throws -> Set<IRHandle<IRType>> {
+        try collectMetalPayloadTypes(root, module: module, budget: &budget)
+    }
+
     mutating func compositeDeclarations(
         module: IRModule, entry: IRHandle<IRFunction>, format: ShaderOutputFormat,
-        additionalTypes: Set<IRHandle<IRType>> = [], structures: inout [IRHandle<IRType>: ShaderStructure]
+        additionalTypes: Set<IRHandle<IRType>> = [], metalPayloadTypes: Set<IRHandle<IRType>> = [],
+        structures: inout [IRHandle<IRType>: ShaderStructure]
     ) throws -> [String] {
         var types = additionalTypes
         var constructed: Set<IRHandle<IRType>> = []
@@ -705,7 +751,7 @@ struct ShaderFunctions {
                 }
             }
         }
-        return try compositeValueDeclarations(module: module, format: format, roots: types, constructed: constructed,
+        return try compositeValueDeclarations(module: module, format: format, roots: types, constructed: constructed, metalPayloadTypes: metalPayloadTypes,
                                               structures: &structures, budget: &budget)
     }
 
@@ -797,6 +843,8 @@ func shaderValueType(
     switch try module.types.value(for: handle).kind {
     case .accelerationStructure(false) where format == .msl:
         return "metal::raytracing::instance_acceleration_structure"
+    case .accelerationStructure(false) where format == .hlsl:
+        return "RaytracingAccelerationStructure"
     case .scalar(.bool): return "bool"
     case .scalar(.i16): return integer16Type(signed: true, in: format)
     case .scalar(.u16): return integer16Type(signed: false, in: format)

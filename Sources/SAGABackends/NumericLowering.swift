@@ -101,6 +101,15 @@ func numericBuiltinStatements(
     } else if format == .hlsl, [.asinh, .acosh, .atanh].contains(function) {
         let operand = "\(name)_operand"
         statements.append("\(resultType) \(operand) = \(arguments[0]);")
+        func smallInputFallback(_ general: String) -> String {
+            guard let width else { return "(abs(\(operand)) < 1.0e-4f ? \(operand) : (\(general)))" }
+            let fallback = "\(name)_general"
+            statements.append("\(resultType) \(fallback) = \(general);")
+            let lanes = "xyzw".prefix(Int(width)).map { lane in
+                "(abs(\(operand).\(lane)) < 1.0e-4f ? \(operand).\(lane) : \(fallback).\(lane))"
+            }
+            return "\(resultType)(\(lanes.joined(separator: ", ")))"
+        }
         switch function {
         case .asinh:
             let magnitude = "\(name)_magnitude", scale = "\(name)_scale", ratio = "\(name)_ratio", inverse = "\(name)_inverse"
@@ -110,13 +119,17 @@ func numericBuiltinStatements(
                 "\(resultType) \(ratio) = \(magnitude) / \(scale);",
                 "\(resultType) \(inverse) = 1.0f / \(scale);",
             ]
-            expression = "\(resultType)(sign(\(operand))) * (log(\(scale)) + log(\(ratio) + sqrt(\(ratio) * \(ratio) + \(inverse) * \(inverse))))"
+            let general = "\(resultType)(sign(\(operand))) * (log(\(scale)) + log(\(ratio) + sqrt(\(ratio) * \(ratio) + \(inverse) * \(inverse))))"
+            // For small inputs the logarithm rounds to zero. The linear term differs
+            // by less than one f32 ULP here, and preserves both signs of zero.
+            expression = smallInputFallback(general)
         case .acosh:
             let inverse = "\(name)_inverse"
             statements.append("\(resultType) \(inverse) = 1.0f / \(operand);")
             expression = "log(\(operand)) + log(1.0f + sqrt(1.0f - \(inverse) * \(inverse)))"
         default:
-            expression = "0.5f * (log(1.0f + \(operand)) - log(1.0f - \(operand)))"
+            let general = "0.5f * (log(1.0f + \(operand)) - log(1.0f - \(operand)))"
+            expression = smallInputFallback(general)
         }
     } else if format == .msl, function == .radians || function == .degrees {
         let factor = function == .radians ? "0.017453292519943295f" : "57.29577951308232f"

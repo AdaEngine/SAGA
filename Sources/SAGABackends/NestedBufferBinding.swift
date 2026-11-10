@@ -280,8 +280,10 @@ struct NestedBufferTypes {
             let fields = try members.map { try describe($0.type, budget: &budget) }
             let name = prefix + String(handle.index)
             let naturalAlignment = fields.map(\.alignment).max() ?? 1
-            var alignment = naturalAlignment
-            if let last = fields.last, last.runtime, let offset = members.last?.offset {
+            var alignment = format == .wgsl ? zip(members, fields).map { member, field in
+                max(member.explicitAlignment.map(UInt64.init) ?? 1, field.alignment)
+            }.max() ?? 1 : naturalAlignment
+            if format != .wgsl, let last = fields.last, last.runtime, let offset = members.last?.offset {
                 let end = UInt64(offset) + last.size
                 while aligned(end, to: alignment) < UInt64(span) { alignment *= 2 }
                 guard aligned(end, to: alignment) == UInt64(span) else {
@@ -290,13 +292,23 @@ struct NestedBufferTypes {
             }
             if format == .wgsl {
                 var declaration = ["struct \(name) {"]
+                var cursor: UInt64 = 0
                 for (index, field) in fields.enumerated() {
                     let start = UInt64(members[index].offset)
                     let end = index + 1 < members.count ? UInt64(members[index + 1].offset) : UInt64(span)
+                    let memberAlignment = max(field.alignment, members[index].explicitAlignment.map(UInt64.init) ?? 1)
+                    guard start == aligned(cursor, to: memberAlignment), end >= start,
+                          end - start >= field.size else {
+                        throw unsupported("nested WGSL structure layout cannot be represented")
+                    }
                     let size = end - start
-                    let align = index == 0 && alignment > naturalAlignment ? "@align(\(alignment)) " : ""
+                    let align = members[index].explicitAlignment.map { "@align(\($0)) " } ?? ""
                     let padding = !field.runtime && size > field.size ? "@size(\(size)) " : ""
                     declaration.append("    \(align)\(padding)saga_member_\(index): \(field.name),")
+                    cursor = start + (field.runtime ? field.size : size)
+                }
+                guard aligned(cursor, to: alignment) == UInt64(span) else {
+                    throw unsupported("nested WGSL structure span cannot be represented")
                 }
                 declaration.append("}")
                 for line in declaration { try budget.consume(.sourceBytes, amount: line.utf8.count + 1) }

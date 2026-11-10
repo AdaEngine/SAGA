@@ -22,14 +22,17 @@ public struct RenderStageArtifact: Sendable, Equatable {
         public let scalar: IRScalar
         public let interpolation: IRInterpolation
         public let sampling: IRSampling
+        /// Whether the fragment input is emitted once per mesh primitive.
+        public let perPrimitive: Bool
 
         package init(location: UInt32, componentCount: UInt8, scalar: IRScalar,
-                     interpolation: IRInterpolation, sampling: IRSampling) {
+                     interpolation: IRInterpolation, sampling: IRSampling, perPrimitive: Bool = false) {
             self.location = location
             self.componentCount = componentCount
             self.scalar = scalar
             self.interpolation = interpolation
             self.sampling = sampling
+            self.perPrimitive = perPrimitive
         }
     }
 

@@ -46,7 +46,7 @@ public actor Device {
     public nonisolated let identity: UInt64
     public nonisolated let supportsPresentation: Bool
     private let backend: any BackendDevice
-    private enum ResourceKind: Equatable { case buffer, texture, externalTexture, sampler, textureView, querySet, accelerationStructure }
+    private enum ResourceKind: Equatable { case buffer, texture, externalTexture, sampler, textureView, querySet, accelerationStructure, meshPipeline }
     private enum ResourceDescriptor {
         case buffer(BufferDescriptor)
         case texture(TextureDescriptor)
@@ -56,6 +56,7 @@ public actor Device {
         case textureView(TextureViewResource)
         case querySet(QuerySetDescriptor)
         case accelerationStructure(AccelerationStructureDescriptor)
+        case meshPipeline(MeshPipeline)
 
         var kind: ResourceKind {
             switch self {
@@ -66,6 +67,7 @@ public actor Device {
             case .textureView: .textureView
             case .querySet: .querySet
             case .accelerationStructure: .accelerationStructure
+            case .meshPipeline: .meshPipeline
             }
         }
         var buffer: BufferDescriptor? {
@@ -235,6 +237,8 @@ public actor Device {
             let descriptor = try describe()
             let allocate: (ResourceID) async throws -> Void
             switch descriptor {
+            case .meshPipeline:
+                throw GPUError.validation("Mesh pipelines require stage artifacts")
             case .buffer(let value):
                 try value.validate(against: capabilities)
                 if value.mappedAtCreation { _ = try mappingBackend() }
@@ -257,6 +261,7 @@ public actor Device {
                 try validateExternalPlanes(value)
                 allocate = { try await external.allocatePlanarExternalTexture(id: $0, descriptor: value) }
             case .sampler(let value):
+                try value.validate()
                 guard let sampler = backend as? any SamplerBackendDevice else {
                     throw GPUError.unsupported("Backend does not implement samplers")
                 }
@@ -478,6 +483,7 @@ public actor Device {
                                               primitive: primitive, colorState: colorState, additionalColorTargets: additionalColorTargets,
                                               vertex: vertex, fragment: fragment, nonFilteringSamplers: nonFilteringSamplers,
                                               capabilities: capabilities, multiviewMask: multiviewMask)
+            try pipeline.validateBindGroupsPlusVertexBuffers(against: capabilities)
             do {
                 try await render.allocateRenderPipeline(pipeline, vertex: vertex, fragment: fragment)
                 try Task.checkCancellation()
@@ -495,6 +501,165 @@ public actor Device {
             else { record(normalized, in: operationScopes) }
             throw normalized
         }
+    }
+
+    /// Creates the single-color mesh pipeline profile.
+    public func createMeshPipeline(task: TaskStageArtifact? = nil, mesh: MeshStageArtifact,
+                                   fragment: RenderStageArtifact, colorFormat: TextureFormat, sampleCount: UInt32 = 1, sampleMask: UInt32 = .max, alphaToCoverageEnabled: Bool = false, depthState: RenderDepthState? = nil, primitive: RenderPrimitiveState = .init()) async throws -> MeshPipeline {
+        try await createMeshPipeline(task: task, mesh: mesh, fragment: fragment, colorFormats: [0: colorFormat], sampleCount: sampleCount, sampleMask: sampleMask, alphaToCoverageEnabled: alphaToCoverageEnabled, depthState: depthState, primitive: primitive)
+    }
+
+    public func createMeshPipeline(task: TaskStageArtifact? = nil, mesh: MeshStageArtifact,
+                                   fragment: RenderStageArtifact, colorFormats: [UInt32: TextureFormat], sampleCount: UInt32 = 1, sampleMask: UInt32 = .max, alphaToCoverageEnabled: Bool = false, depthState: RenderDepthState? = nil, primitive: RenderPrimitiveState = .init()) async throws -> MeshPipeline {
+        let operationScopes = beginOperation()
+        defer { endOperation(operationScopes) }
+        do {
+            try Task.checkCancellation()
+            try requireActive()
+            try capabilities.require([.meshShaders])
+            func validateStageSize(_ size: IRWorkgroupSize, dimension: UInt32, total: UInt32, stage: String) throws {
+                guard size.x > 0, size.y > 0, size.z > 0,
+                      size.x <= dimension, size.y <= dimension, size.z <= dimension else {
+                    throw GPUError.validation("\(stage) workgroup size exceeds the per-dimension limit or contains zero")
+                }
+                let xy = UInt64(size.x) * UInt64(size.y)
+                guard xy <= UInt64(total), UInt64(size.z) <= UInt64(total) / xy else {
+                    throw GPUError.validation("\(stage) workgroup size exceeds the invocation limit")
+                }
+            }
+            try validateStageSize(mesh.workgroupSize, dimension: capabilities.maxMeshInvocationsPerDimension,
+                                  total: capabilities.maxMeshInvocationsPerWorkgroup, stage: "Mesh")
+            if let task {
+                try validateStageSize(task.workgroupSize, dimension: capabilities.maxTaskInvocationsPerDimension,
+                                      total: capabilities.maxTaskInvocationsPerWorkgroup, stage: "Task")
+            }
+            guard (task?.payload?.size ?? 0) <= capabilities.maxTaskPayloadSize,
+                  (mesh.payload?.size ?? 0) <= capabilities.maxTaskPayloadSize else {
+                throw GPUError.validation("Task payload exceeds the device limit")
+            }
+            guard mesh.maxVertices <= capabilities.maxMeshOutputVertices,
+                  mesh.maxPrimitives <= capabilities.maxMeshOutputPrimitives else {
+                throw GPUError.validation("Mesh output counts exceed the device limits")
+            }
+            guard primitive.topology == .triangleList, primitive.stripIndexFormat == nil else { throw GPUError.validation("Mesh topology is defined by the shader") }
+            if primitive.unclippedDepth { try capabilities.require([.depthClipControl]) }
+            guard depthState?.format.isDepthStencil ?? true else { throw GPUError.validation("Invalid mesh depth format") }
+            if depthState?.format == .depth32FloatStencil8 { try capabilities.require([.depth32FloatStencil8]) }
+            if let state = depthState {
+                guard state.bias.slopeScale.isFinite, state.bias.clamp.isFinite,
+                      state.format.hasDepth || (!state.writeEnabled && state.compare == .always && state.bias == .init()),
+                      state.format.hasStencil || state.stencil == nil,
+                      state.bias == .init() || mesh.topology == .triangles else {
+                    throw GPUError.validation("Invalid mesh depth or stencil state")
+                }
+            }
+            if mesh.requiresSubgroups || task?.requiresSubgroups == true { try capabilities.require([.subgroups]) }
+            if fragment.readsPrimitiveIndex { try capabilities.require([.primitiveIndex]) }
+            if mesh.requiresShaderF16 || task?.requiresShaderF16 == true { try capabilities.require([.shaderF16]) }
+            if mesh.requiresShaderInt16 || task?.requiresShaderInt16 == true { try capabilities.require([.shaderInt16]) }
+            if mesh.requiresShaderInt64 || task?.requiresShaderInt64 == true || fragment.requiresShaderInt64 {
+                try capabilities.require([.shaderInt64])
+            }
+            try capabilities.requireShaderInt64Atomics(
+                minMax: mesh.requiresShaderInt64AtomicMinMax || task?.requiresShaderInt64AtomicMinMax == true || fragment.requiresShaderInt64AtomicMinMax,
+                allOps: mesh.requiresShaderInt64AtomicAllOps || task?.requiresShaderInt64AtomicAllOps == true || fragment.requiresShaderInt64AtomicAllOps)
+            guard let implementation = backend as? any MeshBackendDevice else {
+                throw GPUError.unsupported("Backend does not implement mesh pipelines")
+            }
+            guard colorFormats[0] != nil, colorFormats.values.allSatisfy(\.isColorAttachment), fragment.stage == .fragment,
+                  fragment.externalTextures.isEmpty,
+                  fragment.immediateLayout == nil,
+                  !fragment.requiresShaderF16, !fragment.requiresShaderInt16,
+                  !fragment.requiresSubgroups, !fragment.requiresSubgroupUniformity,
+                  !fragment.requiresDebugPrintf, !fragment.requiresBarycentrics,
+                  !fragment.readsViewIndex,
+                  fragment.earlyDepthTest == nil, !fragment.usesDualSourceBlending,
+                  !fragment.requiresUniformBufferStandardLayout else {
+                throw GPUError.unsupported("Mesh pipeline fragment interface is outside the supported profile")
+            }
+            guard !fragment.writesDepth || depthState?.format.hasDepth == true else {
+                throw GPUError.validation("Fragment depth output requires a depth attachment")
+            }
+            try capabilities.validateMeshInterstageInterfaces(mesh: mesh, fragment: fragment)
+            try RenderPipeline.validateColorTargetLimits(colorFormats.mapValues { .init(format: $0) }, fragment: fragment, against: capabilities)
+            guard sampleCount == 1 || sampleCount == 4 else { throw GPUError.validation("Invalid mesh sample count") }
+            if alphaToCoverageEnabled {
+                guard sampleCount > 1 else { throw GPUError.validation("Alpha-to-coverage requires a multisampled pipeline") }
+                guard !fragment.writesSampleMask else { throw GPUError.validation("Alpha-to-coverage is incompatible with fragment sample_mask output") }
+                guard let format = colorFormats[0],
+                      (format.isNormalizedColor || format.isSRGB8Color || format == .rgba16Float || format == .rgb10a2Unorm || format == .rgba8Snorm || (format.isNormalized16Color && format.colorAttachmentComponentCount == 4)),
+                      fragment.colorOutputKind == .float, (fragment.colorOutputComponentCounts[0] ?? 0) >= 4 else {
+                    throw GPUError.validation("Alpha-to-coverage requires a blendable color attachment and a fragment alpha output")
+                }
+            }
+
+            for (location, colorFormat) in colorFormats {
+                if sampleCount > 1 && !colorFormat.supportsMultisampledAttachment(in: capabilities) { throw GPUError.validation("Unsupported multisampled mesh color format") }
+                if colorFormat.isNormalized16Color { try capabilities.require([.normalized16Textures]) }
+                if let feature = colorFormat.hdrRenderFeature { try capabilities.require([feature]) }
+                if colorFormat.isSnorm8Color { try capabilities.require([.snorm8Renderable]) }
+                if let kind = fragment.colorOutputKinds[location] {
+                    guard colorFormat.sampleType == TextureSampleType(kind: kind),
+                          (fragment.colorOutputComponentCounts[location] ?? 4) >= colorFormat.colorAttachmentComponentCount else {
+                        throw GPUError.validation("Fragment output does not match mesh color attachment")
+                    }
+                }
+            }
+            guard fragment.colorOutputKinds.keys.allSatisfy({ colorFormats[$0] != nil }) else {
+                throw GPUError.validation("Fragment output lacks mesh color attachment")
+            }
+            if let task {
+                guard task.payload?.size == mesh.payload?.size else { throw GPUError.validation("Task and mesh payload sizes do not match") }
+            } else if mesh.payload != nil {
+                throw GPUError.validation("Mesh payload requires a task stage")
+            }
+            guard nextResource < UInt64.max else { throw GPUError.outOfMemory }
+            nextResource += 1
+            let taskBuffers = try meshBufferRequirements(uniforms: task?.uniformBindings ?? [], storage: task?.storageBindings ?? [])
+            let meshBuffers = try meshBufferRequirements(uniforms: mesh.uniformBindings, storage: mesh.storageBindings)
+            let fragmentBuffers = try meshBufferRequirements(uniforms: fragment.uniformBindings, storage: fragment.storageBindings)
+            let fragmentBindings = fragment.uniformBindings.map { ($0.binding, $0.bindingArray) }
+                + fragment.storageBindings.map { ($0.binding, $0.bindingArray) }
+                + fragment.sampledTextures.map { ($0.binding, $0.bindingArray) }
+                + fragment.storageTextures.map { ($0.binding, $0.bindingArray) }
+                + fragment.samplerBindings.map { ($0.binding, $0.bindingArray) }
+            guard Set(fragmentBindings.map(\.0)).count == fragmentBindings.count else {
+                throw GPUError.unsupported("Mesh fragment overlapping slots")
+            }
+            let taskStorageTextures = try meshStorageTextureRequirements(task?.storageTextures ?? [])
+            let meshStorageTextures = try meshStorageTextureRequirements(mesh.storageTextures)
+            let fragmentStorageTextures = try meshStorageTextureRequirements(fragment.storageTextures)
+            try capabilities.require((task?.storageTextures ?? []).requiredStorageTextureFeatures.union(mesh.storageTextures.requiredStorageTextureFeatures).union(fragment.storageTextures.requiredStorageTextureFeatures))
+            let taskHandles = try meshHandleRequirements(textures: task?.sampledTextures ?? [], samplers: task?.samplerBindings ?? [])
+            let meshHandles = try meshHandleRequirements(textures: mesh.sampledTextures, samplers: mesh.samplerBindings)
+            let fragmentHandles = try meshHandleRequirements(textures: fragment.sampledTextures, samplers: fragment.samplerBindings)
+            let pipeline = MeshPipeline(id: .init(device: identity, serial: nextResource), colorFormats: colorFormats, sampleCount: sampleCount, sampleMask: sampleMask, alphaToCoverageEnabled: alphaToCoverageEnabled, depthState: depthState, primitive: primitive, hasTaskShader: task != nil,
+                                        fragmentBufferBindings: fragmentBuffers, fragmentTextures: fragmentHandles.0, fragmentStorageTextures: fragmentStorageTextures, fragmentSamplers: fragmentHandles.1,
+                                        taskBufferBindings: taskBuffers, meshBufferBindings: meshBuffers, taskTextures: taskHandles.0, meshTextures: meshHandles.0, taskSamplers: taskHandles.1, meshSamplers: meshHandles.1, taskStorageTextures: taskStorageTextures, meshStorageTextures: meshStorageTextures)
+            resources[pipeline.id] = Resource(descriptor: .meshPipeline(pipeline))
+            do {
+                try await implementation.allocateMeshPipeline(pipeline, task: task, mesh: mesh, fragment: fragment)
+                try Task.checkCancellation()
+                try requireActive()
+                resources[pipeline.id]?.ready = true
+                return pipeline
+            } catch {
+                resources.removeValue(forKey: pipeline.id)
+                await implementation.destroyMeshPipeline(id: pipeline.id)
+                throw error
+            }
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            let normalized = normalize(error)
+            if case .deviceLost(let reason) = normalized { await lose(reason: reason) }
+            else { record(normalized, in: operationScopes) }
+            throw normalized
+        }
+    }
+
+    public func destroyMeshPipeline(_ id: ResourceID) async throws {
+        try await destroyResource(id, expected: .meshPipeline)
     }
 
     public func destroyBuffer(_ id: ResourceID) async throws {
@@ -562,6 +727,7 @@ public actor Device {
         case .textureView: await (backend as? any TextureViewBackendDevice)?.destroyTextureView(id: id)
         case .querySet: await (backend as? any QuerySetBackendDevice)?.destroyQuerySet(id: id)
         case .accelerationStructure: await (backend as? any AccelerationStructureBackendDevice)?.destroyAccelerationStructure(id: id)
+        case .meshPipeline: await (backend as? any MeshBackendDevice)?.destroyMeshPipeline(id: id)
         }
         if !dependencies.isEmpty { await finish(Array(dependencies)) }
     }
@@ -653,6 +819,12 @@ public actor Device {
             for command in commands {
                 for id in command.resources { try requireGPUResource(id) }
                 let pass = command.recordedPass.command
+                if case .drawMesh(let pipeline, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _) = pass {
+                    guard case .meshPipeline(let registered) = resources[pipeline.id]?.descriptor,
+                          registered == pipeline else {
+                        throw GPUError.validation("Unknown mesh pipeline")
+                    }
+                }
                 if let dispatch = pass.computeDispatch {
                     guard Set(dispatch.accelerationStructures.values).isSubset(of: availableBuilds) else {
                         throw GPUError.validation("Compute acceleration structure has not been built")
@@ -686,11 +858,16 @@ public actor Device {
                 }
                 try command.validate(device: identity, descriptors: descriptors, textures: textures,
                                      samplerDescriptors: samplerDescriptors, textureViews: textureViews,
-                                     maximumViewportDimension: capabilities.maxTextureDimension2D, querySets: querySets,
+                                     maximumViewportDimension: capabilities.maxTextureDimension2D, maxVertexBuffers: capabilities.maxVertexBuffers,
+                                     maxBindGroupsPlusVertexBuffers: capabilities.maxBindGroupsPlusVertexBuffers, querySets: querySets,
                                      maxMultiviewViewCount: capabilities.maxMultiviewViewCount,
                                      features: capabilities.features, externalTextures: externalTextures,
                                      externalPlanes: externalPlanes, accelerationStructures: accelerationStructures,
-                                     maxComputeWorkgroupsPerDimension: capabilities.maxComputeWorkgroupsPerDimension)
+                                     maxComputeWorkgroupsPerDimension: capabilities.maxComputeWorkgroupsPerDimension,
+                                     maxTaskWorkgroupTotalCount: capabilities.maxTaskWorkgroupTotalCount,
+                                     maxTaskWorkgroupsPerDimension: capabilities.maxTaskWorkgroupsPerDimension,
+                                     maxMeshWorkgroupTotalCount: capabilities.maxMeshWorkgroupTotalCount,
+                                     maxMeshWorkgroupsPerDimension: capabilities.maxMeshWorkgroupsPerDimension)
             }
         } catch is CancellationError {
             throw CancellationError()

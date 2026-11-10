@@ -23,6 +23,24 @@ import Testing
     try ShaderSemanticValidator().validate(m)
     #expect(try ValidatedModule.checking(m, with: ShaderSemanticValidator()).module == m)
   }
+  @Test func explicitMemberAlignmentIsValidatedAtRawBoundary() throws {
+    let scalar = IRType(kind: .scalar(.u32))
+    func structure(_ alignment: UInt32, offset: UInt32 = 0, span: UInt32 = 32) throws -> IRType {
+      let member = IRStructMember(type: try h(0), offset: offset, explicitAlignment: alignment)
+      return IRType(kind: .structure(members: [member], span: span))
+    }
+    try ShaderSemanticValidator().validate(IRModule(types: IRTable([scalar, try structure(32)])))
+    for bad in [try structure(0), try structure(3), try structure(2), try structure(32, offset: 4), try structure(32, span: 16)] {
+      #expect(throws: ShaderFailure.self) {
+        try ShaderSemanticValidator().validate(IRModule(types: IRTable([scalar, bad])))
+      }
+    }
+    let element = try structure(32)
+    let badArray = IRType(kind: .array(base: try h(1), size: .constant(2), stride: 48))
+    #expect(throws: ShaderFailure.self) {
+      try ShaderSemanticValidator().validate(IRModule(types: IRTable([scalar, element, badArray])))
+    }
+  }
   @Test func literalTypeIsRecomputedNotTrusted() throws {
     let span = try SourceSpan(startUTF8: 4, endUTF8: 8)
     let m = try module(

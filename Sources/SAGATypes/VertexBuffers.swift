@@ -136,7 +136,7 @@ public struct VertexBufferLayout: Sendable, Equatable {
         for layout in layouts {
             let limit = layout.stride == 0 ? maxStride : layout.stride
             let totalAttributes = UInt64(locations.count) + UInt64(layout.attributes.count)
-            guard !layout.attributes.isEmpty, totalAttributes <= UInt64(maxAttributes),
+            guard totalAttributes <= UInt64(maxAttributes),
                   layout.stride <= maxStride, layout.stride % 4 == 0,
                   layout.attributeEnd <= UInt64(limit) else {
                 throw GPUError.validation("Invalid vertex buffer stride or attribute range")
@@ -177,9 +177,12 @@ public struct DrawInstances: Sendable, Equatable {
 public struct VertexBufferBinding: Sendable, Equatable {
     public let buffer: ResourceID
     public let offset: UInt64
+    /// Pipeline slot; nil uses the binding's position in the array.
+    public let slot: UInt32?
 
-    public init(buffer: ResourceID, offset: UInt64 = 0) {
+    public init(buffer: ResourceID, offset: UInt64 = 0, slot: UInt32? = nil) {
         self.buffer = buffer
         self.offset = offset
+        self.slot = slot
     }
 }

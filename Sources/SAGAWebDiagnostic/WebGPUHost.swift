@@ -44,7 +44,9 @@ private struct Packet {
         add(UInt32(raster.scissor == nil ? 0 : 1))
         if let s = raster.scissor { add(s.x); add(s.y); add(s.width); add(s.height) }
         add(UInt32(vertexBuffers.count))
-        for binding in vertexBuffers { add(binding.buffer); add(binding.offset) }
+        for (index, binding) in vertexBuffers.enumerated() {
+            add(binding.slot ?? UInt32(index)); add(binding.buffer); add(binding.offset)
+        }
         addBindings(uniforms.merging(storageBuffers) { uniform, _ in uniform }, remapped: pipeline.webBindingIndices)
         addResourceIDs(textures, remapped: pipeline.webBindingIndices)
         addResourceIDs(samplers, remapped: pipeline.webBindingIndices)
@@ -224,9 +226,12 @@ struct WebGPUHost: BrowserGPUPresentationHost, SamplerBackendDevice, TextureView
         var packet = Packet(13)
         packet.add(id)
         packet.add(descriptor.addressModeU.rawValue); packet.add(descriptor.addressModeV.rawValue)
+        packet.add(descriptor.addressModeW.rawValue)
         packet.add(descriptor.minFilter.rawValue); packet.add(descriptor.magFilter.rawValue)
         packet.add(descriptor.mipmapFilter.rawValue)
+        packet.add(Double(descriptor.lodMinClamp).bitPattern); packet.add(Double(descriptor.lodMaxClamp).bitPattern)
         packet.add(descriptor.compare.map { $0.rawValue + 1 } ?? 0)
+        packet.add(UInt32(descriptor.maxAnisotropy))
         _ = try await packet.send()
     }
     func destroySampler(id: ResourceID) async {
@@ -468,6 +473,8 @@ struct WebGPUHost: BrowserGPUPresentationHost, SamplerBackendDevice, TextureView
                                  blendConstant: blendConstant, additionalColors: additionalColors, raster: raster, immediates: immediates)
                 packet.add(index)
                 packet.add(draw.firstIndex); packet.add(draw.baseVertex)
+            case .drawMesh:
+                throw GPUError.unsupported("WebGPU host does not implement mesh draws")
             case .renderIndirect(let pipeline, let target, let colorLoad, let arguments, let offset, let index, let vertexBuffers, let uniforms, let textures, let samplers, let targetMipLevel, let targetDepthSlice, let depth, let resolve, let blendConstant, let additionalColors, let raster, let storageBuffers, let immediates, let colorStore):
                 packet.add(UInt32(11)); packet.add(arguments); packet.add(offset)
                 packet.add(UInt32(index == nil ? 0 : 1))
@@ -477,9 +484,20 @@ struct WebGPUHost: BrowserGPUPresentationHost, SamplerBackendDevice, TextureView
                                  blendConstant: blendConstant, additionalColors: additionalColors, raster: raster, immediates: immediates)
                 if let index { packet.add(index) }
             case .copyTextureToBuffer(let source, let destination, let bytesPerRow, let mipLevel, let aspect, let offset,
-                                      let layer, let z, let depth):
+                                      let layer, let z, let depth, let rowsPerImage):
                 packet.add(UInt32(6)); packet.add(source); packet.add(destination); packet.add(bytesPerRow); packet.add(mipLevel)
                 packet.add(aspect.rawValue); packet.add(offset); packet.add(layer + z); packet.add(depth)
+                packet.add(UInt32(rowsPerImage == nil ? 0 : 1))
+                if let rowsPerImage { packet.add(rowsPerImage) }
+            case .copyTextureRegionToBuffer(let source, let destination, let layout, let region, let aspect):
+                packet.add(UInt32(18)); packet.add(source); packet.add(destination); packet.add(layout.offset)
+                packet.add(UInt32(layout.bytesPerRow == nil ? 0 : 1))
+                if let stride = layout.bytesPerRow { packet.add(stride) }
+                packet.add(UInt32(layout.rowsPerImage == nil ? 0 : 1))
+                if let rows = layout.rowsPerImage { packet.add(rows) }
+                packet.add(region.x); packet.add(region.y); packet.add(region.arrayLayer + region.z)
+                packet.add(region.width); packet.add(region.height); packet.add(region.depth)
+                packet.add(region.mipLevel); packet.add(aspect.rawValue)
             case .copyTextureToTexture(let source, let destination, let region, let origin):
                 packet.add(UInt32(9)); packet.add(source); packet.add(destination)
                 packet.add(region.x); packet.add(region.y); packet.add(region.arrayLayer + region.z); packet.add(region.mipLevel)
@@ -489,6 +507,8 @@ struct WebGPUHost: BrowserGPUPresentationHost, SamplerBackendDevice, TextureView
                 packet.add(UInt32(8)); packet.add(source); packet.add(destination); packet.add(layout.offset)
                 packet.add(UInt32(layout.bytesPerRow == nil ? 0 : 1))
                 if let stride = layout.bytesPerRow { packet.add(stride) }
+                packet.add(UInt32(layout.rowsPerImage == nil ? 0 : 1))
+                if let rows = layout.rowsPerImage { packet.add(rows) }
                 packet.add(region.x); packet.add(region.y); packet.add(region.arrayLayer + region.z)
                 packet.add(region.width); packet.add(region.height); packet.add(region.depth)
                 packet.add(region.mipLevel); packet.add(aspect.rawValue)

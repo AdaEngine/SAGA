@@ -243,10 +243,24 @@ extension WGSLFrontendTests {
         let b = try #require(m.types.values.first { $0.name == "B" })
         guard case .structure(let fields, let span) = b.kind else { return }
         #expect(fields.map(\.offset) == [0, 48]); #expect(span == 64)
+        #expect(fields.map(\.explicitAlignment) == [32, nil])
         let out = try #require(m.types.values.first { $0.name == "Outer" })
         guard case .structure(let outerFields, let outerSpan) = out.kind else { return }
         #expect(outerFields.map(\.offset) == [0, 32]); #expect(outerSpan == 160)
         #expect(m.types.values.contains { if case .array(_, .constant(2), 64) = $0.kind { true } else { false } })
+    }
+    @Test func explicitAlignmentSurvivesWhenOffsetAndSpanAreIdentical() throws {
+        let module = try WGSLFrontend().parse(.wgsl("struct A { x: vec4u, @size(16) y: u32, } struct B { @align(32) x: vec4u, @size(16) y: u32, } alias Nested = array<array<B, 2>, 2>;"))
+        let other = try #require(module.types.values.first { $0.name == "A" })
+        guard case .structure(let otherFields, let otherSpan) = other.kind else { return }
+        let type = try #require(module.types.values.first { $0.name == "B" })
+        guard case .structure(let fields, let span) = type.kind else { return }
+        #expect(fields[0].offset == 0)
+        #expect(fields[0].explicitAlignment == 32)
+        #expect(span == 32)
+        #expect(otherFields.map(\.offset) == fields.map(\.offset))
+        #expect(otherSpan == span)
+        #expect(otherFields[0].explicitAlignment == nil)
     }
     @Test func invalidMemberLayoutAttributesAreTypedErrors() throws {
         for source in ["struct S { @align(0) a: u32, }", "struct S { @align(3) a: u32, }", "struct S { @align(2) a: bool, }", "struct S { @size(3) a: bool, }", "struct S { @size(16) a: array<u32>, }", "struct S { @align(2147483648) a: u32, }", "struct S { @size(2147483647) a: u32, b: u32, }", "struct S { @align(8) @align(16) a: u32, }"] {
