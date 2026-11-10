@@ -34,6 +34,8 @@ struct SPIRVFunctionState {
     var meshExit: UInt32?
     var meshHeader: UInt32?
     var meshContinue: UInt32?
+    /// Function variable that receives the dispatch size a task entry returns.
+    var taskResult: UInt32?
     var layoutDescriptorCounts: [UInt32: UInt32] = [:]
     var bufferArrays: [UInt32: SPIRVBufferArrayGlobal] = [:]
     var bufferElements: [UInt32: SPIRVBufferArrayGlobal] = [:]
@@ -97,6 +99,12 @@ extension SPIRVBinaryWriter {
         }
         try declareArrayValueSpills(in: &state)
         var meshLoopVariable: UInt32 = 0
+        if case .task(let plan)? = entryPlan {
+            let pointer = try pointerTypeID(storageClass: 7, pointee: plan.vectorType)
+            let result = try allocateID()
+            try emit(59, [pointer, result, 7]) // OpVariable Function
+            state.taskResult = result
+        }
         if case .mesh? = entryPlan {
             // Variables must lead the first block, so the copy-loop counter is declared before any loads.
             let u32 = try scalarTypeID(.u32)
@@ -108,11 +116,14 @@ extension SPIRVBinaryWriter {
         case .compute(let plan): state.arguments = try emitComputeInputs(plan)
         case .vertex(let plan), .fragment(let plan): state.arguments = try emitRenderInputs(plan)
         case .mesh(let plan): state.arguments = try emitComputeInputs(plan.compute)
+        case .task(let plan): state.arguments = try emitComputeInputs(plan.compute)
         case nil: break
         }
         var meshPlan: SPIRVMeshPlan?
-        if case .mesh(let plan)? = entryPlan {
-            meshPlan = plan
+        var taskPlan: SPIRVTaskPlan?
+        if case .task(let plan)? = entryPlan { taskPlan = plan }
+        if case .mesh(let plan)? = entryPlan { meshPlan = plan }
+        if meshPlan != nil || taskPlan != nil {
             // The body runs once inside a loop so that `return` can leave it for the epilogue.
             let header = try allocateID(), start = try allocateID(), continueLabel = try allocateID(), exit = try allocateID()
             try emit(249, [header])
@@ -130,13 +141,18 @@ extension SPIRVBinaryWriter {
             try charge()
             if case .globalVariable = expression.kind { _ = try value(IRHandle(index: index), in: &state) }
         }
-        if let meshPlan, let exit = state.meshExit, let header = state.meshHeader, let continueLabel = state.meshContinue {
+        if meshPlan != nil || taskPlan != nil, let exit = state.meshExit, let header = state.meshHeader,
+           let continueLabel = state.meshContinue {
             if try !writeBlock(function.body, in: &state) { try emit(249, [exit]) }
             try emit(248, [continueLabel])
             try emit(250, [try booleanFalseID(), header, exit]) // Back-edge that is never taken.
             try emit(248, [exit])
-            try writeMeshEpilogue(meshPlan, loopVariable: meshLoopVariable)
-            try emit(253) // OpReturn
+            if let meshPlan {
+                try writeMeshEpilogue(meshPlan, loopVariable: meshLoopVariable)
+                try emit(253) // OpReturn
+            } else if let taskPlan, let result = state.taskResult {
+                try writeTaskEpilogue(taskPlan, resultVariable: result) // Ends the block with OpEmitMeshTasksEXT.
+            }
         } else if try !writeBlock(function.body, in: &state) {
             guard function.result == nil else { throw unsupported("requires a return value for this function") }
             try emit(253) // OpReturn
@@ -279,7 +295,12 @@ extension SPIRVBinaryWriter {
             case .returnValue(let expression):
                 if let expression {
                     let result = try value(expression, in: &state)
-                    if let plan = state.renderInterface {
+                    if let variable = state.taskResult, let exit = state.meshExit {
+                        guard targets.breakTarget == nil else { throw unsupported("does not lower returns inside task loops") }
+                        try emit(62, [variable, result]) // OpStore
+                        state.explicitBranchTargets.insert(exit)
+                        try emit(249, [exit])
+                    } else if let plan = state.renderInterface {
                         try emitRenderOutput(result, plan: plan)
                         try emit(253) // Entry point returns through Output variables.
                     } else {
@@ -372,7 +393,7 @@ extension SPIRVBinaryWriter {
                 let binding = try bufferArrayGlobal(global)
                 id = binding.id
                 state.bufferArrays[id] = binding
-            } else if declaration.space == .workgroup {
+            } else if declaration.space == .workgroup || declaration.space == .taskPayload {
                 id = try workgroupGlobal(global)
             } else if declaration.space == .private {
                 id = try privateGlobal(global)
@@ -870,7 +891,7 @@ extension SPIRVBinaryWriter {
             return [layout, stride]
         }
         switch space {
-        case .storage, .workgroup, .uniform:
+        case .storage, .workgroup, .taskPayload, .uniform:
             return [layout, stride, 0x20] // NonPrivatePointerKHR
         default:
             return [layout, stride]

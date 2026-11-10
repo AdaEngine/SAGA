@@ -224,6 +224,7 @@ extension VulkanDevice: RenderBackendDevice {
         var viewMask: UInt32?
         /// Mesh task group counts; the plan then ends in vkCmdDrawMeshTasksEXT instead of a vertex draw.
         var meshGroups: (UInt32, UInt32, UInt32)?
+        var meshUsesTask = false
     }
 
     // MARK: Textures

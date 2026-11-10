@@ -202,7 +202,7 @@ public struct IndependentShaderCompiler: Sendable {
         constants: [String: Double], bindingArrayLengths: [IRResourceBinding: UInt32],
         hlslLimits: HLSLTaskDispatchLimits?, glslLimits: GLSLTaskDispatchLimits?
     ) throws -> ShaderArtifact {
-        guard output == .msl || output == .hlsl || output == .glsl else { throw ShaderFailure.unsupported("Task shader target") }
+        guard output == .msl || output == .hlsl || output == .glsl || output == .spirv else { throw ShaderFailure.unsupported("Task shader target") }
         guard (hlslLimits == nil || output == .hlsl), (glslLimits == nil || output == .glsl) else {
             throw ShaderFailure.unsupported("Task dispatch limits do not match shader target")
         }
@@ -222,7 +222,9 @@ public struct IndependentShaderCompiler: Sendable {
         if output == .msl, let selected = module.module.entryPoints.first(where: { $0.name == entryPoint && $0.stage == .task }) {
             _ = try meshPayload(selected.taskPayload, in: module.module)
         }
-        let artifact = try output == .glsl
+        let artifact = try output == .spirv
+            ? SPIRVCodeGenerator(bindingArrayLengths: bindingArrayLengths, entryPoint: entryPoint).generate(module)
+            : output == .glsl
             ? TaskGLSLCodeGenerator(bindingArrayLengths: bindingArrayLengths, dispatchLimits: glslLimits).generate(module, entryPoint: entryPoint)
             : TaskCodeGenerator(format: output, bindingArrayLengths: bindingArrayLengths, hlslTaskDispatchLimits: hlslLimits).generate(module, entryPoint: entryPoint)
         try artifact.validateContainer(for: output)
@@ -233,7 +235,7 @@ public struct IndependentShaderCompiler: Sendable {
         _ input: ShaderInput, entryPoint: String, to output: ShaderOutputFormat, constants: [String: Double] = [:],
         bindingArrayLengths: [IRResourceBinding: UInt32] = [:]
     ) throws -> TaskStageArtifact {
-        guard output == .msl else { throw ShaderFailure.unsupported("Reflected task shader target") }
+        guard output == .msl || output == .spirv else { throw ShaderFailure.unsupported("Reflected task shader target") }
         let validator = ShaderSemanticValidator(capabilities: Self.compilationCapabilities.union(.meshShader),
                                                 allowsVertexWritableStorage: true)
         let validated = try parseAndValidate(input, validator: validator, allow1DTextureSampleLevelOffset: output == .hlsl,
@@ -247,11 +249,14 @@ public struct IndependentShaderCompiler: Sendable {
         let specialized = try specializeOverrides(validated, entry: entry, constants: constants,
                                                    retainLinkedStages: false, validator: validator)
         let module = try specializeGlobalParameters(specialized, validator: validator)
-        let generated = try TaskCodeGenerator(format: output, bindingArrayLengths: bindingArrayLengths).generateReflected(module, entryPoint: entryPoint)
-        try generated.artifact.validateContainer(for: output)
+        let generated = try TaskCodeGenerator(format: .msl, bindingArrayLengths: bindingArrayLengths).generateReflected(module, entryPoint: entryPoint)
+        // Vulkan pairs the reflection of the shared description with SPIR-V words from the same module.
+        let reflectedArtifact: ShaderArtifact = output == .spirv
+            ? try SPIRVCodeGenerator(bindingArrayLengths: bindingArrayLengths, entryPoint: entryPoint).generate(module) : generated.artifact
+        try reflectedArtifact.validateContainer(for: output)
         guard let selected = module.module.entryPoints.first(where: { $0.name == entryPoint && $0.stage == .task }) else { throw ShaderFailure.unsupported("Task metadata") }
         let numeric = try meshNumericCapabilities(module: module.module, entry: selected)
-        return TaskStageArtifact(artifact: generated.artifact, sourceEntryPoint: entryPoint, workgroupSize: selected.workgroupSize, workgroupStorageByteSize: try meshWorkgroupStorageByteSize(module: module.module, entry: selected), payload: try meshPayload(selected.taskPayload, in: module.module), uniformBindings: generated.uniforms, storageBindings: generated.buffers, sampledTextures: generated.textures, samplerBindings: generated.samplers, storageTextures: generated.storageTextures, requiresSubgroups: generated.requiresSubgroups, requiresShaderF16: numeric.f16, requiresShaderInt16: numeric.int16, requiresShaderInt64: numeric.int64, requiresShaderInt64AtomicMinMax: numeric.atomicMinMax, requiresShaderInt64AtomicAllOps: numeric.atomicAllOps)
+        return TaskStageArtifact(artifact: reflectedArtifact, sourceEntryPoint: entryPoint, workgroupSize: selected.workgroupSize, workgroupStorageByteSize: try meshWorkgroupStorageByteSize(module: module.module, entry: selected), payload: try meshPayload(selected.taskPayload, in: module.module), uniformBindings: generated.uniforms, storageBindings: generated.buffers, sampledTextures: generated.textures, samplerBindings: generated.samplers, storageTextures: generated.storageTextures, requiresSubgroups: generated.requiresSubgroups, requiresShaderF16: numeric.f16, requiresShaderInt16: numeric.int16, requiresShaderInt64: numeric.int64, requiresShaderInt64AtomicMinMax: numeric.atomicMinMax, requiresShaderInt64AtomicAllOps: numeric.atomicAllOps)
     }
 
     /// Compiles a native mesh entry point after validation and override specialization.

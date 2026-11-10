@@ -193,7 +193,7 @@ extension SPIRVBinaryWriter {
             let name = members.isEmpty ? type.name : SPIRVStructureSpanName.encode(span: span, name: type.name)
             try debugName(id, name)
         case .pointer(let base, let space):
-            let pointee = try space == .workgroup ? workgroupTypeID(base) : typeID(base)
+            let pointee = try space == .workgroup || space == .taskPayload ? workgroupTypeID(base) : typeID(base)
             id = try pointerTypeID(storageClass: declarationStorageClass(space), pointee: pointee)
         case .valuePointer(let size, let scalar, let space):
             let pointee: UInt32
@@ -432,13 +432,15 @@ extension SPIRVBinaryWriter {
         try charge()
         if let id = declarationState.workgroupGlobals[handle] { return id }
         let global = try module.globalVariables.value(for: handle)
-        guard global.space == .workgroup, global.binding == nil, global.initializer == nil,
+        guard global.space == .workgroup || global.space == .taskPayload, global.binding == nil, global.initializer == nil,
               global.memoryDecorations.isEmpty else {
             throw unsupported("requires an undecorated workgroup variable without an initializer")
         }
-        let pointer = try pointerTypeID(storageClass: 4, pointee: workgroupTypeID(global.type))
+        let storageClass: UInt32 = global.space == .taskPayload ? 5402 : 4  // TaskPayloadWorkgroupEXT or Workgroup
+        let pointer = try pointerTypeID(storageClass: storageClass, pointee: workgroupTypeID(global.type))
         let id = try allocateID()
-        try declare(59, [pointer, id, 4]) // OpVariable Workgroup
+        try declare(59, [pointer, id, storageClass]) // OpVariable
+        if storageClass == 5402 { taskPayloadIDs.insert(id) }
         try debugName(id, global.name)
         declarationState.workgroupGlobals[handle] = id
         return id
@@ -716,6 +718,7 @@ extension SPIRVBinaryWriter {
         case .function: 7
         case .immediate: 9
         case .workgroup: 4
+        case .taskPayload: 5402
         case .storage: 12
         default: throw ShaderFailure.unsupported("SPIR-V pointer address space")
         }

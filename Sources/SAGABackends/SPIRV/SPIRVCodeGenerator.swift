@@ -47,23 +47,25 @@ enum SPIRVEntryPlan {
     case vertex(SPIRVRenderInterfacePlan)
     case fragment(SPIRVRenderInterfacePlan)
     case mesh(SPIRVMeshPlan)
+    case task(SPIRVTaskPlan)
 
     var interfaceIDs: [UInt32] {
         switch self {
         case .compute(let plan): plan.interfaceIDs
         case .vertex(let plan), .fragment(let plan): plan.interfaceIDs
         case .mesh(let plan): plan.interfaceIDs
+        case .task(let plan): plan.interfaceIDs
         }
     }
 
     var executionModel: UInt32 {
-        switch self { case .vertex: 0; case .fragment: 4; case .compute: 5; case .mesh: 5365 }
+        switch self { case .vertex: 0; case .fragment: 4; case .compute: 5; case .mesh: 5365; case .task: 5364 }
     }
 
     var renderInterface: SPIRVRenderInterfacePlan? {
         switch self {
         case .vertex(let plan), .fragment(let plan): plan
-        case .compute, .mesh: nil
+        case .compute, .mesh, .task: nil
         }
     }
 }
@@ -80,6 +82,8 @@ struct SPIRVBinaryWriter {
     var capabilities: Set<UInt32> = [1] // Shader
     var extensions: Set<String> = []
     var usesMeshShading = false
+    /// Ids of the task payload variable and the pointers derived from it, which use a different storage class.
+    var taskPayloadIDs: Set<UInt32> = []
     /// Module-scope variables, listed in every entry point interface when the module targets SPIR-V 1.4.
     private var globalVariableIDs: [UInt32] = []
     private var pendingEntries: [(model: UInt32, id: UInt32, name: [UInt32], interface: [UInt32])] = []
@@ -141,7 +145,8 @@ struct SPIRVBinaryWriter {
         for (index, global) in module.globalVariables.values.enumerated() {
             let handle = try IRHandle<IRGlobalVariable>(index: index)
             // Declare private variables on demand to omit unused stage-interface placeholders.
-            if global.space == .private { continue }
+            // Task payload variables belong to the mesh stages, so only entries that reference them declare one.
+            if global.space == .private || global.space == .taskPayload { continue }
             if global.space == .handle {
                 if case .bindingArray(_, .dynamic) = try module.types.value(for: global.type).kind,
                    let binding = global.binding, bindingArrayLengths[binding] == nil {
@@ -155,13 +160,15 @@ struct SPIRVBinaryWriter {
                     continue // Report a missing layout only for referenced arrays.
                 }
                 _ = try bufferArrayGlobal(handle)
-            } else if global.space == .workgroup {
+            } else if global.space == .workgroup || global.space == .taskPayload {
                 _ = try workgroupGlobal(handle)
             } else {
                 _ = try bufferGlobal(handle)
             }
         }
-        for (index, function) in module.functions.values.enumerated() {
+        // A single-entry module leaves out the bodies of the other entry points, which may need other capabilities.
+        let omitted: Set<Int> = selectedEntry == nil ? [] : Set(module.entryPoints.map(\.function.index)).subtracting(entryPlans.keys)
+        for (index, function) in module.functions.values.enumerated() where !omitted.contains(index) {
             try writeFunction(function, id: functionIDs[index], entryPlan: entryPlans[index]?.plan,
                               nonUniformDescriptors: nonUniformDescriptors[index] ?? [])
         }
@@ -228,6 +235,8 @@ struct SPIRVBinaryWriter {
             return .fragment(plan)
         case .mesh:
             return .mesh(try prepareMeshEntry(entry, function: function, id: id))
+        case .task:
+            return .task(try prepareTaskEntry(entry, function: function, id: id))
         default: throw unsupported("does not lower the \(entry.stage.rawValue) stage")
         }
     }

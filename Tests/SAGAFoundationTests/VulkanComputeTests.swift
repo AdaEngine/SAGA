@@ -1266,6 +1266,76 @@ private final class TestWindow: @unchecked Sendable {
     } catch { await device.close(); throw error }
 }
 
+private func vulkanTaskMeshSource(taskSize: String) -> String {
+    """
+    enable wgpu_mesh_shader;
+    struct Payload { color: vec4f, }
+    struct V { @builtin(position) position: vec4f, @location(0) color: vec4f, }
+    struct P { @builtin(triangle_indices) indices: vec3u, }
+    struct O {
+      @builtin(vertices) vertices: array<V, 3>,
+      @builtin(primitives) primitives: array<P, 1>,
+      @builtin(vertex_count) vertex_count: u32,
+      @builtin(primitive_count) primitive_count: u32,
+    }
+    var<task_payload> payload: Payload;
+    var<workgroup> out: O;
+    @task @payload(payload) @workgroup_size(1) fn task_main() -> @builtin(mesh_task_size) vec3u {
+      payload.color = vec4f(0.0, 1.0, 0.0, 1.0);
+      return \(taskSize);
+    }
+    @mesh(out) @payload(payload) @workgroup_size(1) fn mesh() {
+      out.vertex_count = 3u; out.primitive_count = 1u;
+      out.vertices[0].position = vec4f(-1.0, -1.0, 0.5, 1.0);
+      out.vertices[1].position = vec4f(3.0, -1.0, 0.5, 1.0);
+      out.vertices[2].position = vec4f(-1.0, 3.0, 0.5, 1.0);
+      out.vertices[0].color = payload.color;
+      out.vertices[1].color = payload.color;
+      out.vertices[2].color = payload.color;
+      out.primitives[0].indices = vec3u(0u, 1u, 2u);
+    }
+    @fragment fn fragment(@location(0) color: vec4f) -> @location(0) vec4f { return color; }
+    """
+}
+
+/// Draws the task-driven triangle and returns the center pixel; blue means the mesh stage never ran.
+private func vulkanTaskMeshPixel(taskSize: String) async throws -> UInt32? {
+    let backend = try VulkanBackend.makeDevice()
+    let device = try await Device.make(backend: backend)
+    do {
+        guard backend.capabilities.features.contains(.meshShaders) else { await device.close(); return nil }
+        let source = vulkanTaskMeshSource(taskSize: taskSize)
+        let compiler = IndependentShaderCompiler()
+        let task = try compiler.compileReflectedTaskStage(.wgsl(source), entryPoint: "task_main", to: .spirv)
+        let mesh = try compiler.compileReflectedMeshStage(.wgsl(source), entryPoint: "mesh", to: .spirv)
+        let fragment = try compiler.compileRenderStage(.wgsl(source), entryPoint: "fragment", to: .spirv)
+        let pipeline = try await device.createMeshPipeline(task: task, mesh: mesh, fragment: fragment, colorFormat: .rgba8Unorm)
+        let target = try await device.createTexture(.init(width: 8, height: 8, format: .rgba8Unorm,
+                                                          usage: [.renderAttachment, .copySource]))
+        let read = try await device.createBuffer(.init(size: 1824, usage: [.copyDestination, .mapRead]))
+        let ticket = try await device.submitCommands([
+            .drawMesh(pipeline: pipeline, target: target, colorLoad: .clear(.init(red: 0, green: 0, blue: 1, alpha: 1)),
+                      workgroups: .init(x: 1)),
+            .copyTextureToBuffer(source: target, destination: read, bytesPerRow: 256),
+            .read(buffer: read, byteCount: 1824),
+        ])
+        let pixel = try await ticket.wait()[0][3 * 64 + 3]
+        await device.close()
+        return pixel
+    } catch { await device.close(); throw error }
+}
+
+@Test(.enabled(if: vulkanAvailable), .gpuExclusive) func vulkanTaskShadersPassPayloadsToMeshShaders() async throws {
+    guard let pixel = try await vulkanTaskMeshPixel(taskSize: "vec3u(1u, 1u, 1u)") else { return }
+    #expect(pixel == 0xff00_ff00)
+}
+
+@Test(.enabled(if: vulkanAvailable), .gpuExclusive) func vulkanTaskShadersDropOversizedMeshDispatches() async throws {
+    // The task stage asks for more mesh workgroups than any device guarantees; the dispatch is dropped, not submitted.
+    guard let pixel = try await vulkanTaskMeshPixel(taskSize: "vec3u(70000u, 1u, 1u)") else { return }
+    #expect(pixel == 0xffff_0000)
+}
+
 @Test(.enabled(if: vulkanAvailable), .gpuExclusive) func vulkanDrawsLineMeshes() async throws {
     let backend = try VulkanBackend.makeDevice()
     let device = try await Device.make(backend: backend)

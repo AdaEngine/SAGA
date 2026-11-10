@@ -55,14 +55,18 @@ extension SPIRVBinaryWriter {
     }
 
     mutating func workgroupProjection(_ base: UInt32, index: UInt32, type: IRHandle<IRType>) throws -> UInt32 {
-        let pointer = try pointerTypeID(storageClass: 4, pointee: workgroupTypeID(type))
-        return try rawValueInstruction(65, type: pointer, operands: [base, index]) // OpAccessChain
+        let payload = taskPayloadIDs.contains(base)
+        let pointer = try pointerTypeID(storageClass: payload ? 5402 : 4, pointee: workgroupTypeID(type))
+        let result = try rawValueInstruction(65, type: pointer, operands: [base, index]) // OpAccessChain
+        if payload { taskPayloadIDs.insert(result) }
+        return result
     }
 
     func workgroupAggregatePointee(
         _ pointer: IRHandle<IRExpression>, in state: SPIRVFunctionState
     ) throws -> IRHandle<IRType>? {
-        guard case .pointer(let base, .workgroup) = try valueKind(pointer, in: state) else { return nil }
+        guard case .pointer(let base, let space) = try valueKind(pointer, in: state),
+              space == .workgroup || space == .taskPayload else { return nil }
         switch try module.types.value(for: base).kind {
         case .array, .structure: return base
         default: return nil

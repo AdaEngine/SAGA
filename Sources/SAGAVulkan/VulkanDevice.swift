@@ -208,6 +208,7 @@ public actor VulkanDevice: ComputeBackendDevice {
     var pipelines: [ResourceID: Pipeline] = [:]
     var textures: [ResourceID: Texture] = [:]
     var renderPipelines: [ResourceID: RenderPipelineState] = [:]
+    var meshPipelinesWithTask: [ResourceID: Bool] = [:]
     var samplers: [ResourceID: SamplerState] = [:]
     var textureViews: [ResourceID: TextureViewState] = [:]
     var querySets: [ResourceID: VulkanQuerySetState] = [:]
@@ -587,7 +588,9 @@ public actor VulkanDevice: ComputeBackendDevice {
                     validator = try validator ?? dispatchValidatorPipeline()
                     descriptorTotals.sets += 1
                     descriptorTotals.add(VK.DescriptorType.storageBuffer, 3)
-                    indirectLimits.append((capabilities.maxMeshWorkgroupTotalCount, capabilities.maxMeshWorkgroupsPerDimension))
+                    indirectLimits.append(plan.meshUsesTask
+                        ? (capabilities.maxTaskWorkgroupTotalCount, capabilities.maxTaskWorkgroupsPerDimension)
+                        : (capabilities.maxMeshWorkgroupTotalCount, capabilities.maxMeshWorkgroupsPerDimension))
                 }
                 operations.append(.render(plan))
             case .renderIndexed:
