@@ -37,6 +37,8 @@ struct SPIRVFunctionState {
     /// Function variable that receives the dispatch size a task entry returns.
     var taskResult: UInt32?
     var layoutDescriptorCounts: [UInt32: UInt32] = [:]
+    /// External texture values by the id of their first loaded plane.
+    var externalTextures: [UInt32: SPIRVExternalValue] = [:]
     var bufferArrays: [UInt32: SPIRVBufferArrayGlobal] = [:]
     var bufferElements: [UInt32: SPIRVBufferArrayGlobal] = [:]
     fileprivate var bufferProjections: [UInt32: SPIRVBufferProjection] = [:]
@@ -379,8 +381,13 @@ extension SPIRVBinaryWriter {
         case .globalVariable(let global):
             let declaration = try module.globalVariables.value(for: global)
             if declaration.space == .handle {
-                let binding = try resourceGlobal(global)
                 let kind = try module.types.value(for: expression.type).kind
+                if kind.isExternalTexture {
+                    id = try loadExternalTexture(global, in: &state)
+                    state.bind(handle, to: id)
+                    return id
+                }
+                let binding = try resourceGlobal(global)
                 if case .bindingArray = kind {
                     id = binding.id
                     if let count = binding.layoutResolvedCount { state.layoutDescriptorCounts[id] = count }

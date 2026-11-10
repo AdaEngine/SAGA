@@ -1336,6 +1336,87 @@ private func vulkanTaskMeshPixel(taskSize: String) async throws -> UInt32? {
     #expect(pixel == 0xffff_0000)
 }
 
+@Test(.enabled(if: vulkanAvailable), .gpuExclusive) func vulkanLoadsAndSamplesPlanarExternalTexturesInCompute() async throws {
+    let backend = try VulkanBackend.makeDevice()
+    let device = try await Device.make(backend: backend)
+    do {
+        let source = """
+            @group(0) @binding(0) var rgba: texture_external;
+            @group(0) @binding(1) var nv12: texture_external;
+            @group(0) @binding(2) var state: sampler;
+            @group(0) @binding(3) var<storage, read_write> output: array<vec4f, 5>;
+            @compute @workgroup_size(1) fn run() {
+                output[0] = textureLoad(rgba, vec2u(1, 0));
+                output[1] = textureLoad(nv12, vec2u(0));
+                output[2] = textureLoad(nv12, vec2u(1, 0));
+                output[3] = textureSampleBaseClampToEdge(rgba, state, vec2f(0.75, 0.5));
+                let d = textureDimensions(rgba);
+                output[4] = vec4f(f32(d.x), f32(d.y), 0.0, 0.0);
+            }
+            """
+        let pipeline = try await device.createComputePipeline(try IndependentShaderCompiler().compileCompute(.wgsl(source), to: .spirv))
+        let usage: TextureUsage = [.textureBinding, .copyDestination]
+        let color = try await device.createTexture(.init(width: 2, height: 1, format: .rgba8Unorm, usage: usage))
+        let luma = try await device.createTexture(.init(width: 2, height: 1, format: .r8Unorm, usage: usage))
+        let chroma = try await device.createTexture(.init(width: 1, height: 1, format: .rg8Unorm, usage: usage))
+        let frame = try await device.importExternalTexture(.init(format: .rgba, planes: [color]))
+        let video = try await device.importExternalTexture(.init(format: .nv12, planes: [luma, chroma]))
+        let sampler = try await device.createSampler(.init())
+        let output = try await device.createBuffer(.init(size: 80, usage: [.storage, .copySource]))
+        let read = try await device.createBuffer(.init(size: 80, usage: [.copyDestination, .mapRead]))
+        let ticket = try await device.submitCommands([
+            .writeTexture(destination: color, data: [255, 0, 0, 255, 0, 255, 0, 255], region: .init(width: 2, height: 1)),
+            .writeTexture(destination: luma, data: [255, 0], region: .init(width: 2, height: 1)),
+            .writeTexture(destination: chroma, data: [128, 128], region: .init(width: 1, height: 1)),
+            .dispatchCompute(pipeline: pipeline, bindings: [ComputeBindingSlot(binding: 3): output], workgroups: .init(x: 1),
+                             textures: [ComputeBindingSlot(binding: 0): frame, ComputeBindingSlot(binding: 1): video],
+                             samplers: [ComputeBindingSlot(binding: 2): sampler]),
+            .copy(source: output, destination: read),
+            .read(buffer: read, byteCount: 80),
+        ])
+        let values = try await ticket.wait()[0].map { Float(bitPattern: $0) }
+        #expect(values[0] == 0 && values[1] == 1 && values[2] == 0 && values[3] == 1)  // the green RGBA texel
+        // With the identity conversion matrix the planes read as (Y, Cb, Cr) in RGB.
+        #expect(values[4] == 1 && abs(values[5] - 128.0 / 255) < 0.01 && abs(values[6] - 128.0 / 255) < 0.01)
+        #expect(values[8] == 0)
+        #expect(values[12] == 0 && values[13] == 1)  // sampling the right half clamps to the green texel
+        #expect(values[16] == 2 && values[17] == 1)  // textureDimensions
+        await device.close()
+    } catch { await device.close(); throw error }
+}
+
+@Test(.enabled(if: vulkanAvailable), .gpuExclusive) func vulkanRendersWithExternalTexturesInFragmentShaders() async throws {
+    let backend = try VulkanBackend.makeDevice()
+    let device = try await Device.make(backend: backend)
+    do {
+        let source = """
+            @group(0) @binding(0) var frame: texture_external;
+            @vertex fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f {
+                let xy = array<vec2f, 3>(vec2f(-1, -1), vec2f(3, -1), vec2f(-1, 3));
+                return vec4f(xy[i], 0.5, 1);
+            }
+            @fragment fn fs() -> @location(0) vec4f { return textureLoad(frame, vec2u(1, 0)); }
+            """
+        let compiler = IndependentShaderCompiler()
+        let pipeline = try await device.createRenderPipeline(
+            vertex: try compiler.compileRenderStage(.wgsl(source), entryPoint: "vs", to: .spirv),
+            fragment: try compiler.compileRenderStage(.wgsl(source), entryPoint: "fs", to: .spirv), colorFormat: .rgba8Unorm)
+        let target = try await device.createTexture(.init(width: 8, height: 8, format: .rgba8Unorm, usage: [.renderAttachment, .copySource]))
+        let color = try await device.createTexture(.init(width: 2, height: 1, format: .rgba8Unorm, usage: [.textureBinding, .copyDestination]))
+        let frame = try await device.importExternalTexture(.init(format: .rgba, planes: [color]))
+        let read = try await device.createBuffer(.init(size: 1824, usage: [.copyDestination, .mapRead]))
+        let ticket = try await device.submitCommands([
+            .writeTexture(destination: color, data: [255, 0, 0, 255, 0, 255, 0, 255], region: .init(width: 2, height: 1)),
+            .render(pipeline: pipeline, target: target, clear: .init(red: 0, green: 0, blue: 1, alpha: 1), vertexCount: 3,
+                    textures: [ComputeBindingSlot(binding: 0): frame]),
+            .copyTextureToBuffer(source: target, destination: read, bytesPerRow: 256),
+            .read(buffer: read, byteCount: 1824),
+        ])
+        #expect(try await ticket.wait()[0][3 * 64 + 3] == 0xff00_ff00)  // the second texel is green
+        await device.close()
+    } catch { await device.close(); throw error }
+}
+
 @Test(.enabled(if: vulkanAvailable), .gpuExclusive) func vulkanDrawsLineMeshes() async throws {
     let backend = try VulkanBackend.makeDevice()
     let device = try await Device.make(backend: backend)

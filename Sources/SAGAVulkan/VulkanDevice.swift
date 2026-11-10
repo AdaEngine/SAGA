@@ -178,7 +178,7 @@ extension VulkanNativeDevice {
 ///
 /// Buffers use host-visible coherent memory in this slice. Textures, samplers, render passes,
 /// indirect dispatch, immediates, queries and presentation are rejected with `GPUError.unsupported`.
-public actor VulkanDevice: ComputeBackendDevice {
+public actor VulkanDevice: ComputeBackendDevice, PlanarExternalTextureBackendDevice {
     public nonisolated let capabilities: DeviceCapabilities
     public nonisolated let adapterName: String
     public nonisolated let adapterKind: VulkanAdapterKind
@@ -209,6 +209,12 @@ public actor VulkanDevice: ComputeBackendDevice {
     var textures: [ResourceID: Texture] = [:]
     var renderPipelines: [ResourceID: RenderPipelineState] = [:]
     var meshPipelinesWithTask: [ResourceID: Bool] = [:]
+    /// External textures: plane resources and the host buffer of parameter words that a descriptor points at.
+    struct ExternalTextureState {
+        var planes: [ResourceID]
+        var parameters: VulkanHostBuffer
+    }
+    var externalTextures: [ResourceID: ExternalTextureState] = [:]
     var samplers: [ResourceID: SamplerState] = [:]
     var textureViews: [ResourceID: TextureViewState] = [:]
     var querySets: [ResourceID: VulkanQuerySetState] = [:]
@@ -291,6 +297,32 @@ public actor VulkanDevice: ComputeBackendDevice {
         buffers[id] = Buffer(descriptor: descriptor, native: try native.makeHostBuffer(size: descriptor.size))
     }
 
+    public func allocatePlanarExternalTexture(id: ResourceID, descriptor: PlanarExternalTextureDescriptor) throws {
+        try requireActive()
+        guard externalTextures[id] == nil, descriptor.planes.count == descriptor.format.planeComponents.count else {
+            throw GPUError.validation("Invalid Vulkan external texture descriptor")
+        }
+        var first: (width: UInt32, height: UInt32)?
+        for (index, plane) in descriptor.planes.enumerated() {
+            let view = textureViews[plane]
+            guard plane.device == id.device, let texture = textures[view?.texture ?? plane] else {
+                throw GPUError.validation("Unknown Vulkan external texture plane")
+            }
+            let resource = view.map { TextureViewResource(texture: $0.texture, levels: $0.levels, aspect: $0.aspect, layers: $0.layers, dimension: $0.dimension) }
+            let extent = try descriptor.planeExtent(at: index, texture: texture.descriptor, view: resource, capabilities: capabilities)
+            if index == 0 { first = extent }
+        }
+        guard let first else { throw GPUError.validation("External texture requires a first plane") }
+        let words = try descriptor.parameterWords(planeWidth: first.width, planeHeight: first.height)
+        let buffer = try native.makeHostBuffer(size: UInt64(max(ComputeShaderArtifact.ExternalTextureLayout.parameterByteSize, words.count * 4)))
+        words.withUnsafeBytes { buffer.mapped.copyMemory(from: $0.baseAddress!, byteCount: $0.count) }
+        externalTextures[id] = ExternalTextureState(planes: descriptor.planes, parameters: buffer)
+    }
+
+    public func destroyExternalTexture(id: ResourceID) {
+        if let external = externalTextures.removeValue(forKey: id) { native.destroy(external.parameters) }
+    }
+
     public func destroyBuffer(id: ResourceID) {
         if let buffer = buffers.removeValue(forKey: id) { native.destroy(buffer.native) }
     }
@@ -315,6 +347,7 @@ public actor VulkanDevice: ComputeBackendDevice {
         for id in renderPipelines.keys where id.device == owner { destroyRenderPipelineNow(id: id) }
         for id in textures.keys where id.device == owner { destroyTextureNow(id: id) }
         for id in samplers.keys where id.device == owner { destroySamplerNow(id: id) }
+        for id in externalTextures.keys where id.device == owner { destroyExternalTexture(id: id) }
         for id in querySets.keys where id.device == owner { destroyQuerySetNow(id: id) }
     }
 
@@ -330,9 +363,8 @@ public actor VulkanDevice: ComputeBackendDevice {
             throw GPUError.validation("Vulkan compute pipeline layout does not match compiled shader")
         }
         guard pipelines[pipeline.id] == nil else { throw GPUError.validation("Duplicate Vulkan compute pipeline") }
-        guard
-              pipeline.externalTextureBindings.isEmpty, pipeline.accelerationStructureBindings.isEmpty else {
-            throw GPUError.unsupported("Vulkan compute pipelines do not support external textures or acceleration structures")
+        guard pipeline.accelerationStructureBindings.isEmpty else {
+            throw GPUError.unsupported("Vulkan compute pipelines do not support acceleration structures")
         }
         pipelines[pipeline.id] = try makePipeline(pipeline, words: words, entryPoint: shader.entryPoint)
     }
@@ -349,6 +381,7 @@ public actor VulkanDevice: ComputeBackendDevice {
             types[binding.slot] = binding.usage == .uniform ? VK.DescriptorType.uniformBuffer : VK.DescriptorType.storageBuffer
         }
         types.merge(try vulkanHandleDescriptorTypes(sampled: pipeline.textureBindings, storage: pipeline.storageTextureBindings, samplers: pipeline.samplerBindings)) { first, _ in first }
+        types.merge(vulkanExternalDescriptorTypes(pipeline.externalTextureBindings)) { first, _ in first }
         let setCount = (types.keys.map(\.group).max()).map { Int($0) + 1 } ?? 0
         let f = native.f
         let device = native.device
@@ -493,7 +526,7 @@ public actor VulkanDevice: ComputeBackendDevice {
         let pinned = Set(submission.resources)
         let textureDescriptors = textures.mapValues(\.descriptor)
         for id in submission.resources
-        where buffers[id] == nil && pipelines[id] == nil && textures[id] == nil && renderPipelines[id] == nil && samplers[id] == nil && textureViews[id] == nil && querySets[id] == nil {
+        where buffers[id] == nil && pipelines[id] == nil && textures[id] == nil && renderPipelines[id] == nil && samplers[id] == nil && textureViews[id] == nil && querySets[id] == nil && externalTextures[id] == nil {
             throw GPUError.validation("Unknown Vulkan resource")
         }
 
@@ -522,7 +555,8 @@ public actor VulkanDevice: ComputeBackendDevice {
                                   maxBindGroupsPlusVertexBuffers: capabilities.maxBindGroupsPlusVertexBuffers,
                                   querySets: querySets.mapValues { $0.descriptor },
                                   maxMultiviewViewCount: capabilities.maxMultiviewViewCount,
-                                  features: capabilities.features,
+                                  features: capabilities.features, externalTextures: Set(externalTextures.keys),
+                                  externalPlanes: externalTextures.mapValues(\.planes),
                                   maxComputeWorkgroupsPerDimension: capabilities.maxComputeWorkgroupsPerDimension)
             let (command, timestamps, occlusion) = recorded.recordedPass
             let measurement = timestamps == nil && occlusion == nil ? nil
@@ -623,7 +657,8 @@ public actor VulkanDevice: ComputeBackendDevice {
                     sampledTextures: pipeline.model.textureBindings.map(\.slot),
                     storageTextures: pipeline.model.storageTextureBindings.map(\.slot),
                     samplerSlots: pipeline.model.samplerBindings.map(\.slot),
-                    textureResources: dispatch.textures, samplerResources: dispatch.samplers, totals: &descriptorTotals)
+                    textureResources: dispatch.textures, samplerResources: dispatch.samplers,
+                    externalSlots: pipeline.model.externalTextureBindings, totals: &descriptorTotals)
                 descriptorTotals.sets += UInt32(pipeline.setLayouts.count)
                 switch dispatch.source {
                 case .direct(let groups):

@@ -5,6 +5,14 @@ extension SPIRVBinaryWriter {
         _ sample: IRImageSample, type: IRHandle<IRType>, in state: inout SPIRVFunctionState
     ) throws -> UInt32 {
         let kind = try valueKind(sample.image, in: state)
+        if kind.isExternalTexture {
+            let image = try value(sample.image, in: &state)
+            guard let external = state.externalTextures[image], sample.clampToEdge, sample.gather == nil, sample.offset == nil,
+                  sample.arrayIndex == nil, sample.depthReference == nil else {
+                throw unsupported("does not lower this external texture operation")
+            }
+            return try externalSample(external, sampler: value(sample.sampler, in: &state), coordinate: value(sample.coordinate, in: &state))
+        }
         guard kind.isSampledTexture, !sample.clampToEdge else {
             throw unsupported("does not lower this sampled texture operation")
         }
@@ -71,6 +79,16 @@ extension SPIRVBinaryWriter {
     ) throws -> UInt32 {
         let kind = try valueKind(load.image, in: state)
         let image = try value(load.image, in: &state)
+        if kind.isExternalTexture {
+            guard let external = state.externalTextures[image], load.arrayIndex == nil, load.sample == nil, load.level == nil else {
+                throw unsupported("does not lower this external texture operation")
+            }
+            var pixel = try value(load.coordinate, in: &state)
+            if case .vector(_, let scalar) = try valueKind(load.coordinate, in: state), scalar == .i32 {
+                pixel = try rawValueInstruction(124, type: vectorTypeID(size: .two, scalar: .u32), operands: [pixel]) // OpBitcast
+            }
+            return try externalLoad(external, pixel: pixel)
+        }
         let storage = kind.storageTexture != nil
         guard storage || kind.isSampledTexture else { throw unsupported("requires a sampled or storage image for texture load") }
         let position = try texelCoordinates(load.coordinate, layer: load.arrayIndex, in: &state)
@@ -109,6 +127,12 @@ extension SPIRVBinaryWriter {
         try requireCapability(50) // ImageQuery
         let kind = try valueKind(image, in: state)
         let imageID = try value(image, in: &state)
+        if kind.isExternalTexture {
+            guard let external = state.externalTextures[imageID], case .size(nil) = query else {
+                throw unsupported("does not lower this external texture query")
+            }
+            return try externalDimensions(external)
+        }
         switch query {
         case .numLevels:
             return try valueInstruction(106, type: type, operands: [imageID])

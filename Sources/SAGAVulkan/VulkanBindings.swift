@@ -1,5 +1,6 @@
 import SAGATypes
 import SAGABackend
+import SAGAShaderIR
 
 // Samplers and descriptor planning for buffers, sampled textures and storage textures.
 
@@ -85,7 +86,7 @@ extension VulkanDevice {
         suppliedBuffers: [ComputeBindingSlot: StorageBufferBinding], sampledTextures: [ComputeBindingSlot],
         storageTextures: [ComputeBindingSlot], samplerSlots: [ComputeBindingSlot],
         textureResources: [ComputeBindingSlot: ResourceID], samplerResources: [ComputeBindingSlot: ResourceID],
-        totals: inout DescriptorTotals
+        externalSlots: [ComputeBindingSlot] = [], totals: inout DescriptorTotals
     ) throws -> [DescriptorWrite] {
         var writes: [DescriptorWrite] = []
         for (slot, usage) in bufferBindings {
@@ -124,6 +125,29 @@ extension VulkanDevice {
             totals.add(type)
             writes.append(.init(set: Int(slot.group), binding: slot.binding, type: type, buffer: 0, offset: 0, range: 0,
                                 sampler: sampler.handle, arrayElement: slot.arrayElement ?? 0))
+        }
+        // An external texture is three plane images and a block of parameter words at derived binding numbers.
+        for slot in externalSlots {
+            guard let id = textureResources[slot], let external = externalTextures[id] else {
+                throw GPUError.validation("Missing Vulkan external texture binding")
+            }
+            let bindings = ComputeShaderArtifact.ExternalTextureLayout.vulkanBindings(for: IRResourceBinding(group: slot.group, binding: slot.binding))
+            for index in 0..<3 {
+                let planeID = external.planes[index < external.planes.count ? index : 0]
+                guard let texture = self.texture(for: planeID), texture.descriptor.usage.contains(.textureBinding) else {
+                    throw GPUError.validation("Invalid Vulkan external texture plane")
+                }
+                totals.add(VK.DescriptorType.sampledImage)
+                writes.append(.init(set: Int(slot.group), binding: bindings.planes[index], type: VK.DescriptorType.sampledImage, buffer: 0,
+                                    offset: 0, range: 0, image: texture.image, imageFormat: texture.format.vk,
+                                    imageAspect: imageAspect(texture), baseMip: texture.baseMip, viewType: viewType(texture),
+                                    baseLayer: texture.baseLayer, layerCount: texture.viewLayers ?? texture.descriptor.arrayLayerCount,
+                                    mipLevels: texture.viewMips ?? texture.descriptor.mipLevelCount))
+            }
+            totals.add(VK.DescriptorType.uniformBuffer)
+            writes.append(.init(set: Int(slot.group), binding: bindings.parameters, type: VK.DescriptorType.uniformBuffer,
+                                buffer: external.parameters.handle, offset: 0,
+                                range: UInt64(ComputeShaderArtifact.ExternalTextureLayout.parameterByteSize)))
         }
         return writes
     }
@@ -192,6 +216,17 @@ extension VulkanDevice {
             f.cmdBindDescriptorSets(commandBuffer, bindPoint, layout, 0, UInt32($0.count), $0.baseAddress!, 0, nil)
         }
     }
+}
+
+/// Descriptor types of the plane images and parameter block of each external texture slot.
+func vulkanExternalDescriptorTypes(_ slots: [ComputeBindingSlot]) -> [ComputeBindingSlot: UInt32] {
+    var types: [ComputeBindingSlot: UInt32] = [:]
+    for slot in slots {
+        let bindings = ComputeShaderArtifact.ExternalTextureLayout.vulkanBindings(for: IRResourceBinding(group: slot.group, binding: slot.binding))
+        for binding in bindings.planes { types[ComputeBindingSlot(group: slot.group, binding: binding)] = VK.DescriptorType.sampledImage }
+        types[ComputeBindingSlot(group: slot.group, binding: bindings.parameters)] = VK.DescriptorType.uniformBuffer
+    }
+    return types
 }
 
 /// Descriptor types for the texture and sampler bindings of a pipeline, or an error for layouts Vulkan cannot express yet.

@@ -532,7 +532,7 @@ extension VulkanDevice: RenderBackendDevice {
         guard pipeline.sampleCount == 1 || (pipeline.sampleCount == 4),
                             pipeline.additionalColorTargets.isEmpty, !pipeline.primitive.unclippedDepth,
               pipeline.storageTextures.isEmpty,
-              pipeline.externalTextureBindings.isEmpty, !pipeline.colorState.usesSecondBlendSource else {
+              !pipeline.colorState.usesSecondBlendSource else {
             throw GPUError.unsupported("Vulkan render pipelines support one single-sampled color target with buffer bindings only")
         }
         guard pipeline.immediateByteSize <= UInt64(capabilities.maxImmediateSize) else {
@@ -542,6 +542,7 @@ extension VulkanDevice: RenderBackendDevice {
         for uniform in pipeline.uniforms { types[uniform.slot] = VK.DescriptorType.uniformBuffer }
         for storage in pipeline.storageBuffers { types[storage.handle.slot] = VK.DescriptorType.storageBuffer }
         types.merge(try vulkanHandleDescriptorTypes(sampled: pipeline.sampledTextures.map { $0.requirement }, storage: [], samplers: pipeline.samplerBindings.map { $0.requirement })) { first, _ in first }
+        types.merge(vulkanExternalDescriptorTypes(pipeline.externalTextureBindings.map(\.slot))) { first, _ in first }
         guard types.keys.allSatisfy({ $0.group < min(native.limits.maxBoundDescriptorSets, 4) }) else {
             throw GPUError.unsupported("Vulkan binding arrays are not implemented")
         }
@@ -896,7 +897,8 @@ extension VulkanDevice: RenderBackendDevice {
                 + pipeline.storageBuffers.map { ($0.handle.slot, BufferUsage.storage) },
             suppliedBuffers: merged, sampledTextures: pipeline.sampledTextures.map { $0.handle.slot },
             storageTextures: [], samplerSlots: pipeline.samplerBindings.map { $0.handle.slot },
-            textureResources: sampledTextures, samplerResources: samplers, totals: &totals)
+            textureResources: sampledTextures, samplerResources: samplers,
+            externalSlots: pipeline.externalTextureBindings.map(\.slot), totals: &totals)
         var vertexTargets: [(buffer: UInt64, offset: UInt64)?] = Array(repeating: nil, count: pipeline.vertexBuffers.count)
         for (index, binding) in vertexBuffers.enumerated() {
             let slot = Int(binding.slot ?? UInt32(index))

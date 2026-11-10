@@ -71,6 +71,7 @@ struct SPIRVDeclarationState {
     fileprivate var constantExpressions: [IRHandle<IRExpression>: EncodedConstant] = [:]
     fileprivate var globals: [IRHandle<IRGlobalVariable>: SPIRVBufferGlobal] = [:]
     fileprivate var resources: [IRHandle<IRGlobalVariable>: SPIRVResourceGlobal] = [:]
+    var externalGlobals: [IRHandle<IRGlobalVariable>: SPIRVExternalGlobal] = [:]
     fileprivate var bufferArrays: [IRHandle<IRGlobalVariable>: SPIRVBufferArrayGlobal] = [:]
     fileprivate var bufferBlocks: [IRHandle<IRType>: UInt32] = [:]
     fileprivate var workgroupGlobals: [IRHandle<IRGlobalVariable>: UInt32] = [:]
@@ -249,7 +250,7 @@ extension SPIRVBinaryWriter {
         try descriptorArrayTypeID(elementType: scalarTypeID(.i32), count: 1)
     }
 
-    private mutating func imageTypeID(
+    mutating func imageTypeID(
         dimension: IRImageDimension, arrayed: Bool, imageClass: IRImageClass
     ) throws -> UInt32 {
         let kind = IRTypeKind.image(dimension: dimension, arrayed: arrayed, class: imageClass)
@@ -531,6 +532,12 @@ extension SPIRVBinaryWriter {
             throw unsupported("requires an undecorated texture or sampler binding")
         }
         let kind = try module.types.value(for: global.type).kind
+        if kind.isExternalTexture {
+            let external = try externalGlobal(handle)
+            let placeholder = SPIRVResourceGlobal(id: external.planes[0], valueType: external.imageType, layoutResolvedCount: nil)
+            declarationState.resources[handle] = placeholder
+            return placeholder
+        }
         let element: IRTypeKind
         let valueType: UInt32
         let layoutResolvedCount: UInt32?
