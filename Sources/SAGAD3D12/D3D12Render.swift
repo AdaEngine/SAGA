@@ -83,6 +83,8 @@ struct D3D12RenderPipelineState {
     var drawParametersRoot: Int?
     /// External texture layouts of both stages with the root parameter of each parameter-word constant buffer.
     var externalLayouts: [(layout: ComputeShaderArtifact.ExternalTextureLayout, root: Int)] = []
+    /// Acceleration structure bindings with the root parameter of each root SRV.
+    var accelerationRoots: [(slot: ComputeBindingSlot, root: Int)] = []
 }
 
 func d3d12VertexFormat(_ format: VertexFormat) -> UInt32? {
@@ -221,6 +223,12 @@ extension D3D12Device {
             parameters.append(D3D12RootParameter(parameterType: D3D12.rootParameterConstants, shaderRegister: 15, registerSpace: 5,
                                                  unionTail: 2))
         }
+        var accelerationRoots: [(slot: ComputeBindingSlot, root: Int)] = []
+        for binding in pipeline.accelerationStructureBindings {
+            accelerationRoots.append((binding.slot, parameters.count))
+            parameters.append(D3D12RootParameter(parameterType: D3D12.rootParameterSRV, shaderRegister: binding.slot.binding,
+                                                 registerSpace: binding.slot.group))
+        }
         var externalLayouts: [(layout: ComputeShaderArtifact.ExternalTextureLayout, root: Int)] = []
         for layout in vertex.externalTextureLayouts + fragment.externalTextureLayouts
         where !externalLayouts.contains(where: { $0.layout.binding == layout.binding }) {
@@ -356,7 +364,8 @@ extension D3D12Device {
                                         samplerRoot: samplerRoot, viewLayout: viewLayout,
                                         samplerLayout: samplerLayout, bufferViewLayout: bufferViewLayout,
                                         rootStorage: rootStorage,
-                                        drawParametersRoot: drawParametersRoot, externalLayouts: externalLayouts)
+                                        drawParametersRoot: drawParametersRoot, externalLayouts: externalLayouts,
+                                        accelerationRoots: accelerationRoots)
     }
 
     /// Writes blend, rasterizer, depth-stencil and target-format state of a graphics pipeline description at its x64 offsets.

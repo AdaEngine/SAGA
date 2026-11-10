@@ -427,6 +427,9 @@ public actor Device {
             try Task.checkCancellation()
             try requireActive()
             if !vertex.externalTextures.isEmpty || fragment?.externalTextures.isEmpty == false { _ = try externalTextureBackend() }
+            if !vertex.accelerationStructures.isEmpty || fragment?.accelerationStructures.isEmpty == false {
+                try capabilities.require([.rayQuery])
+            }
             if vertex.requiresShaderF16 || fragment?.requiresShaderF16 == true { try capabilities.require([.shaderF16]) }
             if vertex.requiresShaderInt16 || fragment?.requiresShaderInt16 == true { try capabilities.require([.shaderInt16]) }
             if vertex.requiresShaderInt64 || fragment?.requiresShaderInt64 == true { try capabilities.require([.shaderInt64]) }
@@ -830,6 +833,9 @@ public actor Device {
                         throw GPUError.validation("Compute acceleration structure has not been built")
                     }
                 }
+                guard Set(pass.renderAccelerationStructures).isSubset(of: availableBuilds) else {
+                    throw GPUError.validation("Render acceleration structure has not been built")
+                }
                 switch pass {
                 case .buildAccelerationStructure(let destination, _), .buildTopLevelAccelerationStructure(let destination, _):
                     availableBuilds.insert(destination)
@@ -902,6 +908,9 @@ public actor Device {
             if let dispatch = pass.computeDispatch,
                !Set(dispatch.accelerationStructures.values).isSubset(of: available) {
                 throw GPUError.validation("Compute acceleration structure build did not complete")
+            }
+            if !Set(pass.renderAccelerationStructures).isSubset(of: available) {
+                throw GPUError.validation("Render acceleration structure build did not complete")
             }
             if case .buildTopLevelAccelerationStructure(_, let instances) = pass,
                !Set(instances.map(\.accelerationStructure)).isSubset(of: available) {

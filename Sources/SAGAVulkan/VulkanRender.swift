@@ -549,6 +549,10 @@ extension VulkanDevice: RenderBackendDevice {
         for storage in pipeline.storageBuffers { types[storage.handle.slot] = VK.DescriptorType.storageBuffer }
         types.merge(try vulkanHandleDescriptorTypes(sampled: pipeline.sampledTextures.map { $0.requirement }, storage: [], samplers: pipeline.samplerBindings.map { $0.requirement })) { first, _ in first }
         types.merge(vulkanExternalDescriptorTypes(pipeline.externalTextureBindings.map(\.slot))) { first, _ in first }
+        guard pipeline.accelerationStructureBindings.isEmpty || native.ray != nil else {
+            throw GPUError.unsupported("This Vulkan device does not support ray queries")
+        }
+        for binding in pipeline.accelerationStructureBindings { types[binding.slot] = Self.accelerationDescriptorType }
         guard types.keys.allSatisfy({ $0.group < min(native.limits.maxBoundDescriptorSets, 4) }) else {
             throw GPUError.unsupported("Vulkan binding arrays are not implemented")
         }
@@ -904,7 +908,8 @@ extension VulkanDevice: RenderBackendDevice {
             suppliedBuffers: merged, sampledTextures: pipeline.sampledTextures.map { $0.handle.slot },
             storageTextures: [], samplerSlots: pipeline.samplerBindings.map { $0.handle.slot },
             textureResources: sampledTextures, samplerResources: samplers,
-            externalSlots: pipeline.externalTextureBindings.map(\.slot), totals: &totals)
+            externalSlots: pipeline.externalTextureBindings.map(\.slot),
+            accelerationSlots: pipeline.accelerationStructureBindings.map(\.slot), accelerationResources: sampledTextures, totals: &totals)
         var vertexTargets: [(buffer: UInt64, offset: UInt64)?] = Array(repeating: nil, count: pipeline.vertexBuffers.count)
         for (index, binding) in vertexBuffers.enumerated() {
             let slot = Int(binding.slot ?? UInt32(index))

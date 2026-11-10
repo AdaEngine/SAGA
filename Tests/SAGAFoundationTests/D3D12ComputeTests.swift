@@ -427,6 +427,52 @@ private func d3d12MeshPixel(withTask: Bool) async throws -> UInt32? {
     } catch { await device.close(); throw error }
 }
 
+@Test(.enabled(if: d3d12Available), .gpuExclusive) func d3d12FragmentShadersRunRayQueries() async throws {
+    let backend = try D3D12Backend.makeDevice(shaderCompilerDirectories: dxcDirectories)
+    let device = try await Device.make(backend: backend)
+    do {
+        guard backend.capabilities.features.contains(.rayQuery) else { await device.close(); return }
+        let source = """
+            enable wgpu_ray_query;
+            @group(0) @binding(0) var scene: acceleration_structure;
+            @vertex fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f {
+                let xy = array<vec2f, 3>(vec2f(-1, -1), vec2f(3, -1), vec2f(-1, 3));
+                return vec4f(xy[i], 0.5, 1);
+            }
+            @fragment fn fs(@builtin(position) position: vec4f) -> @location(0) vec4f {
+                var q: ray_query;
+                rayQueryInitialize(&q, scene, RayDesc(0u, 255u, 0.1, 10.0, vec3f(position.x / 8.0, position.y / 8.0, 0.0), vec3f(0.0, 0.0, 1.0)));
+                while rayQueryProceed(&q) { rayQueryConfirmIntersection(&q); }
+                if rayQueryGetCommittedIntersection(&q).kind == 1u { return vec4f(0.0, 1.0, 0.0, 1.0); }
+                return vec4f(0.0, 0.0, 1.0, 1.0);
+            }
+            """
+        let compiler = IndependentShaderCompiler()
+        let pipeline = try await device.createRenderPipeline(
+            vertex: try compiler.compileRenderStage(.wgsl(source), entryPoint: "vs", to: .hlsl),
+            fragment: try compiler.compileRenderStage(.wgsl(source), entryPoint: "fs", to: .hlsl), colorFormat: .rgba8Unorm)
+        let target = try await device.createTexture(.init(width: 8, height: 8, format: .rgba8Unorm, usage: [.renderAttachment, .copySource]))
+        let vertices = try await device.createBuffer(.init(size: 36, usage: [.vertex, .copyDestination]))
+        let read = try await device.createBuffer(.init(size: 1824, usage: [.copyDestination, .mapRead]))
+        let bottom = try await device.createAccelerationStructure(.init(maxTriangleCount: 1))
+        let top = try await device.createAccelerationStructure(.init(maxInstanceCount: 1))
+        let one = Float(1).bitPattern, four = Float(4).bitPattern
+        let ticket = try await device.submitCommands([
+            .write(buffer: vertices, offset: 0, words: [0, 0, four, one, 0, four, 0, one, four]),
+            .buildAccelerationStructure(destination: bottom, geometry: .init(vertexBuffer: vertices, vertexStride: 12, vertexCount: 3)),
+            .buildTopLevelAccelerationStructure(destination: top, instances: [.init(accelerationStructure: bottom)]),
+            .render(pipeline: pipeline, target: target, clear: .init(red: 1, green: 0, blue: 0, alpha: 1), vertexCount: 3,
+                    textures: [ComputeBindingSlot(binding: 0): top]),
+            .copyTextureToBuffer(source: target, destination: read, bytesPerRow: 256),
+            .read(buffer: read, byteCount: 1824),
+        ])
+        let words = try await ticket.wait()[0]
+        #expect(words[1 * 64 + 1] == 0xff00_ff00)  // the ray from this pixel passes through the triangle
+        #expect(words[6 * 64 + 6] == 0xffff_0000)  // this one misses it
+        await device.close()
+    } catch { await device.close(); throw error }
+}
+
 @Test(.enabled(if: d3d12Available), .gpuExclusive) func d3d12RendersVertexBuffersTexturesUniformsAndIndexedDraws() async throws {
     let backend = try D3D12Backend.makeDevice(shaderCompilerDirectories: dxcDirectories)
     let device = try await Device.make(backend: backend)

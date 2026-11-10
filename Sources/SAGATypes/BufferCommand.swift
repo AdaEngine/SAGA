@@ -287,6 +287,18 @@ public enum BufferCommand: Sendable, Equatable {
         case indirect(buffer: ResourceID, offset: UInt64)
     }
 
+    /// Acceleration structures a render command binds for ray queries, taken from its texture map by pipeline slot.
+    package var renderAccelerationStructures: [ResourceID] {
+        let pipeline: RenderPipeline, textures: [ComputeBindingSlot: ResourceID]
+        switch self {
+        case .render(let p, _, _, _, _, _, _, _, let t, _, _, _, _, _, _, _, _, _, _, _): (pipeline, textures) = (p, t)
+        case .renderIndexed(let p, _, _, _, _, _, _, let t, _, _, _, _, _, _, _, _, _, _, _): (pipeline, textures) = (p, t)
+        case .renderIndirect(let p, _, _, _, _, _, _, _, let t, _, _, _, _, _, _, _, _, _, _, _): (pipeline, textures) = (p, t)
+        default: return []
+        }
+        return pipeline.accelerationStructureBindings.compactMap { textures[$0.slot] }
+    }
+
     package var computeDispatch: (pipeline: ComputePipeline, bindings: [ComputeBindingSlot: StorageBufferBinding],
                                   source: DispatchSource, textures: [ComputeBindingSlot: ResourceID],
                                   samplers: [ComputeBindingSlot: ResourceID], immediates: [UInt32],
@@ -593,8 +605,15 @@ public enum BufferCommand: Sendable, Equatable {
             guard storageBuffers.count == pipeline.storageBuffers.count else {
                 throw GPUError.validation("Storage buffer bindings do not match the render pipeline layout")
             }
-            guard boundTextures.count == pipeline.sampledTextures.count + pipeline.storageTextures.count + pipeline.externalTextureBindings.count else {
+            guard boundTextures.count == pipeline.sampledTextures.count + pipeline.storageTextures.count
+                    + pipeline.externalTextureBindings.count + pipeline.accelerationStructureBindings.count else {
                 throw GPUError.validation("Texture bindings do not match the render pipeline layout")
+            }
+            for structure in pipeline.accelerationStructureBindings {
+                guard let id = boundTextures[structure.slot], id.device == device,
+                      let descriptor = accelerationStructures[id], case .instances = descriptor.capacity else {
+                    throw GPUError.validation("Invalid render acceleration structure binding")
+                }
             }
             for texture in pipeline.sampledTextures {
                 let requirement = texture.requirement

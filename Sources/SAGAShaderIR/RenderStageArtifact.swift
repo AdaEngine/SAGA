@@ -107,6 +107,8 @@ public struct RenderStageArtifact: Sendable, Equatable {
     public let sampledTextures: [ComputeShaderArtifact.SampledTextureBinding]
     public let externalTextures: [IRResourceBinding]
     public let externalTextureLayouts: [ComputeShaderArtifact.ExternalTextureLayout]
+    /// Acceleration structures a ray query in this stage reads.
+    public let accelerationStructures: [ComputeShaderArtifact.AccelerationStructureBinding]
     public let storageTextures: [ComputeShaderArtifact.StorageTextureBinding]
     public let samplerBindings: [ComputeShaderArtifact.SamplerBinding]
     public let glslTextureSamplerBindings: [ComputeShaderArtifact.GLSLTextureSamplerBinding]
@@ -120,6 +122,7 @@ public struct RenderStageArtifact: Sendable, Equatable {
         storageTextures: [ComputeShaderArtifact.StorageTextureBinding] = [],
         externalTextures: [IRResourceBinding] = [],
         externalTextureLayouts: [ComputeShaderArtifact.ExternalTextureLayout] = [],
+        accelerationStructures: [ComputeShaderArtifact.AccelerationStructureBinding] = [],
         samplerBindings: [ComputeShaderArtifact.SamplerBinding] = [],
         glslTextureSamplerBindings: [ComputeShaderArtifact.GLSLTextureSamplerBinding] = [],
         colorOutputKinds: [UInt32: IRScalarKind] = [:], colorOutputComponentCounts: [UInt32: UInt8] = [:],
@@ -172,6 +175,7 @@ public struct RenderStageArtifact: Sendable, Equatable {
         self.sampledTextures = sampledTextures
         self.externalTextures = externalTextures
         self.externalTextureLayouts = externalTextureLayouts
+        self.accelerationStructures = accelerationStructures
         self.storageTextures = storageTextures
         self.samplerBindings = samplerBindings
         self.glslTextureSamplerBindings = glslTextureSamplerBindings
@@ -187,8 +191,8 @@ extension RenderStageArtifact {
             varyings: varyings, vertexInputs: vertexInputs, hlslProfile: nil, uniformBindings: uniformBindings,
             storageBindings: storageBindings, metalRuntimeLengthBuffer: nil, sampledTextures: sampledTextures,
             storageTextures: storageTextures, externalTextures: externalTextures,
-            externalTextureLayouts: externalTextureLayouts, samplerBindings: samplerBindings,
-            glslTextureSamplerBindings: glslTextureSamplerBindings, colorOutputKinds: colorOutputKinds,
+            externalTextureLayouts: externalTextureLayouts, accelerationStructures: accelerationStructures,
+            samplerBindings: samplerBindings, glslTextureSamplerBindings: glslTextureSamplerBindings, colorOutputKinds: colorOutputKinds,
             colorOutputComponentCounts: colorOutputComponentCounts, writesDepth: writesDepth,
             writesSampleMask: writesSampleMask, invariantPosition: invariantPosition, clipDistanceCount: clipDistanceCount,
             readsPrimitiveIndex: readsPrimitiveIndex, requiresBarycentrics: requiresBarycentrics,

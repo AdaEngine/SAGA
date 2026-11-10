@@ -185,6 +185,12 @@ extension D3D12Device {
             let words: [UInt32] = [first, firstInstance]
             words.withUnsafeBytes { list.slot(36, SetConstants.self)(list.pointer, UInt32(root), 2, $0.baseAddress!, 0) }
         }
+        for entry in state.accelerationRoots {
+            guard let id = sampledTextures[entry.slot], let structure = accelerationStructures[id] else {
+                throw GPUError.validation("Missing Direct3D 12 acceleration structure binding")
+            }
+            list.slot(40, SetAddress.self)(list.pointer, UInt32(entry.root), structure.address)
+        }
         for entry in state.externalLayouts {
             let slot = ComputeBindingSlot(group: entry.layout.binding.group, binding: entry.layout.binding.binding)
             guard let id = sampledTextures[slot], let external = externalTextures[id] else {

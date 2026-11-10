@@ -363,6 +363,14 @@ extension RenderPipeline {
         let externalBindings = merge(vertex.externalTextures.map { (.init(group: $0.group, binding: $0.binding), nil) },
                                      (fragment?.externalTextures ?? []).map { (.init(group: $0.group, binding: $0.binding), nil) })
         let externalSlots = Set(externalBindings.map(\.slot))
+        let accelerationBindings = merge(vertex.accelerationStructures.map { (.init(group: $0.binding.group, binding: $0.binding.binding), nil) },
+                                         (fragment?.accelerationStructures ?? []).map { (.init(group: $0.binding.group, binding: $0.binding.binding), nil) })
+        let accelerationSlots = Set(accelerationBindings.map(\.slot))
+        guard accelerationSlots.isDisjoint(with: uniformBases), accelerationSlots.isDisjoint(with: bufferBases),
+              accelerationSlots.isDisjoint(with: textureBases), accelerationSlots.isDisjoint(with: storageBases),
+              accelerationSlots.isDisjoint(with: samplerBases), accelerationSlots.isDisjoint(with: externalSlots) else {
+            throw GPUError.validation("Render stages disagree on the resource type of a binding")
+        }
         guard textureBases.isDisjoint(with: uniformBases), samplerBases.isDisjoint(with: uniformBases),
               textureBases.isDisjoint(with: samplerBases), storageBases.isDisjoint(with: uniformBases),
               storageBases.isDisjoint(with: textureBases), storageBases.isDisjoint(with: samplerBases),
@@ -384,6 +392,7 @@ extension RenderPipeline {
                   },
                   storageBuffers: storageBuffers, sampledTextures: textures,
                   storageTextures: storageTextures, samplerBindings: samplers, externalTextureBindings: externalBindings,
+                  accelerationStructureBindings: accelerationBindings,
                   webBindingIndices: try resolveWebBindingIndices(layouts), immediateByteSize: immediateByteSize,
                   multiviewMask: multiviewMask)
     }

@@ -1014,13 +1014,15 @@ public struct RenderPipeline: Sendable, Equatable {
     package let storageBuffers: [StorageBufferBinding]
     package let sampledTextures: [SampledTextureBinding]
     package let externalTextureBindings: [HandleBinding]
+    /// Acceleration structures read by ray queries; they are bound through the texture map of a render command.
+    package let accelerationStructureBindings: [HandleBinding]
     package let storageTextures: [StorageTextureBinding]
     package let samplerBindings: [SamplerBinding]
     package let webBindingIndices: [ComputeBindingSlot: UInt32]
     package func validateBindGroupsPlusVertexBuffers(against capabilities: DeviceCapabilities) throws {
         let slots = uniforms.map(\.slot) + storageBuffers.map(\.handle.slot)
             + sampledTextures.map(\.handle.slot) + storageTextures.map(\.handle.slot)
-            + samplerBindings.map(\.handle.slot) + externalTextureBindings.map(\.slot)
+            + samplerBindings.map(\.handle.slot) + externalTextureBindings.map(\.slot) + accelerationStructureBindings.map(\.slot)
         let groups = slots.map(\.group).max().map { UInt64($0) + 1 } ?? 0
         guard groups + UInt64(vertexBuffers.count) <= UInt64(capabilities.maxBindGroupsPlusVertexBuffers) else {
             throw GPUError.validation("Bind group layouts and vertex buffer layouts exceed the combined limit")
@@ -1038,7 +1040,7 @@ public struct RenderPipeline: Sendable, Equatable {
                  additionalColorTargets: [UInt32: RenderColorTarget] = [:], additionalColorOutputs: Set<UInt32> = [],
                  uniforms: [Uniform] = [], storageBuffers: [StorageBufferBinding] = [], sampledTextures: [SampledTextureBinding] = [],
                  storageTextures: [StorageTextureBinding] = [], samplerBindings: [SamplerBinding] = [],
-                 externalTextureBindings: [HandleBinding] = [],
+                 externalTextureBindings: [HandleBinding] = [], accelerationStructureBindings: [HandleBinding] = [],
                  webBindingIndices: [ComputeBindingSlot: UInt32] = [:], immediateByteSize: UInt64 = 0,
                  multiviewMask: UInt32? = nil) {
         self.id = id
@@ -1059,6 +1061,7 @@ public struct RenderPipeline: Sendable, Equatable {
         self.storageBuffers = storageBuffers
         self.sampledTextures = sampledTextures
         self.externalTextureBindings = externalTextureBindings
+        self.accelerationStructureBindings = accelerationStructureBindings
         self.storageTextures = storageTextures
         self.samplerBindings = samplerBindings
         self.webBindingIndices = webBindingIndices

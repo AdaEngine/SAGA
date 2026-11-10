@@ -154,7 +154,9 @@ package struct RenderCodeGenerator {
         }
         let activeStorageBuffers = active.filter(isStorageBuffer)
         let activeUniforms = active.filter { $0.space == .uniform }
-        let activeHandles = try handleResourceGlobals(active, module: module, bindingArrayLengths: bindingArrayLengths)
+        let allowsStructures = format == .hlsl || format == .glsl
+        let activeHandles = try handleResourceGlobals(active, module: module, bindingArrayLengths: bindingArrayLengths,
+                                                      allowAccelerationStructures: allowsStructures, allowVertexReturn: format == .glsl)
         if webGPU {
             let widths = try helpers.nativeIntegerWidths(in: module, entry: entry.function, resources: active)
             try requireWebGPUShaderTypes(activeHandles.storageTextures, module: module, nativeIntegerWidths: widths)
@@ -210,7 +212,8 @@ package struct RenderCodeGenerator {
         }
         let namespaceCount: UInt32 = meshLinked ? 3 : (format == .glsl ? 2 : 1)
         let sampled = format == .glsl
-            ? try handleResourceGlobals(mapped, module: module, bindingArrayLengths: bindingArrayLengths)
+            ? try handleResourceGlobals(mapped, module: module, bindingArrayLengths: bindingArrayLengths,
+                                        allowAccelerationStructures: true, allowVertexReturn: true)
             : activeHandles
         if meshLinked && !sampled.externalTextures.isEmpty {
             throw unsupported("GLSL mesh external textures")
@@ -323,6 +326,15 @@ package struct RenderCodeGenerator {
                 parametersIndex: flatUniforms[binding].map { ComputeShaderArtifact.uniformBindingBase + $0 })
         }
         let usedExternalTextures = externalTextures.compactMap { $0 }
+        // Ray queries in render stages read acceleration structures; Metal render pipelines cannot bind them.
+        var accelerationBindings: [Int: (name: String, binding: IRResourceBinding, reflection: ComputeShaderArtifact.AccelerationStructureBinding)] = [:]
+        for (index, global) in globals.enumerated() {
+            guard reachable.contains(index), global.space == .handle, let binding = global.binding,
+                  case .accelerationStructure = try module.types.value(for: global.type).kind else { continue }
+            guard format == .hlsl || format == .glsl else { throw unsupported("render stage acceleration structure binding") }
+            accelerationBindings[index] = ("saga_acceleration_\(index)", binding, .init(binding: binding, flatBindingIndex: binding.binding))
+        }
+        let usesRayTracing = !accelerationBindings.isEmpty
         let usedUniforms = uniforms.compactMap { $0 }
         let usedTextures = textures.compactMap { $0 }
         let usedStorageTextures = storageTextures.compactMap { $0 }
@@ -474,7 +486,9 @@ package struct RenderCodeGenerator {
         case .hlsl:
             let needsHLSL66 = usesInt64Atomics(module) || usedStorageTextures.contains { $0.reflection.format == .r64Uint }
             let profile: String
-            if perPrimitiveInputs {
+            if usesRayTracing {
+                profile = needsHLSL66 ? "6_6" : "6_5"
+            } else if perPrimitiveInputs {
                 profile = "6_\(max(5, helpers.comparisonSampleHLSLMinorVersion, needsHLSL66 ? 6 : 0))"
             } else if helpers.comparisonSampleHLSLMinorVersion > 0 {
                 profile = "6_\(helpers.comparisonSampleHLSLMinorVersion)"
@@ -492,8 +506,12 @@ package struct RenderCodeGenerator {
                 resultTarget = vertex ? .direct : .fragmentValue(directField, metalType: nil)
             }
         case .glsl:
-            declarations = [vertexBuiltins.contains(.instanceIndex) || vertexBuiltins.contains(.baseInstance) || vertexBuiltins.contains(.drawIndex)
+            declarations = [vertexBuiltins.contains(.instanceIndex) || vertexBuiltins.contains(.baseInstance) || vertexBuiltins.contains(.drawIndex) || usesRayTracing
                 ? "#version 460 core" : "#version 450 core"]
+            if usesRayTracing {
+                declarations.append("#extension GL_EXT_ray_query : require")
+                declarations.append("#extension GL_EXT_ray_flags_primitive_culling : require")
+            }
             declarations += glslUnsigned64Extensions(module: module, storageTextures: usedStorageTextures.map(\.reflection))
             if usesFloat16 { declarations.append(glslFloat16Extension) }
             if usesInt16 { declarations.append(glslInt16Extension) }
@@ -685,6 +703,12 @@ package struct RenderCodeGenerator {
         declarations += usedStorageBuffers.flatMap(\.declarations)
         declarations += usedStorageTextures.flatMap(\.declarations) + usedSamplers.flatMap(\.declarations)
         declarations += usedExternalTextures.flatMap(\.declarations)
+        for index in accelerationBindings.keys.sorted() {
+            let entry = accelerationBindings[index]!
+            declarations.append(format == .hlsl
+                ? "RaytracingAccelerationStructure \(entry.name) : register(t\(entry.binding.binding), space\(entry.binding.group));"
+                : "layout(binding = \(entry.binding.binding)) uniform accelerationStructureEXT \(entry.name);")
+        }
         if !usedExternalTextures.isEmpty { declarations += externalTexturePrelude(format) }
         declarations += glslBindings.map { $0.declaration }
 
@@ -694,6 +718,7 @@ package struct RenderCodeGenerator {
         let storage = globals.indices.map {
             if let immediate, immediate.index == $0 { return immediate.storage }
             if let external = externalTextures[$0] { return external.storage }
+            if let structure = accelerationBindings[$0] { return ShaderStorage(reference: structure.name, writable: false) }
             return storageBuffers[$0]?.storage ?? uniforms[$0]?.storage ?? textures[$0]?.storage ?? storageTextures[$0]?.storage ??
                 samplers[$0]?.storage ?? privateBindings.storage[$0] ?? ShaderStorage(reference: "", writable: false)
         }
@@ -727,6 +752,7 @@ package struct RenderCodeGenerator {
                      metalRuntimeLengthBuffer: lengthBuffer, sampledTextures: usedTextures.map(\.reflection),
                      storageTextures: usedStorageTextures.map(\.reflection),
                      externalTextures: usedExternalTextures.map(\.binding), externalTextureLayouts: usedExternalTextures.compactMap(\.layout),
+                     accelerationStructures: accelerationBindings.keys.sorted().map { accelerationBindings[$0]!.reflection },
                      samplerBindings: usedSamplers.map(\.reflection),
                      glslTextureSamplerBindings: glslBindings.map { $0.reflection },
                      colorOutputKinds: Dictionary(uniqueKeysWithValues: colors.map { ($0.location, $0.kind) }),
