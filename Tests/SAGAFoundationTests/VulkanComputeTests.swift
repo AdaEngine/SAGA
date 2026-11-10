@@ -932,6 +932,35 @@ private final class TestWindow: @unchecked Sendable {
     } catch { await device.close(); throw error }
 }
 
+@Test(.enabled(if: vulkanAvailable), .gpuExclusive) func vulkanStoresASTCHDRTexturesWhenAdvertised() async throws {
+    let backend = try VulkanBackend.makeDevice()
+    let device = try await Device.make(backend: backend)
+    do {
+        guard backend.capabilities.features.contains(.textureCompressionASTCHDR) else {
+            await #expect(throws: GPUError.self) {
+                _ = try await device.createTexture(.init(width: 4, height: 4, format: .astc4x4HDR, usage: [.textureBinding, .copyDestination]))
+            }
+            await device.close()
+            return
+        }
+        let texture = try await device.createTexture(.init(width: 8, height: 4, format: .astc4x4HDR,
+                                                           usage: [.textureBinding, .copyDestination, .copySource]))
+        let read = try await device.createBuffer(.init(size: 256 + 32, usage: [.copyDestination, .mapRead]))
+        // Two 16-byte ASTC blocks with distinct payloads.
+        let blocks: [UInt8] = (0..<32).map { UInt8(truncatingIfNeeded: $0 &+ 1) }
+        let ticket = try await device.submitCommands([
+            .writeTexture(destination: texture, data: blocks, layout: .init(bytesPerRow: 32, rowsPerImage: 1),
+                          region: .init(width: 8, height: 4)),
+            .copyTextureToBuffer(source: texture, destination: read, bytesPerRow: 256),
+            .read(buffer: read, byteCount: 288),
+        ])
+        let words = try await ticket.wait()[0]
+        #expect(words[0] == 0x0403_0201)  // first block, first word
+        #expect(words[4] == 0x1413_1211)  // second block starts after sixteen bytes
+        await device.close()
+    } catch { await device.close(); throw error }
+}
+
 @Test(.enabled(if: vulkanAvailable), .gpuExclusive) func vulkanStoresBlockCompressedTextures() async throws {
     let backend = try VulkanBackend.makeDevice()
     let device = try await Device.make(backend: backend)

@@ -100,7 +100,7 @@ the GLSL writer's binding capacities and capability checks. Every image stays in
 Linux: the Vulkan backend builds with Swift 6.2.3 on Ubuntu 24.04 (WSL2) and the whole suite passes there, 1550 tests,
 with Vulkan running on Mesa's lavapipe software driver. Xlib presentation was exercised against a real X server
 (WSLg) with a swapchain rebuild after a resize, and Wayland presentation to a surface on the WSLg compositor. Not
-covered: a hardware Linux GPU driver (lavapipe lacks mesh shaders, ray queries and cooperative matrices, so those tests skip there).
+covered: a hardware Linux GPU driver (lavapipe reports mesh shaders, ray queries, subgroups and 16-bit shaders, so those tests run there; it lacks cooperative matrices, ASTC and ASTC HDR, so those tests skip).
 
 ## Mesh shader plan for Vulkan (survey, 2026-11-10)
 
