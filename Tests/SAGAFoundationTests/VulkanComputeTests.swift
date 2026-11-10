@@ -1265,3 +1265,47 @@ private final class TestWindow: @unchecked Sendable {
         await device.close()
     } catch { await device.close(); throw error }
 }
+
+@Test(.enabled(if: vulkanAvailable), .gpuExclusive) func vulkanDrawsLineMeshes() async throws {
+    let backend = try VulkanBackend.makeDevice()
+    let device = try await Device.make(backend: backend)
+    do {
+        guard backend.capabilities.features.contains(.meshShaders) else { await device.close(); return }
+        let source = """
+            enable wgpu_mesh_shader;
+            struct V { @builtin(position) position: vec4f, }
+            struct P { @builtin(line_indices) indices: vec2u, }
+            struct O {
+              @builtin(vertices) vertices: array<V, 2>,
+              @builtin(primitives) primitives: array<P, 1>,
+              @builtin(vertex_count) vertex_count: u32,
+              @builtin(primitive_count) primitive_count: u32,
+            }
+            var<workgroup> out: O;
+            @mesh(out) @workgroup_size(1) fn mesh() {
+              out.vertex_count = 2u; out.primitive_count = 1u;
+              out.vertices[0].position = vec4f(-1.0, 0.0, 0.5, 1.0);
+              out.vertices[1].position = vec4f(1.0, 0.0, 0.5, 1.0);
+              out.primitives[0].indices = vec2u(0u, 1u);
+            }
+            @fragment fn fragment() -> @location(0) vec4f { return vec4f(0.0, 1.0, 0.0, 1.0); }
+            """
+        let compiler = IndependentShaderCompiler()
+        let pipeline = try await device.createMeshPipeline(
+            mesh: try compiler.compileReflectedMeshStage(.wgsl(source), entryPoint: "mesh", to: .spirv),
+            fragment: try compiler.compileRenderStage(.wgsl(source), entryPoint: "fragment", to: .spirv), colorFormat: .rgba8Unorm)
+        let target = try await device.createTexture(.init(width: 8, height: 8, format: .rgba8Unorm, usage: [.renderAttachment, .copySource]))
+        let read = try await device.createBuffer(.init(size: 1824, usage: [.copyDestination, .mapRead]))
+        let ticket = try await device.submitCommands([
+            .drawMesh(pipeline: pipeline, target: target, colorLoad: .clear(.init(red: 0, green: 0, blue: 1, alpha: 1)),
+                      workgroups: .init(x: 1)),
+            .copyTextureToBuffer(source: target, destination: read, bytesPerRow: 256),
+            .read(buffer: read, byteCount: 1824),
+        ])
+        let words = try await ticket.wait()[0]
+        let green: UInt32 = 0xff00_ff00
+        #expect(words[3 * 64 + 3] == green || words[4 * 64 + 3] == green)  // the line crosses the middle rows
+        #expect(words[0] == 0xffff_0000)  // far from the line stays cleared
+        await device.close()
+    } catch { await device.close(); throw error }
+}

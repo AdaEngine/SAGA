@@ -33,6 +33,8 @@ struct SPIRVMeshPlan {
     let indexVariable: UInt32
     let indexType: UInt32
     let indexMember: Int
+    /// Indices per primitive: three for triangles, two for lines, one for points.
+    let indexComponents: Int
     let vertexVaryings: [SPIRVMeshOutputVariable]
     let primitiveVaryings: [SPIRVMeshOutputVariable]
     let interfaceIDs: [UInt32]
@@ -46,7 +48,13 @@ extension SPIRVBinaryWriter {
               info.maxVerticesOverride == nil, info.maxPrimitivesOverride == nil else {
             throw unsupported("requires specialized mesh entry points")
         }
-        guard info.topology == .triangles else { throw unsupported("lowers only triangle mesh outputs") }
+        // Topology picks the execution mode, the index builtin and how many indices each primitive has.
+        let topology: (mode: UInt32, builtin: UInt32, binding: IRBuiltIn, components: Int)
+        switch info.topology {
+        case .triangles: topology = (5298, 5296, .triangleIndices, 3)  // OutputTrianglesEXT, PrimitiveTriangleIndicesEXT
+        case .lines: topology = (5269, 5295, .lineIndices, 2)  // OutputLinesEXT, PrimitiveLineIndicesEXT
+        case .points: topology = (27, 5294, .pointIndex, 1)  // OutputPoints, PrimitivePointIndicesEXT
+        }
         let output = try module.globalVariables.value(for: info.outputVariable)
         guard case .structure(let outputMembers, _) = try module.types.value(for: output.type).kind else {
             throw unsupported("requires a mesh output structure")
@@ -69,7 +77,7 @@ extension SPIRVBinaryWriter {
         executionModes += try instructionWords(16, [id, 17, size.x, size.y, size.z])  // LocalSize
         executionModes += try instructionWords(16, [id, 26, info.maxVertices])  // OutputVertices
         executionModes += try instructionWords(16, [id, 5270, info.maxPrimitives])  // OutputPrimitivesEXT
-        executionModes += try instructionWords(16, [id, 5298])  // OutputTrianglesEXT
+        executionModes += try instructionWords(16, [id, topology.mode])
 
         var workgroup: [IRHandle<IRGlobalVariable>] = []
         let reachable = try ShaderFunctions(module: module, entry: entry.function).reachableGlobals
@@ -133,11 +141,11 @@ extension SPIRVBinaryWriter {
         var primitiveVaryings: [SPIRVMeshOutputVariable] = []
         for (index, field) in primitiveMembers.enumerated() {
             switch field.binding {
-            case .builtIn(.triangleIndices):
-                guard indexVariable == nil else { throw unsupported("requires a single triangle index output") }
+            case .builtIn(let builtin) where builtin == topology.binding:
+                guard indexVariable == nil else { throw unsupported("requires a single index output") }
                 let element = try typeID(field.type)
                 let variable = try outputVariable(arrayType(element, count: info.maxPrimitives))
-                try decorate(71, [variable, 11, 5296])  // BuiltIn PrimitiveTriangleIndicesEXT
+                try decorate(71, [variable, 11, topology.builtin])  // BuiltIn Primitive*IndicesEXT
                 interfaceIDs.append(variable)
                 indexVariable = variable
                 indexType = element
@@ -153,15 +161,15 @@ extension SPIRVBinaryWriter {
                 throw unsupported("lowers only triangle index and location mesh primitive outputs")
             }
         }
-        guard let indexVariable else { throw unsupported("requires a triangle index output") }
+        guard let indexVariable else { throw unsupported("requires an index output") }
         return SPIRVMeshPlan(
             compute: compute, info: info, output: info.outputVariable, verticesMember: verticesMember,
             primitivesMember: primitivesMember, vertexCountMember: vertexCountMember,
             primitiveCountMember: primitiveCountMember, vertexType: info.vertexOutputType,
             primitiveType: info.primitiveOutputType, workgroupSize: size, positionMember: positionMember,
             meshVertices: meshVertices, vertexElement: vertexElement, indexVariable: indexVariable, indexType: indexType,
-            indexMember: indexMember, vertexVaryings: vertexVaryings, primitiveVaryings: primitiveVaryings,
-            interfaceIDs: interfaceIDs)
+            indexMember: indexMember, indexComponents: topology.components, vertexVaryings: vertexVaryings,
+            primitiveVaryings: primitiveVaryings, interfaceIDs: interfaceIDs)
     }
 
     /// Emits the code that runs after the user body: counts, `OpSetMeshOutputsEXT` and the output copies.
@@ -254,14 +262,21 @@ extension SPIRVBinaryWriter {
             let triangle = try source(arrayMember: plan.primitivesMember, elementType: plan.primitiveType, index: index,
                                       field: plan.indexMember, fieldType: try primitiveFieldType(plan, plan.indexMember))
             // Keep indices inside the vertices that were actually produced.
-            var clamped: [UInt32] = []
-            for component in 0..<3 {
-                let value = try rawValueInstruction(81, type: u32, operands: [triangle, UInt32(component)])  // OpCompositeExtract
+            func clampIndex(_ value: UInt32) throws -> UInt32 {
                 let inside = try rawValueInstruction(176, type: bool, operands: [value, lastVertex])
-                let within = try rawValueInstruction(169, type: u32, operands: [inside, value, lastVertex])
-                clamped.append(within)
+                return try rawValueInstruction(169, type: u32, operands: [inside, value, lastVertex])
             }
-            let rebuilt = try rawValueInstruction(80, type: plan.indexType, operands: clamped)  // OpCompositeConstruct
+            let rebuilt: UInt32
+            if plan.indexComponents == 1 {
+                rebuilt = try clampIndex(triangle)
+            } else {
+                var clamped: [UInt32] = []
+                for component in 0..<plan.indexComponents {
+                    let value = try rawValueInstruction(81, type: u32, operands: [triangle, UInt32(component)])  // OpCompositeExtract
+                    clamped.append(try clampIndex(value))
+                }
+                rebuilt = try rawValueInstruction(80, type: plan.indexType, operands: clamped)  // OpCompositeConstruct
+            }
             try emit(62, [element(plan.indexVariable, index, type: plan.indexType), rebuilt])
             for varying in plan.primitiveVaryings {
                 let value = try source(arrayMember: plan.primitivesMember, elementType: plan.primitiveType, index: index,

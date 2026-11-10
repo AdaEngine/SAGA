@@ -75,7 +75,8 @@ Constraints that carry over:
 | 5f. Multiview (render pass view masks, array attachment views, view-index shaders) | done | multiview test |
 | 5g. Cooperative matrices (VK_KHR_cooperative_matrix; subgroup-scope f16 and f32 shapes read from the driver) | done | cooperative matrix multiply test |
 | 5h. Mesh shaders (VK_EXT_mesh_shader): SPIR-V mesh stage (triangles, position and location outputs, no task stage), reflected SPIR-V mesh artifacts, mesh graphics pipelines and drawMesh; verified with validation layers | partial | mesh draw test |
-| 5i. Task stages, line and point meshes, indirect mesh draws, ray queries, external textures | not started | |
+| 5i. Line mesh outputs (verified); point mesh outputs (written, not run: needs point size handling) | partial | line mesh test |
+| 5j. Task stages, indirect mesh draws, ray queries, external textures | not started | |
 | 6a. Direct3D 12 compute: HLSL through DXC (dxcompiler.dll, dxil.dll found at runtime), root-descriptor buffer bindings (CBV, SRV, UAV), copies, fills, direct dispatch, readback | done | `d3d12` compute test |
 | 6b. Direct3D 12 immediates and workgroup counts as root constants, indirect dispatch with GPU-side limit validation (ExecuteIndirect) | done | immediates and indirect test |
 | 6c. Direct3D 12 2D/array/3D color textures, buffer-texture copies and uploads, samplers, sampled and storage textures in compute (descriptor tables; debug layer clean) | done | texture compute test |
