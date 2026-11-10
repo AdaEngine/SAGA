@@ -1,6 +1,6 @@
 # Working on SAGA
 
-SAGA is an independent Swift WebGPU-style runtime and shader compiler. The runtime paths are macOS/Metal and Swift/Wasm through an explicit browser WebGPU host. The compiler aims to cover the pinned Naga feature set in Swift.
+SAGA is an independent Swift WebGPU-style runtime and shader compiler. The runtime paths are macOS/Metal, Windows and Linux through Vulkan (`SAGAVulkan`), and Swift/Wasm through an explicit browser WebGPU host. Direct3D 12 for Windows (`SAGAD3D12`) runs compute, single-target rendering with depth and MSAA, queries and window presentation ([ADR](docs/adr/add-vulkan-and-direct3d-native-backends.md)). The compiler aims to cover the pinned Naga feature set in Swift.
 
 - Use Swift 6.2 or newer in Swift 6 language mode. Match the strict concurrency and warnings-as-errors flags in [CI](.github/workflows/foundation.yml).
 - Keep the SwiftPM graph dependency-free. Treat the sibling `../wgpu` checkout as read-only reference material.

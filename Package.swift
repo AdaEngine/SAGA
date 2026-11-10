@@ -12,6 +12,8 @@ let package = Package(
         .library(name: "SAGACompiler", targets: ["SAGACompiler"]),
         .library(name: "SAGAMetal", targets: ["SAGAMetal"]),
         .library(name: "SAGAWebGPU", targets: ["SAGAWebGPU"]),
+        .library(name: "SAGAVulkan", targets: ["SAGAVulkan"]),
+        .library(name: "SAGAD3D12", targets: ["SAGAD3D12"]),
     ],
     targets: [
         .executableTarget(name: "SAGAMetalDiagnostic", dependencies: ["SAGATypes", "SAGACore", "SAGAMetal"]),
@@ -28,7 +30,9 @@ let package = Package(
         .target(name: "SAGACompiler", dependencies: ["SAGAShaderIR", "SAGAValidation", "SAGAFrontends", "SAGABackends", "SAGATypes"]),
         .target(name: "SAGAMetal", dependencies: ["SAGATypes", "SAGABackend", "SAGAShaderIR"]),
         .target(name: "SAGAWebGPU", dependencies: ["SAGATypes", "SAGABackend", "SAGAShaderIR"]),
-        .testTarget(name: "SAGAFoundationTests", dependencies: ["SAGA", "SAGATypes", "SAGACore", "SAGABackend", "SAGAShaderIR", "SAGAValidation", "SAGAFrontends", "SAGABackends", "SAGACompiler", "SAGAMetal", "SAGAWebGPU"]),
+        .target(name: "SAGAVulkan", dependencies: ["SAGATypes", "SAGABackend", "SAGAShaderIR", "SAGACompiler"]),
+        .target(name: "SAGAD3D12", dependencies: ["SAGATypes", "SAGABackend", "SAGAShaderIR", "SAGACompiler"]),
+        .testTarget(name: "SAGAFoundationTests", dependencies: ["SAGA", "SAGATypes", "SAGACore", "SAGABackend", "SAGAShaderIR", "SAGAValidation", "SAGAFrontends", "SAGABackends", "SAGACompiler", "SAGAMetal", "SAGAWebGPU", "SAGAVulkan", "SAGAD3D12"]),
     ],
     swiftLanguageModes: [.v6]
 )

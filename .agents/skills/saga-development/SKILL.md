@@ -12,7 +12,7 @@ description: Work on SAGA's Swift shader compiler, GPU runtime, and platform bac
 | Runtime API and descriptors | `SAGA` exposes the facade and aliases. `SAGATypes` owns backend-neutral descriptors, resource IDs, features, and limits. |
 | Resource and queue semantics | `SAGACore/Device.swift` owns resource lifetimes, validation, error scopes, and queue acceptance. `SAGABackend` defines the typed command and completion contracts. |
 | Shader pipeline | `SAGACompiler/Compiler.swift` orchestrates `SAGAFrontends` → `SAGAShaderIR` → `SAGAValidation` → `SAGABackends`. |
-| Execution | `SAGAMetal` encodes native commands. `SAGAWebGPU` forwards to injected host protocols. The diagnostic reactor in `SAGAWebDiagnostic` and the JavaScript files in `web/` exercise that boundary. |
+| Execution | `SAGAMetal` encodes native commands. `SAGAVulkan` runs SPIR-V on Windows and Linux through the system Vulkan loader (no SDK needed to build). `SAGAWebGPU` forwards to injected host protocols. The diagnostic reactor in `SAGAWebDiagnostic` and the JavaScript files in `web/` exercise that boundary. |
 
 ## Preserve the contracts
 
@@ -35,5 +35,6 @@ python3 -B docs/tools/verify_docs.py
 Use the Swift Testing summary to count executed tests. The XCTest compatibility runner can report zero. Keep Swift tests, external shader validation, Metal readback, browser readback, and routed CTS results separate when reporting coverage.
 
 - Native backend smoke on a Metal-capable Mac. `swift run SAGAMetalDiagnostic --count 4099` dispatches native MSL and checks every output word. For WGSL through the compiler and queue, run `swift test --filter wgslPipelineRunsThroughDeviceQueueAndMetalReadback`. [Metal verification](../../../docs/metal-verification.md)
+- Vulkan backend on Windows or Linux. `swift test --filter vulkan` runs on the first Vulkan 1.1 adapter and reports skips when no driver exists. Windows results do not prove Linux.
 - Browser diagnostic. Select Swift 6.3.2 and its matching Wasm SDK, then run `sh scripts/build-web-diagnostic.sh`. Use `node scripts/test-web-diagnostic.mjs .build-web-diagnostic/site/SAGAWebDiagnostic.wasm` with local Chromium, Playwright Core, and a hardware WebGPU adapter.
 - Look up binding layouts, shader profiles, textures, draws, and presentation in the [shader and runtime notes](references/shader-and-runtime-notes.md). Use [frontend verification](../../../docs/frontend-verification.md) when reporting corpus results.

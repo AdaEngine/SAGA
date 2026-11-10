@@ -1,0 +1,91 @@
+# Add Vulkan (Windows, Linux) and Direct3D 12 (Windows) native backends
+
+- Status: accepted by explicit user request ("support Windows, Web, Linux and Apple"), 2026-11-10
+- Amends: [Metal and browser WebGPU](use-metal-and-browser-webgpu.md) and the last paragraph of
+  [full Naga on Swift](port-full-naga-on-swift.md), which said SPIR-V/HLSL/GLSL output does not add
+  Vulkan or Direct3D runtime backends. That limit is lifted.
+
+## Context
+
+The compiler already emits MSL, HLSL, GLSL, SPIR-V and WGSL, and the runtime has two execution
+paths: Metal (Apple) and an injected browser WebGPU host (Web). Windows and Linux have no native
+GPU path. The package builds on Windows with Swift 6.3, but `SAGAMetal` compiles to stubs there.
+
+## Decision
+
+| Platform | Runtime backend | Shader artifact | Status |
+|---|---|---|---|
+| macOS, iOS | Metal (`SAGAMetal`) | MSL | existing |
+| Web | Browser WebGPU host (`SAGAWebGPU`) | WGSL | existing |
+| Windows, Linux (and Android later) | Vulkan 1.1+ (`SAGAVulkan`) | SPIR-V 1.3 | new |
+| Windows | Direct3D 12 (`SAGAD3D12`) | HLSL / DXIL | planned, after Vulkan reaches compute+render parity |
+
+Vulkan comes first because one backend serves both new operating systems and the SPIR-V writer is
+already verified with SPIRV-Tools. Direct3D 12 follows as the Windows-native alternative and reuses
+the same `SAGABackend` protocols.
+
+Constraints that carry over:
+
+- No SwiftPM dependency, no Vulkan headers and no SDK needed to build. `SAGAVulkan` declares the
+  small part of the Vulkan C ABI it uses in Swift and resolves it at run time from the system
+  loader (`vulkan-1.dll`, `libvulkan.so.1`). A machine without a driver gets
+  `GPUError.adapterUnavailable`, never a CPU fallback.
+- Platform objects stay inside the backend. Ownership, validation, error scopes and queue ordering
+  stay in `SAGACore`; the backend revalidates the trusted command SPI like Metal does.
+- A backend advertises only features it has verified on hardware. Unsupported commands and
+  pipeline layouts fail with `GPUError.unsupported`.
+- Evidence stays separate per backend: Vulkan results do not count toward Metal or browser claims.
+  Linux is verified only on a Linux host; Windows results here do not prove Linux.
+
+## Slice order
+
+1. Vulkan loader, adapter, device, buffers, queue, SPIR-V compute pipeline, direct dispatch, copy,
+   clear and readback (this change).
+2. Vulkan indirect dispatch, immediates, binding ranges, timestamp queries, buffer mapping.
+3. Vulkan textures, samplers, copies, storage textures.
+4. Vulkan render passes, vertex/index/indirect draws, depth/stencil, MSAA.
+5. Vulkan presentation (Win32 and Xlib/Wayland surfaces, swapchain).
+6. Direct3D 12 following the same order.
+7. Feature parity items from the delivery slices that Metal has: atomics tiers, subgroups,
+   cooperative matrices, mesh shaders, ray queries, external textures.
+
+## Status of slices (2026-11-10, verified on a Windows Vulkan 1.4 GPU)
+
+| Slice | State | Evidence |
+|---|---|---|
+| 1. Compute, buffers, readback | done | `swift test --filter vulkan` |
+| 2. Uniform buffers, immediates (push constants), indirect dispatch with GPU-side limit validation | done | same |
+| 3a. 2D textures, buffer/texture copies and uploads, offscreen render (vertex buffers, instances, uniforms and storage buffers, blending, viewport, scissor) | done | triangle and vertex-buffer pixel readback tests |
+| 3b. Sampled 2D textures, samplers, compute storage textures | done | compute sample-and-store and fragment sampling tests |
+| 4a. Indexed draws (uint16, uint32, signed base vertex), robustBufferAccess enabled | done | indexed draw test |
+| 4b. Depth-only attachments (depth16Unorm, depth32Float): compare, write mask, bias, load/clear/store, readback, sampling | done | depth test |
+| 4c. 4x MSAA color targets with resolve (store or discard), alpha-to-coverage, sample mask | done | resolve test |
+| 4d. Indirect draws (indexed and non-indexed, GPU-validated arguments) | done | indirect draw test |
+| 4e. Stencil and combined depth-stencil formats (device-probed D24S8/D32S8/S8), stencil ops, reference, aspect copies | done | stencil test |
+| 4f. Texture views (mip range, aspect) for sampling and attachments | done | mip-view test |
+| 4g. 2D array and 3D textures, cube-compatible images, layer-range views, array/cube/3D sampling bindings, layer and slice copies | done | array and volume test |
+| 4h. Block-compressed textures (BC, ETC2, ASTC LDR; probed), MSAA with depth, 1D textures | done | BC, MSAA-depth and 1D tests |
+| 4i. Render to 3D slices, resolve-less MSAA (works on the tested driver; render pass compatibility not checked by validation layers) | done | slice and MSAA-keep tests |
+| 4j. ASTC HDR | not started | |
+| 5a. Buffer mapping (read, write, mapped at creation), timestamp and occlusion queries with resolve | done | mapping and query tests |
+| 5b. Presentation: Win32 swapchain (verified, including resize rebuild); Xlib and Wayland surfaces implemented but not run | partial | Win32 present test |
+| 5c. Optional device features probed and enabled (f16 with 16-bit storage, int16, int64, clip distance, anisotropy, fragment stores); f16 verified | done | f16 compute test |
+| 5d. Subgroups (basic, vote, arithmetic, ballot, shuffle, quad; probed) | done | subgroup add test |
+| 5e. Binding arrays (buffers, textures, samplers; static and dynamic indexing features enabled when present) | done | storage buffer array test |
+| 5f. Multiview (render pass view masks, array attachment views, view-index shaders) | done | multiview test |
+| 5g. Cooperative matrices, mesh shaders, ray queries, external textures | not started | |
+| 6a. Direct3D 12 compute: HLSL through DXC (dxcompiler.dll, dxil.dll found at runtime), root-descriptor buffer bindings (CBV, SRV, UAV), copies, fills, direct dispatch, readback | done | `d3d12` compute test |
+| 6b. Direct3D 12 immediates and workgroup counts as root constants, indirect dispatch with GPU-side limit validation (ExecuteIndirect) | done | immediates and indirect test |
+| 6c. Direct3D 12 2D/array/3D color textures, buffer-texture copies and uploads, samplers, sampled and storage textures in compute (descriptor tables; debug layer clean) | done | texture compute test |
+| 6d. Direct3D 12 render pipelines (one color target, blend, cull, topology, vertex and index buffers, instances, buffers/textures/samplers/immediates); fragment inputs now list system values first so Direct3D stage signatures link | done | render test |
+| 6e. Direct3D 12 depth and stencil (D16, D32, D24S8, D32S8), 4x MSAA colour and depth with resolve; vertex-index draw bases fall back to root constants when the DXIL validator lacks shader model 6.8 | done | depth and MSAA test |
+| 6f. Direct3D 12 buffer mapping (snapshot reads, batched writes), timestamp and occlusion queries with resolve | done | mapping and query tests |
+| 6g. Direct3D 12 indirect draws (ExecuteIndirect, indexed and not) and window presentation through a DXGI flip swap chain that follows the presented texture size | done | indirect draw and present tests |
+| 6h. Direct3D 12 texture views (mip range, array layers, dimension) for sampling, storage and attachments; compute binding arrays of buffers, textures and samplers | done | view and binding-array tests |
+| 6i. Direct3D 12 binding arrays in render shaders (textures, samplers, storage buffers) and depth/stencil aspect views for sampling | done | render array and depth-view tests |
+| 6j. Direct3D 12 mesh shaders, ray queries, cooperative matrices, external textures | not started | |
+
+Compiler additions: `compileCompute(to: .spirv)` and `compileRenderStage(to: .spirv)` take reflection from the GLSL
+writer over the same IR and the binary from the SPIR-V writer, so layout and code come from one module. They inherit
+the GLSL writer's binding capacities and capability checks. Every image stays in `VK_IMAGE_LAYOUT_GENERAL`.
+Linux is unverified.
