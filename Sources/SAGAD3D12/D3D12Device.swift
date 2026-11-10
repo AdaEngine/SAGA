@@ -43,6 +43,8 @@ public actor D3D12Device: ComputeBackendDevice, PlanarExternalTextureBackendDevi
 
     struct Pipeline {
         var model: ComputePipeline
+        /// Acceleration structure bindings with the root parameter of each root SRV.
+        var accelerationRoots: [(slot: ComputeBindingSlot, root: Int)] = []
         /// External texture layouts with the root parameter of each constant buffer of parameter words.
         var externalLayouts: [(layout: ComputeShaderArtifact.ExternalTextureLayout, root: Int)] = []
         var rootSignature: COMObject
@@ -91,6 +93,8 @@ public actor D3D12Device: ComputeBackendDevice, PlanarExternalTextureBackendDevi
     var externalTextures: [ResourceID: ExternalTexture] = [:]
     /// Mesh pipelines (kept in `renderPipelines`), each flagged with whether it has a task stage.
     var meshPipelines: [ResourceID: Bool] = [:]
+    var accelerationStructures: [ResourceID: AccelerationStructureState] = [:]
+    var indexSanitizer: Pipeline?
     var terminal = false
     var quarantine: [Retained] = []
 
@@ -139,6 +143,7 @@ public actor D3D12Device: ComputeBackendDevice, PlanarExternalTextureBackendDevi
         var features: Set<GPUFeature> = []
         if hasTimestamps { features.insert(.timestampQuery) }
         if meshSupported { features.insert(.meshShaders) }
+        if Self.supportsRayQueries(device) { features.insert(.rayQuery) }
         capabilities = try DeviceCapabilities(
             maxBufferSize: 1 << 30,
             features: features,
@@ -212,6 +217,7 @@ public actor D3D12Device: ComputeBackendDevice, PlanarExternalTextureBackendDevi
         for id in textures.keys where id.device == owner { textures[id] = nil }
         for id in samplers.keys where id.device == owner { samplers[id] = nil }
         for id in externalTextures.keys where id.device == owner { externalTextures[id] = nil }
+        for id in accelerationStructures.keys where id.device == owner { accelerationStructures[id] = nil }
         for id in querySets.keys where id.device == owner { querySets[id] = nil }
         for id in pipelines.keys where id.device == owner { pipelines[id] = nil }
         for id in renderPipelines.keys where id.device == owner { renderPipelines[id] = nil; meshPipelines[id] = nil }
@@ -249,8 +255,7 @@ public actor D3D12Device: ComputeBackendDevice, PlanarExternalTextureBackendDevi
             throw GPUError.validation("Direct3D 12 compute pipeline layout does not match compiled shader")
         }
         guard pipelines[pipeline.id] == nil else { throw GPUError.validation("Duplicate Direct3D 12 compute pipeline") }
-        guard pipeline.accelerationStructureBindings.isEmpty,
-              shader.externalTextureLayouts.count == pipeline.externalTextureBindings.count,
+        guard shader.externalTextureLayouts.count == pipeline.externalTextureBindings.count,
               pipeline.immediateByteSize == 0 || shader.immediateLayout?.hlslBinding != nil,
               pipeline.textureBindings.allSatisfy({ !$0.isMultisampled }) else {
             throw GPUError.unsupported("Direct3D 12 compute pipelines do not support acceleration structures or multisampled textures")
@@ -311,6 +316,11 @@ public actor D3D12Device: ComputeBackendDevice, PlanarExternalTextureBackendDevi
             countRoot = parameters.count
             parameters.append(D3D12RootParameter(parameterType: D3D12.rootParameterConstants, shaderRegister: binding.binding,
                                                  registerSpace: binding.group, unionTail: 4))
+        }
+        var accelerationRoots: [(slot: ComputeBindingSlot, root: Int)] = []
+        for slot in pipeline.accelerationStructureBindings {
+            accelerationRoots.append((slot, parameters.count))
+            parameters.append(D3D12RootParameter(parameterType: D3D12.rootParameterSRV, shaderRegister: slot.binding, registerSpace: slot.group))
         }
         var externalLayouts: [(layout: ComputeShaderArtifact.ExternalTextureLayout, root: Int)] = []
         for layout in shader.externalTextureLayouts {
@@ -377,7 +387,7 @@ public actor D3D12Device: ComputeBackendDevice, PlanarExternalTextureBackendDevi
         var stateIID = IID.pipelineState
         let (created, stateObject) = Self.createState(device, root: root, dxil: dxil, stateIID: &stateIID, create: device.slot(11, CreatePipeline.self))
         try d3dCheck(created, "compute pipeline creation")
-        pipelines[pipeline.id] = Pipeline(model: pipeline, externalLayouts: externalLayouts, rootSignature: root, state: stateObject!, immediateRoot: immediateRoot,
+        pipelines[pipeline.id] = Pipeline(model: pipeline, accelerationRoots: accelerationRoots, externalLayouts: externalLayouts, rootSignature: root, state: stateObject!, immediateRoot: immediateRoot,
                                           countRoot: countRoot, immediateWords: immediateWords, viewRoot: viewRoot,
                                           samplerRoot: samplerRoot, viewLayout: viewLayout,
                                           samplerLayout: samplerLayout, bufferViewLayout: bufferViewLayout,
@@ -431,7 +441,7 @@ public actor D3D12Device: ComputeBackendDevice, PlanarExternalTextureBackendDevi
         let pinned = Set(submission.resources)
         for id in submission.resources
         where buffers[id] == nil && pipelines[id] == nil && textures[id] == nil && textureViews[id] == nil && samplers[id] == nil && externalTextures[id] == nil
-            && renderPipelines[id] == nil && querySets[id] == nil {
+            && renderPipelines[id] == nil && querySets[id] == nil && accelerationStructures[id] == nil {
             throw GPUError.validation("Unknown Direct3D 12 resource")
         }
 
@@ -498,6 +508,7 @@ public actor D3D12Device: ComputeBackendDevice, PlanarExternalTextureBackendDevi
                                       querySets: querySets.mapValues { $0.descriptor },
                                       features: capabilities.features, externalTextures: Set(externalTextures.keys),
                                       externalPlanes: externalTextures.mapValues(\.planes),
+                                      accelerationStructures: accelerationStructures.mapValues(\.descriptor),
                                       maxComputeWorkgroupsPerDimension: capabilities.maxComputeWorkgroupsPerDimension,
                                       maxTaskWorkgroupTotalCount: capabilities.maxTaskWorkgroupTotalCount,
                                       maxTaskWorkgroupsPerDimension: capabilities.maxTaskWorkgroupsPerDimension,
@@ -605,6 +616,8 @@ public actor D3D12Device: ComputeBackendDevice, PlanarExternalTextureBackendDevi
                 case .render, .renderIndexed, .renderIndirect:
                     try recordDraw(command, list: list, transition: transition, arena: &arena, heapsSet: &heapsSet,
                                    renderTargets: &renderTargets)
+                case .buildAccelerationStructure, .buildTopLevelAccelerationStructure:
+                    try recordStructureBuild(command, list: list, transition: { transition($0, to: $1) }, retained: &retained)
                 case .drawMesh:
                     let (equivalent, groups, indirect) = try equivalentRender(for: command)
                     var validated: COMObject?
@@ -755,6 +768,12 @@ public actor D3D12Device: ComputeBackendDevice, PlanarExternalTextureBackendDevi
                             throw GPUError.validation("Missing Direct3D 12 external texture binding")
                         }
                         list.slot(37, SetAddress.self)(list.pointer, UInt32(entry.root), external.address)
+                    }
+                    for entry in pipeline.accelerationRoots {
+                        guard let id = dispatch.accelerationStructures[entry.slot], let structure = accelerationStructures[id] else {
+                            throw GPUError.validation("Missing Direct3D 12 acceleration structure binding")
+                        }
+                        list.slot(39, SetAddress.self)(list.pointer, UInt32(entry.root), structure.address)
                     }
                     var written: [COMObject] = writtenArrays
                     for rootBuffer in pipeline.rootBuffers {

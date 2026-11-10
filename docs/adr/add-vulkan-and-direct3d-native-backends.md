@@ -91,7 +91,7 @@ Constraints that carry over:
 | 6g. Direct3D 12 indirect draws (ExecuteIndirect, indexed and not) and window presentation through a DXGI flip swap chain that follows the presented texture size | done | indirect draw and present tests |
 | 6h. Direct3D 12 texture views (mip range, array layers, dimension) for sampling, storage and attachments; compute binding arrays of buffers, textures and samplers | done | view and binding-array tests |
 | 6i. Direct3D 12 binding arrays in render shaders (textures, samplers, storage buffers) and depth/stencil aspect views for sampling | done | render array and depth-view tests |
-| 6j. Direct3D 12 ray queries and cooperative matrices (mesh shaders and external textures are 6k and 6l) | not started | |
+| 6j. Direct3D 12 ray queries in compute (DXR tier 1.1: bottom-level builds with GPU-sanitized indices, top-level builds from instances, structures bound as root SRVs, HLSL ray queries through DXC cs_6_5); same results as the Metal and Vulkan tests. Cooperative matrices need a newer DXIL validator than this machine has, so they are not started | partial | ray query tests |
 
 Compiler additions: `compileCompute(to: .spirv)` and `compileRenderStage(to: .spirv)` take reflection from the GLSL
 writer over the same IR and the binary from the SPIR-V writer, so layout and code come from one module. They inherit

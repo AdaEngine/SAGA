@@ -335,6 +335,98 @@ private func d3d12MeshPixel(withTask: Bool) async throws -> UInt32? {
     } catch { await device.close(); throw error }
 }
 
+@Test(.enabled(if: d3d12Available), .gpuExclusive) func d3d12RayQueryUsesBoundTopLevelStructure() async throws {
+    let backend = try D3D12Backend.makeDevice(shaderCompilerDirectories: dxcDirectories)
+    let device = try await Device.make(backend: backend)
+    do {
+        guard backend.capabilities.features.contains(.rayQuery) else { await device.close(); return }
+        let shader = try IndependentShaderCompiler().compileCompute(.wgsl("""
+            enable wgpu_ray_query;
+            @group(0) @binding(0) var<storage, read_write> output: array<u32, 21>;
+            @group(0) @binding(1) var scene: acceleration_structure;
+            @compute @workgroup_size(1) fn main(@builtin(global_invocation_id) id: vec3u) {
+                var query: ray_query;
+                let origin = select(vec3f(2.25, 3.25, 0.0), vec3f(0.25, 0.25, 0.0), id.x == 1u);
+                let mask = select(2u, 1u, id.x == 2u);
+                rayQueryInitialize(&query, scene, RayDesc(select(select(select(select(select(0u, 4u, id.x == 0u), 1u, id.x == 3u), 2u, id.x == 4u), 64u, id.x == 5u), 128u, id.x == 6u) & 199u, mask, 0.1, 10.0,
+                    origin, vec3f(0.0, 0.0, 1.0)));
+                while rayQueryProceed(&query) { rayQueryConfirmIntersection(&query); }
+                let hit = rayQueryGetCommittedIntersection(&query);
+                output[id.x * 3u] = hit.kind;
+                output[id.x * 3u + 1u] = bitcast<u32>(hit.t);
+                output[id.x * 3u + 2u] = hit.instance_custom_data;
+            }
+            """), to: .hlsl)
+        let pipeline = try await device.createComputePipeline(shader)
+        let vertices = try await device.createBuffer(.init(size: 36, usage: [.vertex, .copyDestination]))
+        let output = try await device.createBuffer(.init(size: 84, usage: [.storage, .copySource]))
+        let readback = try await device.createBuffer(.init(size: 84, usage: [.copyDestination, .mapRead]))
+        let bottom = try await device.createAccelerationStructure(.init(maxTriangleCount: 1))
+        let top = try await device.createAccelerationStructure(.init(maxInstanceCount: 1))
+        let geometry = AccelerationStructureTriangleGeometry(vertexBuffer: vertices, vertexStride: 12, vertexCount: 3)
+        let ticket = try await device.submitCommands([
+            .write(buffer: vertices, offset: 0, words: [0, 0, 0, Float(1).bitPattern, 0, 0, 0, Float(1).bitPattern, 0]),
+            .buildAccelerationStructure(destination: bottom, geometry: geometry),
+            .buildTopLevelAccelerationStructure(destination: top, instances: [.init(accelerationStructure: bottom,
+                transform: [1, 0, 0, 2, 0, 1, 0, 3, 0, 0, 1, 4], mask: 2, instanceID: 73)]),
+            .dispatchCompute(pipeline: pipeline, bindings: [.init(group: 0, binding: 0): output], workgroups: .init(x: 7),
+                             accelerationStructures: [.init(group: 0, binding: 1): top]),
+            .copy(source: output, destination: readback, byteCount: 84),
+            .read(buffer: readback, byteCount: 84)
+        ])
+        let result = try await ticket.wait()
+        #expect(result == [[1, Float(4).bitPattern, 73, 0, 0, 0, 0, 0, 0,
+                            1, Float(4).bitPattern, 73, 1, Float(4).bitPattern, 73,
+                            1, Float(4).bitPattern, 73, 0, 0, 0]])
+        await device.close()
+    } catch { await device.close(); throw error }
+}
+
+@Test(.enabled(if: d3d12Available), .gpuExclusive) func d3d12RayQueryReadsIndexedTrianglesAndDropsOutOfRangeOnes() async throws {
+    let backend = try D3D12Backend.makeDevice(shaderCompilerDirectories: dxcDirectories)
+    let device = try await Device.make(backend: backend)
+    do {
+        guard backend.capabilities.features.contains(.rayQuery) else { await device.close(); return }
+        let shader = try IndependentShaderCompiler().compileCompute(.wgsl("""
+            enable wgpu_ray_query;
+            @group(0) @binding(0) var<storage, read_write> output: array<u32, 1>;
+            @group(0) @binding(1) var scene: acceleration_structure;
+            @compute @workgroup_size(1) fn main() {
+                var q: ray_query;
+                rayQueryInitialize(&q, scene, RayDesc(0u, 255u, 0.1, 10.0, vec3f(0.25, 0.25, 0.0), vec3f(0.0, 0.0, 1.0)));
+                while rayQueryProceed(&q) { rayQueryConfirmIntersection(&q); }
+                output[0] = rayQueryGetCommittedIntersection(&q).kind;
+            }
+            """), to: .hlsl)
+        let pipeline = try await device.createComputePipeline(shader)
+        let vertices = try await device.createBuffer(.init(size: 36, usage: [.vertex, .copyDestination]))
+        let indices = try await device.createBuffer(.init(size: 12, usage: [.index, .copyDestination]))
+        let output = try await device.createBuffer(.init(size: 4, usage: [.storage, .copySource]))
+        let readback = try await device.createBuffer(.init(size: 4, usage: [.copyDestination, .mapRead]))
+        let bottom = try await device.createAccelerationStructure(.init(maxTriangleCount: 1))
+        let top = try await device.createAccelerationStructure(.init(maxInstanceCount: 1))
+        // (index format, index words, expected kind): the last two use an index past the vertex count.
+        let cases: [(IndexFormat, [UInt32], UInt32)] = [
+            (.uint16, [0x0002_0001, 0], 1), (.uint32, [1, 2, 0], 1), (.uint16, [0x0002_0001, 9], 0), (.uint32, [1, 2, 9], 0),
+        ]
+        for (format, words, expected) in cases {
+            let geometry = AccelerationStructureTriangleGeometry(vertexBuffer: vertices, vertexStride: 12, vertexCount: 3,
+                indexBuffer: .init(buffer: indices, format: format), indexCount: 3)
+            let ticket = try await device.submitCommands([
+                .write(buffer: vertices, offset: 0, words: [0, 0, Float(4).bitPattern, Float(1).bitPattern, 0, Float(4).bitPattern, 0, Float(1).bitPattern, Float(4).bitPattern]),
+                .write(buffer: indices, offset: 0, words: words),
+                .buildAccelerationStructure(destination: bottom, geometry: geometry),
+                .buildTopLevelAccelerationStructure(destination: top, instances: [.init(accelerationStructure: bottom)]),
+                .dispatchCompute(pipeline: pipeline, bindings: [.init(binding: 0): output], workgroups: .init(x: 1),
+                                 accelerationStructures: [.init(binding: 1): top]),
+                .copy(source: output, destination: readback, byteCount: 4), .read(buffer: readback, byteCount: 4)
+            ])
+            #expect(try await ticket.wait() == [[expected]])
+        }
+        await device.close()
+    } catch { await device.close(); throw error }
+}
+
 @Test(.enabled(if: d3d12Available), .gpuExclusive) func d3d12RendersVertexBuffersTexturesUniformsAndIndexedDraws() async throws {
     let backend = try D3D12Backend.makeDevice(shaderCompilerDirectories: dxcDirectories)
     let device = try await Device.make(backend: backend)
