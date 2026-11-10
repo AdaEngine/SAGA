@@ -80,6 +80,7 @@ Constraints that carry over:
 | 5k. Task stages (TaskEXT with a `TaskPayloadWorkgroupEXT` payload, dispatch size clamped to the portable limits, merged task bindings, task-aware indirect limits); verified with validation layers | done | task payload and oversized dispatch tests |
 | 5l. Ray queries, external textures | not started | |
 | 6c. Direct3D 12 planar external textures in compute and render pipelines (three plane SRVs plus a root CBV of parameter words; HLSL helpers made DXC-compatible) | done | `d3d12` external texture test |
+| 6d. Direct3D 12 mesh and task shaders (HLSL ms_6_5/as_6_5, ID3D12Device2 pipeline-state streams, DispatchMesh; payload copied member by member because DXC crashes on struct copies); indirect mesh draws not implemented | partial | mesh and task+mesh draw tests |
 | 6a. Direct3D 12 compute: HLSL through DXC (dxcompiler.dll, dxil.dll found at runtime), root-descriptor buffer bindings (CBV, SRV, UAV), copies, fills, direct dispatch, readback | done | `d3d12` compute test |
 | 6b. Direct3D 12 immediates and workgroup counts as root constants, indirect dispatch with GPU-side limit validation (ExecuteIndirect) | done | immediates and indirect test |
 | 6c. Direct3D 12 2D/array/3D color textures, buffer-texture copies and uploads, samplers, sampled and storage textures in compute (descriptor tables; debug layer clean) | done | texture compute test |

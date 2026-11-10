@@ -330,63 +330,7 @@ extension D3D12Device {
                 try elements.withUnsafeBytes { elementBytes in
                     putPointer(8, vertexBytes.baseAddress); put64(16, vertexBytes.count)
                     putPointer(24, fragmentBytes.baseAddress); put64(32, fragmentBytes.count)
-                    // Blend state: one render target at offset 128.
-                    if let blend = pipeline.colorState.blend {
-                        put32(128, 1)
-                        put32(136, d3d12BlendFactor(blend.color.sourceFactor))
-                        put32(140, d3d12BlendFactor(blend.color.destinationFactor))
-                        put32(144, blend.color.operation.rawValue + 1)
-                        put32(148, d3d12BlendFactor(blend.alpha.sourceFactor))
-                        put32(152, d3d12BlendFactor(blend.alpha.destinationFactor))
-                        put32(156, blend.alpha.operation.rawValue + 1)
-                    } else {
-                        put32(136, 2); put32(140, 1); put32(144, 1); put32(148, 2); put32(152, 1); put32(156, 1)
-                    }
-                    put32(160, 4)  // logic op: no-op
-                    desc.storeBytes(of: UInt8(pipeline.colorState.writeMask.rawValue & 0xF), toByteOffset: 164, as: UInt8.self)
-                    put32(448, pipeline.sampleMask)
-                    // Rasterizer state.
-                    put32(452, 3)  // solid
-                    let cull: UInt32 = switch pipeline.primitive.cullMode { case .none: 1; case .front: 2; case .back: 3 }
-                    put32(456, cull)
-                    put32(460, pipeline.primitive.frontFace == .counterClockwise ? 1 : 0)
-                    put32(476, 1)  // depth clip
-                    if let depthState = pipeline.depthState {
-                        put32(496, depthState.format.hasDepth ? 1 : 0)
-                        put32(500, depthState.writeEnabled ? 1 : 0)
-                        put32(504, depthState.compare.rawValue + 1)
-                        if depthState.bias.constant != 0 || depthState.bias.slopeScale != 0 {
-                            desc.storeBytes(of: depthState.bias.constant, toByteOffset: 464, as: Int32.self)
-                            desc.storeBytes(of: depthState.bias.clamp, toByteOffset: 468, as: Float.self)
-                            desc.storeBytes(of: depthState.bias.slopeScale, toByteOffset: 472, as: Float.self)
-                        }
-                        if let stencil = depthState.stencil {
-                            func operation(_ value: RenderStencilOperation) -> UInt32 {
-                                switch value {
-                                case .keep: 1
-                                case .zero: 2
-                                case .replace: 3
-                                case .incrementClamp: 4
-                                case .decrementClamp: 5
-                                case .invert: 6
-                                case .incrementWrap: 7
-                                case .decrementWrap: 8
-                                }
-                            }
-                            put32(508, 1)
-                            desc.storeBytes(of: UInt8(truncatingIfNeeded: stencil.readMask), toByteOffset: 512, as: UInt8.self)
-                            desc.storeBytes(of: UInt8(truncatingIfNeeded: stencil.writeMask), toByteOffset: 513, as: UInt8.self)
-                            for (offset, face) in [(516, stencil.front), (532, stencil.back)] {
-                                put32(offset, operation(face.fail))
-                                put32(offset + 4, operation(face.depthFail))
-                                put32(offset + 8, operation(face.pass))
-                                put32(offset + 12, face.compare.rawValue + 1)
-                            }
-                        } else {
-                            // Stencil disabled: keep the face states at their no-op defaults.
-                            for offset in [516, 532] { put32(offset, 1); put32(offset + 4, 1); put32(offset + 8, 1); put32(offset + 12, 8) }
-                        }
-                    }
+                    Self.writeFixedFunctionState(desc, pipeline: pipeline, target: target, depthFormat: depthFormat)
                     putPointer(552, elementBytes.baseAddress)
                     put32(560, UInt32(elements.count / 8))
                     let topologyType: UInt32 = switch pipeline.primitive.topology {
@@ -395,10 +339,6 @@ extension D3D12Device {
                     case .triangleList, .triangleStrip: 3
                     }
                     put32(572, topologyType)
-                    put32(576, 1)
-                    put32(580, target)
-                    put32(612, depthFormat)
-                    put32(616, pipeline.sampleCount)
                     return try Self.createGraphicsState(device, description: desc,
                                                         create: device.slot(10, CreateGraphics.self))
                 }
@@ -417,6 +357,74 @@ extension D3D12Device {
                                         samplerLayout: samplerLayout, bufferViewLayout: bufferViewLayout,
                                         rootStorage: rootStorage,
                                         drawParametersRoot: drawParametersRoot, externalLayouts: externalLayouts)
+    }
+
+    /// Writes blend, rasterizer, depth-stencil and target-format state of a graphics pipeline description at its x64 offsets.
+    nonisolated static func writeFixedFunctionState(
+        _ desc: UnsafeMutableRawPointer, pipeline: RenderPipeline, target: UInt32, depthFormat: UInt32
+    ) {
+        func put32(_ offset: Int, _ value: UInt32) { desc.storeBytes(of: value, toByteOffset: offset, as: UInt32.self) }
+        // Blend state: one render target at offset 128.
+        if let blend = pipeline.colorState.blend {
+            put32(128, 1)
+            put32(136, d3d12BlendFactor(blend.color.sourceFactor))
+            put32(140, d3d12BlendFactor(blend.color.destinationFactor))
+            put32(144, blend.color.operation.rawValue + 1)
+            put32(148, d3d12BlendFactor(blend.alpha.sourceFactor))
+            put32(152, d3d12BlendFactor(blend.alpha.destinationFactor))
+            put32(156, blend.alpha.operation.rawValue + 1)
+        } else {
+            put32(136, 2); put32(140, 1); put32(144, 1); put32(148, 2); put32(152, 1); put32(156, 1)
+        }
+        put32(160, 4)  // logic op: no-op
+        desc.storeBytes(of: UInt8(pipeline.colorState.writeMask.rawValue & 0xF), toByteOffset: 164, as: UInt8.self)
+        put32(448, pipeline.sampleMask)
+        // Rasterizer state.
+        put32(452, 3)  // solid
+        let cull: UInt32 = switch pipeline.primitive.cullMode { case .none: 1; case .front: 2; case .back: 3 }
+        put32(456, cull)
+        put32(460, pipeline.primitive.frontFace == .counterClockwise ? 1 : 0)
+        put32(476, 1)  // depth clip
+        if let depthState = pipeline.depthState {
+            put32(496, depthState.format.hasDepth ? 1 : 0)
+            put32(500, depthState.writeEnabled ? 1 : 0)
+            put32(504, depthState.compare.rawValue + 1)
+            if depthState.bias.constant != 0 || depthState.bias.slopeScale != 0 {
+                desc.storeBytes(of: depthState.bias.constant, toByteOffset: 464, as: Int32.self)
+                desc.storeBytes(of: depthState.bias.clamp, toByteOffset: 468, as: Float.self)
+                desc.storeBytes(of: depthState.bias.slopeScale, toByteOffset: 472, as: Float.self)
+            }
+            if let stencil = depthState.stencil {
+                func operation(_ value: RenderStencilOperation) -> UInt32 {
+                    switch value {
+                    case .keep: 1
+                    case .zero: 2
+                    case .replace: 3
+                    case .incrementClamp: 4
+                    case .decrementClamp: 5
+                    case .invert: 6
+                    case .incrementWrap: 7
+                    case .decrementWrap: 8
+                    }
+                }
+                put32(508, 1)
+                desc.storeBytes(of: UInt8(truncatingIfNeeded: stencil.readMask), toByteOffset: 512, as: UInt8.self)
+                desc.storeBytes(of: UInt8(truncatingIfNeeded: stencil.writeMask), toByteOffset: 513, as: UInt8.self)
+                for (offset, face) in [(516, stencil.front), (532, stencil.back)] {
+                    put32(offset, operation(face.fail))
+                    put32(offset + 4, operation(face.depthFail))
+                    put32(offset + 8, operation(face.pass))
+                    put32(offset + 12, face.compare.rawValue + 1)
+                }
+            } else {
+                // Stencil disabled: keep the face states at their no-op defaults.
+                for offset in [516, 532] { put32(offset, 1); put32(offset + 4, 1); put32(offset + 8, 1); put32(offset + 12, 8) }
+            }
+        }
+        put32(576, 1)
+        put32(580, target)
+        put32(612, depthFormat)
+        put32(616, pipeline.sampleCount)
     }
 
     typealias CreateGraphics = @convention(c) (UnsafeMutableRawPointer, UnsafeRawPointer, UnsafeRawPointer,

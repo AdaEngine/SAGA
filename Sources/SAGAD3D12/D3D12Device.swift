@@ -87,6 +87,8 @@ public actor D3D12Device: ComputeBackendDevice, PlanarExternalTextureBackendDevi
     var renderPipelines: [ResourceID: D3D12RenderPipelineState] = [:]
     var samplers: [ResourceID: SamplerDescriptor] = [:]
     var externalTextures: [ResourceID: ExternalTexture] = [:]
+    /// Mesh pipelines (kept in `renderPipelines`), each flagged with whether it has a task stage.
+    var meshPipelines: [ResourceID: Bool] = [:]
     var terminal = false
     var quarantine: [Retained] = []
 
@@ -131,16 +133,31 @@ public actor D3D12Device: ComputeBackendDevice, PlanarExternalTextureBackendDevi
         typealias Frequency = @convention(c) (UnsafeMutableRawPointer, UnsafeMutablePointer<UInt64>) -> HRESULT
         var frequency: UInt64 = 0
         let hasTimestamps = queue.slot(16, Frequency.self)(queue.pointer, &frequency) >= 0 && frequency > 0
+        let meshSupported = Self.supportsMeshShaders(device)
+        var features: Set<GPUFeature> = []
+        if hasTimestamps { features.insert(.timestampQuery) }
+        if meshSupported { features.insert(.meshShaders) }
         capabilities = try DeviceCapabilities(
             maxBufferSize: 1 << 30,
-            features: hasTimestamps ? [.timestampQuery] : [],
+            features: features,
             maxTextureDimension2D: 16_384,
             timestampPeriodNanoseconds: hasTimestamps ? 1e9 / Double(frequency) : 1,
             maxImmediateSize: 64,
             maxComputeWorkgroupStorageSize: 32 * 1024,
             maxComputeInvocationsPerWorkgroup: 1024,
             maxComputeWorkgroupSize: DispatchWorkgroups(x: 1024, y: 1024, z: 64),
-            maxComputeWorkgroupsPerDimension: 65_535)
+            maxComputeWorkgroupsPerDimension: 65_535,
+            maxTaskWorkgroupTotalCount: meshSupported ? 4_194_304 : nil,
+            maxTaskWorkgroupsPerDimension: meshSupported ? 65_535 : nil,
+            maxMeshWorkgroupTotalCount: meshSupported ? 4_194_304 : nil,
+            maxMeshWorkgroupsPerDimension: meshSupported ? 65_535 : nil,
+            maxTaskInvocationsPerWorkgroup: meshSupported ? 128 : nil,
+            maxTaskInvocationsPerDimension: meshSupported ? 128 : nil,
+            maxMeshInvocationsPerWorkgroup: meshSupported ? 128 : nil,
+            maxMeshInvocationsPerDimension: meshSupported ? 128 : nil,
+            maxTaskPayloadSize: meshSupported ? 16_384 : nil,
+            maxMeshOutputVertices: 256,
+            maxMeshOutputPrimitives: 256)
     }
 
     func requireActive() throws {
@@ -195,7 +212,7 @@ public actor D3D12Device: ComputeBackendDevice, PlanarExternalTextureBackendDevi
         for id in externalTextures.keys where id.device == owner { externalTextures[id] = nil }
         for id in querySets.keys where id.device == owner { querySets[id] = nil }
         for id in pipelines.keys where id.device == owner { pipelines[id] = nil }
-        for id in renderPipelines.keys where id.device == owner { renderPipelines[id] = nil }
+        for id in renderPipelines.keys where id.device == owner { renderPipelines[id] = nil; meshPipelines[id] = nil }
     }
 
     func makeBuffer(size: UInt64, heap: UInt32, state: UInt32, flags: UInt32 = 0) throws -> COMObject {
@@ -479,7 +496,11 @@ public actor D3D12Device: ComputeBackendDevice, PlanarExternalTextureBackendDevi
                                       querySets: querySets.mapValues { $0.descriptor },
                                       features: capabilities.features, externalTextures: Set(externalTextures.keys),
                                       externalPlanes: externalTextures.mapValues(\.planes),
-                                      maxComputeWorkgroupsPerDimension: capabilities.maxComputeWorkgroupsPerDimension) }
+                                      maxComputeWorkgroupsPerDimension: capabilities.maxComputeWorkgroupsPerDimension,
+                                      maxTaskWorkgroupTotalCount: capabilities.maxTaskWorkgroupTotalCount,
+                                      maxTaskWorkgroupsPerDimension: capabilities.maxTaskWorkgroupsPerDimension,
+                                      maxMeshWorkgroupTotalCount: capabilities.maxMeshWorkgroupTotalCount,
+                                      maxMeshWorkgroupsPerDimension: capabilities.maxMeshWorkgroupsPerDimension) }
                 let (command, timestamps, occlusion) = recorded.recordedPass
                 let measurement = timestamps == nil && occlusion == nil ? nil
                     : try planMeasurement(timestamps: timestamps, occlusion: occlusion)
@@ -582,6 +603,10 @@ public actor D3D12Device: ComputeBackendDevice, PlanarExternalTextureBackendDevi
                 case .render, .renderIndexed, .renderIndirect:
                     try recordDraw(command, list: list, transition: transition, arena: &arena, heapsSet: &heapsSet,
                                    renderTargets: &renderTargets)
+                case .drawMesh:
+                    let (equivalent, groups) = try equivalentRender(for: command)
+                    try recordDraw(equivalent, list: list, transition: transition, arena: &arena, heapsSet: &heapsSet,
+                                   renderTargets: &renderTargets, meshGroups: groups)
                 case .dispatchCompute, .dispatchComputeRanges, .dispatchComputeIndirect:
                     guard let dispatch = command.computeDispatch, let pipeline = pipelines[dispatch.pipeline.id],
                           pipeline.model == dispatch.pipeline else {

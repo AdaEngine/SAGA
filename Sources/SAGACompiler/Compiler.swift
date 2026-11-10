@@ -235,7 +235,7 @@ public struct IndependentShaderCompiler: Sendable {
         _ input: ShaderInput, entryPoint: String, to output: ShaderOutputFormat, constants: [String: Double] = [:],
         bindingArrayLengths: [IRResourceBinding: UInt32] = [:]
     ) throws -> TaskStageArtifact {
-        guard output == .msl || output == .spirv else { throw ShaderFailure.unsupported("Reflected task shader target") }
+        guard output == .msl || output == .spirv || output == .hlsl else { throw ShaderFailure.unsupported("Reflected task shader target") }
         let validator = ShaderSemanticValidator(capabilities: Self.compilationCapabilities.union(.meshShader),
                                                 allowsVertexWritableStorage: true)
         let validated = try parseAndValidate(input, validator: validator, allow1DTextureSampleLevelOffset: output == .hlsl,
@@ -251,8 +251,12 @@ public struct IndependentShaderCompiler: Sendable {
         let module = try specializeGlobalParameters(specialized, validator: validator)
         let generated = try TaskCodeGenerator(format: .msl, bindingArrayLengths: bindingArrayLengths).generateReflected(module, entryPoint: entryPoint)
         // Vulkan pairs the reflection of the shared description with SPIR-V words from the same module.
-        let reflectedArtifact: ShaderArtifact = output == .spirv
-            ? try SPIRVCodeGenerator(bindingArrayLengths: bindingArrayLengths, entryPoint: entryPoint).generate(module) : generated.artifact
+        let reflectedArtifact: ShaderArtifact
+        switch output {
+        case .spirv: reflectedArtifact = try SPIRVCodeGenerator(bindingArrayLengths: bindingArrayLengths, entryPoint: entryPoint).generate(module)
+        case .hlsl: reflectedArtifact = try TaskCodeGenerator(format: .hlsl, bindingArrayLengths: bindingArrayLengths).generate(module, entryPoint: entryPoint)
+        default: reflectedArtifact = generated.artifact
+        }
         try reflectedArtifact.validateContainer(for: output)
         guard let selected = module.module.entryPoints.first(where: { $0.name == entryPoint && $0.stage == .task }) else { throw ShaderFailure.unsupported("Task metadata") }
         let numeric = try meshNumericCapabilities(module: module.module, entry: selected)
@@ -297,7 +301,7 @@ public struct IndependentShaderCompiler: Sendable {
         _ input: ShaderInput, entryPoint: String, to output: ShaderOutputFormat, constants: [String: Double] = [:],
         bindingArrayLengths: [IRResourceBinding: UInt32] = [:]
     ) throws -> MeshStageArtifact {
-        guard output == .msl || output == .spirv else { throw ShaderFailure.unsupported("Reflected mesh shader target") }
+        guard output == .msl || output == .spirv || output == .hlsl else { throw ShaderFailure.unsupported("Reflected mesh shader target") }
         let validator = ShaderSemanticValidator(capabilities: Self.compilationCapabilities.union([.meshShader, .meshShaderPointTopology]),
                                                 allowsVertexWritableStorage: true)
         let validated = try parseAndValidate(input, validator: validator, allow1DTextureSampleLevelOffset: output == .hlsl,
@@ -313,7 +317,12 @@ public struct IndependentShaderCompiler: Sendable {
         let module = try specializeGlobalParameters(specialized, validator: validator)
         let generated = try MeshMetalCodeGenerator().generateReflected(module, entryPoint: entryPoint, bindingArrayLengths: bindingArrayLengths)
         // Vulkan pairs the reflection of the shared description with SPIR-V words from the same module.
-        let reflectedArtifact: ShaderArtifact = output == .spirv ? try SPIRVCodeGenerator(bindingArrayLengths: bindingArrayLengths, entryPoint: entryPoint).generate(module) : generated.artifact
+        let reflectedArtifact: ShaderArtifact
+        switch output {
+        case .spirv: reflectedArtifact = try SPIRVCodeGenerator(bindingArrayLengths: bindingArrayLengths, entryPoint: entryPoint).generate(module)
+        case .hlsl: reflectedArtifact = try MeshHLSLCodeGenerator(bindingArrayLengths: bindingArrayLengths).generate(module, entryPoint: entryPoint)
+        default: reflectedArtifact = generated.artifact
+        }
         try reflectedArtifact.validateContainer(for: output)
         guard let selected = module.module.entryPoints.first(where: { $0.name == entryPoint && $0.stage == .mesh }), let info = selected.meshInfo else { throw ShaderFailure.unsupported("Mesh metadata") }
         let numeric = try meshNumericCapabilities(module: module.module, entry: selected)

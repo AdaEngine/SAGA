@@ -79,7 +79,25 @@ package struct MeshHLSLCodeGenerator {
             declarations.append("groupshared \(type) saga_mesh_payload;")
             storage[payload.index] = ShaderStorage(reference: "saga_mesh_payload", writable: false)
             payloadParameter = ["in payload \(type) saga_input_payload"]
-            initializePayload = ["        saga_mesh_payload = saga_input_payload;"]
+            // DXC crashes on whole-struct payload copies, so the copy is spelled out member by member.
+            func copy(_ type: IRHandle<IRType>, _ destination: String, _ source: String, depth: Int) throws -> [String] {
+                switch try module.types.value(for: type).kind {
+                case .structure(let members, _):
+                    guard let layout = structures[type] else { throw ShaderFailure.unsupported("Mesh payload structure") }
+                    return try members.enumerated().flatMap { index, member in
+                        try copy(member.type, "\(destination).\(layout.memberName(index))", "\(source).\(layout.memberName(index))", depth: depth)
+                    }
+                case .array(let element, .constant(let count), _):
+                    let counter = "saga_payload_i\(depth)"
+                    return ["for (uint \(counter) = 0u; \(counter) < \(count)u; ++\(counter)) {"]
+                        + (try copy(element, "\(destination).elements[\(counter)]", "\(source).elements[\(counter)]", depth: depth + 1))
+                        + ["}"]
+                default:
+                    return ["\(destination) = \(source);"]
+                }
+            }
+            initializePayload = try copy(module.globalVariables.value(for: payload).type, "saga_mesh_payload", "saga_input_payload", depth: 0)
+                .map { "        " + $0 }
         }
         func interface(_ type: IRHandle<IRType>, name: String, indexBuiltin: IRBuiltIn?) throws -> (String, [String], Int?) {
             guard case .structure(let members, _) = try module.types.value(for: type).kind else { throw ShaderFailure.unsupported("Mesh interface structure") }

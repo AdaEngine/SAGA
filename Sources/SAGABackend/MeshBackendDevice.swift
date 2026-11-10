@@ -53,3 +53,45 @@ package func meshStorageTextureRequirements(
 ) throws -> [StorageTextureRequirement] {
     try bindings.flatMap { try $0.requirements() }
 }
+
+/// Merges the per-stage bindings of a mesh pipeline into the graphics pipeline model that ordinary draw paths understand.
+package func meshRenderSurrogate(_ pipeline: MeshPipeline, colorFormat: TextureFormat) -> RenderPipeline {
+        // Merge the per-stage binding lists into the graphics pipeline model the ordinary draw path understands.
+        var uniforms: [ComputeBindingSlot: RenderPipeline.Uniform] = [:]
+        var storage: [ComputeBindingSlot: RenderPipeline.StorageBufferBinding] = [:]
+        func add(_ bindings: [ComputePipeline.BufferBinding], visibility: UInt32) {
+            for binding in bindings {
+                let handle = RenderPipeline.HandleBinding(slot: binding.slot, vertexIndex: nil, fragmentIndex: nil, visibility: visibility)
+                if binding.usage == .uniform {
+                    let previous = uniforms[binding.slot]
+                    uniforms[binding.slot] = .init(slot: binding.slot, minimumByteSize: max(previous?.minimumByteSize ?? 0, binding.minimumByteSize),
+                                                   vertexIndex: nil, fragmentIndex: nil, visibility: (previous?.visibility ?? 0) | visibility)
+                } else {
+                    storage[binding.slot] = .init(handle: handle, minimumByteSize: max(storage[binding.slot]?.minimumByteSize ?? 0, binding.minimumByteSize),
+                                                  isReadOnly: binding.isReadOnly && (storage[binding.slot]?.isReadOnly ?? true))
+                }
+            }
+        }
+        add(pipeline.taskBufferBindings, visibility: 1)
+        add(pipeline.meshBufferBindings, visibility: 1)
+        add(pipeline.fragmentBufferBindings, visibility: 2)
+        var textures: [ComputeBindingSlot: RenderPipeline.SampledTextureBinding] = [:]
+        for requirement in pipeline.taskTextures + pipeline.meshTextures + pipeline.fragmentTextures {
+            textures[requirement.slot] = .init(handle: .init(slot: requirement.slot, vertexIndex: nil, fragmentIndex: nil, visibility: 3),
+                                               requirement: requirement)
+        }
+        var samplers: [ComputeBindingSlot: RenderPipeline.SamplerBinding] = [:]
+        for requirement in pipeline.taskSamplers + pipeline.meshSamplers + pipeline.fragmentSamplers {
+            samplers[requirement.slot] = .init(handle: .init(slot: requirement.slot, vertexIndex: nil, fragmentIndex: nil, visibility: 3),
+                                               requirement: requirement)
+        }
+        func ordered<T>(_ values: [ComputeBindingSlot: T]) -> [T] {
+            values.sorted { ($0.key.group, $0.key.binding, $0.key.arrayElement ?? 0) < ($1.key.group, $1.key.binding, $1.key.arrayElement ?? 0) }
+                .map(\.value)
+        }
+        return RenderPipeline(
+            id: pipeline.id, colorFormat: colorFormat, depthState: pipeline.depthState, sampleCount: pipeline.sampleCount,
+            sampleMask: pipeline.sampleMask, alphaToCoverageEnabled: pipeline.alphaToCoverageEnabled,
+            primitive: pipeline.primitive, uniforms: ordered(uniforms), storageBuffers: ordered(storage),
+            sampledTextures: ordered(textures), samplerBindings: ordered(samplers))
+}
