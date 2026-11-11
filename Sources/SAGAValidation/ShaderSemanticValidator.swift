@@ -1451,6 +1451,21 @@ private struct SemanticChecker {
           }
         }
       }
+      // Keep each rule family in its own stack frame: the unoptimized monolithic
+      // switch otherwise reserves hundreds of KiB even for a simple expression.
+      if try validateValueExpression(e, declared: declared, table: table, index: i, function: function, currentFunction: currentFunction) { continue }
+      if try validateImageExpression(e, declared: declared, table: table, index: i, function: function, currentFunction: currentFunction) { continue }
+      if try validateOperatorExpression(e, declared: declared, table: table, index: i, function: function, currentFunction: currentFunction) { continue }
+      if try validateCompositeExpression(e, declared: declared, table: table, index: i, function: function, currentFunction: currentFunction) { continue }
+      if try validateAccessExpression(e, declared: declared, table: table, index: i, function: function, currentFunction: currentFunction) { continue }
+      if try validateResultExpression(e, declared: declared, table: table, index: i, function: function, currentFunction: currentFunction) { continue }
+      try unsupported("Expression rule family is not implemented", e.location)
+    }
+  }
+  private mutating func validateValueExpression(
+    _ e: IRExpression, declared: IRTypeKind, table: IRTable<IRExpression>, index i: Int,
+    function: IRFunction?, currentFunction: Int?
+  ) throws -> Bool {
       func operand(_ h: IRHandle<IRExpression>) throws -> IRExpression {
         try need(
           h.index < i, .invalidReference, "Expression references must precede use", e.location)
@@ -1578,6 +1593,23 @@ private struct SemanticChecker {
         try need(
           try layout(base).constructible, .typeMismatch,
           "Ordinary load requires constructible type", e.location)
+      default: return false
+      }
+      return true
+  }
+  private mutating func validateImageExpression(
+    _ e: IRExpression, declared: IRTypeKind, table: IRTable<IRExpression>, index i: Int,
+    function: IRFunction?, currentFunction: Int?
+  ) throws -> Bool {
+      func operand(_ h: IRHandle<IRExpression>) throws -> IRExpression {
+        try need(
+          h.index < i, .invalidReference, "Expression references must precede use", e.location)
+        return try table.value(for: h)
+      }
+      func match(_ expected: IRTypeKind) throws {
+        try need(declared == expected, .typeMismatch, "Expression result type mismatch", e.location)
+      }
+      switch e.kind {
       case .imageSample(let sample):
         let comparison = sample.depthReference != nil
         let imageType = try type(operand(sample.image).type)
@@ -1692,6 +1724,23 @@ private struct SemanticChecker {
           try match(.scalar(.u32))
         default: try fail(.typeMismatch, "Invalid sampled texture query", e.location)
         }
+      default: return false
+      }
+      return true
+  }
+  private mutating func validateOperatorExpression(
+    _ e: IRExpression, declared: IRTypeKind, table: IRTable<IRExpression>, index i: Int,
+    function: IRFunction?, currentFunction: Int?
+  ) throws -> Bool {
+      func operand(_ h: IRHandle<IRExpression>) throws -> IRExpression {
+        try need(
+          h.index < i, .invalidReference, "Expression references must precede use", e.location)
+        return try table.value(for: h)
+      }
+      func match(_ expected: IRTypeKind) throws {
+        try need(declared == expected, .typeMismatch, "Expression result type mismatch", e.location)
+      }
+      switch e.kind {
       case .unary(let op, let x):
         let x = try operand(x)
         switch try type(x.type) {
@@ -1800,6 +1849,23 @@ private struct SemanticChecker {
           }
         }
         }
+      default: return false
+      }
+      return true
+  }
+  private mutating func validateCompositeExpression(
+    _ e: IRExpression, declared: IRTypeKind, table: IRTable<IRExpression>, index i: Int,
+    function: IRFunction?, currentFunction: Int?
+  ) throws -> Bool {
+      func operand(_ h: IRHandle<IRExpression>) throws -> IRExpression {
+        try need(
+          h.index < i, .invalidReference, "Expression references must precede use", e.location)
+        return try table.value(for: h)
+      }
+      func match(_ expected: IRTypeKind) throws {
+        try need(declared == expected, .typeMismatch, "Expression result type mismatch", e.location)
+      }
+      switch e.kind {
       case .select(let cond, let a, let b):
         let c = try operand(cond)
         let x = try operand(a)
@@ -1878,6 +1944,23 @@ private struct SemanticChecker {
           }
         default: try unsupported("Constructor overload not implemented", e.location)
         }
+      default: return false
+      }
+      return true
+  }
+  private mutating func validateAccessExpression(
+    _ e: IRExpression, declared: IRTypeKind, table: IRTable<IRExpression>, index i: Int,
+    function: IRFunction?, currentFunction: Int?
+  ) throws -> Bool {
+      func operand(_ h: IRHandle<IRExpression>) throws -> IRExpression {
+        try need(
+          h.index < i, .invalidReference, "Expression references must precede use", e.location)
+        return try table.value(for: h)
+      }
+      func match(_ expected: IRTypeKind) throws {
+        try need(declared == expected, .typeMismatch, "Expression result type mismatch", e.location)
+      }
+      switch e.kind {
       case .accessIndex(let base, let index):
         let b = try operand(base)
         try accessResult(baseType: b.type, index: index, result: e.type, loc: e.location)
@@ -1942,6 +2025,23 @@ private struct SemanticChecker {
         try match(.scalar(.bool))
       case .math(let fn, let arg, let arg1, let arg2, let arg3):
         try validateMathExpression(fn, arg, arg1, arg2, arg3, expression: e, table: table, index: i)
+      default: return false
+      }
+      return true
+  }
+  private mutating func validateResultExpression(
+    _ e: IRExpression, declared: IRTypeKind, table: IRTable<IRExpression>, index i: Int,
+    function: IRFunction?, currentFunction: Int?
+  ) throws -> Bool {
+      func operand(_ h: IRHandle<IRExpression>) throws -> IRExpression {
+        try need(
+          h.index < i, .invalidReference, "Expression references must precede use", e.location)
+        return try table.value(for: h)
+      }
+      func match(_ expected: IRTypeKind) throws {
+        try need(declared == expected, .typeMismatch, "Expression result type mismatch", e.location)
+      }
+      switch e.kind {
       case .callResult(let target):
         guard let currentFunction, target.index < currentFunction else {
           try fail(.invalidReference, "Calls must target earlier functions", e.location)
@@ -2014,9 +2114,9 @@ private struct SemanticChecker {
         try need(
           s.kind == .float && (try same(x.type, e.type)), .typeMismatch, "Derivative type mismatch",
           e.location)
-      default: try unsupported("Expression rule family is not implemented", e.location)
+      default: return false
       }
-    }
+      return true
   }
   mutating func staticAccessIndex(
     _ index: IRHandle<IRExpression>, in expressions: IRTable<IRExpression>,

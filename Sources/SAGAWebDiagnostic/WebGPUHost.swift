@@ -473,6 +473,8 @@ struct WebGPUHost: BrowserGPUPresentationHost, SamplerBackendDevice, TextureView
                                  blendConstant: blendConstant, additionalColors: additionalColors, raster: raster, immediates: immediates)
                 packet.add(index)
                 packet.add(draw.firstIndex); packet.add(draw.baseVertex)
+            case .renderMultiIndirect:
+                throw GPUError.unsupported("WebGPU host does not implement multi-draw indirect")
             case .drawMesh:
                 throw GPUError.unsupported("WebGPU host does not implement mesh draws")
             case .renderIndirect(let pipeline, let target, let colorLoad, let arguments, let offset, let index, let vertexBuffers, let uniforms, let textures, let samplers, let targetMipLevel, let targetDepthSlice, let depth, let resolve, let blendConstant, let additionalColors, let raster, let storageBuffers, let immediates, let colorStore):

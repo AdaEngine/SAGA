@@ -1,5 +1,5 @@
 """Fail-closed foundation dependency/module audit. Not a malicious-code sandbox."""
-import json, pathlib, re, subprocess
+import hashlib, json, pathlib, re, subprocess
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 POLICY = json.loads((ROOT/'docs/runtime-policy.json').read_text())
 WEB_FILES = {'web/index.html','web/reactor.mjs','web/wasi.mjs','web/webgpu.mjs',
@@ -38,6 +38,7 @@ def is_docc_markdown(path):
 def unexpected_project_files(paths):
     def allowed(p):
         path=pathlib.PurePosixPath(p)
+        if p in POLICY['standalone_benchmark_files'] or p in POLICY['archived_shader_artifacts']: return True
         if path.name in {'Cargo.toml','Cargo.lock','Package.resolved','package.json'} or path.suffix in {'.rs','.c','.h','.cpp','.m','.mm','.a','.dylib','.so','.wasm','.modulemap'}: return False
         if p in {'IDEA.md','README.md','AGENTS.md','Package.swift','.gitignore','.spi.yml'} | WEB_FILES: return True
         if p.startswith(('docs/','.sloppy/plans/')): return True
@@ -63,7 +64,8 @@ def audit_package(package):
             else: deps.append(d['byName'][0])
         if deps != POLICY['graph'].get(name): errors.append('dependency edges differ '+name)
         if t.get('type') != POLICY['target_types'].get(name): errors.append('non-Swift target '+name)
-        for k in ['settings','resources','exclude','providers','pluginUsages']:
+        if t.get('settings', []) != POLICY.get('target_settings', {}).get(name, []): errors.append('unexpected target settings '+name)
+        for k in ['resources','exclude','providers','pluginUsages']:
             if t.get(k): errors.append('unexpected target '+k+' '+name)
         for k in ['path','sources','publicHeadersPath','pkgConfig','url','checksum']:
             if t.get(k) is not None: errors.append('custom target '+k+' '+name)
@@ -74,17 +76,31 @@ def audit_package(package):
 
 def audit_source(path, text):
     parts=pathlib.PurePosixPath(path).parts; module=parts[1]
-    allowed=set(POLICY['graph'].get(module,[])) | set(POLICY['extra_imports'].get(module,[]))
+    allowed=set(POLICY['graph'].get(module,[])) | set(POLICY['extra_imports'].get(module,[])) | set(POLICY.get('file_imports', {}).get(path, []))
     errors=[]
-    # Comments aren't stripped: suspicious exceptions must be reviewed rather than hidden in comments.
-    for match in re.finditer(r'\bimport\s+(?:(?:struct|class|enum|protocol|func|var|let|typealias)\s+)?([A-Za-z_]\w*)',text):
+    # Import declarations, not prose such as 'No SDK headers or import libraries'.
+    for match in re.finditer(r'(?:^|;)\s*(?:@\w+(?:\([^\n]*?\))?\s+)*import\s+(?:(?:struct|class|enum|protocol|func|var|let|typealias)\s+)?([A-Za-z_]\w*)',text, re.M):
         if match[1] not in allowed: errors.append(f'{path}: forbidden import {match[1]}')
     if path == WEB_REACTOR and text.startswith('#if os(WASI) && compiler(>=6.3)\n') and text.rstrip().endswith('#endif'):
         text=re.sub(r'^@_extern\(wasm, module: "saga_host", name: "(schedule|request|copyReply|finish)"\)$','',text,flags=re.M)
         text=re.sub(r'^@_expose\(wasm, "(saga_run_job|saga_reply|saga_start)"\)$','',text,flags=re.M)
+    exception = POLICY.get('native_abi_exceptions', {}).get(path, {})
+    exact_exception = (exception.get('sha256') == hashlib.sha256(text.encode()).hexdigest()
+                       and bool(exception.get('reason')))
     for pattern in [r'@unchecked\s+Sendable',r'@_?(?:silgen_name|cdecl|extern|expose)\b',r'unsafeBitCast\b',r'\bdlopen\b',r'\bnonisolated\s*\(unsafe\)',r'@preconcurrency\b']:
-        if re.search(pattern,text): errors.append(f'{path}: unsafe escape {pattern}')
+        if re.search(pattern,text) and not (exact_exception and pattern in exception['patterns']):
+            errors.append(f'{path}: unsafe escape {pattern}')
     return errors
+
+def audit_manifest(manifest):
+    # Exact platform-conditioned system links only; audit_package checks the evaluated settings too.
+    for declaration in POLICY['manifest_linker_declarations']:
+        if manifest.count(declaration) != 1:
+            return ['missing or repeated reviewed system link '+declaration]
+        manifest = manifest.replace(declaration, '', 1)
+    if re.search(r'unsafeFlags|linkedLibrary|linkedFramework|binaryTarget|systemLibrary|plugin\s*\(|@_silgen_name',manifest):
+        return ['unsafe manifest escape']
+    return []
 
 def audit(root=ROOT):
     package=json.loads(subprocess.check_output(['swift','package','--package-path',str(root),'dump-package'],text=True))
@@ -108,8 +124,15 @@ def audit(root=ROOT):
             if is_docc_markdown(pathlib.PurePosixPath(relative)): continue
             if p.suffix!='.swift': errors.append('foreign or symlink source '+relative)
             else: errors += audit_source(relative,p.read_text())
-    manifest=(root/'Package.swift').read_text()
-    if re.search(r'unsafeFlags|linkedLibrary|linkedFramework|binaryTarget|systemLibrary|plugin\s*\(|@_silgen_name',manifest): errors.append('unsafe manifest escape')
+    for relative, digest in POLICY['standalone_benchmark_hashes'].items():
+        file = root/relative
+        if file.is_symlink() or not file.is_file() or hashlib.sha256(file.read_bytes()).hexdigest() != digest:
+            errors.append('standalone benchmark hash drift '+relative)
+    for relative, artifact in POLICY['archived_shader_artifacts'].items():
+        file = root/relative
+        if file.is_symlink() or not file.is_file() or hashlib.sha256(file.read_bytes()).hexdigest() != artifact['sha256']:
+            errors.append('archived shader artifact hash drift '+relative)
+    errors += audit_manifest((root/'Package.swift').read_text())
     if errors: raise AssertionError('\n'.join(errors))
     return {'status':'pass','targets':len(package['targets']),'external_dependencies':0,'scope':'foundation dependency/module policy, not GPU/compiler conformance'}
 if __name__=='__main__': print(json.dumps(audit(),indent=2))

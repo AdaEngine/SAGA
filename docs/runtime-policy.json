@@ -59,7 +59,9 @@
       "SAGABackends",
       "SAGACompiler",
       "SAGAMetal",
-      "SAGAWebGPU"
+      "SAGAWebGPU",
+      "SAGAVulkan",
+      "SAGAD3D12"
     ],
     "SAGAMetalDiagnostic": [
       "SAGATypes",
@@ -80,9 +82,39 @@
       "SAGAShaderIR",
       "SAGACompiler",
       "SAGAWebGPU"
+    ],
+    "SAGABenchmark": [
+      "SAGATypes",
+      "SAGACore",
+      "SAGACompiler",
+      "SAGAVulkan"
+    ],
+    "SAGAVulkan": [
+      "SAGATypes",
+      "SAGABackend",
+      "SAGAShaderIR",
+      "SAGACompiler"
+    ],
+    "SAGAD3D12": [
+      "SAGATypes",
+      "SAGABackend",
+      "SAGAShaderIR",
+      "SAGACompiler"
     ]
   },
   "products": {
+    "SAGAMetalDiagnostic": [
+      "SAGAMetalDiagnostic"
+    ],
+    "SAGAMetalWindowDiagnostic": [
+      "SAGAMetalWindowDiagnostic"
+    ],
+    "SAGAWebDiagnostic": [
+      "SAGAWebDiagnostic"
+    ],
+    "SAGABenchmark": [
+      "SAGABenchmark"
+    ],
     "SAGA": [
       "SAGA"
     ],
@@ -95,14 +127,11 @@
     "SAGAWebGPU": [
       "SAGAWebGPU"
     ],
-    "SAGAMetalDiagnostic": [
-      "SAGAMetalDiagnostic"
+    "SAGAVulkan": [
+      "SAGAVulkan"
     ],
-    "SAGAMetalWindowDiagnostic": [
-      "SAGAMetalWindowDiagnostic"
-    ],
-    "SAGAWebDiagnostic": [
-      "SAGAWebDiagnostic"
+    "SAGAD3D12": [
+      "SAGAD3D12"
     ]
   },
   "extra_imports": {
@@ -125,6 +154,21 @@
     ],
     "SAGAWebDiagnostic": [
       "_Concurrency"
+    ],
+    "SAGAVulkan": [
+      "Dispatch",
+      "WinSDK",
+      "Glibc",
+      "Musl",
+      "Android",
+      "Darwin"
+    ],
+    "SAGAD3D12": [
+      "WinSDK"
+    ],
+    "SAGABenchmark": [
+      "Foundation",
+      "WinSDK"
     ]
   },
   "target_types": {
@@ -142,15 +186,227 @@
     "SAGAFoundationTests": "test",
     "SAGAMetalDiagnostic": "executable",
     "SAGAMetalWindowDiagnostic": "executable",
-    "SAGAWebDiagnostic": "executable"
+    "SAGAWebDiagnostic": "executable",
+    "SAGABenchmark": "executable",
+    "SAGAVulkan": "regular",
+    "SAGAD3D12": "regular"
   },
   "product_types": {
+    "SAGAMetalDiagnostic": "executable",
+    "SAGAMetalWindowDiagnostic": "executable",
+    "SAGAWebDiagnostic": "executable",
+    "SAGABenchmark": "executable",
     "SAGA": "library",
     "SAGACompiler": "library",
     "SAGAMetal": "library",
     "SAGAWebGPU": "library",
-    "SAGAMetalDiagnostic": "executable",
-    "SAGAMetalWindowDiagnostic": "executable",
-    "SAGAWebDiagnostic": "executable"
+    "SAGAVulkan": "library",
+    "SAGAD3D12": "library"
+  },
+  "target_settings": {
+    "SAGABenchmark": [
+      {
+        "condition": {
+          "platformNames": [
+            "windows"
+          ]
+        },
+        "kind": {
+          "linkedLibrary": {
+            "_0": "winmm"
+          }
+        },
+        "tool": "linker"
+      }
+    ],
+    "SAGAShaderIR": [
+      {
+        "condition": {
+          "platformNames": [
+            "linux"
+          ]
+        },
+        "kind": {
+          "linkedLibrary": {
+            "_0": "m"
+          }
+        },
+        "tool": "linker"
+      }
+    ]
+  },
+  "file_imports": {
+    "Tests/SAGAFoundationTests/MeshFragmentGLSLResourceLayoutTests.swift": [
+      "Foundation"
+    ],
+    "Tests/SAGAFoundationTests/FrontendIntegrationTests.swift": [
+      "Foundation"
+    ],
+    "Tests/SAGAFoundationTests/D3D12ComputeTests.swift": [
+      "Foundation",
+      "WinSDK"
+    ],
+    "Tests/SAGAFoundationTests/VulkanComputeTests.swift": [
+      "Foundation",
+      "WinSDK"
+    ],
+    "Tests/SAGAFoundationTests/VulkanLinuxPresentationTests.swift": [
+      "Glibc"
+    ]
+  },
+  "standalone_benchmark_files": [
+    "Benchmarks/README.md",
+    "Benchmarks/shaders/alu.wgsl",
+    "Benchmarks/shaders/empty.wgsl",
+    "Benchmarks/shaders/stream.wgsl",
+    "Benchmarks/wgpu-bench/.gitignore",
+    "Benchmarks/wgpu-bench/Cargo.toml",
+    "Benchmarks/wgpu-bench/src/main.rs"
+  ],
+  "standalone_benchmark_hashes": {
+    "Benchmarks/wgpu-bench/Cargo.toml": "12bf2815b529591f7935d336dda265c6f1c26037b1026ce91666c56cdd3d7d1c",
+    "Benchmarks/wgpu-bench/src/main.rs": "12f2562ca50ba5f89ab2d46ef8c0b380ce4978d71dbf3d18b38941d6dbc21d8f"
+  },
+  "manifest_linker_declarations": [
+    ".linkedLibrary(\"winmm\", .when(platforms: [.windows]))",
+    ".linkedLibrary(\"m\", .when(platforms: [.linux]))"
+  ],
+  "native_abi_exceptions": {
+    "Sources/SAGAD3D12/D3D12Textures.swift": {
+      "sha256": "df821a082c54192151de6492e305d500780597b432b2f2fde8f4ac35999c15c1",
+      "patterns": [
+        "@unchecked\\s+Sendable"
+      ],
+      "reason": "Windows COM/DXC/DXGI ABI boundary per native-backends ADR; raw pointers are confined to this backend. Hash records existing unchecked ownership; this policy is not a concurrency-safety proof."
+    },
+    "Sources/SAGAD3D12/D3D12Render.swift": {
+      "sha256": "2e1cb7e8616f6fa2680c0945a98f0b657ff3497b2f4f874933883d9589400ea6",
+      "patterns": [
+        "@unchecked\\s+Sendable"
+      ],
+      "reason": "Windows COM/DXC/DXGI ABI boundary per native-backends ADR; raw pointers are confined to this backend. Hash records existing unchecked ownership; this policy is not a concurrency-safety proof."
+    },
+    "Sources/SAGAD3D12/D3D12Debug.swift": {
+      "sha256": "958c47cb28c7b693d57ea55450abc109f26cc7560f11e85d5b62a10444647af5",
+      "patterns": [
+        "unsafeBitCast\\b",
+        "\\bnonisolated\\s*\\(unsafe\\)"
+      ],
+      "reason": "Windows COM/DXC/DXGI ABI boundary per native-backends ADR; raw pointers are confined to this backend. Hash records existing unchecked ownership; this policy is not a concurrency-safety proof. Existing process-global diagnostic device remains an explicit concurrency risk requiring separate source review."
+    },
+    "Sources/SAGAD3D12/D3D12Presentation.swift": {
+      "sha256": "16f04def434477d1e0acb22c84125f7cdea6499358bd670471b8e66586de10ab",
+      "patterns": [
+        "@unchecked\\s+Sendable",
+        "unsafeBitCast\\b"
+      ],
+      "reason": "Windows COM/DXC/DXGI ABI boundary per native-backends ADR; raw pointers are confined to this backend. Hash records existing unchecked ownership; this policy is not a concurrency-safety proof."
+    },
+    "Sources/SAGAD3D12/D3D12DXC.swift": {
+      "sha256": "452c434a5a29d0ea628b315b0e02bf2bc41a5d59b96359c8889ea6e016655819",
+      "patterns": [
+        "@unchecked\\s+Sendable",
+        "unsafeBitCast\\b"
+      ],
+      "reason": "Windows COM/DXC/DXGI ABI boundary per native-backends ADR; raw pointers are confined to this backend. Hash records existing unchecked ownership; this policy is not a concurrency-safety proof."
+    },
+    "Sources/SAGAD3D12/D3D12ABI.swift": {
+      "sha256": "73771874b183f6055b37b15fc24e8742ed36893b1ad019d8227ff86d7067290b",
+      "patterns": [
+        "@unchecked\\s+Sendable",
+        "unsafeBitCast\\b"
+      ],
+      "reason": "Windows COM/DXC/DXGI ABI boundary per native-backends ADR; raw pointers are confined to this backend. Hash records existing unchecked ownership; this policy is not a concurrency-safety proof."
+    },
+    "Sources/SAGAVulkan/VulkanDevice.swift": {
+      "sha256": "4f0ebec4b459c968677349590790bcbec52eec5d5d8859a55ac93e5b9e8699c2",
+      "patterns": [
+        "unsafeBitCast\\b"
+      ],
+      "reason": "System Vulkan entry points resolved at runtime and cast to typed C ABI, per add-vulkan-and-direct3d-native-backends ADR; not a shader compiler bridge."
+    },
+    "Sources/SAGAVulkan/VulkanPresentation.swift": {
+      "sha256": "10a1ee240b15a3b6444ebceca6c7a9a5e41f1403c940cd1c6be45b6001d25227",
+      "patterns": [
+        "unsafeBitCast\\b"
+      ],
+      "reason": "System Vulkan entry points resolved at runtime and cast to typed C ABI, per add-vulkan-and-direct3d-native-backends ADR; not a shader compiler bridge."
+    },
+    "Sources/SAGAVulkan/VulkanRay.swift": {
+      "sha256": "cb056865b34862f2e3a93f99e021b924403a5d1410d9b3a74678dc17ae613130",
+      "patterns": [
+        "unsafeBitCast\\b"
+      ],
+      "reason": "System Vulkan entry points resolved at runtime and cast to typed C ABI, per add-vulkan-and-direct3d-native-backends ADR; not a shader compiler bridge."
+    },
+    "Sources/SAGAVulkan/VulkanLoader.swift": {
+      "sha256": "20c0a16feaeef7b498ab4603921554c66c3d42a3acf8f713d11769f6ec9fc6b0",
+      "patterns": [
+        "unsafeBitCast\\b",
+        "\\bdlopen\\b"
+      ],
+      "reason": "System Vulkan entry points resolved at runtime and cast to typed C ABI, per add-vulkan-and-direct3d-native-backends ADR; not a shader compiler bridge."
+    },
+    "Sources/SAGAVulkan/VulkanGraphicsFunctions.swift": {
+      "sha256": "59542b2ac0b3947d408dbbbfa0c1eec276c7d93e7d7e216caea77ec65d888db3",
+      "patterns": [
+        "unsafeBitCast\\b"
+      ],
+      "reason": "System Vulkan entry points resolved at runtime and cast to typed C ABI, per add-vulkan-and-direct3d-native-backends ADR; not a shader compiler bridge."
+    },
+    "Sources/SAGAVulkan/VulkanAdapter.swift": {
+      "sha256": "20939115d72e3a380f78b30f6be37e4959e2f9fa9358c8035452a282b9c9d512",
+      "patterns": [
+        "unsafeBitCast\\b"
+      ],
+      "reason": "System Vulkan entry points resolved at runtime and cast to typed C ABI, per add-vulkan-and-direct3d-native-backends ADR; not a shader compiler bridge."
+    },
+    "Sources/SAGAVulkan/VulkanFeatures.swift": {
+      "sha256": "35212512c6de09c38ea32518fde02c8312c9809425446699e32242edf0d9491f",
+      "patterns": [
+        "unsafeBitCast\\b"
+      ],
+      "reason": "System Vulkan entry points resolved at runtime and cast to typed C ABI, per add-vulkan-and-direct3d-native-backends ADR; not a shader compiler bridge."
+    },
+    "Sources/SAGABenchmark/Spike.swift": {
+      "sha256": "ce00b5899998345d09bf0b43ffba4d3f9f70c1218e9cc5b99b41ccce10daa406",
+      "patterns": [
+        "\\bnonisolated\\s*\\(unsafe\\)"
+      ],
+      "reason": "Standalone benchmark optimizer sink, not a runtime-library state variable; used by the sequential runSpike probes."
+    },
+    "Tests/SAGAFoundationTests/D3D12ComputeTests.swift": {
+      "sha256": "b1390ef95f6cace479e2bf9a70f61cc0ce5d50e887a8a55b4b230aa1eb834c1c",
+      "patterns": [
+        "@unchecked\\s+Sendable"
+      ],
+      "reason": "Windows-only test window owned by a dedicated Thread and coordinated with semaphores; unchecked handle wrapper is not linked into runtime products."
+    },
+    "Tests/SAGAFoundationTests/VulkanLinuxPresentationTests.swift": {
+      "sha256": "c5b2252640958b85cc7d32c29e92bbfdfe3df5554baf3a884d2a5103a169399f",
+      "patterns": [
+        "unsafeBitCast\\b",
+        "\\bdlopen\\b",
+        "\\bnonisolated\\s*\\(unsafe\\)"
+      ],
+      "reason": "Linux-only real Xlib/Wayland presentation fixture uses system dynamic entry points and synchronous registry callback state; not linked into the runtime product."
+    },
+    "Tests/SAGAFoundationTests/VulkanComputeTests.swift": {
+      "sha256": "b8315eca0f3dbab6b31ca8b21a245673d793fb35cb5eef43bc0391794f9dd7a5",
+      "patterns": [
+        "@unchecked\\s+Sendable"
+      ],
+      "reason": "Windows-only test window owned by a dedicated Thread and coordinated with semaphores; unchecked handle wrapper is not linked into runtime products."
+    }
+  },
+  "archived_shader_artifacts": {
+    "comp.spv": {
+      "sha256": "06089d4fff4cb631a7eb62b3f611da877de3ad69df5f88eb6b2f94539d6336c8",
+      "reason": "Existing tracked SPIR-V output from commit 47fc200; not referenced by runtime, not a SwiftPM resource, and not conformance evidence. Original shader provenance not established by this policy audit."
+    },
+    "task.spv": {
+      "sha256": "0acc32215b129c2406c33beaad966edb8af9f6dc3790820434ead0f78d125a08",
+      "reason": "Existing tracked SPIR-V output from commit 47fc200; not referenced by runtime, not a SwiftPM resource, and not conformance evidence. Original shader provenance not established by this policy audit."
+    }
   }
 }

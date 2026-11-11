@@ -11,7 +11,10 @@ jobs:
         swift: ['6.2.4', '6.3.2']
     steps:
       - uses: actions/checkout@v4
-      - uses: swift-actions/setup-swift@v2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: swift-actions/setup-swift@364295d9c23900ce04d4e5cc708387921b4e50f9 # v3
         with:
           swift-version: ${{ matrix.swift }}
       - name: Record actual compiler and enforce expected release
@@ -37,9 +40,16 @@ jobs:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
-      - uses: swift-actions/setup-swift@v2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: swift-actions/setup-swift@364295d9c23900ce04d4e5cc708387921b4e50f9 # v3
         with:
           swift-version: '6.3.2'
+      - name: Record actual compiler and enforce expected release
+        run: |
+          swift --version
+          swift --version | grep -F "version 6.3.2 "
       - name: Install checksum-pinned matching official Wasm SDK
         run: python3 scripts/install-web-sdk.py
       - name: Compile Swift boundaries for Wasm

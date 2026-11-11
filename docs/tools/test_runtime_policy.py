@@ -1,5 +1,5 @@
 import copy, hashlib, importlib.util, json, os, pathlib, subprocess, unittest
-from runtime_policy import ROOT, POLICY, audit, audit_package, audit_source, unexpected_project_files
+from runtime_policy import ROOT, POLICY, audit, audit_package, audit_source, audit_manifest, unexpected_project_files
 from generate_compiler_inventory import generate, PIN
 
 class RuntimePolicyTests(unittest.TestCase):
@@ -35,6 +35,72 @@ class RuntimePolicyTests(unittest.TestCase):
         package=copy.deepcopy(self.package)
         package['targets'].append({'name':'UnexpectedCLI','type':'executable','dependencies':[]})
         self.assertTrue(audit_package(package))
+
+    def test_native_graph_has_only_reviewed_platform_links(self):
+        self.assertEqual(audit_package(self.package), [])
+        for name in ['SAGAVulkan', 'SAGAD3D12', 'SAGABenchmark']:
+            package = copy.deepcopy(self.package)
+            next(t for t in package['targets'] if t['name'] == name)['dependencies'].append({'byName': ['SAGAMetal', None]})
+            self.assertTrue(audit_package(package))
+        for name in ['SAGAShaderIR', 'SAGABenchmark']:
+            for mutation in ['library', 'platform', 'extra', 'missing']:
+                package = copy.deepcopy(self.package)
+                target = next(t for t in package['targets'] if t['name'] == name)
+                if mutation == 'library': target['settings'][0]['kind']['linkedLibrary']['_0'] = 'naga'
+                elif mutation == 'platform': target['settings'][0]['condition']['platformNames'] = ['macos']
+                elif mutation == 'extra': target['settings'].append({'unsafeFlags': ['-lNaga']})
+                else: target['settings'] = []
+                self.assertTrue(audit_package(package), (name, mutation))
+        manifest = (ROOT/'Package.swift').read_text()
+        self.assertEqual(audit_manifest(manifest), [])
+        for addition in ['.linkedLibrary("naga")', '.linkedFramework("Metal")', '.unsafeFlags(["-lnaga"])']:
+            self.assertTrue(audit_manifest(manifest + addition))
+        declaration = POLICY['manifest_linker_declarations'][0]
+        self.assertTrue(audit_manifest(manifest + declaration))
+        self.assertTrue(audit_manifest(manifest.replace(declaration, '')))
+
+    def test_native_abi_exceptions_require_exact_reviewed_source(self):
+        for path, exception in POLICY['native_abi_exceptions'].items():
+            text = (ROOT/path).read_text()
+            self.assertTrue(exception['reason'], path)
+            self.assertEqual(hashlib.sha256(text.encode()).hexdigest(), exception['sha256'], path)
+            self.assertEqual(audit_source(path, text), [], path)
+            # Even a copied declaration or changed context invalidates the entire exception.
+            self.assertTrue(audit_source(path, text + '\nunsafeBitCast(x, to: Int.self)'), path)
+            self.assertTrue(audit_source(path, text + '\n// context changed'), path)
+            self.assertTrue(audit_source(path.replace('.swift', 'Copy.swift'), text), path)
+        for module in ['SAGAVulkan', 'SAGAD3D12', 'SAGABenchmark']:
+            for text in ['import Naga', 'import wgpu', 'import Foo; import Naga', '@_silgen_name("naga")']:
+                self.assertTrue(audit_source(f'Sources/{module}/Foreign.swift', text))
+
+    def test_standalone_rust_benchmark_is_not_a_swift_dependency(self):
+        files = POLICY['standalone_benchmark_files']
+        self.assertEqual(unexpected_project_files(files), [])
+        for path in ['Benchmarks/wgpu-bench/src/foreign.rs', 'Benchmarks/other/Cargo.toml',
+                     'Sources/SAGAVulkan/bridge.rs', 'Benchmarks/wgpu-bench/Cargo.lock']:
+            self.assertEqual(unexpected_project_files([path]), [path])
+        self.assertEqual(set(POLICY['standalone_benchmark_hashes']), {
+            'Benchmarks/wgpu-bench/Cargo.toml', 'Benchmarks/wgpu-bench/src/main.rs'})
+        for path, digest in POLICY['standalone_benchmark_hashes'].items():
+            self.assertEqual(hashlib.sha256((ROOT/path).read_bytes()).hexdigest(), digest)
+        self.assertEqual(self.package['dependencies'], [])
+        self.assertFalse(any(t.get('path', '').startswith('Benchmarks/') for t in self.package['targets']))
+
+    def test_archived_shader_outputs_have_fixed_identity(self):
+        self.assertEqual(set(POLICY['archived_shader_artifacts']), {'comp.spv', 'task.spv'})
+        self.assertEqual(unexpected_project_files(['comp.spv', 'task.spv']), [])
+        for path, artifact in POLICY['archived_shader_artifacts'].items():
+            self.assertTrue(artifact['reason'])
+            self.assertEqual(hashlib.sha256((ROOT/path).read_bytes()).hexdigest(), artifact['sha256'])
+        for path in ['foreign.spv', 'Sources/SAGAVulkan/comp.spv', 'Benchmarks/comp.spv']:
+            self.assertEqual(unexpected_project_files([path]), [path])
+
+    def test_import_prose_is_not_a_declaration(self):
+        path = 'Sources/SAGAD3D12/Example.swift'
+        self.assertEqual(audit_source(path, '// No SDK headers or import libraries are needed.'), [])
+        self.assertTrue(audit_source(path, '@preconcurrency import WinSDK'))
+        self.assertTrue(audit_source(path, 'import WinSDK; import Naga'))
+        self.assertTrue(audit_source(path, '@testable import Naga'))
 
     def test_wrong_tools_language_and_graph_rejected(self):
         for key,value in [('toolsVersion',{'_version':'6.3.0'}),('swiftLanguageVersions',['5'])]:
