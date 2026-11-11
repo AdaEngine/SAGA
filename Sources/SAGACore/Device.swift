@@ -797,6 +797,11 @@ public actor Device {
     }
 
     public func submitCommands(_ commands: [BufferCommand]) throws -> CommandTicket {
+        try submit(CommandList(commands))
+    }
+
+    /// Validates and queues a recorded list. Compact records are validated without rebuilding `BufferCommand` values.
+    public func submit(_ list: CommandList) throws -> CommandTicket {
         let commandBackend: any CommandBackendDevice
         do {
             try Task.checkCancellation()
@@ -822,8 +827,16 @@ public actor Device {
                 return descriptor
             }
             var availableBuilds = builtAccelerationStructures.union(pendingAccelerationBuilds.keys)
-            for command in commands {
+            for record in list.records {
+                if record.kind != .legacy {
+                    try list.forEachResource(of: record) { try requireGPUResource($0) }
+                    try list.validate(record, device: identity, descriptors: descriptors,
+                                      maxComputeWorkgroupsPerDimension: capabilities.maxComputeWorkgroupsPerDimension)
+                    continue
+                }
+                let command = list.command(for: record)
                 for id in command.resources { try requireGPUResource(id) }
+                if !command.skipsAccelerationTracking {
                 let pass = command.recordedPass.command
                 if case .drawMesh(let pipeline, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _) = pass {
                     guard case .meshPipeline(let registered) = resources[pipeline.id]?.descriptor,
@@ -831,13 +844,16 @@ public actor Device {
                         throw GPUError.validation("Unknown mesh pipeline")
                     }
                 }
-                if let dispatch = pass.computeDispatch {
+                if let dispatch = pass.computeDispatch, !dispatch.accelerationStructures.isEmpty {
                     guard Set(dispatch.accelerationStructures.values).isSubset(of: availableBuilds) else {
                         throw GPUError.validation("Compute acceleration structure has not been built")
                     }
                 }
-                guard Set(pass.renderAccelerationStructures).isSubset(of: availableBuilds) else {
-                    throw GPUError.validation("Render acceleration structure has not been built")
+                let renderStructures = pass.renderAccelerationStructures
+                if !renderStructures.isEmpty {
+                    guard Set(renderStructures).isSubset(of: availableBuilds) else {
+                        throw GPUError.validation("Render acceleration structure has not been built")
+                    }
                 }
                 switch pass {
                 case .buildAccelerationStructure(let destination, _), .buildBoxAccelerationStructure(let destination, _),
@@ -872,6 +888,7 @@ public actor Device {
                         throw GPUError.validation("Top-level acceleration structure references an unbuilt BLAS")
                     }
                 }
+                }
                 try command.validate(device: identity, descriptors: descriptors, textures: textures,
                                      samplerDescriptors: samplerDescriptors, textureViews: textureViews,
                                      maximumViewportDimension: capabilities.maxTextureDimension2D, maxVertexBuffers: capabilities.maxVertexBuffers,
@@ -890,22 +907,25 @@ public actor Device {
         } catch {
             let error = normalize(error); record(error); throw error
         }
-        let buildDestinations = Set(commands.compactMap { command -> ResourceID? in
+        let buildDestinations = Set(list.legacyCommands.compactMap { command -> ResourceID? in
+            if command.skipsAccelerationTracking { return nil }
             switch command.recordedPass.command {
             case .buildAccelerationStructure(let destination, _), .buildBoxAccelerationStructure(let destination, _),
-                 .buildTopLevelAccelerationStructure(let destination, _): destination
-            default: nil
+                 .buildTopLevelAccelerationStructure(let destination, _): return destination
+            default: return nil
             }
         })
-        let (sequence, completion) = try enqueue(commands.flatMap(\.resources)) { submission in
-            try await self.submitAccelerationCommands(submission, commands: commands, builds: buildDestinations, backend: commandBackend)
+        let (sequence, completion) = try enqueue(Array(Set(list.resources))) { submission in
+            // Every command passed the shared validator against these pinned resources above.
+            try await self.submitAccelerationCommands(submission.markingCommandsValidated(), list: list,
+                                                      builds: buildDestinations, backend: commandBackend)
         }
         for id in buildDestinations { pendingAccelerationBuilds[id, default: 0] += 1 }
         return CommandTicket(sequence: sequence, completion: completion)
     }
 
     private func submitAccelerationCommands(
-        _ submission: Submission, commands: [BufferCommand], builds: Set<ResourceID>, backend: any CommandBackendDevice
+        _ submission: Submission, list: CommandList, builds: Set<ResourceID>, backend: any CommandBackendDevice
     ) async throws -> [[UInt32]] {
         defer {
             for id in builds {
@@ -914,7 +934,7 @@ public actor Device {
             }
         }
         var available = builtAccelerationStructures
-        for command in commands {
+        for command in list.legacyCommands where !command.skipsAccelerationTracking {
             let pass = command.recordedPass.command
             if let dispatch = pass.computeDispatch,
                !Set(dispatch.accelerationStructures.values).isSubset(of: available) {
@@ -935,9 +955,9 @@ public actor Device {
             }
         }
         builtAccelerationStructures.subtract(builds)
-        let result = try await backend.submitCommands(submission, commands: commands)
+        let result = try await backend.submitCommandList(submission, list: list)
         var replacementDependencies: [ResourceID: Set<ResourceID>] = [:]
-        for command in commands {
+        for command in list.legacyCommands where !command.skipsAccelerationTracking {
             if case .buildTopLevelAccelerationStructure(let destination, let instances) = command.recordedPass.command {
                 replacementDependencies[destination] = Set(instances.map(\.accelerationStructure))
             }

@@ -7,6 +7,25 @@ import SAGAShaderIR
 import SAGATypes
 
 extension SPIRVFrontendTests {
+    @Test func spirvStructLocationAssignsConsecutiveMemberLocations() throws {
+        let words = Self.pre + [
+            Self.i(15, 4, 10, 0x6e69616d, 0, 11), Self.i(16, 10, 7),
+            Self.i(71, 11, 30, 2), Self.i(19, 1), Self.i(22, 2, 32),
+            Self.i(30, 3, 2, 2), Self.i(32, 4, 3, 3), Self.i(33, 5, 1),
+            Self.i(43, 2, 6, Float(1).bitPattern), Self.i(44, 3, 7, 6, 6),
+            Self.i(59, 4, 11, 3), Self.i(54, 1, 10, 0, 5), Self.i(248, 12),
+            Self.i(62, 11, 7), Self.i(253), Self.i(56),
+        ].flatMap { $0 }
+        let compiler = IndependentShaderCompiler()
+        let result = try compiler.compileWebGPURenderStage(.spirv(words), entryPoint: "main")
+        #expect(Set(result.colorOutputKinds.keys) == [2, 3])
+        guard case .text(.wgsl, let source) = result.artifact else {
+            Issue.record("Expected WGSL")
+            return
+        }
+        _ = try compiler.parseAndValidate(.wgsl(source))
+    }
+
     static func vertexInterfaceModule(blockOutput: Bool = true, writePointSize: Bool = false) -> [UInt32] {
         var words = pre + i(15, 0, 10, 0x6e69616d, 0, 11, 12, 13)
         words += i(71, 11, 11, 42) + i(71, 13, 30, 1) + i(71, 13, 14)

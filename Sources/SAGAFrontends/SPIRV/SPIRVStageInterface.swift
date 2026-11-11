@@ -63,14 +63,32 @@ extension SPVDecoder {
         let pointer = try self.type(pointerType, instruction)
         var fields: [SPVInterfaceField] = []
         if case .structure(let fieldsOfType, _) = types[type.index].kind {
-            guard decorations[valueType]?[2] != nil, attributes.isEmpty else {
+            let baseLocation = attributes[30]?.first
+            let hasMemberBindings = decorations[valueType]?[2] != nil && attributes.isEmpty
+            guard hasMemberBindings || baseLocation != nil else {
                 throw instruction.fail("Interface structures require member decorations", code: .unsupportedConstruct)
             }
             interfaceTypes.insert(valueType)
             for (index, member) in fieldsOfType.enumerated() {
                 try charge()
                 let index = UInt32(index)
-                let memberAttributes = members[valueType]?[index] ?? [:]
+                var memberAttributes = members[valueType]?[index] ?? [:]
+                if let baseLocation {
+                    switch types[member.type.index].kind {
+                    case .scalar, .vector: break
+                    default:
+                        throw instruction.fail("Location-decorated interface structures require scalar or vector members",
+                                               code: .unsupportedConstruct)
+                    }
+                    let (location, overflow) = baseLocation.addingReportingOverflow(index)
+                    guard !overflow, memberAttributes[11] == nil, memberAttributes[30] == nil else {
+                        throw instruction.fail("Invalid location on interface structure member")
+                    }
+                    for (key, value) in attributes where key != 30 && memberAttributes[key] == nil {
+                        memberAttributes[key] = value
+                    }
+                    memberAttributes[30] = [location]
+                }
                 if !input, let builtin = memberAttributes[11]?.first,
                    builtin == 1 || builtin == 4 || (builtin == 3 && !capabilities.contains(32)),
                    memberAttributes[30] == nil {

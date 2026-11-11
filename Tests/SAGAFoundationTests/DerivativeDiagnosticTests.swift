@@ -1,5 +1,6 @@
 import Testing
 import SAGACompiler
+import SAGAFrontends
 import SAGAShaderIR
 import SAGAValidation
 import SAGATypes
@@ -24,6 +25,33 @@ private let derivativeDiagnosticShader = """
         return vec4f(red, 1, 0, 1);
     }
     """
+
+@Test func spirvDerivativeCompatibilityIsExplicitAndEmitsWGSLDirective() throws {
+    let strict = IndependentShaderCompiler()
+    let input = ShaderInput.wgsl("""
+        diagnostic(off, derivative_uniformity);
+        @fragment fn main(@location(0) x: f32) -> @location(0) f32 {
+            if x > 0.0 { return dpdx(x); }
+            return 0.0;
+        }
+        """)
+    guard case .spirv(let words) = try strict.compile(input, to: .spirv) else {
+        Issue.record("Expected SPIR-V")
+        return
+    }
+    #expect(throws: ShaderFailure.self) {
+        try strict.compileWebGPURenderStage(.spirv(words), entryPoint: "main")
+    }
+    let compatible = IndependentShaderCompiler(spirvOptions: .init(allowNonUniformDerivatives: true))
+    let result = try compatible.compileWebGPURenderStage(.spirv(words), entryPoint: "main")
+    guard case .text(.wgsl, let source) = result.artifact else {
+        Issue.record("Expected WGSL")
+        return
+    }
+    #expect(source.contains("diagnostic(off, derivative_uniformity);"))
+    #expect(source.contains("dpdx("))
+    _ = try strict.parseAndValidate(.wgsl(source))
+}
 
 @Test(arguments: [ShaderOutputFormat.wgsl, .msl, .hlsl, .glsl])
 func emitsFragmentDiagnosticFiltersOnlyInWGSL(format: ShaderOutputFormat) throws {

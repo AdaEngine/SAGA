@@ -168,6 +168,28 @@ extension VulkanDevice {
         return writes
     }
 
+    /// `planBindings` for a pipeline that binds only buffers, reading the supplied bindings straight from a command list.
+    func planBufferBindings(
+        _ pipeline: Pipeline, supplied: ArraySlice<CommandList.Binding>, totals: inout DescriptorTotals
+    ) throws -> [DescriptorWrite] {
+        var writes: [DescriptorWrite] = []
+        writes.reserveCapacity(pipeline.bufferBindings.count)
+        for (slot, usage) in pipeline.bufferBindings {
+            guard let binding = supplied.first(where: { $0.slot == slot }), let buffer = buffers[binding.buffer],
+                  let type = pipeline.descriptorTypes[slot] else {
+                throw GPUError.validation("Missing Vulkan buffer binding")
+            }
+            let range = try StorageBufferBinding(buffer: binding.buffer, offset: binding.offset, size: binding.size)
+                .range(in: buffer.descriptor, usage: usage)
+            let limit = usage == .uniform ? native.limits.maxUniformBufferRange : native.limits.maxStorageBufferRange
+            guard range.count <= UInt64(limit) else { throw GPUError.validation("Buffer binding exceeds the Vulkan device limit") }
+            totals.add(type)
+            writes.append(.init(set: Int(slot.group), binding: slot.binding, type: type, buffer: buffer.native.handle,
+                                offset: range.lowerBound, range: UInt64(range.count), arrayElement: slot.arrayElement ?? 0))
+        }
+        return writes
+    }
+
     /// Allocates one descriptor set per layout from the batch pool, fills them and binds them at set zero.
     /// Image views are created per use and released with the batch.
     func bindDescriptors(commandBuffer: UInt, bindPoint: UInt32, layout: UInt64, setLayouts: [UInt64],

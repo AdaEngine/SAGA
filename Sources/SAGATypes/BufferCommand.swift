@@ -288,6 +288,16 @@ public enum BufferCommand: Sendable, Equatable {
         }
     }
 
+    /// True for commands that can neither build nor consume acceleration structures and carry no pass wrappers.
+    /// Lets the device skip the derived-property walks (`recordedPass`, `computeDispatch`, ...) for the common cases.
+    package var skipsAccelerationTracking: Bool {
+        switch self {
+        case .dispatchCompute(_, _, _, _, _, _, let structures): structures.isEmpty
+        case .write, .writeBytes, .copy, .clearBuffer, .read: true
+        default: false
+        }
+    }
+
     package var recordedPass: (command: BufferCommand, timestamps: PassTimestampWrites?, occlusion: PassOcclusionQuery?) {
         var command = self
         var timestamps: PassTimestampWrites?

@@ -66,7 +66,10 @@ public struct GLSLFrontendOptions: Sendable, Equatable {
 public struct SPIRVFrontendOptions: Sendable, Equatable {
     public let adjustCoordinateSpace: Bool
     public let strictCapabilities: Bool
-    public init(adjustCoordinateSpace: Bool = true, strictCapabilities: Bool = true) {
+    public let allowNonUniformDerivatives: Bool
+    public init(adjustCoordinateSpace: Bool = true, strictCapabilities: Bool = true,
+                allowNonUniformDerivatives: Bool = false) {
         self.adjustCoordinateSpace = adjustCoordinateSpace; self.strictCapabilities = strictCapabilities
+        self.allowNonUniformDerivatives = allowNonUniformDerivatives
     }
 }

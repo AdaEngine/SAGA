@@ -1,3 +1,4 @@
+import Dispatch
 import SAGATypes
 import SAGABackend
 import SAGAShaderIR
@@ -149,7 +150,22 @@ final class VulkanNativeDevice: Sendable {
     }
 
     /// Picks a host-visible coherent memory type allowed by `typeBits`, preferring device-local memory.
-    func hostMemoryType(typeBits: UInt32) -> UInt32? {
+    func hostMemoryType(typeBits: UInt32, forReadback: Bool = false, forStaging: Bool = false) -> UInt32? {
+        if forStaging {
+            // Uploads are written once by the CPU and read once by the GPU: system memory keeps them out of the
+            // small device-local BAR window and avoids slow CPU access to it.
+            let wanted = VK.MemoryProperty.hostVisible | VK.MemoryProperty.hostCoherent
+            for (index, flags) in limits.memoryTypeFlags.enumerated()
+            where typeBits & (1 << UInt32(index)) != 0 && flags & wanted == wanted && flags & VK.MemoryProperty.deviceLocal == 0 {
+                return UInt32(index)
+            }
+        }
+        if forReadback {
+            // CPU reads from uncached or device-local (BAR) memory crawl over PCIe, so readbacks want cached system memory.
+            let cached = VK.MemoryProperty.hostVisible | VK.MemoryProperty.hostCoherent | VK.MemoryProperty.hostCached
+            for (index, flags) in limits.memoryTypeFlags.enumerated()
+            where typeBits & (1 << UInt32(index)) != 0 && flags & cached == cached { return UInt32(index) }
+        }
         let wanted = VK.MemoryProperty.hostVisible | VK.MemoryProperty.hostCoherent
         var fallback: UInt32?
         for (index, flags) in limits.memoryTypeFlags.enumerated()
@@ -170,7 +186,10 @@ struct VulkanHostBuffer {
 }
 
 extension VulkanNativeDevice {
-    func makeHostBuffer(size requested: UInt64) throws -> VulkanHostBuffer {
+    /// `forReadback` picks cached memory for CPU reads, `forStaging` picks system memory for CPU writes, and `zeroed: false`
+    /// skips the clear for buffers that are fully written before anything reads them.
+    func makeHostBuffer(size requested: UInt64, forReadback: Bool = false, forStaging: Bool = false,
+                        zeroed: Bool = true) throws -> VulkanHostBuffer {
         let size = max(4, (requested + 3) & ~3)
         var info = VkBufferCreateInfo()
         info.size = size
@@ -182,7 +201,7 @@ extension VulkanNativeDevice {
         try vulkanCheck(withUnsafePointer(to: &info) { f.createBuffer(device, UnsafeRawPointer($0), nil, &buffer) }, "buffer creation")
         var requirements = VkMemoryRequirements()
         f.getBufferMemoryRequirements(device, buffer, &requirements)
-        guard let type = hostMemoryType(typeBits: requirements.memoryTypeBits) else {
+        guard let type = hostMemoryType(typeBits: requirements.memoryTypeBits, forReadback: forReadback, forStaging: forStaging) else {
             f.destroyBuffer(device, buffer, nil)
             throw GPUError.unsupported("Vulkan device has no host-visible coherent memory")
         }
@@ -210,7 +229,7 @@ extension VulkanNativeDevice {
             try vulkanCheck(mappedResult, "memory mapping")
             throw GPUError.backendFailure("Vulkan returned no mapping")
         }
-        mapped.initializeMemory(as: UInt8.self, repeating: 0, count: Int(requirements.size))
+        if zeroed { mapped.initializeMemory(as: UInt8.self, repeating: 0, count: Int(requirements.size)) }
         return VulkanHostBuffer(handle: buffer, memory: memory, size: size, mapped: mapped)
     }
 
@@ -237,7 +256,8 @@ public actor VulkanDevice: ComputeAccelerationStructureBackendDevice, PlanarExte
         var native: VulkanHostBuffer
     }
 
-    struct Pipeline {
+    /// A class so that copying a plan into the operation list is one retain, not one per field.
+    final class Pipeline {
         var model: ComputePipeline
         var module: UInt64
         var setLayouts: [UInt64]
@@ -245,6 +265,20 @@ public actor VulkanDevice: ComputeAccelerationStructureBackendDevice, PlanarExte
         var pipeline: UInt64
         /// Descriptor type of every buffer binding, indexed by set then binding.
         var descriptorTypes: [ComputeBindingSlot: UInt32]
+        /// Slot lists of the model, derived once so each dispatch does not rebuild them.
+        var bufferBindings: [(slot: ComputeBindingSlot, usage: BufferUsage)] = []
+        var sampledTextureSlots: [ComputeBindingSlot] = []
+        var storageTextureSlots: [ComputeBindingSlot] = []
+        var samplerSlots: [ComputeBindingSlot] = []
+        var externalSlots: [ComputeBindingSlot] = []
+        var accelerationSlots: [ComputeBindingSlot] = []
+        var hasNoBindings = false
+
+        init(model: ComputePipeline, module: UInt64, setLayouts: [UInt64], layout: UInt64, pipeline: UInt64,
+             descriptorTypes: [ComputeBindingSlot: UInt32]) {
+            self.model = model; self.module = module; self.setLayouts = setLayouts; self.layout = layout
+            self.pipeline = pipeline; self.descriptorTypes = descriptorTypes
+        }
     }
 
     let native: VulkanNativeDevice
@@ -274,6 +308,12 @@ public actor VulkanDevice: ComputeAccelerationStructureBackendDevice, PlanarExte
     var terminal = false
     /// Native objects of timed-out batches stay alive: the GPU may still be using them.
     var quarantine: [PendingBatch] = []
+    /// Command pools and fences of retired batches. Creating and destroying them per submission dominates tiny submissions.
+    var idleCommandPools: [(pool: UInt64, buffer: UInt)] = []
+    var idleFences: [UInt64] = []
+    /// Staging and readback buffers of retired batches. They are never cleared: every byte is written before it is read.
+    var idleStaging: [VulkanHostBuffer] = []
+    var idleReadback: [VulkanHostBuffer] = []
 
     init(adapter: VulkanAdapter, timeout: Duration, surface: VulkanSurfaceTarget? = nil) throws {
         native = try VulkanNativeDevice(adapter: adapter, swapchain: surface != nil)
@@ -394,6 +434,13 @@ public actor VulkanDevice: ComputeAccelerationStructureBackendDevice, PlanarExte
     }
 
     public func close(owner: UInt64) {
+        idleCommandPools.forEach { native.f.destroyCommandPool(native.device, $0.pool, nil) }
+        idleFences.forEach { native.f.destroyFence(native.device, $0, nil) }
+        idleCommandPools = []
+        idleFences = []
+        (idleStaging + idleReadback).forEach { native.destroy($0) }
+        idleStaging = []
+        idleReadback = []
         destroyHelper(cachedValidator)
         destroyHelper(cachedIndexSanitizer)
         cachedIndexSanitizer = nil
@@ -508,8 +555,18 @@ public actor VulkanDevice: ComputeAccelerationStructureBackendDevice, PlanarExte
             cleanup()
             throw error
         }
-        return Pipeline(model: pipeline, module: module, setLayouts: layouts, layout: pipelineLayout,
-                                          pipeline: handle, descriptorTypes: types)
+        let created = Pipeline(model: pipeline, module: module, setLayouts: layouts, layout: pipelineLayout,
+                               pipeline: handle, descriptorTypes: types)
+        created.bufferBindings = pipeline.bufferBindings.map { ($0.slot, $0.usage) }
+        created.sampledTextureSlots = pipeline.textureBindings.map(\.slot)
+        created.storageTextureSlots = pipeline.storageTextureBindings.map(\.slot)
+        created.samplerSlots = pipeline.samplerBindings.map(\.slot)
+        created.externalSlots = pipeline.externalTextureBindings
+        created.accelerationSlots = pipeline.accelerationStructureBindings
+        created.hasNoBindings = created.bufferBindings.isEmpty && created.sampledTextureSlots.isEmpty
+            && created.storageTextureSlots.isEmpty && created.samplerSlots.isEmpty && created.externalSlots.isEmpty
+            && created.accelerationSlots.isEmpty
+        return created
     }
 
     public func destroyComputePipeline(id: ResourceID) {
@@ -581,17 +638,31 @@ public actor VulkanDevice: ComputeAccelerationStructureBackendDevice, PlanarExte
         var renderPasses: [UInt64] = []
         var framebuffers: [UInt64] = []
         var commandPool: UInt64 = 0
+        var commandBuffer: UInt = 0
         var descriptorPool: UInt64 = 0
         var fence: UInt64 = 0
     }
 
     public func submitCommands(_ submission: Submission, commands: [BufferCommand]) async throws -> [[UInt32]] {
+        try await submitCommandList(submission, list: CommandList(commands))
+    }
+
+    public func submitCommandList(_ submission: Submission, list: CommandList) async throws -> [[UInt32]] {
         try requireActive()
-        let owner = submission.resources.first?.device ??
-            commands.lazy.compactMap { $0.recordedPass.command.computeDispatch?.pipeline.id.device }.first ?? 0
-        let descriptors = buffers.mapValues(\.descriptor)
-        let pinned = Set(submission.resources)
-        let textureDescriptors = textures.mapValues(\.descriptor)
+        let owner = submission.resources.first?.device ?? list.firstPipelineDevice ??
+            list.legacyCommands.lazy.compactMap { $0.recordedPass.command.computeDispatch?.pipeline.id.device }.first ?? 0
+        // The device already validated a trusted submission against the same pinned resources. The lookup tables
+        // below are only needed when the backend is driven directly, so they are not built (and not O(resources)) otherwise.
+        let revalidate = !submission.commandsValidated
+        let descriptors = revalidate ? buffers.mapValues(\.descriptor) : [:]
+        let pinned = revalidate ? Set(submission.resources) : []
+        let textureDescriptors = revalidate ? textures.mapValues(\.descriptor) : [:]
+        let samplerDescriptors = revalidate ? samplers.mapValues { $0.descriptor } : [:]
+        let viewDescriptors = revalidate ? textureViews.mapValues { TextureViewResource(texture: $0.texture, levels: $0.levels, aspect: $0.aspect, layers: $0.layers, dimension: $0.dimension) } : [:]
+        let querySetDescriptors = revalidate ? querySets.mapValues { $0.descriptor } : [:]
+        let externalIDs = revalidate ? Set(externalTextures.keys) : []
+        let externalPlanes = revalidate ? externalTextures.mapValues(\.planes) : [:]
+        let structureDescriptors = revalidate ? accelerationStructures.mapValues(\.descriptor) : [:]
         for id in submission.resources
         where buffers[id] == nil && pipelines[id] == nil && textures[id] == nil && renderPipelines[id] == nil && samplers[id] == nil && textureViews[id] == nil && querySets[id] == nil && externalTextures[id] == nil && accelerationStructures[id] == nil {
             throw GPUError.validation("Unknown Vulkan resource")
@@ -599,6 +670,8 @@ public actor VulkanDevice: ComputeAccelerationStructureBackendDevice, PlanarExte
 
         var operations: [Operation] = []
         var staged: [UInt8] = []
+        /// Compact writes: the upload operation to patch and the words to copy into the staging buffer.
+        var deferredWrites: [(operation: Int, words: [UInt32])] = []
         var readSizes: [UInt64] = []
         var readbackSize: UInt64 = 0
         var descriptorTotals = DescriptorTotals()
@@ -611,22 +684,23 @@ public actor VulkanDevice: ComputeAccelerationStructureBackendDevice, PlanarExte
             cachedDrawValidator = drawValidator
         }
 
-        for recorded in commands {
-            guard recorded.resources.allSatisfy(pinned.contains) else {
+        func planLegacy(_ recorded: BufferCommand) throws {
+            if revalidate { guard recorded.resources.allSatisfy(pinned.contains) else {
                 throw GPUError.validation("Unpinned command resource")
-            }
-            try recorded.validate(device: owner, descriptors: descriptors, textures: textureDescriptors,
-                                  samplerDescriptors: samplers.mapValues { $0.descriptor }, textureViews: textureViews.mapValues { .init(texture: $0.texture, levels: $0.levels, aspect: $0.aspect, layers: $0.layers, dimension: $0.dimension) },
+            } }
+            if revalidate { try recorded.validate(device: owner, descriptors: descriptors, textures: textureDescriptors,
+                                  samplerDescriptors: samplerDescriptors, textureViews: viewDescriptors,
                                   maximumViewportDimension: capabilities.maxTextureDimension2D,
                                   maxVertexBuffers: capabilities.maxVertexBuffers,
                                   maxBindGroupsPlusVertexBuffers: capabilities.maxBindGroupsPlusVertexBuffers,
-                                  querySets: querySets.mapValues { $0.descriptor },
+                                  querySets: querySetDescriptors,
                                   maxMultiviewViewCount: capabilities.maxMultiviewViewCount,
-                                  features: capabilities.features, externalTextures: Set(externalTextures.keys),
-                                  externalPlanes: externalTextures.mapValues(\.planes),
-                                  accelerationStructures: accelerationStructures.mapValues(\.descriptor),
-                                  maxComputeWorkgroupsPerDimension: capabilities.maxComputeWorkgroupsPerDimension)
-            let (command, timestamps, occlusion) = recorded.recordedPass
+                                  features: capabilities.features, externalTextures: externalIDs,
+                                  externalPlanes: externalPlanes,
+                                  accelerationStructures: structureDescriptors,
+                                  maxComputeWorkgroupsPerDimension: capabilities.maxComputeWorkgroupsPerDimension) }
+            let (command, timestamps, occlusion): (BufferCommand, PassTimestampWrites?, PassOcclusionQuery?) =
+                recorded.skipsAccelerationTracking ? (recorded, nil, nil) : recorded.recordedPass
             let measurement = timestamps == nil && occlusion == nil ? nil
                 : try planMeasurement(timestamps: timestamps, occlusion: occlusion)
             let operationsBefore = operations.count
@@ -650,14 +724,14 @@ public actor VulkanDevice: ComputeAccelerationStructureBackendDevice, PlanarExte
                                                                   destination: destination, offset: offset)))
             case .write(let id, let offset, let words):
                 let count = UInt64(words.count) * 4
-                guard count > 0 else { continue }
+                guard count > 0 else { return }
                 let stagingOffset = UInt64(staged.count)
-                for word in words { staged.append(contentsOf: [UInt8(truncatingIfNeeded: word), UInt8(truncatingIfNeeded: word >> 8),
-                                                              UInt8(truncatingIfNeeded: word >> 16), UInt8(truncatingIfNeeded: word >> 24)]) }
+                // Little-endian hosts only, like every other raw read in this backend.
+                words.withUnsafeBytes { staged.append(contentsOf: $0) }
                 operations.append(.upload(destination: try handle(id), offset: offset, stagingOffset: stagingOffset, count: count))
             case .writeBytes(let id, let offset, let bytes, let dataOffset, let byteCount):
                 let slice = try BufferCommand.uploadBytes(bytes, dataOffset: dataOffset, byteCount: byteCount)
-                guard !slice.isEmpty else { continue }
+                guard !slice.isEmpty else { return }
                 while staged.count % 4 != 0 { staged.append(0) }
                 let stagingOffset = UInt64(staged.count)
                 staged.append(contentsOf: slice)
@@ -666,13 +740,13 @@ public actor VulkanDevice: ComputeAccelerationStructureBackendDevice, PlanarExte
             case .copy(let source, let sourceOffset, let destination, let destinationOffset, let byteCount):
                 guard let sourceBuffer = buffers[source] else { throw GPUError.validation("Unknown Vulkan buffer") }
                 let count = byteCount ?? (sourceBuffer.descriptor.size - sourceOffset)
-                guard count > 0 else { continue }
+                guard count > 0 else { return }
                 operations.append(.copy(source: sourceBuffer.native.handle, sourceOffset: sourceOffset,
                                         destination: try handle(destination), destinationOffset: destinationOffset, count: count))
             case .clearBuffer(let id, let offset, let byteCount):
                 guard let buffer = buffers[id] else { throw GPUError.validation("Unknown Vulkan buffer") }
                 let count = byteCount ?? (buffer.descriptor.size - offset)
-                guard count > 0 else { continue }
+                guard count > 0 else { return }
                 operations.append(.fill(buffer: buffer.native.handle, offset: offset, count: count))
             case .read(let id, let byteCount):
                 readSizes.append(byteCount)
@@ -740,15 +814,15 @@ public actor VulkanDevice: ComputeAccelerationStructureBackendDevice, PlanarExte
                 guard UInt64(dispatch.immediates.count) * 4 == (pipeline.model.immediateByteSize + 3) / 4 * 4 else {
                     throw GPUError.validation("Immediate data size does not match the compute pipeline")
                 }
-                let writes = try planBindings(
+                let writes = pipeline.hasNoBindings ? [] : try planBindings(
                     types: pipeline.descriptorTypes,
-                    buffers: pipeline.model.bufferBindings.map { ($0.slot, $0.usage) }, suppliedBuffers: dispatch.bindings,
-                    sampledTextures: pipeline.model.textureBindings.map(\.slot),
-                    storageTextures: pipeline.model.storageTextureBindings.map(\.slot),
-                    samplerSlots: pipeline.model.samplerBindings.map(\.slot),
+                    buffers: pipeline.bufferBindings, suppliedBuffers: dispatch.bindings,
+                    sampledTextures: pipeline.sampledTextureSlots,
+                    storageTextures: pipeline.storageTextureSlots,
+                    samplerSlots: pipeline.samplerSlots,
                     textureResources: dispatch.textures, samplerResources: dispatch.samplers,
-                    externalSlots: pipeline.model.externalTextureBindings,
-                    accelerationSlots: pipeline.model.accelerationStructureBindings,
+                    externalSlots: pipeline.externalSlots,
+                    accelerationSlots: pipeline.accelerationSlots,
                     accelerationResources: dispatch.accelerationStructures, totals: &descriptorTotals)
                 descriptorTotals.sets += UInt32(pipeline.setLayouts.count)
                 switch dispatch.source {
@@ -770,17 +844,84 @@ public actor VulkanDevice: ComputeAccelerationStructureBackendDevice, PlanarExte
                 throw GPUError.unsupported("Vulkan does not implement this command yet")
             }
         }
+        func planCompact(_ record: CommandList.Record) throws {
+            if revalidate {
+                try list.forEachResource(of: record) { id in
+                    guard pinned.contains(id) else { throw GPUError.validation("Unpinned command resource") }
+                }
+                try list.validate(record, device: owner, descriptors: descriptors,
+                                  maxComputeWorkgroupsPerDimension: capabilities.maxComputeWorkgroupsPerDimension)
+            }
+            switch record.kind {
+            case .dispatch:
+                let listed = list.pipelines[Int(record.index)]
+                guard let pipeline = pipelines[listed.id], pipeline.model == listed else {
+                    throw GPUError.validation("Unknown Vulkan compute pipeline")
+                }
+                let immediateCount = Int(record.size)
+                guard UInt64(immediateCount) * 4 == (pipeline.model.immediateByteSize + 3) / 4 * 4 else {
+                    throw GPUError.validation("Immediate data size does not match the compute pipeline")
+                }
+                let writes = pipeline.hasNoBindings ? [] : try planBufferBindings(
+                    pipeline, supplied: list.bindings[Int(record.start)..<Int(record.start + record.count)],
+                    totals: &descriptorTotals)
+                descriptorTotals.sets += UInt32(pipeline.setLayouts.count)
+                let words: [UInt32] = immediateCount == 0 ? []
+                    : Array(list.immediates[Int(record.offsetA)..<Int(record.offsetA) + immediateCount])
+                operations.append(.dispatch(DispatchPlan(
+                    pipeline: pipeline, writes: writes, groups: DispatchWorkgroups(x: record.x, y: record.y, z: record.z),
+                    immediates: words, indirect: nil)))
+            case .copy:
+                guard let sourceBuffer = buffers[record.a] else { throw GPUError.validation("Unknown Vulkan buffer") }
+                let count = record.size == .max ? sourceBuffer.descriptor.size - record.offsetA : record.size
+                guard count > 0 else { return }
+                operations.append(.copy(source: sourceBuffer.native.handle, sourceOffset: record.offsetA,
+                                        destination: try handle(record.b), destinationOffset: record.offsetB, count: count))
+            case .write:
+                let count = UInt64(record.count) * 4
+                guard count > 0 else { return }
+                // The staging offset is patched once every legacy upload has claimed its bytes; the words are copied
+                // from the list straight into the staging buffer, without an intermediate array.
+                operations.append(.upload(destination: try handle(record.a), offset: record.offsetA,
+                                          stagingOffset: 0, count: count))
+                deferredWrites.append((operations.count - 1, list.writes[Int(record.index)]))
+            case .read:
+                readSizes.append(record.size)
+                operations.append(.read(source: try handle(record.a), readbackOffset: readbackSize, count: record.size))
+                readbackSize += (record.size + 3) & ~3
+            case .clear:
+                guard let buffer = buffers[record.a] else { throw GPUError.validation("Unknown Vulkan buffer") }
+                let count = record.size == .max ? buffer.descriptor.size - record.offsetA : record.size
+                guard count > 0 else { return }
+                operations.append(.fill(buffer: buffer.native.handle, offset: record.offsetA, count: count))
+            case .legacy:
+                break
+            }
+        }
+
+        for record in list.records {
+            if record.kind == .legacy {
+                try planLegacy(list.command(for: record))
+            } else {
+                try planCompact(record)
+            }
+        }
         guard !operations.isEmpty else { return [] }
 
         var batch = PendingBatch()
         let f = native.f
         let device = native.device
-        func release(_ batch: PendingBatch) {
-            if batch.fence != 0 { f.destroyFence(device, batch.fence, nil) }
+        /// `recycle` is only for batches whose fence signalled: their pool and fence go back to the idle lists.
+        func release(_ batch: PendingBatch, recycle: Bool = false) {
+            if batch.fence != 0 {
+                if recycle { idleFences.append(batch.fence) } else { f.destroyFence(device, batch.fence, nil) }
+            }
             if batch.descriptorPool != 0 { f.destroyDescriptorPool(device, batch.descriptorPool, nil) }
-            if batch.commandPool != 0 { f.destroyCommandPool(device, batch.commandPool, nil) }
-            if let staging = batch.staging { native.destroy(staging) }
-            if let readback = batch.readback { native.destroy(readback) }
+            if batch.commandPool != 0 {
+                if recycle { idleCommandPools.append((batch.commandPool, batch.commandBuffer)) } else { f.destroyCommandPool(device, batch.commandPool, nil) }
+            }
+            if let staging = batch.staging { if recycle { recycleHostBuffer(staging, readback: false) } else { native.destroy(staging) } }
+            if let readback = batch.readback { if recycle { recycleHostBuffer(readback, readback: true) } else { native.destroy(readback) } }
             if let scratch = batch.scratch { native.destroy(scratch) }
             batch.owned.forEach { native.destroy($0) }
             batch.framebuffers.forEach { native.g.destroyFramebuffer(device, $0, nil) }
@@ -788,12 +929,31 @@ public actor VulkanDevice: ComputeAccelerationStructureBackendDevice, PlanarExte
             batch.views.forEach { native.g.destroyImageView(device, $0, nil) }
         }
         do {
-            if !staged.isEmpty {
-                let staging = try native.makeHostBuffer(size: UInt64(staged.count))
-                batch.staging = staging
-                staged.withUnsafeBytes { staging.mapped.copyMemory(from: $0.baseAddress!, byteCount: $0.count) }
+            // Legacy staged bytes come first, then each compact write, all 4-byte aligned.
+            var stagingSize = (staged.count + 3) & ~3
+            let legacyBytes = stagingSize
+            for write in deferredWrites {
+                if case .upload(let destination, let offset, _, let count) = operations[write.operation] {
+                    operations[write.operation] = .upload(destination: destination, offset: offset,
+                                                          stagingOffset: UInt64(stagingSize), count: count)
+                }
+                stagingSize += write.words.count * 4
             }
-            if readbackSize > 0 { batch.readback = try native.makeHostBuffer(size: readbackSize) }
+            if stagingSize > 0 {
+                let staging = try acquireHostBuffer(size: UInt64(stagingSize), readback: false)
+                batch.staging = staging
+                if !staged.isEmpty {
+                    staged.withUnsafeBytes { staging.mapped.copyMemory(from: $0.baseAddress!, byteCount: $0.count) }
+                }
+                var cursor = legacyBytes
+                for write in deferredWrites {
+                    write.words.withUnsafeBytes {
+                        (staging.mapped + cursor).copyMemory(from: $0.baseAddress!, byteCount: $0.count)
+                    }
+                    cursor += write.words.count * 4
+                }
+            }
+            if readbackSize > 0 { batch.readback = try acquireHostBuffer(size: readbackSize, readback: true) }
             if !indirectLimits.isEmpty {
                 let scratch = try native.makeHostBuffer(size: UInt64(indirectLimits.count) * Self.scratchStride)
                 batch.scratch = scratch
@@ -804,17 +964,25 @@ public actor VulkanDevice: ComputeAccelerationStructureBackendDevice, PlanarExte
                 }
             }
 
-            var poolInfo = VkCommandPoolCreateInfo()
-            poolInfo.queueFamilyIndex = native.queueFamily
-            try vulkanCheck(withUnsafePointer(to: &poolInfo) {
-                f.createCommandPool(device, UnsafeRawPointer($0), nil, &batch.commandPool)
-            }, "command pool creation")
-            var allocateInfo = VkCommandBufferAllocateInfo()
-            allocateInfo.commandPool = batch.commandPool
             var commandBuffer: UInt = 0
-            try vulkanCheck(withUnsafePointer(to: &allocateInfo) {
-                f.allocateCommandBuffers(device, UnsafeRawPointer($0), &commandBuffer)
-            }, "command buffer allocation")
+            if let idle = idleCommandPools.popLast() {
+                batch.commandPool = idle.pool
+                batch.commandBuffer = idle.buffer
+                commandBuffer = idle.buffer
+                try vulkanCheck(f.resetCommandPool(device, idle.pool, 0), "command pool reset")
+            } else {
+                var poolInfo = VkCommandPoolCreateInfo()
+                poolInfo.queueFamilyIndex = native.queueFamily
+                try vulkanCheck(withUnsafePointer(to: &poolInfo) {
+                    f.createCommandPool(device, UnsafeRawPointer($0), nil, &batch.commandPool)
+                }, "command pool creation")
+                var allocateInfo = VkCommandBufferAllocateInfo()
+                allocateInfo.commandPool = batch.commandPool
+                try vulkanCheck(withUnsafePointer(to: &allocateInfo) {
+                    f.allocateCommandBuffers(device, UnsafeRawPointer($0), &commandBuffer)
+                }, "command buffer allocation")
+                batch.commandBuffer = commandBuffer
+            }
 
             let sizes = descriptorTotals.counts.filter { $0.value > 0 }.map { VkDescriptorPoolSize(type: $0.key, descriptorCount: $0.value) }
             if descriptorTotals.sets > 0, !sizes.isEmpty {
@@ -844,7 +1012,9 @@ public actor VulkanDevice: ComputeAccelerationStructureBackendDevice, PlanarExte
                 var region = VkBufferCopy(srcOffset: sourceOffset, dstOffset: destinationOffset, size: count)
                 f.cmdCopyBuffer(commandBuffer, source, destination, 1, &region)
             }
+            var lastComputePipeline: UInt64 = 0
             for operation in operations {
+                if case .dispatch = operation {} else { lastComputePipeline = 0 }
                 switch operation {
                 case .upload(let destination, let offset, let stagingOffset, let count):
                     copy(batch.staging!.handle, stagingOffset, destination, offset, count)
@@ -956,7 +1126,12 @@ public actor VulkanDevice: ComputeAccelerationStructureBackendDevice, PlanarExte
                         barrier()
                         indirectOffset = base + 256
                     }
-                    try bind(plan.pipeline, plan.writes)
+                    // Repeating a resource-free dispatch of the same pipeline needs no rebind.
+                    if !(plan.writes.isEmpty && plan.pipeline.setLayouts.isEmpty && plan.indirect == nil
+                         && lastComputePipeline == plan.pipeline.pipeline) {
+                        try bind(plan.pipeline, plan.writes)
+                    }
+                    lastComputePipeline = plan.indirect == nil ? plan.pipeline.pipeline : 0
                     if !plan.immediates.isEmpty {
                         plan.immediates.withUnsafeBytes {
                             f.cmdPushConstants(commandBuffer, plan.pipeline.layout, VK.shaderStageCompute, 0,
@@ -969,15 +1144,23 @@ public actor VulkanDevice: ComputeAccelerationStructureBackendDevice, PlanarExte
                         f.cmdDispatch(commandBuffer, plan.groups.x, plan.groups.y, plan.groups.z)
                     }
                 }
+                // A dispatch without bound resources has nothing to order against later work.
+                if case .dispatch(let plan) = operation, plan.writes.isEmpty, plan.indirect == nil { continue }
                 barrier()
             }
             barrier(destinationStages: VK.pipelineStageHost, destinationAccess: VK.accessHostRead)
             try vulkanCheck(f.endCommandBuffer(commandBuffer), "command recording")
 
-            var fenceInfo = VkFenceCreateInfo()
-            try vulkanCheck(withUnsafePointer(to: &fenceInfo) {
-                f.createFence(device, UnsafeRawPointer($0), nil, &batch.fence)
-            }, "fence creation")
+            if let fence = idleFences.popLast() {
+                batch.fence = fence
+                var handle = fence
+                try vulkanCheck(f.resetFences(device, 1, &handle), "fence reset")
+            } else {
+                var fenceInfo = VkFenceCreateInfo()
+                try vulkanCheck(withUnsafePointer(to: &fenceInfo) {
+                    f.createFence(device, UnsafeRawPointer($0), nil, &batch.fence)
+                }, "fence creation")
+            }
             var submit = VkSubmitInfo()
             submit.commandBufferCount = 1
             let queue = native.queue
@@ -1007,13 +1190,18 @@ public actor VulkanDevice: ComputeAccelerationStructureBackendDevice, PlanarExte
                 if case .read(_, let offset, _) = operation { return offset }
                 return nil
             }, readSizes) {
-                let words = (0..<Int(size / 4)).map {
-                    readback.mapped.loadUnaligned(fromByteOffset: Int(operation) + $0 * 4, as: UInt32.self)
+                let count = Int(size / 4)
+                let words = [UInt32](unsafeUninitializedCapacity: count) { buffer, initialized in
+                    if count > 0 {
+                        UnsafeMutableRawBufferPointer(buffer).copyMemory(
+                            from: UnsafeRawBufferPointer(start: readback.mapped + Int(operation), count: count * 4))
+                    }
+                    initialized = count
                 }
                 results.append(words)
             }
         }
-        release(batch)
+        release(batch, recycle: true)
         return results
     }
 
@@ -1050,19 +1238,65 @@ public actor VulkanDevice: ComputeAccelerationStructureBackendDevice, PlanarExte
         return buffer.native.handle
     }
 
-    /// Polls the fence without blocking a cooperative thread. Cancelling the caller does not stop the wait,
-    /// because native resources must outlive the GPU work.
+    /// Idle host buffers kept for reuse. Larger ones are destroyed on release so the pool never pins much memory.
+    private static let hostPoolLimit: UInt64 = 256 << 20
+
+    /// Rounds a request up to a pool size class: powers of two up to 4 MiB, then multiples of 4 MiB.
+    private static func hostPoolClass(_ size: UInt64) -> UInt64 {
+        if size <= 4 << 20 {
+            var value: UInt64 = 64 << 10
+            while value < size { value <<= 1 }
+            return value
+        }
+        return (size + (4 << 20) - 1) / (4 << 20) * (4 << 20)
+    }
+
+    /// Takes the smallest idle buffer that fits, or allocates one of the request's size class. Contents are undefined.
+    func acquireHostBuffer(size: UInt64, readback: Bool) throws -> VulkanHostBuffer {
+        let wanted = Self.hostPoolClass(size)
+        let pool = readback ? idleReadback : idleStaging
+        var best: Int?
+        for (index, candidate) in pool.enumerated() where candidate.size >= size && candidate.size <= wanted * 2 {
+            if best == nil || candidate.size < pool[best!].size { best = index }
+        }
+        if let best {
+            return readback ? idleReadback.remove(at: best) : idleStaging.remove(at: best)
+        }
+        return try native.makeHostBuffer(size: wanted, forReadback: readback, forStaging: !readback, zeroed: false)
+    }
+
+    func recycleHostBuffer(_ buffer: VulkanHostBuffer, readback: Bool) {
+        let pooled = (idleStaging + idleReadback).reduce(UInt64(0)) { $0 + $1.size }
+        guard pooled + buffer.size <= Self.hostPoolLimit else { native.destroy(buffer); return }
+        if readback { idleReadback.append(buffer) } else { idleStaging.append(buffer) }
+    }
+
+    /// Waits for the fence on a dispatch thread, so no cooperative thread blocks and completion wakes the caller
+    /// immediately (sleep-polling is limited by the OS timer tick, about 15.6 ms on Windows).
+    /// Cancelling the caller does not stop the wait, because native resources must outlive the GPU work.
     func waitForFence(_ fence: UInt64) async throws {
+        // Short work usually finishes within microseconds. Spinning briefly avoids a thread hop and wake-up latency.
         let clock = ContinuousClock()
-        let deadline = clock.now + timeout
-        var delay = Duration.microseconds(50)
+        let spinUntil = clock.now + .microseconds(150)
         while true {
             let status = native.f.getFenceStatus(native.device, fence)
             if status == VK.success { return }
             guard status == VK.notReady else { try vulkanCheck(status, "fence wait"); return }
-            guard clock.now < deadline else { throw GPUError.timeout }
-            try? await Task.sleep(for: delay)
-            delay = min(delay * 2, .milliseconds(2))
+            if clock.now >= spinUntil { break }
         }
+        let wait = native.f.waitForFences
+        let device = native.device
+        let (seconds, attoseconds) = timeout.components
+        let nanoseconds = UInt64(clamping: seconds).multipliedReportingOverflow(by: 1_000_000_000)
+        let limit = nanoseconds.overflow ? UInt64.max : nanoseconds.partialValue &+ UInt64(attoseconds / 1_000_000_000)
+        let status: VkResult = await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                var handle = fence
+                continuation.resume(returning: wait(device, 1, &handle, 1, limit))
+            }
+        }
+        if status == VK.success { return }
+        if status == VK.timeout { throw GPUError.timeout }
+        try vulkanCheck(status, "fence wait")
     }
 }

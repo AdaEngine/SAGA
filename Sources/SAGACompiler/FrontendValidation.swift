@@ -35,7 +35,7 @@ extension IndependentShaderCompiler {
         options: .init(stage: IRStage(stage), defines: defines), limits: validator.limits
       ).parse(input)
     case .spirv:
-      module = try SPIRVFrontend(limits: validator.limits).parse(input)
+      module = try SPIRVFrontend(options: spirvOptions, limits: validator.limits).parse(input)
     }
     let checked = try ValidatedModule.checking(module, with: validator)
     try Task.checkCancellation()

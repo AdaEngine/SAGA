@@ -282,7 +282,15 @@ public struct ResourceID: Hashable, Sendable {
 public struct Submission: Sendable, Equatable {
     public let sequence: UInt64
     public let resources: [ResourceID]
+    /// Set by the device only after it ran the shared command validator on every command of this submission against
+    /// the pinned resources. Backends may then skip repeating that work. Only code in this package can set it.
+    package internal(set) var commandsValidated = false
     public init(sequence: UInt64, resources: [ResourceID]) { self.sequence = sequence; self.resources = resources }
+    package func markingCommandsValidated() -> Submission {
+        var copy = self
+        copy.commandsValidated = true
+        return copy
+    }
 }
 
 public enum ErrorFilter: Sendable {

@@ -69,7 +69,7 @@ struct WGSLScanner {
         while i < scalars.count {
             try budget.consume(.work)
             let begin = i, c = scalars[i]
-            if [9,10,11,12,13,32,0x85,0x200e,0x200f,0x2028,0x2029].contains(c.value) { i += 1; continue }
+            if Self.isWhitespace(c.value) { i += 1; continue }
             if c == "/" && char(i+1) == "/" {
                 i += 2
                 while i < scalars.count && ![10,13,0x85,0x2028,0x2029].contains(scalars[i].value) { try budget.consume(.work); i += 1 }
@@ -115,9 +115,9 @@ struct WGSLScanner {
                 }
                 i += 1
                 kind = .string
-            } else if c == "_" || c.properties.isXIDStart {
+            } else if c == "_" || Self.isIdentifierStart(c) {
                 i += 1
-                while i < scalars.count && scalars[i].properties.isXIDContinue { try budget.consume(.work); i += 1 }
+                while i < scalars.count && Self.isIdentifierContinue(scalars[i]) { try budget.consume(.work); i += 1 }
                 kind = .word
             } else if digit(c) || (c == "." && digit(char(i+1))) {
                 var isHex = false
@@ -139,15 +139,12 @@ struct WGSLScanner {
                 if let next = char(i), next.properties.isXIDContinue { throw wgslError(.invalidToken,"Invalid numeric suffix",token(begin,i+1,.number)) }
                 kind = .number
             } else {
-                guard "@(){}[]:;,.+-*/%=&|^!~<>".unicodeScalars.contains(c) else {
+                guard Self.isSymbolScalar(c) else {
                     throw wgslError(.invalidToken,"Invalid or unsupported token",token(i,i+1,.symbol))
                 }
                 i += 1
                 // Template discovery may split >=. Expression parsing combines adjacent shift tokens.
-                if let next = char(i) {
-                    let pair = String(c) + String(next)
-                    if ["->","==","!=","<=",">=","&&","||","+=","-=","*=","/=","%=","&=","|=","^=","++","--"].contains(pair) { i += 1 }
-                }
+                if let next = char(i), Self.isTwoScalarOperator(c, next) { i += 1 }
                 kind = .symbol
             }
             try budget.consume(.tokens)
@@ -158,6 +155,41 @@ struct WGSLScanner {
         result.append(WGSLToken(kind: .end,text: "",start:offset,end:offset))
         let tokens = try discoverTemplates(in: result, budget: &budget)
         return (tokens, documentation, budget)
+    }
+
+    // Scalar classification without allocating: the scanner runs once per character of every shader.
+    private static func isWhitespace(_ value: UInt32) -> Bool {
+        switch value {
+        case 9, 10, 11, 12, 13, 32, 0x85, 0x200e, 0x200f, 0x2028, 0x2029: true
+        default: false
+        }
+    }
+
+    private static func isIdentifierStart(_ c: Unicode.Scalar) -> Bool {
+        if c.value < 128 { return (65...90).contains(c.value) || (97...122).contains(c.value) }
+        return c.properties.isXIDStart
+    }
+
+    private static func isIdentifierContinue(_ c: Unicode.Scalar) -> Bool {
+        if c.value < 128 {
+            return (65...90).contains(c.value) || (97...122).contains(c.value) || (48...57).contains(c.value) || c.value == 95
+        }
+        return c.properties.isXIDContinue
+    }
+
+    private static func isSymbolScalar(_ c: Unicode.Scalar) -> Bool {
+        switch c {
+        case "@", "(", ")", "{", "}", "[", "]", ":", ";", ",", ".", "+", "-", "*", "/", "%", "=", "&", "|", "^", "!", "~", "<", ">": true
+        default: false
+        }
+    }
+
+    private static func isTwoScalarOperator(_ first: Unicode.Scalar, _ second: Unicode.Scalar) -> Bool {
+        switch (first, second) {
+        case ("-", ">"), ("=", "="), ("!", "="), ("<", "="), (">", "="), ("&", "&"), ("|", "|"), ("+", "="), ("-", "="),
+             ("*", "="), ("/", "="), ("%", "="), ("&", "="), ("|", "="), ("^", "="), ("+", "+"), ("-", "-"): true
+        default: false
+        }
     }
 
     private func discoverTemplates(in raw: [WGSLToken], budget: inout ShaderBudget) throws -> [WGSLToken] {

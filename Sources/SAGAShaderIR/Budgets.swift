@@ -38,32 +38,56 @@ public struct ShaderLimits: Sendable, Equatable {
 /// Copying a budget starts an independent accounting branch, NOT a shared global quota.
 public struct ShaderBudget: Sendable {
     public let limits: ShaderLimits
-    private var used: [ShaderBudgetResource: Int] = [:]
+    // Fixed counters instead of a dictionary: every scanned character charges the budget, so lookups must be cheap.
+    private var usedSourceBytes = 0, usedWords = 0, usedTokens = 0, usedNodes = 0, usedDepth = 0, usedWork = 0
+    private var charges: UInt = 0
     public init(limits: ShaderLimits = .default) { self.limits = limits }
-    public func usage(_ resource: ShaderBudgetResource) -> Int { used[resource, default: 0] }
+    public func usage(_ resource: ShaderBudgetResource) -> Int {
+        switch resource {
+        case .sourceBytes: usedSourceBytes
+        case .words: usedWords
+        case .tokens: usedTokens
+        case .nodes: usedNodes
+        case .depth: usedDepth
+        case .work: usedWork
+        }
+    }
+    private mutating func setUsage(_ resource: ShaderBudgetResource, _ value: Int) {
+        switch resource {
+        case .sourceBytes: usedSourceBytes = value
+        case .words: usedWords = value
+        case .tokens: usedTokens = value
+        case .nodes: usedNodes = value
+        case .depth: usedDepth = value
+        case .work: usedWork = value
+        }
+    }
     public func checkCancellation() throws { try Task.checkCancellation() }
     public mutating func consume(_ resource: ShaderBudgetResource, amount: Int = 1) throws {
-        try Task.checkCancellation()
+        // Looking up the current task is the costly part of a charge, so poll every 64th one. The first charge
+        // always polls, which keeps an already-cancelled task failing immediately.
+        if charges & 63 == 0 { try Task.checkCancellation() }
+        charges &+= 1
         guard resource != .depth, amount >= 0 else { throw ShaderFailure.invalidBudget }
         let previous = usage(resource)
         guard amount <= limits[resource] - previous else { throw ShaderFailure.budgetExceeded(resource) }
-        used[resource] = previous + amount
+        setUsage(resource, previous + amount)
     }
     public mutating func enterDepth() throws {
         try Task.checkCancellation()
         guard usage(.depth) < limits.depth else { throw ShaderFailure.budgetExceeded(.depth) }
-        used[.depth] = usage(.depth) + 1
+        usedDepth += 1
     }
     public mutating func leaveDepth() throws {
         try Task.checkCancellation()
         guard usage(.depth) > 0 else { throw ShaderFailure.invalidBudget }
-        used[.depth] = usage(.depth) - 1
+        usedDepth -= 1
     }
     /// Scoped nesting accounting is restored even when the body throws or is cancelled.
     public mutating func withDepth<T>(_ body: (inout ShaderBudget) throws -> T) throws -> T {
         let previous = usage(.depth)
         try enterDepth()
-        defer { used[.depth] = previous }
+        defer { usedDepth = previous }
         return try body(&self)
     }
     /// Counts UTF-8 bytes lazily; stops at first exhausted limit. Defines count too.

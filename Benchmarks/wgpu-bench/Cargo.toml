@@ -1,0 +1,13 @@
+[package]
+name = "wgpu-bench"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+# Standalone workspace so building here never touches the read-only ../wgpu checkout.
+[workspace]
+
+[dependencies]
+# Reads the sibling checkout in place. Swap for `wgpu = "30"` to benchmark the crates.io release.
+wgpu = { path = "../../../wgpu/wgpu", default-features = false, features = ["std", "wgsl", "vulkan", "dx12"] }
+pollster = "1.0"

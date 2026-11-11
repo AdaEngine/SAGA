@@ -111,6 +111,9 @@ struct VulkanFunctions: Sendable {
     let createFence: @convention(c) (UInt, UnsafeRawPointer, UnsafeRawPointer?, UnsafeMutablePointer<UInt64>) -> VkResult
     let destroyFence: @convention(c) (UInt, UInt64, UnsafeRawPointer?) -> Void
     let getFenceStatus: @convention(c) (UInt, UInt64) -> VkResult
+    let waitForFences: @convention(c) (UInt, UInt32, UnsafePointer<UInt64>, UInt32, UInt64) -> VkResult
+    let resetFences: @convention(c) (UInt, UInt32, UnsafePointer<UInt64>) -> VkResult
+    let resetCommandPool: @convention(c) (UInt, UInt64, UInt32) -> VkResult
 
     init(instance: UInt, getInstanceProcAddr: GetInstanceProcAddr) throws {
         func load<T>(_ name: String, as type: T.Type = T.self) throws -> T {
@@ -168,6 +171,9 @@ struct VulkanFunctions: Sendable {
         createFence = try load("vkCreateFence")
         destroyFence = try load("vkDestroyFence")
         getFenceStatus = try load("vkGetFenceStatus")
+        waitForFences = try load("vkWaitForFences")
+        resetFences = try load("vkResetFences")
+        resetCommandPool = try load("vkResetCommandPool")
     }
 }
 

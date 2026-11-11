@@ -8,6 +8,7 @@ typealias VkResult = Int32
 enum VK {
     static let success: VkResult = 0
     static let notReady: VkResult = 1
+    static let timeout: VkResult = 2
     static let outOfHostMemory: VkResult = -1
     static let outOfDeviceMemory: VkResult = -2
     static let deviceLost: VkResult = -4
@@ -53,6 +54,7 @@ enum VK {
         static let deviceLocal: UInt32 = 0x1
         static let hostVisible: UInt32 = 0x2
         static let hostCoherent: UInt32 = 0x4
+        static let hostCached: UInt32 = 0x8
     }
 
     enum DescriptorType {

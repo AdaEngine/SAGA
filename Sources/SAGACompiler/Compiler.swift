@@ -43,21 +43,31 @@ public struct IndependentShaderCompiler: Sendable {
 
     let nagaFloatRounding: Bool
     private let wgslSourceProfile: WGSLSourceProfile
+    let spirvOptions: SPIRVFrontendOptions
 
     public init() {
         self.init(wgslSourceProfile: .targetDefault)
+    }
+
+    /// Configures translation of SPIR-V input.
+    public init(spirvOptions: SPIRVFrontendOptions) {
+        self.nagaFloatRounding = false
+        self.wgslSourceProfile = .targetDefault
+        self.spirvOptions = spirvOptions
     }
 
     /// Allows abstract values just outside a float's finite range when Naga rounds them to finite values.
     public init(nagaFloatRounding: Bool) {
         self.nagaFloatRounding = nagaFloatRounding
         self.wgslSourceProfile = .targetDefault
+        self.spirvOptions = .init()
     }
 
     /// Selects a WGSL source dialect for compilation. WebGPU compilation and standalone validation use their default rules.
     public init(wgslSourceProfile: WGSLSourceProfile) {
         self.nagaFloatRounding = false
         self.wgslSourceProfile = wgslSourceProfile
+        self.spirvOptions = .init()
     }
 
     public func compile(_ input: ShaderInput, to output: ShaderOutputFormat) throws -> ShaderArtifact {

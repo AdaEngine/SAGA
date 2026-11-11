@@ -4,6 +4,14 @@ import SAGATypes
 /// Results contain one snapshot per read command, in command order, after real GPU completion.
 public protocol CommandBackendDevice: BackendDevice {
     func submitCommands(_ submission: Submission, commands: [BufferCommand]) async throws -> [[UInt32]]
+    /// Runs a recorded list. Backends that read the compact records natively override this.
+    func submitCommandList(_ submission: Submission, list: CommandList) async throws -> [[UInt32]]
+}
+
+extension CommandBackendDevice {
+    public func submitCommandList(_ submission: Submission, list: CommandList) async throws -> [[UInt32]] {
+        try await submitCommands(submission, commands: list.expandedCommands())
+    }
 }
 
 /// Single consumer completion latch. Deadlines end waiting, never imply GPU retirement.

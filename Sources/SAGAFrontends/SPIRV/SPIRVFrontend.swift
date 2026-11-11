@@ -350,9 +350,13 @@ struct SPVDecoder {
         }
         for (id,_) in modes { guard entries.contains(where: { $0.function == id }) else { throw header.fail("ExecutionMode target is not an entry point") } }
         try compactStorageAliases(in: &lowered, at: header)
+        let diagnosticFilters: [IRDiagnosticFilter] = options.allowNonUniformDerivatives
+            ? [.init(rule: .derivativeUniformity, severity: .off)] : []
+        let diagnosticFilter = diagnosticFilters.isEmpty ? nil : try IRHandle<IRDiagnosticFilter>(index: 0)
         return IRModule(types: IRTable(types), specialTypes: .init(predeclared: glslDecompositionTypes + atomicCompareTypes),
                         constants:IRTable(constants), overrides:IRTable(overrides), globalVariables:IRTable(globals),
                         globalExpressions:IRTable(globalExpressions), functions:IRTable(lowered), entryPoints:entryPoints,
+                        diagnosticFilters: IRTable(diagnosticFilters), diagnosticFilter: diagnosticFilter,
                         uniformBufferStandardLayout: uniformBufferStandardLayout)
     }
 
