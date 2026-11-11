@@ -152,8 +152,7 @@ public struct IndependentShaderCompiler: Sendable {
         _ input: ShaderInput, entryPoint: String?, to output: ShaderOutputFormat, constants: [String: Double],
         bindingArrayLengths: [IRResourceBinding: UInt32], webGPU: Bool
     ) throws -> ComputeShaderArtifact {
-        // SPIR-V has no text writer. The GLSL writer reflects the same specialized IR and the SPIR-V
-        // writer supplies the binary, so the reflected layout always describes the emitted module.
+        // SPIR-V uses the shared GLSL resource reflection and emits only the binary shader.
         let generator = try generator(for: input, output: output == .spirv ? .glsl : output,
                                       bindingArrayLengths: bindingArrayLengths, webGPU: webGPU)
         let (validated, validator) = try validatePipelineInput(input, output: output,
@@ -163,13 +162,17 @@ public struct IndependentShaderCompiler: Sendable {
         let specialized = try specializeOverrides(validated, entry: entry, constants: constants,
                                                    retainLinkedStages: false, validator: validator)
         let module = try specializeGlobalParameters(specialized, validator: validator)
-        var compiled = try generator.generateCompute(module, onlyReachableBindings: entryPoint != nil || entries.count > 1)
+        let spirvWords: [UInt32]?
         if output == .spirv {
             guard case .spirv(let words) = try SPIRVCodeGenerator(bindingArrayLengths: bindingArrayLengths, entryPoint: entryPoint).generate(module) else {
                 throw ShaderFailure.incompatibleArtifact
             }
-            compiled = compiled.withSPIRV(words)
+            spirvWords = words
+        } else {
+            spirvWords = nil
         }
+        let compiled = try generator.generateCompute(module, onlyReachableBindings: entryPoint != nil || entries.count > 1,
+                                                     spirvWords: spirvWords)
         if webGPU, case .wgsl = input, compiled.storageBindings.contains(where: { !$0.memoryDecorations.isEmpty }) {
             throw ShaderFailure.unsupported("Browser WGSL does not support native storage memory attributes")
         }

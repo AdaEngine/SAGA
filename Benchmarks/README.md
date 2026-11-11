@@ -29,3 +29,14 @@ cargo run --release --manifest-path Benchmarks/wgpu-bench/Cargo.toml
 SAGA also takes `--timer-ms <n>` (Windows timer resolution) and `--shaders <dir>`.
 Arguments for both: `--only <case>` (repeatable), `--samples <n>`. wgpu also honours
 `WGPU_BACKEND=vulkan|dx12` (default `vulkan`).
+
+Run `swift run -c release SAGABenchmark --only dispatch-replay --samples 100` to measure
+the first submission of a compact compute list and its second submission after completion.
+The benchmark records 1,000 dispatches per list outside the timed interval. It runs both an
+empty shader and a shader that increments a storage-buffer counter, then verifies the counter.
+
+The Vulkan backend can retain one completed compact list of direct compute dispatches.
+Resubmit the same `CommandList` value to reuse its native recording. The backend discards
+the recording when a different eligible list takes its place, when a referenced buffer or
+pipeline is destroyed, or when the device closes. If the recording is still in flight, the
+backend records another submission separately.

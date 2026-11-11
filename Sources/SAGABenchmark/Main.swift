@@ -37,7 +37,11 @@ func measure(_ samples: Int, _ body: () async throws -> Void) async throws -> [D
     return out
 }
 
-func fail(_ message: String) -> Never { fputs("FAILED: \(message)\n", stderr); exit(1) }
+func fail(_ message: String) -> Never {
+    // `stderr` is a mutable global on Linux and fails strict concurrency checking there.
+    FileHandle.standardError.write(Data("FAILED: \(message)\n".utf8))
+    exit(1)
+}
 
 func rowGroups(_ elements: Int) -> DispatchWorkgroups {
     // Shaders index rows of 1024 workgroups x 256 invocations.
@@ -95,6 +99,59 @@ func pad(_ text: String, _ width: Int) -> String {
             try await device.createBuffer(.init(size: UInt64(words * 4), usage: usage))
         }
         func slot(_ i: UInt32) -> ComputeBindingSlot { ComputeBindingSlot(binding: i) }
+
+        if only.contains("dispatch-replay") {
+            let clock = ContinuousClock()
+            let output = try await buffer(1, [.storage, .copyDestination, .copySource])
+            let readback = try await buffer(1, [.copyDestination, .mapRead])
+            let empty = try await pipeline(try shader("empty"))
+            let atomic = try await pipeline("""
+                @group(0) @binding(0) var<storage, read_write> count: atomic<u32>;
+                @compute @workgroup_size(1)
+                fn run() { atomicAdd(&count, 1u); }
+                """)
+            _ = try await device.submitCommands([.write(buffer: output, offset: 0, words: [0])]).wait()
+
+            for (name, compute, bindings): (String, ComputePipeline, [CommandList.Binding]) in [
+                ("empty", empty, []), ("bound", atomic, [.init(slot(0), output)]),
+            ] {
+                func makeList() -> CommandList {
+                    var list = CommandList()
+                    for _ in 0..<batchDispatches {
+                        list.dispatch(compute, bindings: bindings, workgroups: .init(x: 1))
+                    }
+                    return list
+                }
+                func submitTime(_ list: CommandList) async throws -> Double {
+                    let start = clock.now
+                    _ = try await device.submit(list).wait()
+                    let parts = start.duration(to: clock.now).components
+                    return Double(parts.seconds) * 1e3 + Double(parts.attoseconds) / 1e15
+                }
+
+                var fresh: [Double] = []
+                var replay: [Double] = []
+                for index in 0..<(warmup + samples) {
+                    let list = makeList()
+                    let first = try await submitTime(list)
+                    let next = try await submitTime(list)
+                    if index >= warmup {
+                        fresh.append(first)
+                        replay.append(next)
+                    }
+                }
+                results.append(.init(name: "\(name)-fresh", samples: fresh, detail: "new CommandList each sample"))
+                results.append(.init(name: "\(name)-replay", samples: replay, detail: "repeat same CommandList after wait"))
+            }
+
+            let result = try await device.submitCommands([
+                .copy(source: output, destination: readback, byteCount: 4),
+                .read(buffer: readback, byteCount: 4),
+            ]).wait()
+            let expected = UInt32(truncatingIfNeeded: (warmup + samples) * 2 * batchDispatches)
+            if result.first?.first != expected { fail("dispatch replay readback: expected \(expected), got \(result)") }
+            print("dispatch replay verified \(expected) atomic increments")
+        }
 
         if wants("compile") {
             let template = try shader("alu")

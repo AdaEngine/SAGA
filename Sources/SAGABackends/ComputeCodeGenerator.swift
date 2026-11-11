@@ -21,7 +21,7 @@ package struct ComputeCodeGenerator: ShaderCodeGenerator {
     }
 
     package func generateCompute(
-        _ validated: ValidatedModule<IRModule>, onlyReachableBindings: Bool = false
+        _ validated: ValidatedModule<IRModule>, onlyReachableBindings: Bool = false, spirvWords: [UInt32]? = nil
     ) throws -> ComputeShaderArtifact {
         let module = validated.module
         let usesRayQuery = module.types.values.contains {
@@ -325,119 +325,124 @@ package struct ComputeCodeGenerator: ShaderCodeGenerator {
             if buffer.reflection.runtimeArrayStride != nil { runtimeIndex += Int(buffer.reflection.bindingArray?.count ?? 1) }
         }
 
-        var workgroupSetup: [String] = []
-        if outputFormat != .wgsl && !workgroupVariables.isEmpty {
-            let lane = inputs.workgroupInitializationIndex()
-            if outputFormat == .msl { workgroupSetup = workgroupVariables.map(\.declaration) }
-            var setupBudget = ShaderBudget()
-            for variable in workgroupVariables {
-                workgroupSetup += try variable.initialize(lane: lane, threads: threads, module: module,
-                                                           structures: structures, budget: &setupBudget)
-            }
-            workgroupSetup += try shaderControlBarrier(.workgroup, in: outputFormat).map { "    \($0)" }
-        }
-        let subgroupSetup = inputs.subgroupSetup()
-        declarations += subgroupSetup.declarations
-        workgroupSetup += subgroupSetup.body
-        var parameters = inputs.parameters + resourceParameters
         let lengthBuffer = outputFormat == .msl && runtimeIndex > 0 ? ComputeShaderArtifact.storageBindingCapacity : nil
-        if let lengthBuffer {
-            parameters.append("\(metalLengths.type) \(metalLengths.name) [[buffer(\(lengthBuffer))]]")
-        }
-        let parameterList = parameters.joined(separator: ", ")
         let entryPoint = outputFormat == .glsl ? "main" : "saga_main"
-        if outputFormat == .msl { try helpers.bindMetalStorage(metalStorage) }
-        let helperDeclarations = try helpers.declarations(module: module, format: outputFormat,
-                                                          storage: storage, structures: structures)
-        let signature: String
-        let attributes: [String]
-        switch outputFormat {
-        case .msl:
-            var prelude = ["#include <metal_stdlib>", "using namespace metal;"]
-            if usesRayQuery || !accelerationStructures.isEmpty { prelude.append("#include <metal_raytracing>") }
-            if usesCooperativeMatrix { prelude.append(metalCooperativeMatrixPrelude) }
-            declarations.insert(contentsOf: prelude, at: 0)
-            attributes = []
-            signature = "kernel void \(entryPoint)(\(parameterList))"
-        case .hlsl:
-            attributes = (subgroupSize.map { ["[WaveSize(\($0))]"] } ?? []) +
-                ["[numthreads(\(size.x), \(size.y), \(size.z))]"]
-            signature = "void \(entryPoint)(\(parameterList))"
-        case .wgsl:
-            let requiresStorageFormats = storageTextures.contains { $0.format.requiresTextureFormatsTier1 }
-            let directives: [(Bool, String)] = [
-                (!arrayCounts.isEmpty && !webGPU, "enable wgpu_binding_array;"),
-                (requiresStandardUniformLayout, "requires uniform_buffer_standard_layout;"),
-                (requiresStorageFormats, "requires texture_formats_tier1;"),
-                (inputs.requiresSubgroupID, "requires subgroup_id;"),
-                (module.requiresSubgroupUniformity, "requires subgroup_uniformity;"),
-                (inputs.requiresLinearIndexing, "requires linear_indexing;"),
-                (immediate != nil, "requires immediate_address_space;"),
-                (usesFloat16, "enable f16;"),
-                (usesCooperativeMatrix && !webGPU, "enable wgpu_cooperative_matrix;"),
-                (usesInt16, "enable wgpu_int16;"),
-                (helpers.requiresDebugPrintf, "enable wgpu_debug_printf;"),
-                (requiresSubgroups, "enable subgroups;"),
-                (subgroupSize != nil, "enable subgroup_size_control;"),
-            ]
-            let extensions = directives.compactMap { required, directive in required ? directive : nil }
-            declarations.insert(contentsOf: try extensions + helpers.wgslDiagnosticLines(module: module), at: 0)
-            let suffix = max(size.x, size.y, size.z) > UInt32(Int32.max) ? "u" : ""
-            attributes = try helpers.wgslDiagnosticLines(module: module, function: function) +
-                ["@compute @workgroup_size(\(size.x)\(suffix), \(size.y)\(suffix), \(size.z)\(suffix))"] +
-                (subgroupSize.map { ["@subgroup_size(\($0))"] } ?? [])
-            signature = "fn \(entryPoint)(\(parameterList))"
-        default:
-            let usesRayTracing = usesRayQuery || !accelerationStructures.isEmpty
-            var prefix: [String] = [usesRayTracing ? "#version 460 core" : "#version 450 core"]
-            if usesRayTracing {
-                prefix.append("#extension GL_EXT_ray_query : require")
-                prefix.append("#extension GL_EXT_ray_flags_primitive_culling : require")
+        let source: String
+        if spirvWords != nil {
+            source = ""
+        } else {
+            var workgroupSetup: [String] = []
+            if outputFormat != .wgsl && !workgroupVariables.isEmpty {
+                let lane = inputs.workgroupInitializationIndex()
+                if outputFormat == .msl { workgroupSetup = workgroupVariables.map(\.declaration) }
+                var setupBudget = ShaderBudget()
+                for variable in workgroupVariables {
+                    workgroupSetup += try variable.initialize(lane: lane, threads: threads, module: module,
+                                                               structures: structures, budget: &setupBudget)
+                }
+                workgroupSetup += try shaderControlBarrier(.workgroup, in: outputFormat).map { "    \($0)" }
             }
-            let returnsVertices = module.types.values.contains { type in
-                if case .rayQuery(true) = type.kind { return true }
-                return false
+            let subgroupSetup = inputs.subgroupSetup()
+            declarations += subgroupSetup.declarations
+            workgroupSetup += subgroupSetup.body
+            var parameters = inputs.parameters + resourceParameters
+            if let lengthBuffer {
+                parameters.append("\(metalLengths.type) \(metalLengths.name) [[buffer(\(lengthBuffer))]]")
             }
-            if returnsVertices { prefix.append("#extension GL_EXT_ray_tracing_position_fetch : require") }
-            prefix.append(contentsOf: glslUnsigned64Extensions(module: module, storageTextures: storageTextures))
-            if usesFloat16 { prefix.append(glslFloat16Extension) }
-            if usesInt16 { prefix.append(glslInt16Extension) }
-            if usesGLSL16BitStorage { prefix.append(glslStorage16BitExtension) }
-            if usesCooperativeMatrix {
-                prefix.append("#extension GL_KHR_memory_scope_semantics : require")
-                prefix.append("#extension GL_KHR_cooperative_matrix : require")
+            let parameterList = parameters.joined(separator: ", ")
+            if outputFormat == .msl { try helpers.bindMetalStorage(metalStorage) }
+            let helperDeclarations = try helpers.declarations(module: module, format: outputFormat,
+                                                              storage: storage, structures: structures)
+            let signature: String
+            let attributes: [String]
+            switch outputFormat {
+            case .msl:
+                var prelude = ["#include <metal_stdlib>", "using namespace metal;"]
+                if usesRayQuery || !accelerationStructures.isEmpty { prelude.append("#include <metal_raytracing>") }
+                if usesCooperativeMatrix { prelude.append(metalCooperativeMatrixPrelude) }
+                declarations.insert(contentsOf: prelude, at: 0)
+                attributes = []
+                signature = "kernel void \(entryPoint)(\(parameterList))"
+            case .hlsl:
+                attributes = (subgroupSize.map { ["[WaveSize(\($0))]"] } ?? []) +
+                    ["[numthreads(\(size.x), \(size.y), \(size.z))]"]
+                signature = "void \(entryPoint)(\(parameterList))"
+            case .wgsl:
+                let requiresStorageFormats = storageTextures.contains { $0.format.requiresTextureFormatsTier1 }
+                let directives: [(Bool, String)] = [
+                    (!arrayCounts.isEmpty && !webGPU, "enable wgpu_binding_array;"),
+                    (requiresStandardUniformLayout, "requires uniform_buffer_standard_layout;"),
+                    (requiresStorageFormats, "requires texture_formats_tier1;"),
+                    (inputs.requiresSubgroupID, "requires subgroup_id;"),
+                    (module.requiresSubgroupUniformity, "requires subgroup_uniformity;"),
+                    (inputs.requiresLinearIndexing, "requires linear_indexing;"),
+                    (immediate != nil, "requires immediate_address_space;"),
+                    (usesFloat16, "enable f16;"),
+                    (usesCooperativeMatrix && !webGPU, "enable wgpu_cooperative_matrix;"),
+                    (usesInt16, "enable wgpu_int16;"),
+                    (helpers.requiresDebugPrintf, "enable wgpu_debug_printf;"),
+                    (requiresSubgroups, "enable subgroups;"),
+                    (subgroupSize != nil, "enable subgroup_size_control;"),
+                ]
+                let extensions = directives.compactMap { required, directive in required ? directive : nil }
+                declarations.insert(contentsOf: try extensions + helpers.wgslDiagnosticLines(module: module), at: 0)
+                let suffix = max(size.x, size.y, size.z) > UInt32(Int32.max) ? "u" : ""
+                attributes = try helpers.wgslDiagnosticLines(module: module, function: function) +
+                    ["@compute @workgroup_size(\(size.x)\(suffix), \(size.y)\(suffix), \(size.z)\(suffix))"] +
+                    (subgroupSize.map { ["@subgroup_size(\($0))"] } ?? [])
+                signature = "fn \(entryPoint)(\(parameterList))"
+            default:
+                let usesRayTracing = usesRayQuery || !accelerationStructures.isEmpty
+                var prefix: [String] = [usesRayTracing ? "#version 460 core" : "#version 450 core"]
+                if usesRayTracing {
+                    prefix.append("#extension GL_EXT_ray_query : require")
+                    prefix.append("#extension GL_EXT_ray_flags_primitive_culling : require")
+                }
+                let returnsVertices = module.types.values.contains { type in
+                    if case .rayQuery(true) = type.kind { return true }
+                    return false
+                }
+                if returnsVertices { prefix.append("#extension GL_EXT_ray_tracing_position_fetch : require") }
+                prefix.append(contentsOf: glslUnsigned64Extensions(module: module, storageTextures: storageTextures))
+                if usesFloat16 { prefix.append(glslFloat16Extension) }
+                if usesInt16 { prefix.append(glslInt16Extension) }
+                if usesGLSL16BitStorage { prefix.append(glslStorage16BitExtension) }
+                if usesCooperativeMatrix {
+                    prefix.append("#extension GL_KHR_memory_scope_semantics : require")
+                    prefix.append("#extension GL_KHR_cooperative_matrix : require")
+                }
+                prefix.append(contentsOf: helpers.glslExtensions)
+                prefix.append(contentsOf: helpers.glslSubgroupExtensions(requiresSubgroups: requiresSubgroups))
+                if usesRayTracing { prefix.append("layout(primitive_culling);") }
+                prefix.append("layout(local_size_x = \(size.x), local_size_y = \(size.y), local_size_z = \(size.z)) in;")
+                declarations.insert(contentsOf: prefix, at: 0)
+                attributes = []
+                signature = "void \(entryPoint)()"
             }
-            prefix.append(contentsOf: helpers.glslExtensions)
-            prefix.append(contentsOf: helpers.glslSubgroupExtensions(requiresSubgroups: requiresSubgroups))
-            if usesRayTracing { prefix.append("layout(primitive_culling);") }
-            prefix.append("layout(local_size_x = \(size.x), local_size_y = \(size.y), local_size_z = \(size.z)) in;")
-            declarations.insert(contentsOf: prefix, at: 0)
-            attributes = []
-            signature = "void \(entryPoint)()"
-        }
 
-        var body = ShaderBodyWriter(module: module, function: function, arguments: inputs.references,
-                                    storage: storage, outputFormat: outputFormat,
-                                    structures: structures, argumentFields: inputs.argumentFields,
-                                    callCaptures: helpers.callCaptures, pointerWrites: helpers.pointerWrites, budget: helpers.budget)
-        let lines = try body.write()
-        let numeric = try integerPrelude(helpers.integerHelpers.union(body.integerHelpers),
-                                         vectors: helpers.integerVectorHelpers.union(body.integerVectorHelpers),
-                                         in: outputFormat)
-        let cooperativePrelude = usesCooperativeMatrix && outputFormat == .hlsl ? [hlslCooperativeMatrixPrelude] : []
-        var sourceLines: [String] = declarations
-        sourceLines.append(contentsOf: numeric)
-        sourceLines.append(contentsOf: cooperativePrelude)
-        sourceLines.append(contentsOf: helperDeclarations)
-        sourceLines.append(contentsOf: attributes)
-        sourceLines.append(signature + " {")
-        sourceLines.append(contentsOf: workgroupSetup)
-        sourceLines.append(contentsOf: privateBindings.initialization)
-        sourceLines.append(contentsOf: inputs.initializers)
-        sourceLines.append(contentsOf: lines)
-        sourceLines.append("}")
-        sourceLines.append("")
-        let source = sourceLines.joined(separator: "\n")
+            var body = ShaderBodyWriter(module: module, function: function, arguments: inputs.references,
+                                        storage: storage, outputFormat: outputFormat,
+                                        structures: structures, argumentFields: inputs.argumentFields,
+                                        callCaptures: helpers.callCaptures, pointerWrites: helpers.pointerWrites, budget: helpers.budget)
+            let lines = try body.write()
+            let numeric = try integerPrelude(helpers.integerHelpers.union(body.integerHelpers),
+                                             vectors: helpers.integerVectorHelpers.union(body.integerVectorHelpers),
+                                             in: outputFormat)
+            let cooperativePrelude = usesCooperativeMatrix && outputFormat == .hlsl ? [hlslCooperativeMatrixPrelude] : []
+            var sourceLines: [String] = declarations
+            sourceLines.append(contentsOf: numeric)
+            sourceLines.append(contentsOf: cooperativePrelude)
+            sourceLines.append(contentsOf: helperDeclarations)
+            sourceLines.append(contentsOf: attributes)
+            sourceLines.append(signature + " {")
+            sourceLines.append(contentsOf: workgroupSetup)
+            sourceLines.append(contentsOf: privateBindings.initialization)
+            sourceLines.append(contentsOf: inputs.initializers)
+            sourceLines.append(contentsOf: lines)
+            sourceLines.append("}")
+            sourceLines.append("")
+            source = sourceLines.joined(separator: "\n")
+        }
         let atomic64 = !webGPU && usesInt64Atomics(module)
         let needsHLSL66 = subgroupSize != nil || atomic64 || storageTextures.contains { $0.format == .r64Uint }
         let profile: String
@@ -446,7 +451,7 @@ package struct ComputeCodeGenerator: ShaderCodeGenerator {
         } else {
             profile = needsHLSL66 ? "cs_6_6" : usesRayQuery ? "cs_6_5" : usesFloat16 || usesInt16 ? "cs_6_2" : "cs_6_0"
         }
-        return .init(
+        let compiled = ComputeShaderArtifact(
             artifact: .text(format: outputFormat, source: source), sourceEntryPoint: entry.name,
             entryPoint: entryPoint, workgroupSize: size, storageBindings: layout, uniformBindings: uniformLayout,
             accelerationStructures: accelerationStructures, sampledTextures: sampledTextures, storageTextures: storageTextures, externalTextures: externalTextures,
@@ -466,6 +471,7 @@ package struct ComputeCodeGenerator: ShaderCodeGenerator {
             usesGlobalInvocationIndex: inputs.usesGlobalInvocationIndex, usesWorkgroupIndex: inputs.usesWorkgroupIndex,
             requiredSubgroupSize: subgroupSize, requiresSubgroupUniformity: module.requiresSubgroupUniformity,
             requiresCooperativeMatrix: usesCooperativeMatrix && outputFormat != .hlsl)
+        return spirvWords.map { compiled.withSPIRV($0) } ?? compiled
     }
 }
 

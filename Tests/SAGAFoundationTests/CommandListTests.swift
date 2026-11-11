@@ -210,3 +210,71 @@ private let vulkanAvailable = VulkanBackend.requestAdapter() != nil
         await device.close()
     } catch { await device.close(); throw error }
 }
+
+private extension VulkanDevice {
+    func hasDispatchRecording(for list: CommandList) -> Bool {
+        idleDispatchRecording?.matches(list) == true
+    }
+}
+
+@Test(.enabled(if: vulkanAvailable), .gpuExclusive) func commandListVulkanReplayRetiresResourcesAndKeepsQueuedWork() async throws {
+    let backend = try VulkanBackend.makeDevice()
+    let device = try await Device.make(backend: backend)
+    do {
+        let shader = try IndependentShaderCompiler().compileCompute(.wgsl("""
+            @group(0) @binding(0) var<storage, read_write> count: atomic<u32>;
+            @compute @workgroup_size(1)
+            fn run() { atomicAdd(&count, 1u); }
+            """), to: .spirv)
+        let pipeline = try await device.createComputePipeline(shader)
+        let output = try await device.createBuffer(.init(size: 4, usage: [.storage, .copyDestination, .copySource]))
+        let readback = try await device.createBuffer(.init(size: 4, usage: [.copyDestination, .mapRead]))
+        let unrelated = try await device.createBuffer(.init(size: 4, usage: [.copyDestination]))
+        _ = try await device.submitCommands([.write(buffer: output, offset: 0, words: [0])]).wait()
+
+        let bindings = [CommandList.Binding(slot(0), output)]
+        var list = CommandList()
+        list.dispatch(pipeline, bindings: bindings, workgroups: .init(x: 1))
+        list.dispatch(pipeline, bindings: bindings, workgroups: .init(x: 1))
+        _ = try await device.submit(list).wait()
+        #expect(await backend.hasDispatchRecording(for: list))
+        try await device.destroyBuffer(unrelated)
+        #expect(await backend.hasDispatchRecording(for: list))
+
+        let submission = Submission(sequence: 1, resources: [output]).markingCommandsValidated()
+        let recorded = list
+        async let first = backend.submitCommandList(submission, list: recorded)
+        async let second = backend.submitCommandList(submission, list: recorded)
+        _ = try await (first, second)
+        #expect(await backend.hasDispatchRecording(for: list))
+
+        let queuedFirst = try await device.submit(list)
+        let queuedSecond = try await device.submit(list)
+        var changed = list
+        changed.dispatch(pipeline, bindings: bindings, workgroups: .init(x: 1))
+        #expect(!(await backend.hasDispatchRecording(for: changed)))
+        let changedTicket = try await device.submit(changed)
+        let check = try await device.submitCommands([
+            .copy(source: output, destination: readback, byteCount: 4),
+            .read(buffer: readback, byteCount: 4),
+        ])
+        try await device.destroyBuffer(output)
+        _ = try await queuedFirst.wait()
+        _ = try await queuedSecond.wait()
+        _ = try await changedTicket.wait()
+        #expect(try await check.wait() == [[13]])
+        #expect(!(await backend.hasDispatchRecording(for: changed)))
+        await #expect(throws: GPUError.self) { try await device.submit(list).wait() }
+
+        let replacement = try await device.createBuffer(.init(size: 4, usage: [.storage]))
+        var replacementList = CommandList()
+        replacementList.dispatch(pipeline, bindings: [.init(slot(0), replacement)], workgroups: .init(x: 1))
+        replacementList.dispatch(pipeline, bindings: [.init(slot(0), replacement)], workgroups: .init(x: 1))
+        _ = try await device.submit(replacementList).wait()
+        #expect(await backend.hasDispatchRecording(for: replacementList))
+        await backend.destroyComputePipeline(id: pipeline.id)
+        #expect(!(await backend.hasDispatchRecording(for: replacementList)))
+        await #expect(throws: GPUError.self) { try await device.submit(replacementList).wait() }
+        await device.close()
+    } catch { await device.close(); throw error }
+}

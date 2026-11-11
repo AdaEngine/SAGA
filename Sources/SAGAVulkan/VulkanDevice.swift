@@ -311,6 +311,8 @@ public actor VulkanDevice: ComputeAccelerationStructureBackendDevice, PlanarExte
     /// Command pools and fences of retired batches. Creating and destroying them per submission dominates tiny submissions.
     var idleCommandPools: [(pool: UInt64, buffer: UInt)] = []
     var idleFences: [UInt64] = []
+    var idleDispatchRecording: DispatchRecording?
+    var pendingDispatchRecording: PendingDispatchRecording?
     /// Staging and readback buffers of retired batches. They are never cleared: every byte is written before it is read.
     var idleStaging: [VulkanHostBuffer] = []
     var idleReadback: [VulkanHostBuffer] = []
@@ -421,7 +423,13 @@ public actor VulkanDevice: ComputeAccelerationStructureBackendDevice, PlanarExte
     }
 
     public func destroyBuffer(id: ResourceID) {
-        if let buffer = buffers.removeValue(forKey: id) { native.destroy(buffer.native) }
+        guard let buffer = buffers.removeValue(forKey: id) else { return }
+        invalidateDispatchRecording(using: id)
+        if pendingDispatchRecording?.resources.contains(id) == true {
+            pendingDispatchRecording?.retiredBuffers.append(buffer.native)
+        } else {
+            native.destroy(buffer.native)
+        }
     }
 
     func destroyHelper(_ pipeline: Pipeline?) {
@@ -434,6 +442,8 @@ public actor VulkanDevice: ComputeAccelerationStructureBackendDevice, PlanarExte
     }
 
     public func close(owner: UInt64) {
+        discardIdleDispatchRecording()
+        pendingDispatchRecording?.invalidated = true
         idleCommandPools.forEach { native.f.destroyCommandPool(native.device, $0.pool, nil) }
         idleFences.forEach { native.f.destroyFence(native.device, $0, nil) }
         idleCommandPools = []
@@ -571,11 +581,12 @@ public actor VulkanDevice: ComputeAccelerationStructureBackendDevice, PlanarExte
 
     public func destroyComputePipeline(id: ResourceID) {
         guard let pipeline = pipelines.removeValue(forKey: id) else { return }
-        let f = native.f
-        f.destroyPipeline(native.device, pipeline.pipeline, nil)
-        f.destroyPipelineLayout(native.device, pipeline.layout, nil)
-        pipeline.setLayouts.forEach { f.destroyDescriptorSetLayout(native.device, $0, nil) }
-        f.destroyShaderModule(native.device, pipeline.module, nil)
+        invalidateDispatchRecording(using: id)
+        if pendingDispatchRecording?.resources.contains(id) == true {
+            pendingDispatchRecording?.retiredPipelines.append(pipeline)
+        } else {
+            destroyHelper(pipeline)
+        }
     }
 
     // MARK: Queue
@@ -649,6 +660,16 @@ public actor VulkanDevice: ComputeAccelerationStructureBackendDevice, PlanarExte
 
     public func submitCommandList(_ submission: Submission, list: CommandList) async throws -> [[UInt32]] {
         try requireActive()
+        if submission.commandsValidated, pendingDispatchRecording == nil,
+           let recording = idleDispatchRecording, recording.matches(list) {
+            idleDispatchRecording = nil
+            pendingDispatchRecording = .init(resources: recording.resources)
+            try await replayDispatchRecording(recording)
+            return []
+        }
+        let recordForReuse = submission.commandsValidated && pendingDispatchRecording == nil
+            && list.records.count > 1 && list.records.allSatisfy { $0.kind == .dispatch }
+
         let owner = submission.resources.first?.device ?? list.firstPipelineDevice ??
             list.legacyCommands.lazy.compactMap { $0.recordedPass.command.computeDispatch?.pipeline.id.device }.first ?? 0
         // The device already validated a trusted submission against the same pinned resources. The lookup tables
@@ -911,23 +932,6 @@ public actor VulkanDevice: ComputeAccelerationStructureBackendDevice, PlanarExte
         var batch = PendingBatch()
         let f = native.f
         let device = native.device
-        /// `recycle` is only for batches whose fence signalled: their pool and fence go back to the idle lists.
-        func release(_ batch: PendingBatch, recycle: Bool = false) {
-            if batch.fence != 0 {
-                if recycle { idleFences.append(batch.fence) } else { f.destroyFence(device, batch.fence, nil) }
-            }
-            if batch.descriptorPool != 0 { f.destroyDescriptorPool(device, batch.descriptorPool, nil) }
-            if batch.commandPool != 0 {
-                if recycle { idleCommandPools.append((batch.commandPool, batch.commandBuffer)) } else { f.destroyCommandPool(device, batch.commandPool, nil) }
-            }
-            if let staging = batch.staging { if recycle { recycleHostBuffer(staging, readback: false) } else { native.destroy(staging) } }
-            if let readback = batch.readback { if recycle { recycleHostBuffer(readback, readback: true) } else { native.destroy(readback) } }
-            if let scratch = batch.scratch { native.destroy(scratch) }
-            batch.owned.forEach { native.destroy($0) }
-            batch.framebuffers.forEach { native.g.destroyFramebuffer(device, $0, nil) }
-            batch.renderPasses.forEach { native.g.destroyRenderPass(device, $0, nil) }
-            batch.views.forEach { native.g.destroyImageView(device, $0, nil) }
-        }
         do {
             // Legacy staged bytes come first, then each compact write, all 4-byte aligned.
             var stagingSize = (staged.count + 3) & ~3
@@ -998,6 +1002,7 @@ public actor VulkanDevice: ComputeAccelerationStructureBackendDevice, PlanarExte
             }
 
             var begin = VkCommandBufferBeginInfo()
+            if recordForReuse { begin.flags = 0 }
             try vulkanCheck(withUnsafePointer(to: &begin) { f.beginCommandBuffer(commandBuffer, UnsafeRawPointer($0)) }, "command recording")
             func barrier(sourceStages: UInt32 = VK.pipelineStageAllCommands, destinationStages: UInt32 = VK.pipelineStageAllCommands,
                          destinationAccess: UInt32 = VK.accessMemoryRead | VK.accessMemoryWrite) {
@@ -1151,39 +1156,21 @@ public actor VulkanDevice: ComputeAccelerationStructureBackendDevice, PlanarExte
             barrier(destinationStages: VK.pipelineStageHost, destinationAccess: VK.accessHostRead)
             try vulkanCheck(f.endCommandBuffer(commandBuffer), "command recording")
 
-            if let fence = idleFences.popLast() {
-                batch.fence = fence
-                var handle = fence
-                try vulkanCheck(f.resetFences(device, 1, &handle), "fence reset")
-            } else {
-                var fenceInfo = VkFenceCreateInfo()
-                try vulkanCheck(withUnsafePointer(to: &fenceInfo) {
-                    f.createFence(device, UnsafeRawPointer($0), nil, &batch.fence)
-                }, "fence creation")
-            }
-            var submit = VkSubmitInfo()
-            submit.commandBufferCount = 1
-            let queue = native.queue
-            let fence = batch.fence
-            try withUnsafePointer(to: &commandBuffer) { buffer in
-                submit.pCommandBuffers = buffer
-                try vulkanCheck(withUnsafePointer(to: &submit) { f.queueSubmit(queue, 1, UnsafeRawPointer($0), fence) },
-                                "queue submission")
-            }
+            try submitBatch(&batch)
         } catch {
             if case GPUError.deviceLost = error { terminal = true }
-            release(batch)
+            releaseBatch(batch)
             throw error
         }
 
-        do {
-            try await waitForFence(batch.fence)
-        } catch {
-            terminal = true
-            // The GPU may still own these objects; leaking them is safer than destroying them.
-            quarantine.append(batch)
-            throw error
+        if recordForReuse {
+            let resources = Set(submission.resources).union(list.pipelines.map(\.id))
+            pendingDispatchRecording = .init(resources: resources)
+            try await waitForBatch(batch)
+            finishDispatchRecording(.init(list: list, batch: batch, resources: resources))
+            return []
         }
+        try await waitForBatch(batch)
         var results: [[UInt32]] = []
         if let readback = batch.readback {
             for (operation, size) in zip(operations.compactMap { operation -> UInt64? in
@@ -1201,7 +1188,7 @@ public actor VulkanDevice: ComputeAccelerationStructureBackendDevice, PlanarExte
                 results.append(words)
             }
         }
-        release(batch, recycle: true)
+        releaseBatch(batch, recycle: true)
         return results
     }
 
