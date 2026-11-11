@@ -158,9 +158,9 @@ public enum VulkanBackend {
         var properties = [UInt8](repeating: 0, count: 1024)
         properties.withUnsafeMutableBytes { f.getPhysicalDeviceProperties(physical, $0.baseAddress!) }
         let apiVersion = properties.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: 0, as: UInt32.self) }
-        let type = properties.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: 12, as: UInt32.self) }
+        let type = properties.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: 16, as: UInt32.self) }
         guard apiVersion >= VK.version(1, 1) else { return nil }
-        let nameBytes = properties[16..<(16 + 256)].prefix { $0 != 0 }
+        let nameBytes = properties[20..<(20 + 256)].prefix { $0 != 0 }
         let name = String(decoding: nameBytes, as: UTF8.self)
         func limit(_ offset: Int) -> UInt32 {
             properties.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: limitsBase + offset, as: UInt32.self) }

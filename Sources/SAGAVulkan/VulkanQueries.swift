@@ -18,7 +18,8 @@ struct VkQueryPoolCreateInfo {
 enum VulkanQuery {
     static let occlusion: UInt32 = 0
     static let timestamp: UInt32 = 2
-    static let results64Bit: UInt32 = 0x1
+    /// 64-bit results; the wait flag guarantees a finished query is read even when the driver resolves it late.
+    static let results64Bit: UInt32 = 0x1 | 0x2
     static let topOfPipe: UInt32 = 0x1
     static let bottomOfPipe: UInt32 = 0x2000
 }

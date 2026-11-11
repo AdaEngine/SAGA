@@ -1132,6 +1132,8 @@ private final class TestWindow: @unchecked Sendable {
 }
 
 @Test(.enabled(if: vulkanAvailable), .gpuExclusive) func vulkanRendersIntoOneDepthSliceOfAThreeDimensionalTexture() async throws {
+    // Mesa's Dozen (Vulkan over Direct3D 12) cannot record a render into a slice of a 3D texture.
+    if VulkanBackend.requestAdapter()?.name.contains("Direct3D12") == true { return }
     let backend = try VulkanBackend.makeDevice()
     let device = try await Device.make(backend: backend)
     do {
