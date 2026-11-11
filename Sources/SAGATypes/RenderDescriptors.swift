@@ -822,20 +822,44 @@ public struct RenderPrimitiveState: Sendable, Equatable {
         case back
     }
 
+    /// How triangles are rasterized: filled, as outlines, or as their vertices.
+    public enum PolygonMode: UInt32, Sendable, Equatable {
+        case fill
+        /// Needs `GPUFeature.polygonModeLine`.
+        case line
+        /// Needs `GPUFeature.polygonModePoint`.
+        case point
+    }
+
     public let topology: Topology
     public let stripIndexFormat: IndexFormat?
     public let frontFace: FrontFace
     public let cullMode: CullMode
     /// Disables clipping against the near and far planes when the device supports depth clip control.
     public let unclippedDepth: Bool
+    public let polygonMode: PolygonMode
 
     public init(topology: Topology = .triangleList, stripIndexFormat: IndexFormat? = nil,
-                frontFace: FrontFace = .counterClockwise, cullMode: CullMode = .none, unclippedDepth: Bool = false) {
+                frontFace: FrontFace = .counterClockwise, cullMode: CullMode = .none, unclippedDepth: Bool = false,
+                polygonMode: PolygonMode = .fill) {
         self.topology = topology
         self.stripIndexFormat = stripIndexFormat
         self.frontFace = frontFace
         self.cullMode = cullMode
         self.unclippedDepth = unclippedDepth
+        self.polygonMode = polygonMode
+    }
+
+    /// Rejects polygon modes the device lacks and combinations that make no sense for the topology.
+    package func requirePolygonMode(_ capabilities: DeviceCapabilities) throws {
+        switch polygonMode {
+        case .fill: return
+        case .line: try capabilities.require([.polygonModeLine])
+        case .point: try capabilities.require([.polygonModePoint])
+        }
+        guard topology == .triangleList || topology == .triangleStrip else {
+            throw GPUError.validation("Polygon modes other than fill apply only to triangle topologies")
+        }
     }
 }
 

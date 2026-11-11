@@ -449,6 +449,7 @@ public actor Device {
             if fragment?.requiresBarycentrics == true { try capabilities.require([.shaderBarycentrics]) }
             if fragment?.earlyDepthTest != nil { try capabilities.require([.shaderEarlyDepthTest]) }
             if primitive.unclippedDepth { try capabilities.require([.depthClipControl]) }
+            try primitive.requirePolygonMode(capabilities)
             if vertex.requiresUniformBufferStandardLayout || fragment?.requiresUniformBufferStandardLayout == true {
                 try capabilities.require([.uniformBufferStandardLayout])
             }
@@ -547,6 +548,7 @@ public actor Device {
             }
             guard primitive.topology == .triangleList, primitive.stripIndexFormat == nil else { throw GPUError.validation("Mesh topology is defined by the shader") }
             if primitive.unclippedDepth { try capabilities.require([.depthClipControl]) }
+            try primitive.requirePolygonMode(capabilities)
             guard depthState?.format.isDepthStencil ?? true else { throw GPUError.validation("Invalid mesh depth format") }
             if depthState?.format == .depth32FloatStencil8 { try capabilities.require([.depth32FloatStencil8]) }
             if let state = depthState {

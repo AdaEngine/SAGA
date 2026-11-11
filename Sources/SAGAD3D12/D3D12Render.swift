@@ -389,7 +389,7 @@ extension D3D12Device {
         desc.storeBytes(of: UInt8(pipeline.colorState.writeMask.rawValue & 0xF), toByteOffset: 164, as: UInt8.self)
         put32(448, pipeline.sampleMask)
         // Rasterizer state.
-        put32(452, 3)  // solid
+        put32(452, pipeline.primitive.polygonMode == .line ? 2 : 3)  // wireframe or solid
         let cull: UInt32 = switch pipeline.primitive.cullMode { case .none: 1; case .front: 2; case .back: 3 }
         put32(456, cull)
         put32(460, pipeline.primitive.frontFace == .counterClockwise ? 1 : 0)

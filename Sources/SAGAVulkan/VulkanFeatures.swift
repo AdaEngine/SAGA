@@ -33,6 +33,7 @@ struct VulkanFeatureSupport: Sendable {
     static let enabledCoreFeatures = [
         10,  // drawIndirectFirstInstance
         12,  // depthBiasClamp
+        13,  // fillModeNonSolid
         19,  // samplerAnisotropy
         33,  // shaderUniformBufferArrayDynamicIndexing
         34,  // shaderSampledImageArrayDynamicIndexing

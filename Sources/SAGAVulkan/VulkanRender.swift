@@ -654,6 +654,7 @@ extension VulkanDevice: RenderBackendDevice {
                     var raster = VkPipelineRasterizationStateCreateInfo()
                     raster.cullMode = switch pipeline.primitive.cullMode { case .none: 0; case .front: 1; case .back: 2 }
                     raster.frontFace = pipeline.primitive.frontFace == .clockwise ? 1 : 0
+                    raster.polygonMode = switch pipeline.primitive.polygonMode { case .fill: 0; case .line: 1; case .point: 2 }
                     var depthStencil = VkPipelineDepthStencilStateCreateInfo()
                     if let depthState = pipeline.depthState {
                         depthStencil.depthTestEnable = depthFormat?.hasDepth == true ? 1 : 0

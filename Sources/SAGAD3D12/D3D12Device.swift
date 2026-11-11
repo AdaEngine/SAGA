@@ -143,6 +143,7 @@ public actor D3D12Device: ComputeBackendDevice, PlanarExternalTextureBackendDevi
         var features: Set<GPUFeature> = []
         if hasTimestamps { features.insert(.timestampQuery) }
         features.insert(.addressModeClampToBorder)
+        features.insert(.polygonModeLine)  // wireframe fill; Direct3D 12 has no point fill mode
         if meshSupported { features.insert(.meshShaders) }
         if Self.supportsRayQueries(device) { features.insert(.rayQuery) }
         // The HLSL cooperative matrix lowering spreads a tile over a 32-lane wave with wave intrinsics.

@@ -632,6 +632,45 @@ private func d3d12MeshPixel(withTask: Bool) async throws -> UInt32? {
     } catch { await device.close(); throw error }
 }
 
+@Test(.enabled(if: d3d12Available), .gpuExclusive) func d3d12RendersTrianglesAsFillLinesAndPoints() async throws {
+    let backend = try D3D12Backend.makeDevice(shaderCompilerDirectories: dxcDirectories)
+    let device = try await Device.make(backend: backend)
+    do {
+        let source = """
+            @vertex fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f {
+                let xy = array<vec2f, 3>(vec2f(-0.75, -0.75), vec2f(0.75, -0.75), vec2f(0.0, 0.75));
+                return vec4f(xy[i], 0.5, 1.0);
+            }
+            @fragment fn fs() -> @location(0) vec4f { return vec4f(0.0, 1.0, 0.0, 1.0); }
+            """
+        let compiler = IndependentShaderCompiler()
+        let vertex = try compiler.compileRenderStage(.wgsl(source), entryPoint: "vs", to: .hlsl)
+        let fragment = try compiler.compileRenderStage(.wgsl(source), entryPoint: "fs", to: .hlsl)
+        let target = try await device.createTexture(.init(width: 8, height: 8, format: .rgba8Unorm, usage: [.renderAttachment, .copySource]))
+        let read = try await device.createBuffer(.init(size: 1824, usage: [.copyDestination, .mapRead]))
+        func render(_ mode: RenderPrimitiveState.PolygonMode) async throws -> (center: UInt32, green: Int) {
+            let pipeline = try await device.createRenderPipeline(vertex: vertex, fragment: fragment, colorFormat: .rgba8Unorm,
+                                                                 primitive: .init(polygonMode: mode))
+            let ticket = try await device.submitCommands([
+                .render(pipeline: pipeline, target: target, clear: .init(red: 0, green: 0, blue: 1, alpha: 1), vertexCount: 3),
+                .copyTextureToBuffer(source: target, destination: read, bytesPerRow: 256),
+                .read(buffer: read, byteCount: 1824),
+            ])
+            let words = try await ticket.wait()[0]
+            let pixels = (0..<8).flatMap { row in (0..<8).map { words[row * 64 + $0] } }
+            return (words[4 * 64 + 4], pixels.filter { $0 == 0xff00_ff00 }.count)
+        }
+        let fill = try await render(.fill)
+        #expect(fill.center == 0xff00_ff00)  // the interior is covered
+        if backend.capabilities.features.contains(.polygonModeLine) {
+            let lines = try await render(.line)
+            #expect(lines.center == 0xffff_0000)  // the interior stays clear
+            #expect(lines.green > 0 && lines.green < fill.green)  // only the outline is drawn
+        }
+        await device.close()
+    } catch { await device.close(); throw error }
+}
+
 @Test(.enabled(if: d3d12Available), .gpuExclusive) func d3d12RendersVertexBuffersTexturesUniformsAndIndexedDraws() async throws {
     let backend = try D3D12Backend.makeDevice(shaderCompilerDirectories: dxcDirectories)
     let device = try await Device.make(backend: backend)

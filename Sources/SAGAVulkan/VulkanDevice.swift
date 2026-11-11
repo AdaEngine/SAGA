@@ -273,6 +273,7 @@ public actor VulkanDevice: ComputeAccelerationStructureBackendDevice, PlanarExte
         if limits.timestampsSupported { features.insert(.timestampQuery) }
         features.insert(.addressModeClampToBorder)  // core Vulkan: border colors need no extension for the fixed palette
         let support = limits.featureSupport
+        if support.core[13] != 0 { features.formUnion([.polygonModeLine, .polygonModePoint]) }
         if support.core[41] != 0 { features.insert(.shaderInt16) }
         if support.core[40] != 0 { features.insert(.shaderInt64) }
         if support.canEnableFloat16 { features.insert(.shaderF16) }
