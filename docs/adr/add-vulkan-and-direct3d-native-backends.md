@@ -67,7 +67,7 @@ Constraints that carry over:
 | 4g. 2D array and 3D textures, cube-compatible images, layer-range views, array/cube/3D sampling bindings, layer and slice copies | done | array and volume test |
 | 4h. Block-compressed textures (BC, ETC2, ASTC LDR; probed), MSAA with depth, 1D textures | done | BC, MSAA-depth and 1D tests |
 | 4i. Render to 3D slices, resolve-less MSAA (works on the tested driver; render pass compatibility not checked by validation layers) | done | slice and MSAA-keep tests |
-| 4j. ASTC HDR (VK_EXT_texture_compression_astc_hdr: feature enabled and SFLOAT block formats mapped when the device offers it). Neither development GPU supports it, so this is written but not run | partial (unverified) | |
+| 4j. ASTC HDR (VK_EXT_texture_compression_astc_hdr: feature enabled and SFLOAT block formats mapped when the device offers it). Unit tests pin the 14 format values, the structure type, the extension name and the feature chain linkage to vulkan_core.h; storing real textures has not run, because no reachable device (RTX 4070, AMD iGPU, lavapipe, Dozen) reports the feature and the Khronos profiles layer cannot add features a device lacks | partial (plumbing verified, storage unverified) | mapping, chain and enablement tests |
 | 5a. Buffer mapping (read, write, mapped at creation), timestamp and occlusion queries with resolve | done | mapping and query tests |
 | 5b. Presentation: Win32 swapchain (verified, including resize rebuild); Xlib and Wayland surfaces implemented but not run | partial | Win32 present test |
 | 5c. Optional device features probed and enabled (f16 with 16-bit storage, int16, int64, clip distance, anisotropy, fragment stores); f16 verified | done | f16 compute test |

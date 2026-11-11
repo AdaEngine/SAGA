@@ -50,6 +50,12 @@ func vulkanFormat(_ format: TextureFormat) -> VulkanFormatInfo? {
     }
 }
 
+/// The `VK_FORMAT_ASTC_*_SFLOAT_BLOCK` value of an ASTC HDR format. The 14 formats are numbered from 1000066000 in
+/// the same block-size order as `TextureFormat.astc4x4HDR` through `astc12x12HDR`.
+func vulkanASTCHDRFormat(_ format: TextureFormat) -> UInt32? {
+    (72...85).contains(format.rawValue) ? 1_000_066_000 + format.rawValue - 72 : nil
+}
+
 extension VulkanDevice {
     /// Resolves a texture format, mapping depth-stencil formats to what this device supports.
     func format(_ format: TextureFormat) -> VulkanFormatInfo? {
@@ -69,10 +75,9 @@ extension VulkanDevice {
             return .init(vk: format.rawValue + 113, bytes: compression.block.bytes, blockWidth: compression.block.width,
                          blockHeight: compression.block.height)
         }
-        // ASTC HDR formats (72...85) are VK_FORMAT_ASTC_*_SFLOAT_BLOCK, numbered from 1000066000 in the same block order.
-        if let compression = format.compression, (72...85).contains(format.rawValue) {
+        if let compression = format.compression, let number = vulkanASTCHDRFormat(format) {
             guard capabilities.features.contains(.textureCompressionASTCHDR) else { return nil }
-            return .init(vk: 1_000_066_000 + format.rawValue - 72, bytes: compression.block.bytes, blockWidth: compression.block.width,
+            return .init(vk: number, bytes: compression.block.bytes, blockWidth: compression.block.width,
                          blockHeight: compression.block.height)
         }
         switch format {
