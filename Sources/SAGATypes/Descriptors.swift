@@ -27,7 +27,7 @@ public enum GPUFeature: String, Sendable, Hashable, CaseIterable {
     case subgroupSizeControl, subgroupUniformity, shaderBarycentrics, shaderPerVertex, vertexFormatSnorm1010102
     case multiview, selectiveMultiview, multisampleArray, vertexWritableStorage
     case memoryDecorationCoherent, shaderDebugPrintf, cooperativeMatrix, rayQuery, meshShaders
-    case addressModeClampToBorder, polygonModeLine, polygonModePoint
+    case addressModeClampToBorder, polygonModeLine, polygonModePoint, multiDrawIndirect, multiDrawIndirectCount
 }
 
 public enum CooperativeMatrixScalar: String, Sendable, Hashable {

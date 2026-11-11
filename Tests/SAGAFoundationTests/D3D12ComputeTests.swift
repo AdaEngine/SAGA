@@ -671,6 +671,58 @@ private func d3d12MeshPixel(withTask: Bool) async throws -> UInt32? {
     } catch { await device.close(); throw error }
 }
 
+@Test(.enabled(if: d3d12Available), .gpuExclusive) func d3d12MultiDrawIndirectRunsEveryDrawAndHonorsTheCountBuffer() async throws {
+    let backend = try D3D12Backend.makeDevice(shaderCompilerDirectories: dxcDirectories)
+    let device = try await Device.make(backend: backend)
+    do {
+        let features = backend.capabilities.features
+        guard features.contains(.multiDrawIndirect), features.contains(.multiDrawIndirectCount) else { await device.close(); return }
+        // Direct3D 12 cannot feed the vertex index builtin to indirect draws without a newer validator, so positions
+        // come from a vertex buffer: three small triangles, each around the center of a different pixel of the top row.
+        let source = """
+            @vertex fn vs(@location(0) position: vec2f) -> @builtin(position) vec4f { return vec4f(position, 0.5, 1.0); }
+            @fragment fn fs() -> @location(0) vec4f { return vec4f(0.0, 1.0, 0.0, 1.0); }
+            """
+        let compiler = IndependentShaderCompiler()
+        let layout = VertexBufferLayout(stride: 8, attributes: [.init(location: 0, offset: 0, format: .float32x2)])
+        let pipeline = try await device.createRenderPipeline(
+            vertex: try compiler.compileRenderStage(.wgsl(source), entryPoint: "vs", to: .hlsl),
+            fragment: try compiler.compileRenderStage(.wgsl(source), entryPoint: "fs", to: .hlsl), colorFormat: .rgba8Unorm,
+            vertexBuffers: [layout])
+        let vertices = try await device.createBuffer(.init(size: 72, usage: [.vertex, .copyDestination]))
+        let positions: [Float] = [-0.625, 0.125, 0.625].flatMap { x -> [Float] in
+            [x - 0.2, 0.425, x + 0.2, 0.425, x, 0.825]
+        }
+        let target = try await device.createTexture(.init(width: 8, height: 8, format: .rgba8Unorm, usage: [.renderAttachment, .copySource]))
+        let arguments = try await device.createBuffer(.init(size: 48, usage: [.indirect, .copyDestination]))
+        let counts = try await device.createBuffer(.init(size: 16, usage: [.indirect, .copyDestination]))
+        let read = try await device.createBuffer(.init(size: 1824, usage: [.copyDestination, .mapRead]))
+        let blue = RenderClearColor(red: 0, green: 0, blue: 1, alpha: 1)
+        func multi(_ count: IndirectDrawCount) -> BufferCommand {
+            .renderMultiIndirect(draw: .renderIndirect(pipeline: pipeline, target: target, colorLoad: .clear(blue),
+                                                       indirectBuffer: arguments, vertexBuffers: [.init(buffer: vertices)]), count: count)
+        }
+        let snapshot: [BufferCommand] = [
+            .copyTextureToBuffer(source: target, destination: read, bytesPerRow: 256), .read(buffer: read, byteCount: 1824)]
+        // Three draws of one triangle each: [vertexCount, instanceCount, firstVertex, firstInstance].
+        let records: [UInt32] = [3, 1, 0, 0, 3, 1, 3, 0, 3, 1, 6, 0]
+        let ticket = try await device.submitCommands([
+            .write(buffer: vertices, offset: 0, words: positions.map(\.bitPattern)),
+            .write(buffer: arguments, offset: 0, words: records),
+            .write(buffer: counts, offset: 0, words: [2, 0, 3, 0]),
+            multi(.fixed(3)),
+        ] + snapshot + [multi(.fromBuffer(buffer: counts, offset: 0, maxCount: 3))] + snapshot
+          + [multi(.fromBuffer(buffer: counts, offset: 8, maxCount: 3))] + snapshot)
+        let snapshots = try await ticket.wait()
+        try #require(snapshots.count == 3)
+        func lit(_ words: [UInt32]) -> [Bool] { [1, 4, 6].map { words[1 * 64 + $0] == 0xff00_ff00 } }
+        #expect(lit(snapshots[0]) == [true, true, true])  // a fixed count of three
+        #expect(lit(snapshots[1]) == [true, true, false])  // the count word says two
+        #expect(lit(snapshots[2]) == [true, true, true])  // the count word says three
+        await device.close()
+    } catch { await device.close(); throw error }
+}
+
 @Test(.enabled(if: d3d12Available), .gpuExclusive) func d3d12RendersVertexBuffersTexturesUniformsAndIndexedDraws() async throws {
     let backend = try D3D12Backend.makeDevice(shaderCompilerDirectories: dxcDirectories)
     let device = try await Device.make(backend: backend)

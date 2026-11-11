@@ -144,6 +144,7 @@ public actor D3D12Device: ComputeBackendDevice, PlanarExternalTextureBackendDevi
         if hasTimestamps { features.insert(.timestampQuery) }
         features.insert(.addressModeClampToBorder)
         features.insert(.polygonModeLine)  // wireframe fill; Direct3D 12 has no point fill mode
+        features.formUnion([.multiDrawIndirect, .multiDrawIndirectCount])  // ExecuteIndirect takes a count and a count buffer
         if meshSupported { features.insert(.meshShaders) }
         if Self.supportsRayQueries(device) { features.insert(.rayQuery) }
         // The HLSL cooperative matrix lowering spreads a tile over a 32-lane wave with wave intrinsics.
@@ -631,6 +632,9 @@ public actor D3D12Device: ComputeBackendDevice, PlanarExternalTextureBackendDevi
                                                        x: r.x, y: r.y, z: r.z, width: r.width, height: r.height, buffer: from.resource,
                                                        bufferOffset: layout.offset, rowPitch: pitch),
                                         list: list, transition: transition)
+                case .renderMultiIndirect(let draw, let count):
+                    try recordDraw(draw, list: list, transition: transition, arena: &arena, heapsSet: &heapsSet,
+                                   renderTargets: &renderTargets, multiCount: count)
                 case .render, .renderIndexed, .renderIndirect:
                     try recordDraw(command, list: list, transition: transition, arena: &arena, heapsSet: &heapsSet,
                                    renderTargets: &renderTargets)

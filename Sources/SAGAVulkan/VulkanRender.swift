@@ -226,6 +226,8 @@ extension VulkanDevice: RenderBackendDevice {
         var depth: DepthTarget?
         var indirect: (source: UInt64, offset: UInt64, slot: Int)?
         var indirectArguments: (buffer: UInt64, offset: UInt64)?
+        /// A multi-draw command: how many draws, the argument stride in bytes, and the GPU count word when it has one.
+        var multi: (count: IndirectDrawCount, stride: UInt64, countBuffer: (buffer: UInt64, offset: UInt64)?)?
         var occlusion: (pool: UInt64, index: UInt32)?
         var resolve: (image: UInt64, mipLevel: UInt32, layer: UInt32)?
         var colorStore: UInt32 = 0
@@ -1176,11 +1178,19 @@ extension VulkanDevice {
         } else if let groups = plan.meshGroups, let drawMeshTasks = native.drawMeshTasks {
             drawMeshTasks(commandBuffer, groups.0, groups.1, groups.2)
         } else if let arguments = plan.indirectArguments {
+            let draws = plan.multi?.count.maximum ?? 1
+            let stride = UInt32(plan.multi?.stride ?? (plan.indexed == nil ? 16 : 20))
             if let indexed = plan.indexed {
                 g.cmdBindIndexBuffer(commandBuffer, indexed.buffer, indexed.offset, indexed.type)
-                g.cmdDrawIndexedIndirect(commandBuffer, arguments.buffer, arguments.offset, 1, 20)
+                if let count = plan.multi?.countBuffer, let draw = native.drawIndexedIndirectCount {
+                    draw(commandBuffer, arguments.buffer, arguments.offset, count.buffer, count.offset, draws, stride)
+                } else {
+                    g.cmdDrawIndexedIndirect(commandBuffer, arguments.buffer, arguments.offset, draws, stride)
+                }
+            } else if let count = plan.multi?.countBuffer, let draw = native.drawIndirectCount {
+                draw(commandBuffer, arguments.buffer, arguments.offset, count.buffer, count.offset, draws, stride)
             } else {
-                g.cmdDrawIndirect(commandBuffer, arguments.buffer, arguments.offset, 1, 16)
+                g.cmdDrawIndirect(commandBuffer, arguments.buffer, arguments.offset, draws, stride)
             }
         } else if plan.instanceCount > 0 {
             if let indexed = plan.indexed {
@@ -1268,6 +1278,28 @@ extension VulkanDevice {
         }
         plan.indirect = (source.native.handle, offset, slot)
         return plan
+    }
+
+    /// Validates every record of a multi-draw argument buffer, one workgroup per draw, like `drawValidatorPipeline`.
+    func multiDrawValidatorPipeline() throws -> Pipeline {
+        let shader = try IndependentShaderCompiler().compileCompute(.wgsl("""
+            struct Parameters { stride: u32, first_instance: u32, count: u32, }
+            @group(0) @binding(0) var<storage, read> source: array<u32>;
+            @group(0) @binding(1) var<storage, read_write> destination: array<u32>;
+            @group(0) @binding(2) var<storage, read> parameters: Parameters;
+            @compute @workgroup_size(1)
+            fn validate_multi_draw(@builtin(workgroup_id) id: vec3u) {
+                if (id.x >= parameters.count) { return; }
+                let base = id.x * parameters.stride;
+                let invalid = source[base + parameters.first_instance] != 0u;
+                for (var i = 0u; i < parameters.stride; i = i + 1u) {
+                    destination[base + i] = select(source[base + i], 0u, invalid);
+                }
+            }
+            """), to: .spirv)
+        guard case .spirv(let words) = shader.artifact else { throw GPUError.backendFailure("Multi-draw validator is not SPIR-V") }
+        let model = try ComputePipeline(id: ResourceID(device: 0, serial: 0), shader: shader)
+        return try makePipeline(model, words: words, entryPoint: shader.entryPoint)
     }
 
     /// Copies GPU-authored draw arguments and zeroes them when `firstInstance` is set, because that needs an optional feature.

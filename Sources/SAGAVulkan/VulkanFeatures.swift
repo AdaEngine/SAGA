@@ -31,6 +31,7 @@ struct VulkanFeatureSupport: Sendable {
 
     /// Core feature indices this backend enables when present.
     static let enabledCoreFeatures = [
+        9,   // multiDrawIndirect
         10,  // drawIndirectFirstInstance
         12,  // depthBiasClamp
         13,  // fillModeNonSolid
@@ -67,6 +68,7 @@ struct VulkanFeatureSupport: Sendable {
     }
 
     static let meshExtension = "VK_EXT_mesh_shader"
+    static let drawIndirectCountExtension = "VK_KHR_draw_indirect_count"
     static let rayQueryExtensions = ["VK_KHR_ray_query", "VK_KHR_acceleration_structure", "VK_KHR_deferred_host_operations",
                                      "VK_KHR_buffer_device_address", "VK_KHR_spirv_1_4", "VK_KHR_shader_float_controls",
                                      "VK_EXT_descriptor_indexing", "VK_KHR_maintenance3"]

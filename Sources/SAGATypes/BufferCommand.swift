@@ -1,5 +1,23 @@
+/// How many draws a multi-draw indirect command runs.
+public enum IndirectDrawCount: Sendable, Equatable {
+    /// A count known when recording; more than one needs `GPUFeature.multiDrawIndirect`.
+    case fixed(UInt32)
+    /// A count the GPU wrote (a 32-bit word in `buffer`), clamped to `maxCount`; needs `GPUFeature.multiDrawIndirectCount`.
+    case fromBuffer(buffer: ResourceID, offset: UInt64, maxCount: UInt32)
+
+    package var maximum: UInt32 {
+        switch self {
+        case .fixed(let count): count
+        case .fromBuffer(_, _, let maxCount): maxCount
+        }
+    }
+}
+
 /// Initial queue commands. The diagnostic dispatch has a fixed two-buffer ABI.
 public enum BufferCommand: Sendable, Equatable {
+    /// Runs consecutive indirect draws from the argument buffer of a `renderIndirect` command, in one render pass.
+    /// Arguments are tightly packed (16 bytes, or 20 with an index buffer), starting at the command's offset.
+    indirect case renderMultiIndirect(draw: BufferCommand, count: IndirectDrawCount)
     case buildTopLevelAccelerationStructure(destination: ResourceID, instances: [AccelerationStructureInstance])
     case buildAccelerationStructure(destination: ResourceID, geometry: AccelerationStructureTriangleGeometry)
     case buildBoxAccelerationStructure(destination: ResourceID, geometry: AccelerationStructureAABBGeometry)
@@ -154,6 +172,10 @@ public enum BufferCommand: Sendable, Equatable {
             ids.append(contentsOf: samplers.values)
         }
         switch self {
+        case .renderMultiIndirect(let draw, let count):
+            ids = draw.resources
+            if case .fromBuffer(let buffer, _, _) = count { ids.append(buffer) }
+            return ids
         case .buildAccelerationStructure(let destination, let geometry):
             ids = [destination, geometry.vertexBuffer]
             if let index = geometry.indexBuffer { ids.append(index.buffer) }
@@ -294,6 +316,7 @@ public enum BufferCommand: Sendable, Equatable {
     package var renderAccelerationStructures: [ResourceID] {
         let pipeline: RenderPipeline, textures: [ComputeBindingSlot: ResourceID]
         switch self {
+        case .renderMultiIndirect(let draw, _): return draw.renderAccelerationStructures
         case .render(let p, _, _, _, _, _, _, _, let t, _, _, _, _, _, _, _, _, _, _, _): (pipeline, textures) = (p, t)
         case .renderIndexed(let p, _, _, _, _, _, _, let t, _, _, _, _, _, _, _, _, _, _, _): (pipeline, textures) = (p, t)
         case .renderIndirect(let p, _, _, _, _, _, _, _, let t, _, _, _, _, _, _, _, _, _, _, _): (pipeline, textures) = (p, t)
@@ -1027,6 +1050,31 @@ public enum BufferCommand: Sendable, Equatable {
                               depth: depth, resolve: resolve, blendConstant: blendConstant, additionalColors: additionalColors,
                               raster: raster, immediates: immediates)
             try requireIndex(index, pipeline: pipeline, end: UInt64(draw.firstIndex) + UInt64(draw.indexCount))
+        case .renderMultiIndirect(let draw, let count):
+            guard case .renderIndirect(_, _, _, let arguments, let offset, let index, _, _, _, _, _, _, _, _, _, _, _, _, _, _) = draw else {
+                throw GPUError.validation("A multi-draw command wraps an indirect render command")
+            }
+            try draw.validate(
+                device: device, descriptors: descriptors, textures: textures, samplerDescriptors: samplerDescriptors,
+                textureViews: textureViews, maximumViewportDimension: maximumViewportDimension, maxVertexBuffers: maxVertexBuffers,
+                maxBindGroupsPlusVertexBuffers: maxBindGroupsPlusVertexBuffers, querySets: querySets,
+                maxMultiviewViewCount: maxMultiviewViewCount, features: features, externalTextures: externalTextures,
+                externalPlanes: externalPlanes, accelerationStructures: accelerationStructures,
+                maxComputeWorkgroupsPerDimension: maxComputeWorkgroupsPerDimension,
+                maxTaskWorkgroupTotalCount: maxTaskWorkgroupTotalCount, maxTaskWorkgroupsPerDimension: maxTaskWorkgroupsPerDimension,
+                maxMeshWorkgroupTotalCount: maxMeshWorkgroupTotalCount, maxMeshWorkgroupsPerDimension: maxMeshWorkgroupsPerDimension)
+            let stride: UInt64 = index == nil ? 16 : 20
+            switch count {
+            case .fixed(let draws):
+                guard draws >= 1 else { throw GPUError.validation("A multi-draw command needs at least one draw") }
+                if draws > 1 { guard features.contains(.multiDrawIndirect) else { throw GPUError.validation("Feature not advertised") } }
+                try require(arguments, .indirect, UInt64(draws) * stride, offset: offset)
+            case .fromBuffer(let countBuffer, let countOffset, let maxCount):
+                guard features.contains(.multiDrawIndirectCount) else { throw GPUError.validation("Feature not advertised") }
+                guard maxCount >= 1, countOffset % 4 == 0 else { throw GPUError.validation("Invalid multi-draw count") }
+                try require(arguments, .indirect, UInt64(maxCount) * stride, offset: offset)
+                try require(countBuffer, .indirect, 4, offset: countOffset)
+            }
         case .renderIndirect(let pipeline, let target, let colorLoad, let arguments, let offset, let index, let bindings, let uniforms, let boundTextures, let samplerBindings, let targetMipLevel, let targetDepthSlice, let depth, let resolve, let blendConstant, let additionalColors, let raster, let storageBuffers, let immediates, let colorStore):
             try require(arguments, .indirect, index == nil ? 16 : 20, offset: offset)
             try requireRender(pipeline, target, targetMipLevel, colorLoad, targetDepthSlice: targetDepthSlice, colorStore: colorStore,

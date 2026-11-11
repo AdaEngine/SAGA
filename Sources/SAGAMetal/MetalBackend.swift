@@ -1555,6 +1555,8 @@ public final class MetalDevice: ComputeAccelerationStructureBackendDevice, Prese
                     }
                     _ = try geometry.indexRange(bufferSize: source.descriptor.size)
                 }
+            case .renderMultiIndirect:
+                throw GPUError.unsupported("Metal does not run multi-draw indirect commands")
             case .buildBoxAccelerationStructure:
                 throw GPUError.unsupported("Metal does not build box acceleration structures")
             case .buildTopLevelAccelerationStructure(let destination, let instances):
@@ -1886,6 +1888,8 @@ public final class MetalDevice: ComputeAccelerationStructureBackendDevice, Prese
                 guard nextAccelerationBuild < UInt64.max else { throw GPUError.outOfMemory }
                 nextAccelerationBuild += 1
                 accelerationBuilds[destination] = PendingAccelerationBuild(serial: nextAccelerationBuild, build: build.persistent)
+            case .renderMultiIndirect:
+                throw GPUError.unsupported("Metal does not run multi-draw indirect commands")
             case .buildBoxAccelerationStructure:
                 throw GPUError.unsupported("Metal does not build box acceleration structures")
             case .buildTopLevelAccelerationStructure(let destination, let instances):

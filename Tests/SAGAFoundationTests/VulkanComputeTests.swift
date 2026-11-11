@@ -37,7 +37,7 @@ private let destinationSlot = ComputeBindingSlot(binding: 3)
     #expect(capabilities.maxComputeInvocationsPerWorkgroup >= 128)
     #expect(capabilities.maxComputeWorkgroupsPerDimension >= 65_535)
     #expect(capabilities.maxComputeWorkgroupSize.x >= 128)
-    #expect(capabilities.features.isSubset(of: [.timestampQuery, .depth32FloatStencil8, .shaderF16, .shaderInt16, .shaderInt64, .subgroups, .multiview, .selectiveMultiview, .textureCompressionBC, .textureCompressionETC2, .textureCompressionASTC, .cooperativeMatrix, .meshShaders, .rayQuery, .textureCompressionASTCHDR, .addressModeClampToBorder, .polygonModeLine, .polygonModePoint]))  // only probed, supported features
+    #expect(capabilities.features.isSubset(of: [.timestampQuery, .depth32FloatStencil8, .shaderF16, .shaderInt16, .shaderInt64, .subgroups, .multiview, .selectiveMultiview, .textureCompressionBC, .textureCompressionETC2, .textureCompressionASTC, .cooperativeMatrix, .meshShaders, .rayQuery, .textureCompressionASTCHDR, .addressModeClampToBorder, .polygonModeLine, .polygonModePoint, .multiDrawIndirect, .multiDrawIndirectCount]))  // only probed, supported features
 }
 
 @Test(.enabled(if: vulkanAvailable), .gpuExclusive) func vulkanReadbacksAreZeroInitializedAndSnapshotOrdered() async throws {
@@ -1769,6 +1769,55 @@ private func vulkanTaskMeshPixel(taskSize: String) async throws -> UInt32? {
             #expect(points.center == 0xffff_0000)
             #expect(points.green > 0 && points.green <= 3)  // one pixel per vertex
         }
+        await device.close()
+    } catch { await device.close(); throw error }
+}
+
+@Test(.enabled(if: vulkanAvailable), .gpuExclusive) func vulkanMultiDrawIndirectRunsEveryDrawAndHonorsTheCountBuffer() async throws {
+    let backend = try VulkanBackend.makeDevice()
+    let device = try await Device.make(backend: backend)
+    do {
+        let features = backend.capabilities.features
+        guard features.contains(.multiDrawIndirect), features.contains(.multiDrawIndirectCount) else { await device.close(); return }
+        let source = """
+            @vertex fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f {
+                // Three small triangles, one per draw, each around the center of a different pixel of the top row.
+                let centers = array<f32, 3>(-0.625, 0.125, 0.625);
+                let corner = array<vec2f, 3>(vec2f(-0.2, -0.2), vec2f(0.2, -0.2), vec2f(0.0, 0.2));
+                let c = vec2f(centers[i / 3u], 0.625) + corner[i % 3u];
+                return vec4f(c, 0.5, 1.0);
+            }
+            @fragment fn fs() -> @location(0) vec4f { return vec4f(0.0, 1.0, 0.0, 1.0); }
+            """
+        let compiler = IndependentShaderCompiler()
+        let pipeline = try await device.createRenderPipeline(
+            vertex: try compiler.compileRenderStage(.wgsl(source), entryPoint: "vs", to: .spirv),
+            fragment: try compiler.compileRenderStage(.wgsl(source), entryPoint: "fs", to: .spirv), colorFormat: .rgba8Unorm)
+        let target = try await device.createTexture(.init(width: 8, height: 8, format: .rgba8Unorm, usage: [.renderAttachment, .copySource]))
+        let arguments = try await device.createBuffer(.init(size: 48, usage: [.indirect, .copyDestination]))
+        let counts = try await device.createBuffer(.init(size: 16, usage: [.indirect, .copyDestination]))
+        let read = try await device.createBuffer(.init(size: 1824, usage: [.copyDestination, .mapRead]))
+        let blue = RenderClearColor(red: 0, green: 0, blue: 1, alpha: 1)
+        func multi(_ count: IndirectDrawCount) -> BufferCommand {
+            .renderMultiIndirect(draw: .renderIndirect(pipeline: pipeline, target: target, colorLoad: .clear(blue),
+                                                       indirectBuffer: arguments), count: count)
+        }
+        let snapshot: [BufferCommand] = [
+            .copyTextureToBuffer(source: target, destination: read, bytesPerRow: 256), .read(buffer: read, byteCount: 1824)]
+        // Three draws of one triangle each: [vertexCount, instanceCount, firstVertex, firstInstance].
+        let records: [UInt32] = [3, 1, 0, 0, 3, 1, 3, 0, 3, 1, 6, 0]
+        let ticket = try await device.submitCommands([
+            .write(buffer: arguments, offset: 0, words: records),
+            .write(buffer: counts, offset: 0, words: [2, 0, 3, 0]),
+            multi(.fixed(3)),
+        ] + snapshot + [multi(.fromBuffer(buffer: counts, offset: 0, maxCount: 3))] + snapshot
+          + [multi(.fromBuffer(buffer: counts, offset: 8, maxCount: 3))] + snapshot)
+        let snapshots = try await ticket.wait()
+        try #require(snapshots.count == 3)
+        func lit(_ words: [UInt32]) -> [Bool] { [1, 4, 6].map { words[1 * 64 + $0] == 0xff00_ff00 } }
+        #expect(lit(snapshots[0]) == [true, true, true])  // a fixed count of three
+        #expect(lit(snapshots[1]) == [true, true, false])  // the count word says two
+        #expect(lit(snapshots[2]) == [true, true, true])  // the count word says three
         await device.close()
     } catch { await device.close(); throw error }
 }

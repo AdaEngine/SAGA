@@ -14,6 +14,9 @@ final class VulkanNativeDevice: Sendable {
     /// vkCmdDrawMeshTasksEXT, present only when mesh shaders are enabled.
     let drawMeshTasks: (@convention(c) (UInt, UInt32, UInt32, UInt32) -> Void)?
     let drawMeshTasksIndirect: (@convention(c) (UInt, UInt64, UInt64, UInt32, UInt32) -> Void)?
+    /// vkCmdDrawIndirectCountKHR and vkCmdDrawIndexedIndirectCountKHR, present when the extension is enabled.
+    let drawIndirectCount: (@convention(c) (UInt, UInt64, UInt64, UInt64, UInt64, UInt32, UInt32) -> Void)?
+    let drawIndexedIndirectCount: (@convention(c) (UInt, UInt64, UInt64, UInt64, UInt64, UInt32, UInt32) -> Void)?
     /// Whether ray queries are enabled: buffers then carry device addresses and structures can be built.
     let deviceAddresses: Bool
     /// Whether ray hits can return triangle vertex positions; structures are then built with data access allowed.
@@ -92,6 +95,21 @@ final class VulkanNativeDevice: Sendable {
             }
         }
         drawMeshTasksIndirect = meshIndirect
+        var countDraw: (@convention(c) (UInt, UInt64, UInt64, UInt64, UInt64, UInt32, UInt32) -> Void)?
+        var countDrawIndexed: (@convention(c) (UInt, UInt64, UInt64, UInt64, UInt64, UInt32, UInt32) -> Void)?
+        if support.deviceExtensions.contains(VulkanFeatureSupport.drawIndirectCountExtension),
+           let library = VulkanLibrary.open(), let address = library.symbol("vkGetInstanceProcAddr") {
+            let getProc = unsafeBitCast(address, to: GetInstanceProcAddr.self)
+            typealias CountDraw = @convention(c) (UInt, UInt64, UInt64, UInt64, UInt64, UInt32, UInt32) -> Void
+            if let plain = getProc(adapter.instance.handle, "vkCmdDrawIndirectCountKHR"),
+               let indexed = getProc(adapter.instance.handle, "vkCmdDrawIndexedIndirectCountKHR") {
+                countDraw = unsafeBitCast(plain, to: CountDraw.self)
+                countDrawIndexed = unsafeBitCast(indexed, to: CountDraw.self)
+                deviceExtensions.append(VulkanFeatureSupport.drawIndirectCountExtension)
+            }
+        }
+        drawIndirectCount = countDraw
+        drawIndexedIndirectCount = countDrawIndexed
         graphics = try VulkanGraphicsFunctions(instance: adapter.instance)
         limits = adapter.limits
         queueFamily = adapter.queueFamily
@@ -250,6 +268,7 @@ public actor VulkanDevice: ComputeAccelerationStructureBackendDevice, PlanarExte
     var querySets: [ResourceID: VulkanQuerySetState] = [:]
     var cachedValidator: Pipeline?
     var cachedIndexSanitizer: Pipeline?
+    var multiDrawValidator: Pipeline?
     var accelerationStructures: [ResourceID: AccelerationStructureState] = [:]
     var cachedDrawValidator: Pipeline?
     var terminal = false
@@ -274,6 +293,8 @@ public actor VulkanDevice: ComputeAccelerationStructureBackendDevice, PlanarExte
         features.insert(.addressModeClampToBorder)  // core Vulkan: border colors need no extension for the fixed palette
         let support = limits.featureSupport
         if support.core[13] != 0 { features.formUnion([.polygonModeLine, .polygonModePoint]) }
+        if support.core[9] != 0 { features.insert(.multiDrawIndirect) }
+        if native.drawIndirectCount != nil, native.drawIndexedIndirectCount != nil { features.insert(.multiDrawIndirectCount) }
         if support.core[41] != 0 { features.insert(.shaderInt16) }
         if support.core[40] != 0 { features.insert(.shaderInt64) }
         if support.canEnableFloat16 { features.insert(.shaderF16) }
@@ -376,6 +397,8 @@ public actor VulkanDevice: ComputeAccelerationStructureBackendDevice, PlanarExte
         destroyHelper(cachedValidator)
         destroyHelper(cachedIndexSanitizer)
         cachedIndexSanitizer = nil
+        destroyHelper(multiDrawValidator)
+        multiDrawValidator = nil
         for id in accelerationStructures.keys where id.device == owner { destroyAccelerationStructureNow(id: id) }
         destroyHelper(cachedDrawValidator)
         cachedValidator = nil
@@ -676,6 +699,19 @@ public actor VulkanDevice: ComputeAccelerationStructureBackendDevice, PlanarExte
                 let plan = try planIndexedRender(command, totals: &descriptorTotals)
                 descriptorTotals.sets += UInt32(plan.pipeline.setLayouts.count)
                 operations.append(.render(plan))
+            case .renderMultiIndirect(let draw, let count):
+                var plan = try planIndirectRender(draw, slot: 0, totals: &descriptorTotals)
+                guard count.maximum <= 65_535 else { throw GPUError.unsupported("Vulkan multi-draw commands run at most 65535 draws") }
+                var countBuffer: (buffer: UInt64, offset: UInt64)?
+                if case .fromBuffer(let id, let offset, _) = count {
+                    guard let source = buffers[id] else { throw GPUError.validation("Unknown Vulkan multi-draw count buffer") }
+                    countBuffer = (source.native.handle, offset)
+                }
+                plan.multi = (count, plan.indexed == nil ? 16 : 20, countBuffer)
+                multiDrawValidator = try multiDrawValidator ?? multiDrawValidatorPipeline()
+                descriptorTotals.sets += UInt32(plan.pipeline.setLayouts.count) + 1
+                descriptorTotals.add(VK.DescriptorType.storageBuffer, 3)
+                operations.append(.render(plan))
             case .renderIndirect:
                 let plan = try planIndirectRender(command, slot: indirectLimits.count, totals: &descriptorTotals)
                 drawValidator = try drawValidator ?? drawValidatorPipeline()
@@ -845,6 +881,30 @@ public actor VulkanDevice: ComputeAccelerationStructureBackendDevice, PlanarExte
                             resolve.destinationOffset + UInt64(index - resolve.first) * 8, 8, VulkanQuery.results64Bit)
                     }
                 case .render(var plan):
+                    if let multi = plan.multi, let indirect = plan.indirect, let validator = multiDrawValidator {
+                        // Validate every argument record into a private copy, then draw from the copy.
+                        let draws = UInt64(multi.count.maximum)
+                        let bytes = draws * multi.stride
+                        let validatedOffset = (bytes + 255) & ~255
+                        let arguments = try native.makeHostBuffer(size: validatedOffset + bytes)
+                        let parameters = try native.makeHostBuffer(size: 16)
+                        batch.owned += [arguments, parameters]
+                        parameters.mapped.storeBytes(of: UInt32(multi.stride / 4), as: UInt32.self)
+                        (parameters.mapped + 4).storeBytes(of: UInt32(plan.indexed == nil ? 3 : 4), as: UInt32.self)
+                        (parameters.mapped + 8).storeBytes(of: UInt32(draws), as: UInt32.self)
+                        copy(indirect.source, indirect.offset, arguments.handle, 0, bytes)
+                        barrier()
+                        try bindDescriptors(commandBuffer: commandBuffer, bindPoint: VK.pipelineBindPointCompute,
+                                            layout: validator.layout, setLayouts: validator.setLayouts, writes: [
+                            .init(set: 0, binding: 0, type: VK.DescriptorType.storageBuffer, buffer: arguments.handle, offset: 0, range: bytes),
+                            .init(set: 0, binding: 1, type: VK.DescriptorType.storageBuffer, buffer: arguments.handle, offset: validatedOffset, range: bytes),
+                            .init(set: 0, binding: 2, type: VK.DescriptorType.storageBuffer, buffer: parameters.handle, offset: 0, range: 16),
+                        ], batch: &batch)
+                        f.cmdBindPipeline(commandBuffer, VK.pipelineBindPointCompute, validator.pipeline)
+                        f.cmdDispatch(commandBuffer, UInt32(draws), 1, 1)
+                        barrier()
+                        plan.indirectArguments = (arguments.handle, validatedOffset)
+                    } else
                     if let indirect = plan.indirect, plan.meshGroups != nil, let validator, let scratch = batch.scratch {
                         let base = UInt64(indirect.slot) * Self.scratchStride
                         copy(indirect.source, indirect.offset, scratch.handle, base, 12)

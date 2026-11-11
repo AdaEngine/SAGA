@@ -8,7 +8,7 @@ extension D3D12Device {
     func recordDraw(
         _ command: BufferCommand, list: COMObject, transition: (ResourceID, UInt32) -> Void,
         arena: inout D3D12DescriptorArena?, heapsSet: inout Bool, renderTargets: inout D3D12RenderTargetArena?,
-        meshGroups: (UInt32, UInt32, UInt32)? = nil, meshIndirect: COMObject? = nil
+        meshGroups: (UInt32, UInt32, UInt32)? = nil, meshIndirect: COMObject? = nil, multiCount: IndirectDrawCount? = nil
     ) throws {
         let pipeline: RenderPipeline, target: ResourceID?, colorLoad: RenderColorLoadAction
         let vertexBuffers: [VertexBufferBinding], uniforms: [ComputeBindingSlot: ComputeBufferBinding]
@@ -300,7 +300,17 @@ extension D3D12Device {
             typealias ExecuteIndirect = @convention(c) (UnsafeMutableRawPointer, UnsafeMutableRawPointer, UInt32, UnsafeMutableRawPointer, UInt64,
                                                         UnsafeMutableRawPointer?, UInt64) -> Void
             let signature = try drawSignature(indexed: indirect.index != nil)
-            list.slot(59, ExecuteIndirect.self)(list.pointer, signature.pointer, 1, source.resource.pointer, indirect.offset, nil, 0)
+            // A multi-draw command runs up to its maximum count; a GPU count word, when given, lowers it further.
+            var countResource: COMObject?
+            var countOffset: UInt64 = 0
+            if case .fromBuffer(let id, let offset, _)? = multiCount {
+                guard let counts = buffers[id] else { throw GPUError.validation("Unknown Direct3D 12 multi-draw count buffer") }
+                transition(id, D3D12.stateIndirectArgument)
+                countResource = counts.resource
+                countOffset = offset
+            }
+            list.slot(59, ExecuteIndirect.self)(list.pointer, signature.pointer, multiCount?.maximum ?? 1, source.resource.pointer,
+                                                indirect.offset, countResource?.pointer, countOffset)
         } else if let indexed {
             guard let buffer = buffers[indexed.binding.buffer], indexed.binding.offset <= buffer.descriptor.size else {
                 throw GPUError.validation("Invalid Direct3D 12 index buffer")
