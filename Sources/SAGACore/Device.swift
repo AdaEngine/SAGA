@@ -262,6 +262,7 @@ public actor Device {
                 allocate = { try await external.allocatePlanarExternalTexture(id: $0, descriptor: value) }
             case .sampler(let value):
                 try value.validate()
+                if value.usesBorder { try capabilities.require([.addressModeClampToBorder]) }
                 guard let sampler = backend as? any SamplerBackendDevice else {
                     throw GPUError.unsupported("Backend does not implement samplers")
                 }

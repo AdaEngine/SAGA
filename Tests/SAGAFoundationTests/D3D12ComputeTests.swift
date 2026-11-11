@@ -587,6 +587,51 @@ private func d3d12MeshPixel(withTask: Bool) async throws -> UInt32? {
     } catch { await device.close(); throw error }
 }
 
+@Test(.enabled(if: d3d12Available), .gpuExclusive) func d3d12SamplersClampToTheBorderColor() async throws {
+    let backend = try D3D12Backend.makeDevice(shaderCompilerDirectories: dxcDirectories)
+    let device = try await Device.make(backend: backend)
+    do {
+        let source = """
+            @group(0) @binding(0) var image: texture_2d<f32>;
+            @group(0) @binding(1) var transparent: sampler;
+            @group(0) @binding(2) var black: sampler;
+            @group(0) @binding(3) var white: sampler;
+            @group(0) @binding(4) var<storage, read_write> output: array<vec4f, 4>;
+            @compute @workgroup_size(1) fn main() {
+                let outside = vec2f(-0.5, 0.5);
+                output[0] = textureSampleLevel(image, transparent, outside, 0.0);
+                output[1] = textureSampleLevel(image, black, outside, 0.0);
+                output[2] = textureSampleLevel(image, white, outside, 0.0);
+                output[3] = textureSampleLevel(image, black, vec2f(0.5, 0.5), 0.0);
+            }
+            """
+        let pipeline = try await device.createComputePipeline(try IndependentShaderCompiler().compileCompute(.wgsl(source), to: .hlsl))
+        let image = try await device.createTexture(.init(width: 2, height: 2, format: .rgba8Unorm, usage: [.textureBinding, .copyDestination]))
+        func sampler(_ color: SamplerBorderColor) async throws -> ResourceID {
+            try await device.createSampler(.init(addressModeU: .clampToBorder, addressModeV: .clampToBorder, borderColor: color))
+        }
+        let output = try await device.createBuffer(.init(size: 64, usage: [.storage, .copySource]))
+        let read = try await device.createBuffer(.init(size: 64, usage: [.copyDestination, .mapRead]))
+        let red: [UInt8] = [255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255]
+        let ticket = try await device.submitCommands([
+            .writeTexture(destination: image, data: red, layout: .init(bytesPerRow: 8, rowsPerImage: 2), region: .init(width: 2, height: 2)),
+            .dispatchCompute(pipeline: pipeline, bindings: [ComputeBindingSlot(binding: 4): output], workgroups: .init(x: 1),
+                             textures: [ComputeBindingSlot(binding: 0): image],
+                             samplers: [ComputeBindingSlot(binding: 1): try await sampler(.transparentBlack),
+                                        ComputeBindingSlot(binding: 2): try await sampler(.opaqueBlack),
+                                        ComputeBindingSlot(binding: 3): try await sampler(.opaqueWhite)]),
+            .copy(source: output, destination: read, byteCount: 64),
+            .read(buffer: read, byteCount: 64),
+        ])
+        let values = try await ticket.wait()[0].map { Float(bitPattern: $0) }
+        #expect(Array(values[0..<4]) == [0, 0, 0, 0])  // transparent black
+        #expect(Array(values[4..<8]) == [0, 0, 0, 1])  // opaque black
+        #expect(Array(values[8..<12]) == [1, 1, 1, 1])  // opaque white
+        #expect(Array(values[12..<16]) == [1, 0, 0, 1])  // inside the texture the red texel shows
+        await device.close()
+    } catch { await device.close(); throw error }
+}
+
 @Test(.enabled(if: d3d12Available), .gpuExclusive) func d3d12RendersVertexBuffersTexturesUniformsAndIndexedDraws() async throws {
     let backend = try D3D12Backend.makeDevice(shaderCompilerDirectories: dxcDirectories)
     let device = try await Device.make(backend: backend)

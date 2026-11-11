@@ -271,6 +271,7 @@ public actor VulkanDevice: ComputeAccelerationStructureBackendDevice, PlanarExte
         let (sx, sy, sz) = limits.maxComputeWorkGroupSize
         var features: Set<GPUFeature> = []
         if limits.timestampsSupported { features.insert(.timestampQuery) }
+        features.insert(.addressModeClampToBorder)  // core Vulkan: border colors need no extension for the fixed palette
         let support = limits.featureSupport
         if support.core[41] != 0 { features.insert(.shaderInt16) }
         if support.core[40] != 0 { features.insert(.shaderInt64) }

@@ -52,11 +52,18 @@ extension VulkanDevice: SamplerBackendDevice {
         info.minFilter = descriptor.minFilter.rawValue
         info.mipmapMode = descriptor.mipmapFilter.rawValue
         func address(_ mode: SamplerAddressMode) -> UInt32 {
-            switch mode { case .repeat: 0; case .mirrorRepeat: 1; case .clampToEdge: 2 }
+            switch mode { case .repeat: 0; case .mirrorRepeat: 1; case .clampToEdge: 2; case .clampToBorder: 3 }
         }
         info.addressModeU = address(descriptor.addressModeU)
         info.addressModeV = address(descriptor.addressModeV)
         info.addressModeW = address(descriptor.addressModeW)
+        // The float border colors: transparent black, opaque black and opaque white (VkBorderColor 0, 2 and 4).
+        switch descriptor.borderColor {
+        case .transparentBlack?: info.borderColor = 0
+        case .opaqueBlack?: info.borderColor = 2
+        case .opaqueWhite?: info.borderColor = 4
+        case nil: break
+        }
         info.minLod = descriptor.lodMinClamp
         info.maxLod = descriptor.lodMaxClamp
         // Anisotropy needs an optional device feature this backend does not enable, so it clamps to 1.

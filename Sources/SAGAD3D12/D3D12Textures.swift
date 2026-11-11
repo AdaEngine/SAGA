@@ -269,10 +269,17 @@ extension D3D12Device: RenderBackendDevice, SamplerBackendDevice {
         var filter = descriptor.minFilter.rawValue << 4 | descriptor.magFilter.rawValue << 2 | descriptor.mipmapFilter.rawValue
         if descriptor.compare != nil { filter |= 0x80 }
         func address(_ mode: SamplerAddressMode) -> UInt32 {
-            switch mode { case .repeat: 1; case .mirrorRepeat: 2; case .clampToEdge: 3 }
+            switch mode { case .repeat: 1; case .mirrorRepeat: 2; case .clampToEdge: 3; case .clampToBorder: 4 }
+        }
+        // BorderColor is four floats: transparent black, opaque black (alpha 1) or opaque white.
+        let border: [Float] = switch descriptor.borderColor {
+        case .opaqueBlack?: [0, 0, 0, 1]
+        case .opaqueWhite?: [1, 1, 1, 1]
+        default: [0, 0, 0, 0]
         }
         return [filter, address(descriptor.addressModeU), address(descriptor.addressModeV), address(descriptor.addressModeW),
-                Float(0).bitPattern, 1, (descriptor.compare?.rawValue ?? 7) + 1, 0, 0, 0, 0,
+                Float(0).bitPattern, 1, (descriptor.compare?.rawValue ?? 7) + 1,
+                border[0].bitPattern, border[1].bitPattern, border[2].bitPattern, border[3].bitPattern,
                 descriptor.lodMinClamp.bitPattern, descriptor.lodMaxClamp.bitPattern]
     }
 }

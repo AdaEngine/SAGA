@@ -875,6 +875,7 @@ public final class MetalDevice: ComputeAccelerationStructureBackendDevice, Prese
         func addressMode(_ mode: SamplerAddressMode) -> MTLSamplerAddressMode {
             switch mode {
             case .clampToEdge: .clampToEdge
+            case .clampToBorder: .clampToEdge  // never reached: Metal does not advertise addressModeClampToBorder
             case .repeat: .repeat
             case .mirrorRepeat: .mirrorRepeat
             }

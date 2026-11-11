@@ -142,6 +142,7 @@ public actor D3D12Device: ComputeBackendDevice, PlanarExternalTextureBackendDevi
         let meshSupported = Self.supportsMeshShaders(device)
         var features: Set<GPUFeature> = []
         if hasTimestamps { features.insert(.timestampQuery) }
+        features.insert(.addressModeClampToBorder)
         if meshSupported { features.insert(.meshShaders) }
         if Self.supportsRayQueries(device) { features.insert(.rayQuery) }
         // The HLSL cooperative matrix lowering spreads a tile over a 32-lane wave with wave intrinsics.
