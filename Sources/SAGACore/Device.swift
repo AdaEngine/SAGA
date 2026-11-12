@@ -755,6 +755,11 @@ public actor Device {
 
     /// Copy an offscreen color texture to the attached surface in submission order.
     public func present(_ source: ResourceID) throws -> SubmissionTicket {
+        try present(source, surface: 0)
+    }
+
+    /// Copy an offscreen color texture to the selected surface in submission order.
+    public func present(_ source: ResourceID, surface: UInt32) throws -> SubmissionTicket {
         let presentation: any PresentationBackendDevice
         do {
             try Task.checkCancellation()
@@ -775,7 +780,7 @@ public actor Device {
             let error = normalize(error); record(error); throw error
         }
         let (sequence, completion) = try enqueue([source]) { submission in
-            try await presentation.present(submission, source: source)
+            try await presentation.present(submission, source: source, surface: surface)
         }
         return SubmissionTicket(sequence: sequence, completion: completion)
     }

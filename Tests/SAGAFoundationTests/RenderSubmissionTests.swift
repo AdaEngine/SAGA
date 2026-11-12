@@ -60,6 +60,18 @@ private func makePipeline(_ device: Device, format: TextureFormat = .rgba8Unorm)
     return try await device.createRenderPipeline(vertex: vertex, fragment: fragment, colorFormat: format)
 }
 
+@Test func singleSurfacePresentationRejectsAnUnknownSurfaceID() async throws {
+    let backend = RenderTestBackend(presentationGate: Gate())
+    let device = try await Device.make(backend: backend)
+    let frame = try await device.createTexture(.init(width: 8, height: 8, format: .rgba8Unorm, usage: .copySource))
+    let ticket = try await device.present(frame, surface: 1)
+    await #expect(throws: GPUError.unsupported("Backend does not have the requested surface")) {
+        try await ticket.wait()
+    }
+    #expect(await backend.presented.isEmpty)
+    await device.close()
+}
+
 @Test func cancelledTextureAllocationRetiresUnpublishedResource() async throws {
     let gate = Gate()
     let backend = RenderTestBackend(allocationGate: gate)
