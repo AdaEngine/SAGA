@@ -3,7 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "SAGA",
-    platforms: [.macOS(.v14)],
+    platforms: [.macOS(.v14), .iOS(.v18), .tvOS(.v18)],
     products: [
         .executable(name: "SAGAMetalDiagnostic", targets: ["SAGAMetalDiagnostic"]),
         .executable(name: "SAGAMetalWindowDiagnostic", targets: ["SAGAMetalWindowDiagnostic"]),

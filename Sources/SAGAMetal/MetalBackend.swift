@@ -385,9 +385,11 @@ public final class MetalDevice: ComputeAccelerationStructureBackendDevice, Prese
         var meshWorkgroupCount: UInt32 = 0
         if features.contains(.meshShaders) {
             var metal4 = false
+            #if !targetEnvironment(simulator)
             if #available(macOS 26, iOS 26, tvOS 26, visionOS 26, *) {
                 metal4 = native.supportsFamily(.metal4)
             }
+            #endif
             taskWorkgroupCount = metal4 || native.supportsFamily(.apple7) ? UInt32.max : 1024
             if #available(macOS 26, iOS 26, tvOS 26, visionOS 26, *), native.supportsFamily(.apple10) {
                 meshWorkgroupCount = 1 << 22

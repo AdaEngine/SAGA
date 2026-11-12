@@ -43,12 +43,14 @@ public final class MetalPresentationSurface {
         guard let drawable = layer.nextDrawable() else {
             throw GPUError.backendFailure("Metal surface did not supply a drawable")
         }
+        #if !targetEnvironment(simulator)
         if let onPresented {
             drawable.addPresentedHandler { drawable in
                 let frame = MetalPresentedFrame(width: width, height: height, presentedTime: drawable.presentedTime)
                 Task { @MainActor in onPresented(frame) }
             }
         }
+        #endif
         return drawable
     }
     #else
