@@ -4146,17 +4146,119 @@ struct ShaderBodyWriter {
         throw unsupported("access outside a supported vector or render structure")
     }
 
+    private enum ValueStep {
+        case visit(IRHandle<IRExpression>, parenthesized: Bool)
+        case leave
+        case construct(IRHandle<IRType>, count: Int)
+        case splat(IRHandle<IRType>, width: Int)
+        case suffix(String)
+        case cast(IRHandle<IRExpression>, IRScalar, IRHandle<IRType>)
+        case member(IRHandle<IRExpression>, IRHandle<IRType>, String)
+        case binary(IRBinaryOperator, IRHandle<IRExpression>, IRHandle<IRExpression>, IRHandle<IRType>, Bool)
+    }
+
+    // Large shader expression trees can overflow a render worker's Swift stack
+    // even within the shader depth budget. Walk common expression branches on
+    // the heap, keeping depth and source accounting in the original order.
     private mutating func value(
         _ handle: IRHandle<IRExpression>, parenthesized: Bool = true
     ) throws -> String {
-        try budget.consume(.work)
-        try budget.enterDepth()
-        defer { try? budget.leaveDepth() }
-        if continuingCaptures[handle] != nil {
-            continuingCaptures[handle] = true
-            return "saga_loop_value_\(handle.index)"
+        var steps: [ValueStep] = [.visit(handle, parenthesized: parenthesized)]
+        var values: [String] = []
+        var depth = 0
+        defer {
+            for _ in 0..<depth { try? budget.leaveDepth() }
         }
-        let expression = try function.expressions.value(for: handle)
+
+        while let step = steps.popLast() {
+            switch step {
+            case .visit(let node, let wrap):
+                try budget.consume(.work)
+                try budget.enterDepth()
+                depth += 1
+                steps.append(.leave)
+                if continuingCaptures[node] != nil {
+                    continuingCaptures[node] = true
+                    values.append("saga_loop_value_\(node.index)")
+                    continue
+                }
+                let expression = try function.expressions.value(for: node)
+                switch expression.kind {
+                case .compose(let type, let components):
+                    try budget.consume(.sourceBytes, amount: components.count + 1)
+                    steps.append(.construct(type, count: components.count))
+                    for child in components.reversed() { steps.append(.visit(child, parenthesized: true)) }
+                case .splat(let size, let operand):
+                    steps.append(.splat(expression.type, width: Int(size.rawValue)))
+                    steps.append(.visit(operand, parenthesized: true))
+                case .swizzle(let size, let vector, let pattern):
+                    let suffix = [pattern.x, pattern.y, pattern.z, pattern.w]
+                        .prefix(Int(size.rawValue)).map(\.rawValue).joined()
+                    steps.append(.suffix("." + suffix))
+                    steps.append(.visit(vector, parenthesized: true))
+                case .accessIndex(let base, let index):
+                    let source = try function.expressions.value(for: base)
+                    if case .functionArgument(let argument) = source.kind, let slot = Int(exactly: argument),
+                       let fields = argumentFields[slot], let field = Int(exactly: index), fields.indices.contains(field) {
+                        values.append(fields[field])
+                        continue
+                    }
+                    steps.append(.member(node, expression.type, try member(index, of: source.type)))
+                    steps.append(.visit(base, parenthesized: true))
+                case .cast(let operand, let target) where !temporaries.contains(node):
+                    steps.append(.cast(operand, target, expression.type))
+                    steps.append(.visit(operand, parenthesized: true))
+                case .binary(let op, let left, let right) where !temporaries.contains(node):
+                    try prepareBinaryValue(op, left: left, right: right)
+                    steps.append(.binary(op, left, right, expression.type, wrap))
+                    steps.append(.visit(right, parenthesized: true))
+                    steps.append(.visit(left, parenthesized: true))
+                default:
+                    values.append(try valueLeaf(node, expression: expression, parenthesized: wrap))
+                }
+            case .leave:
+                try budget.leaveDepth()
+                depth -= 1
+            case .construct(let type, let count):
+                guard values.count >= count else { throw ShaderFailure.invalidHandle }
+                let components = Array(values.suffix(count))
+                values.removeLast(count)
+                values.append(try construct(type, components: components))
+            case .splat(let type, let width):
+                guard let lane = values.popLast() else { throw ShaderFailure.invalidHandle }
+                if outputFormat == .hlsl {
+                    values.append("(\(lane)).\(String(repeating: "x", count: width))")
+                } else {
+                    values.append(try construct(type, components: [lane]))
+                }
+            case .suffix(let suffix):
+                guard let base = values.popLast() else { throw ShaderFailure.invalidHandle }
+                values.append(base + suffix)
+            case .member(let node, let type, let member):
+                guard let base = values.popLast() else { throw ShaderFailure.invalidHandle }
+                let reference = base + member
+                if try packedVectorMember(node) {
+                    values.append("\(try typeName(type))(\(reference))")
+                } else {
+                    values.append(reference)
+                }
+            case .cast(let operand, let target, let resultType):
+                guard let source = values.popLast() else { throw ShaderFailure.invalidHandle }
+                values.append(try formatCast(operand, source: source, target: target, resultType: resultType))
+            case .binary(let op, let left, let right, let resultType, let wrap):
+                guard let rhs = values.popLast(), let lhs = values.popLast() else { throw ShaderFailure.invalidHandle }
+                values.append(try formatBinaryValue(op, left: left, right: right, lhs: lhs, rhs: rhs,
+                                                    resultType: resultType, parenthesized: wrap))
+            }
+        }
+
+        guard values.count == 1, let result = values.first else { throw ShaderFailure.invalidHandle }
+        return result
+    }
+
+    private mutating func valueLeaf(
+        _ handle: IRHandle<IRExpression>, expression: IRExpression, parenthesized: Bool
+    ) throws -> String {
         switch expression.kind {
         case .cooperativeLoad where temporaries.contains(handle),
              .cooperativeMultiplyAdd where temporaries.contains(handle):
@@ -4208,49 +4310,20 @@ struct ShaderBodyWriter {
             if !arguments[index].isEmpty { return arguments[index] }
             guard let fields = argumentFields[index] else { throw ShaderFailure.invalidHandle }
             return try construct(expression.type, components: fields)
-        case .compose(let type, let components):
-            // Charge before expansion so an expression shared by several constructors stays bounded.
-            try budget.consume(.sourceBytes, amount: components.count + 1)
-            let values = try components.map { try value($0) }
-            return try construct(type, components: values)
-        case .splat(let size, let operand):
-            let lane = try value(operand)
-            if outputFormat == .hlsl {
-                return "(\(lane)).\(String(repeating: "x", count: Int(size.rawValue)))"
-            }
-            return try construct(expression.type, components: [lane])
-        case .swizzle(let size, let vector, let pattern):
-            let suffix = [pattern.x, pattern.y, pattern.z, pattern.w]
-                .prefix(Int(size.rawValue)).map(\.rawValue).joined()
-            return try value(vector) + "." + suffix
-        case .accessIndex(let base, let index):
-            let source = try function.expressions.value(for: base)
-            if case .functionArgument(let argument) = source.kind, let slot = Int(exactly: argument),
-               let fields = argumentFields[slot], let field = Int(exactly: index), fields.indices.contains(field) {
-                return fields[field]
-            }
-            let field = try member(index, of: source.type)
-            let reference = try value(base) + field
-            if try packedVectorMember(handle) { return "\(try typeName(expression.type))(\(reference))" }
-            return reference
         case .relational(let reduction, let operand) where reduction.isBooleanReduction:
             let operandType = try function.expressions.value(for: operand).type
             let argument = try value(operand)
             if case .scalar(.bool) = try module.types.value(for: operandType).kind { return argument }
             return "\(reduction.rawValue)(\(argument))"
         case .bitcast(let operand, let target): return try bitcast(operand, to: target)
-        case .cast(let operand, let target):
-            return try castValue(operand, target: target, resultType: expression.type)
         case .unary(let op, let argument):
             return try unaryValue(op, argument: argument, resultType: expression.type, parenthesized: parenthesized)
-        case .binary(let op, let left, let right):
-            return try binaryValue(op, left: left, right: right, resultType: expression.type, parenthesized: parenthesized)
         default: throw unsupported("expression")
         }
     }
 
-    private mutating func castValue(
-        _ operand: IRHandle<IRExpression>, target: IRScalar, resultType: IRHandle<IRType>
+    private func formatCast(
+        _ operand: IRHandle<IRExpression>, source: String, target: IRScalar, resultType: IRHandle<IRType>
     ) throws -> String {
         let operandType = try function.expressions.value(for: operand).type
         let input: IRScalar
@@ -4263,20 +4336,18 @@ struct ShaderBodyWriter {
             input = scalar
             width = nil
         case .matrix(_, _, let scalar) where [.f16, .f32, .f64].contains(scalar) && [.f16, .f32, .f64].contains(target):
-            return try numericCast(typeName(resultType), value(operand))
+            return try numericCast(typeName(resultType), source)
         default: throw unsupported("cast operand type")
         }
         if input == .bool || target == .bool {
-            let source = try value(operand)
             let type = try typeName(resultType)
             return booleanCast(type, source)
         }
         if input == .f64 || target == .f64 {
             guard target.kind == .float else { throw unsupported("f64 to integer conversion") }
-            return try numericCast(typeName(resultType), value(operand))
+            return try numericCast(typeName(resultType), source)
         }
         if input == .i16 || input == .u16 || target == .i16 || target == .u16 {
-            let source = try value(operand)
             let type = try typeName(resultType)
             if outputFormat == .wgsl { return numericCast(type, source) }
             if target == .i16 || target == .u16 {
@@ -4288,7 +4359,6 @@ struct ShaderBodyWriter {
             return numericCast(type, source)
         }
         if input.width == 8 || target.width == 8 {
-            let source = try value(operand)
             let type = try typeName(resultType)
             if outputFormat == .wgsl { return numericCast(type, source) }
             if input.kind == .float {
@@ -4301,20 +4371,19 @@ struct ShaderBodyWriter {
         }
         if [.f32, .f16].contains(input), [.i32, .u32].contains(target) {
             // WGSL conversions already clamp to the destination range and round toward zero.
-            if outputFormat == .wgsl { return try numericCast(typeName(resultType), value(operand)) }
-            return try floatToIntegerCast(value(operand), input: input, target: target,
+            if outputFormat == .wgsl { return try numericCast(typeName(resultType), source) }
+            return try floatToIntegerCast(source, input: input, target: target,
                                           width: width, resultType: typeName(resultType))
         }
         if target == .f16, [.f32, .i32, .u32].contains(input) {
-            return try numericCast(typeName(resultType), value(operand))
+            return try numericCast(typeName(resultType), source)
         }
         if input == .f16, target == .f32 {
-            return try numericCast(typeName(resultType), value(operand))
+            return try numericCast(typeName(resultType), source)
         }
         guard [.i32, .u32].contains(input), [.i32, .u32, .f32].contains(target) else {
             throw unsupported("cast outside the supported numeric profile")
         }
-        let source = try value(operand)
         if target == .f32 { return "\(try typeName(resultType))(\(source))" }
         return input == target ? source : integerBits(source, signed: target == .i32, width: width, in: outputFormat)
     }
@@ -4375,18 +4444,6 @@ struct ShaderBodyWriter {
         try budget.consume(.sourceBytes, amount: 3)
         let unary = "\(symbol)\(try value(argument))"
         return parenthesized ? "(\(unary))" : unary
-    }
-
-    private mutating func binaryValue(
-        _ op: IRBinaryOperator, left: IRHandle<IRExpression>, right: IRHandle<IRExpression>,
-        resultType: IRHandle<IRType>, parenthesized: Bool
-    ) throws -> String {
-        // Validate and charge before expanding either child, as in the original traversal.
-        try prepareBinaryValue(op, left: left, right: right)
-        let lhs = try value(left)
-        let rhs = try value(right)
-        return try formatBinaryValue(op, left: left, right: right, lhs: lhs, rhs: rhs,
-                                     resultType: resultType, parenthesized: parenthesized)
     }
 
     private mutating func prepareBinaryValue(
