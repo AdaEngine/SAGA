@@ -39,6 +39,14 @@ public enum MetalBackend {
     }
 
     #if canImport(Metal) && canImport(QuartzCore)
+    /// Creates a device that can attach Metal layers after GPU resources have been created.
+    public static func makePresentableDevice(
+        adapter: MetalAdapter? = requestAdapter(), timeout: Duration = .seconds(10)
+    ) throws -> MetalDevice {
+        guard let adapter else { throw GPUError.adapterUnavailable }
+        return try MetalDevice(adapter: adapter, timeout: timeout, surface: nil, enablePresentation: true, shaderLogHandler: nil)
+    }
+
     @MainActor
     public static func makeDevice(
         surface: MetalPresentationSurface, adapter: MetalAdapter? = requestAdapter(),
@@ -63,7 +71,8 @@ public final class MetalDevice: ComputeAccelerationStructureBackendDevice, Prese
     #if canImport(Metal)
     private let native: any MTLDevice
     private let queue: any MTLCommandQueue
-    private let surface: MetalPresentationSurface?
+    private var surfaces: [UInt32: MetalPresentationSurface]
+    private var nextSurfaceID: UInt32 = 0
     private let timestampCounters: (any MTLCounterSet)?
     private struct Buffer {
         let descriptor: BufferDescriptor
@@ -194,7 +203,8 @@ public final class MetalDevice: ComputeAccelerationStructureBackendDevice, Prese
     }
     private var meshPipelines: [ResourceID: MeshState] = [:]
     private var surfacePipeline: (any MTLRenderPipelineState)?
-    private var presenting = false
+    private var presentingSurface: UInt32?
+    private var surfaceRetirement: CheckedContinuation<Void, Never>?
     private var indexValidator: MetalIndexValidator?
     private var dispatchValidator: MetalDispatchValidator?
     private var meshDispatchValidator: MetalDispatchValidator?
@@ -210,15 +220,16 @@ public final class MetalDevice: ComputeAccelerationStructureBackendDevice, Prese
 
     nonisolated fileprivate init(
         adapter: MetalAdapter, timeout: Duration, surface: MetalPresentationSurface?,
+        enablePresentation: Bool = false,
         shaderLogHandler: (@Sendable (String) -> Void)?
     ) throws {
         guard timeout > .zero else { throw GPUError.validation("Timeout must be positive") }
         self.timeout = timeout
         adapterName = adapter.name
-        supportsPresentation = surface != nil
+        supportsPresentation = enablePresentation || surface != nil
         #if canImport(Metal)
         native = adapter.native
-        self.surface = surface
+        self.surfaces = surface.map { [0: $0] } ?? [:]
         let supportsShaderLogging = if #available(macOS 15, iOS 18, tvOS 18, visionOS 2, *) {
             native.supportsFamily(.apple6) || native.supportsFamily(.mac2)
         } else { false }
@@ -1448,10 +1459,37 @@ public final class MetalDevice: ComputeAccelerationStructureBackendDevice, Prese
     }
 
     public func present(_ submission: Submission, source: ResourceID) async throws {
+        try await present(submission, source: source, surface: 0)
+    }
+
+    #if canImport(Metal) && canImport(QuartzCore)
+    /// Native device for configuring a MetalKit view before attaching its layer.
+    public var metalDevice: any MTLDevice { native }
+
+    public func addSurface(_ surface: MetalPresentationSurface) throws -> UInt32 {
+        try requireActive()
+        guard supportsPresentation else { throw GPUError.unsupported("Metal device was created without presentation") }
+        guard nextSurfaceID < UInt32.max else { throw GPUError.validation("Metal surface IDs exhausted") }
+        try surface.attach(to: native)
+        nextSurfaceID += 1
+        surfaces[nextSurfaceID] = surface
+        return nextSurfaceID
+    }
+
+    public func removeSurface(_ id: UInt32) async {
+        guard let surface = surfaces.removeValue(forKey: id) else { return }
+        if presentingSurface == id {
+            await withCheckedContinuation { surfaceRetirement = $0 }
+        }
+        surface.detach()
+    }
+    #endif
+
+    public func present(_ submission: Submission, source: ResourceID, surface id: UInt32) async throws {
         try requireActive()
         #if canImport(Metal) && canImport(QuartzCore)
-        guard let surface else { throw GPUError.unsupported("Metal backend does not have a presentation surface") }
-        guard !presenting else { throw GPUError.validation("Metal surface already has a pending frame") }
+        guard let surface = surfaces[id] else { throw GPUError.unsupported("Metal backend does not have the requested surface") }
+        guard presentingSurface == nil else { throw GPUError.validation("Metal device already has a pending frame") }
         guard submission.resources.contains(source), let texture = textures[source],
               texture.descriptor.format.isNormalizedColor, texture.descriptor.sampleCount == 1,
               texture.descriptor.dimension == .d2, texture.descriptor.arrayLayerCount == 1,
@@ -1459,8 +1497,12 @@ public final class MetalDevice: ComputeAccelerationStructureBackendDevice, Prese
             throw GPUError.validation("Unpinned or invalid Metal presentation source")
         }
         let descriptor = texture.descriptor
-        presenting = true
-        defer { presenting = false }
+        presentingSurface = id
+        defer {
+            presentingSurface = nil
+            surfaceRetirement?.resume()
+            surfaceRetirement = nil
+        }
         let pipeline: any MTLRenderPipelineState
         if let surfacePipeline {
             pipeline = surfacePipeline
