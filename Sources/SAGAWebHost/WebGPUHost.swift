@@ -1,8 +1,21 @@
-#if os(WASI) && compiler(>=6.3)
 import SAGATypes
 import SAGABackend
 import SAGAShaderIR
 import SAGAWebGPU
+
+/// A transport sends a single SAGA command packet to a browser GPU host.
+public protocol BrowserTransport: Sendable {
+    func send(_ bytes: [UInt8]) async throws -> [UInt8]
+}
+
+/// Creates a host that sends SAGA commands through a caller-owned transport.
+public func makeWebGPUHost(
+    capabilities: DeviceCapabilities, supportsPresentation: Bool, transport: some BrowserTransport
+) -> some BrowserGPUPresentationHost {
+    WebGPUHost(capabilities: capabilities, supportsPresentation: supportsPresentation, transport: transport)
+}
+
+private let browserPacketLimit = 16 * 1024 * 1024
 
 private struct Packet {
     var bytes: [UInt8] = []
@@ -106,49 +119,55 @@ private struct Packet {
             if let size = binding.size { add(size) }
         }
     }
-    func send() async throws -> [UInt8] { try await BrowserRPC.shared.send(bytes) }
+    func send(using transport: any BrowserTransport) async throws -> [UInt8] {
+        guard bytes.count <= browserPacketLimit else {
+            throw GPUError.validation("Browser bridge packet exceeds its limit")
+        }
+        return try await transport.send(bytes)
+    }
 }
 
-struct WebGPUHost: BrowserGPUPresentationHost, SamplerBackendDevice, TextureViewBackendDevice, QuerySetBackendDevice,
+private struct WebGPUHost: BrowserGPUPresentationHost, SamplerBackendDevice, TextureViewBackendDevice, QuerySetBackendDevice,
                    BufferMappingBackendDevice, ExternalTextureBackendDevice {
     let capabilities: DeviceCapabilities
     let supportsPresentation: Bool
+    let transport: any BrowserTransport
 
     func allocateBuffer(id: ResourceID, descriptor: BufferDescriptor) async throws {
         var packet = Packet(1)
         packet.add(id); packet.add(descriptor.size); packet.add(descriptor.usage.rawValue)
         packet.add(UInt32(descriptor.mappedAtCreation ? 1 : 0))
-        _ = try await packet.send()
+        _ = try await packet.send(using: transport)
     }
     func destroyBuffer(id: ResourceID) async {
         var packet = Packet(2)
         packet.add(id)
-        _ = try? await packet.send()
+        _ = try? await packet.send(using: transport)
     }
     func allocateExternalTexture(id: ResourceID, descriptor: ExternalTextureDescriptor) async throws {
         var packet = Packet(26)
         packet.add(id); packet.add(descriptor.videoFrame); packet.add(descriptor.colorSpace.rawValue)
-        _ = try await packet.send()
+        _ = try await packet.send(using: transport)
     }
     func destroyExternalTexture(id: ResourceID) async {
         var packet = Packet(27)
         packet.add(id)
-        _ = try? await packet.send()
+        _ = try? await packet.send(using: transport)
     }
     func beginBufferMapping(id: ResourceID, mode: BufferMapMode, offset: UInt64, size: UInt64) async throws {
         var packet = Packet(19)
         packet.add(id); packet.add(mode.rawValue); packet.add(offset); packet.add(size)
-        _ = try await packet.send()
+        _ = try await packet.send(using: transport)
     }
     func readMappedBytes(id: ResourceID, offset: UInt64, size: UInt64) async throws -> [UInt8] {
         guard let count = Int(exactly: size) else { throw GPUError.validation("Mapped readback is too large") }
         var result: [UInt8] = []
         result.reserveCapacity(count)
         while result.count < count {
-            let length = min(count - result.count, BrowserRPC.packetLimit - 32)
+            let length = min(count - result.count, browserPacketLimit - 32)
             var packet = Packet(20)
             packet.add(id); packet.add(offset + UInt64(result.count)); packet.add(UInt32(length))
-            let reply = try await packet.send()
+            let reply = try await packet.send(using: transport)
             guard reply.count == length else { throw GPUError.backendFailure("Truncated browser mapped readback") }
             result.append(contentsOf: reply)
         }
@@ -157,29 +176,29 @@ struct WebGPUHost: BrowserGPUPresentationHost, SamplerBackendDevice, TextureView
     func writeMappedBytes(id: ResourceID, offset: UInt64, bytes: [UInt8]) async throws {
         var start = 0
         while start < bytes.count {
-            let length = min(bytes.count - start, BrowserRPC.packetLimit - 32)
+            let length = min(bytes.count - start, browserPacketLimit - 32)
             var packet = Packet(21)
             packet.add(id); packet.add(offset + UInt64(start)); packet.add(UInt32(length))
             packet.bytes.append(contentsOf: bytes[start..<(start + length)])
-            _ = try await packet.send()
+            _ = try await packet.send(using: transport)
             start += length
         }
     }
     func endBufferMapping(id: ResourceID) async throws {
         var packet = Packet(22)
         packet.add(id)
-        _ = try await packet.send()
+        _ = try await packet.send(using: transport)
     }
     func allocateQuerySet(id: ResourceID, descriptor: QuerySetDescriptor) async throws {
         try descriptor.validate(against: capabilities)
         var packet = Packet(17)
         packet.add(id); packet.add(descriptor.type.rawValue); packet.add(descriptor.count); packet.add(descriptor.label)
-        _ = try await packet.send()
+        _ = try await packet.send(using: transport)
     }
     func destroyQuerySet(id: ResourceID) async {
         var packet = Packet(18)
         packet.add(id)
-        _ = try? await packet.send()
+        _ = try? await packet.send(using: transport)
     }
     func allocateComputePipeline(_ pipeline: ComputePipeline, shader: ComputeShaderArtifact) async throws {
         guard case .text(.wgsl, let source) = shader.artifact else { throw GPUError.validation("Expected WGSL") }
@@ -215,12 +234,12 @@ struct WebGPUHost: BrowserGPUPresentationHost, SamplerBackendDevice, TextureView
             packet.add(slot, remapped: pipeline.webBindingIndices)
             packet.add(UInt64(0)); packet.add(UInt32(6))
         }
-        _ = try await packet.send()
+        _ = try await packet.send(using: transport)
     }
     func destroyComputePipeline(id: ResourceID) async {
         var packet = Packet(4)
         packet.add(id)
-        _ = try? await packet.send()
+        _ = try? await packet.send(using: transport)
     }
     func allocateSampler(id: ResourceID, descriptor: SamplerDescriptor) async throws {
         var packet = Packet(13)
@@ -232,12 +251,12 @@ struct WebGPUHost: BrowserGPUPresentationHost, SamplerBackendDevice, TextureView
         packet.add(Double(descriptor.lodMinClamp).bitPattern); packet.add(Double(descriptor.lodMaxClamp).bitPattern)
         packet.add(descriptor.compare.map { $0.rawValue + 1 } ?? 0)
         packet.add(UInt32(descriptor.maxAnisotropy))
-        _ = try await packet.send()
+        _ = try await packet.send(using: transport)
     }
     func destroySampler(id: ResourceID) async {
         var packet = Packet(14)
         packet.add(id)
-        _ = try? await packet.send()
+        _ = try? await packet.send(using: transport)
     }
     func allocateTexture(id: ResourceID, descriptor: TextureDescriptor) async throws {
         var packet = Packet(8)
@@ -246,12 +265,12 @@ struct WebGPUHost: BrowserGPUPresentationHost, SamplerBackendDevice, TextureView
         packet.add(descriptor.sampleCount)
         packet.add(descriptor.dimension == .d3 ? descriptor.depth : descriptor.arrayLayerCount)
         packet.add(descriptor.dimension.rawValue)
-        _ = try await packet.send()
+        _ = try await packet.send(using: transport)
     }
     func destroyTexture(id: ResourceID) async {
         var packet = Packet(9)
         packet.add(id)
-        _ = try? await packet.send()
+        _ = try? await packet.send(using: transport)
     }
     func allocateTextureView(id: ResourceID, texture: ResourceID, mipLevels: Range<UInt32>) async throws {
         try await allocateTextureView(id: id, texture: texture, mipLevels: mipLevels, aspect: .all)
@@ -271,12 +290,12 @@ struct WebGPUHost: BrowserGPUPresentationHost, SamplerBackendDevice, TextureView
         packet.add(descriptor.baseArrayLayer)
         packet.add(UInt32(descriptor.arrayLayerCount == nil ? 0 : 1))
         if let count = descriptor.arrayLayerCount { packet.add(count) }
-        _ = try await packet.send()
+        _ = try await packet.send(using: transport)
     }
     func destroyTextureView(id: ResourceID) async {
         var packet = Packet(16)
         packet.add(id)
-        _ = try? await packet.send()
+        _ = try? await packet.send(using: transport)
     }
     func allocateRenderPipeline(
         _ pipeline: RenderPipeline, vertex: RenderStageArtifact, fragment: RenderStageArtifact
@@ -376,17 +395,17 @@ struct WebGPUHost: BrowserGPUPresentationHost, SamplerBackendDevice, TextureView
                 }
             }
         }
-        _ = try await packet.send()
+        _ = try await packet.send(using: transport)
     }
     func destroyRenderPipeline(id: ResourceID) async {
         var packet = Packet(11)
         packet.add(id)
-        _ = try? await packet.send()
+        _ = try? await packet.send(using: transport)
     }
     func close(owner: UInt64) async {
         var packet = Packet(5)
         packet.add(owner)
-        _ = try? await packet.send()
+        _ = try? await packet.send(using: transport)
     }
     func present(_ submission: Submission, source: ResourceID) async throws {
         guard supportsPresentation, submission.resources.contains(source) else {
@@ -394,10 +413,10 @@ struct WebGPUHost: BrowserGPUPresentationHost, SamplerBackendDevice, TextureView
         }
         var packet = Packet(12)
         packet.add(source)
-        _ = try await packet.send()
+        _ = try await packet.send(using: transport)
     }
     func submit(_ submission: Submission) async throws {
-        _ = try await Packet(7).send()
+        _ = try await Packet(7).send(using: transport)
     }
     func submitCommands(_ submission: Submission, commands: [BufferCommand]) async throws -> [[UInt32]] {
         var packet = Packet(6)
@@ -550,12 +569,12 @@ struct WebGPUHost: BrowserGPUPresentationHost, SamplerBackendDevice, TextureView
     }
 
     private func sendSubmission(_ packet: Packet, submission: Submission) async throws -> [UInt8] {
-        if packet.bytes.count <= BrowserRPC.packetLimit { return try await packet.send() }
+        if packet.bytes.count <= browserPacketLimit { return try await packet.send(using: transport) }
         guard let owner = submission.resources.first?.device else {
             throw GPUError.validation("A staged browser submission requires a resource owner")
         }
         let key = ResourceID(device: owner, serial: submission.sequence)
-        let chunkCapacity = BrowserRPC.packetLimit - 40
+        let chunkCapacity = browserPacketLimit - 40
         do {
             var start = 0
             while start < packet.bytes.count {
@@ -563,16 +582,16 @@ struct WebGPUHost: BrowserGPUPresentationHost, SamplerBackendDevice, TextureView
                 var chunk = Packet(23)
                 chunk.add(key); chunk.add(UInt64(packet.bytes.count)); chunk.add(UInt64(start)); chunk.add(UInt32(length))
                 chunk.bytes.append(contentsOf: packet.bytes[start..<(start + length)])
-                _ = try await chunk.send()
+                _ = try await chunk.send(using: transport)
                 start += length
             }
             var execute = Packet(24)
             execute.add(key)
-            return try await execute.send()
+            return try await execute.send(using: transport)
         } catch {
             var discard = Packet(25)
             discard.add(key)
-            _ = try? await discard.send()
+            _ = try? await discard.send(using: transport)
             throw error
         }
     }
@@ -584,4 +603,3 @@ private extension SamplerRequirement {
         return requiresNonFiltering ? 2 : 0
     }
 }
-#endif

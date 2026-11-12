@@ -1,6 +1,7 @@
 #if os(WASI) && compiler(>=6.3)
 @_spi(ExperimentalCustomExecutors) import _Concurrency
 import SAGATypes
+import SAGAWebHost
 
 @_extern(wasm, module: "saga_host", name: "schedule")
 private func schedule(_ pointer: UnsafeMutableRawPointer)
@@ -37,7 +38,7 @@ private enum ReactorFactory: ExecutorFactory {
     static let defaultExecutor: any TaskExecutor = ReactorExecutor(main: false)
 }
 
-actor BrowserRPC {
+actor BrowserRPC: BrowserTransport {
     static let shared = BrowserRPC()
     static let packetLimit = 16 * 1024 * 1024
     private var nextID: UInt32 = 0
@@ -112,57 +113,55 @@ func start(_ maxBufferSize: UInt64, _ maxTextureDimension2D: UInt32, _ presentat
         let status: UInt32
         let message: String
         do {
-            var features: Set<GPUFeature> = readableStorage == 0 ? [] : [.storageTextureRead, .storageTextureReadWrite]
-            if shaderF16 != 0 { features.insert(.shaderF16) }
-            if uniformBufferStandardLayout != 0 { features.insert(.uniformBufferStandardLayout) }
-            if indirectFirstInstance != 0 { features.insert(.indirectFirstInstance) }
-            if clipDistances != 0 { features.insert(.clipDistances) }
-            if primitiveIndex != 0 { features.insert(.primitiveIndex) }
-            if depthClipControl != 0 { features.insert(.depthClipControl) }
-            if timestampQuery != 0 { features.insert(.timestampQuery) }
-            if subgroups != 0 { features.insert(.subgroups) }
-            if subgroupSizeControl != 0 { features.insert(.subgroupSizeControl) }
-            if subgroupID != 0 { features.insert(.subgroupID) }
-            if subgroupUniformity != 0 { features.insert(.subgroupUniformity) }
-            if linearIndexing != 0 { features.insert(.linearIndexing) }
-            if vertexFormatSnorm1010102 != 0 { features.insert(.vertexFormatSnorm1010102) }
-            if dualSourceBlending != 0 { features.insert(.dualSourceBlending) }
-            if textureCompressionBC != 0 { features.insert(.textureCompressionBC) }
-            if textureCompressionETC2 != 0 { features.insert(.textureCompressionETC2) }
-            if textureCompressionASTC != 0 { features.insert(.textureCompressionASTC) }
-            if textureCompressionBCSliced3D != 0 { features.insert(.textureCompressionBCSliced3D) }
-            if textureCompressionASTCSliced3D != 0 { features.insert(.textureCompressionASTCSliced3D) }
-            if float32Filterable != 0 { features.insert(.float32Filterable) }
-            if float32Blendable != 0 { features.insert(.float32Blendable) }
-            if textureFormatsTier1 != 0 {
-                features.formUnion([.halfFloatStorageTextures, .narrowInteger16StorageTextures, .normalized16Textures,
-                                    .packedColorStorageTextures, .narrow8BitStorageTextures, .snorm8Renderable])
-            }
-            if rg11b10UfloatRenderable != 0 { features.insert(.rg11b10UfloatRenderable) }
-            if depth32FloatStencil8 != 0 { features.insert(.depth32FloatStencil8) }
-            if bgra8UnormStorage != 0 { features.insert(.bgra8UnormStorage) }
-            if textureFormatsTier2 != 0 { features.formUnion([.r16FloatStorageReadWrite, .integer16StorageReadWrite, .storage8BitReadWrite, .wideRGBAStorageReadWrite]) }
-            let float32Formats: [TextureFormat] = [.r32Float, .rg32Float, .rgba32Float]
-            let multisampledFloat32Formats = Set<TextureFormat>(float32Formats.enumerated().compactMap { index, format in
-                multisampledFloat32Mask & (1 << index) == 0 ? nil : format
-            })
-            let capabilities = try DeviceCapabilities(maxBufferSize: maxBufferSize, features: features,
-                                                       maxTextureDimension2D: maxTextureDimension2D,
-                                                       multisampledFloat32Formats: multisampledFloat32Formats,
-                                                       maxImmediateSize: maxImmediateSize,
-                                                       subgroupSizeRange: subgroupMinSize > 0 && subgroupMaxSize >= subgroupMinSize
-                                                           ? subgroupMinSize...subgroupMaxSize : nil,
-                                                       maxComputeWorkgroupStorageSize: maxComputeWorkgroupStorageSize,
-                                                       maxComputeInvocationsPerWorkgroup: maxComputeInvocationsPerWorkgroup,
-                                                       maxComputeWorkgroupSize: .init(x: maxComputeWorkgroupSizeX,
-                                                           y: maxComputeWorkgroupSizeY, z: maxComputeWorkgroupSizeZ),
-                                                       maxComputeWorkgroupsPerDimension: maxComputeWorkgroupsPerDimension,
-                                                       maxVertexAttributes: maxVertexAttributes, maxVertexBuffers: maxVertexBuffers,
-                                                       maxBindGroupsPlusVertexBuffers: maxBindGroupsPlusVertexBuffers,
-                                                       maxVertexBufferArrayStride: maxVertexBufferArrayStride,
-                                                       maxInterStageShaderVariables: maxInterStageShaderVariables,
-                                                       maxColorAttachments: maxColorAttachments,
-                                                       maxColorAttachmentBytesPerSample: maxColorAttachmentBytesPerSample)
+            var parameters = WebHostParameters()
+            parameters.maxBufferSize = maxBufferSize
+            parameters.maxTextureDimension2D = maxTextureDimension2D
+            parameters.presentation = presentation
+            parameters.readableStorage = readableStorage
+            parameters.shaderF16 = shaderF16
+            parameters.uniformBufferStandardLayout = uniformBufferStandardLayout
+            parameters.indirectFirstInstance = indirectFirstInstance
+            parameters.clipDistances = clipDistances
+            parameters.primitiveIndex = primitiveIndex
+            parameters.depthClipControl = depthClipControl
+            parameters.timestampQuery = timestampQuery
+            parameters.subgroups = subgroups
+            parameters.subgroupID = subgroupID
+            parameters.dualSourceBlending = dualSourceBlending
+            parameters.textureCompressionBC = textureCompressionBC
+            parameters.textureCompressionETC2 = textureCompressionETC2
+            parameters.textureCompressionASTC = textureCompressionASTC
+            parameters.textureCompressionBCSliced3D = textureCompressionBCSliced3D
+            parameters.textureCompressionASTCSliced3D = textureCompressionASTCSliced3D
+            parameters.float32Filterable = float32Filterable
+            parameters.float32Blendable = float32Blendable
+            parameters.multisampledFloat32Mask = multisampledFloat32Mask
+            parameters.textureFormatsTier1 = textureFormatsTier1
+            parameters.textureFormatsTier2 = textureFormatsTier2
+            parameters.rg11b10UfloatRenderable = rg11b10UfloatRenderable
+            parameters.depth32FloatStencil8 = depth32FloatStencil8
+            parameters.bgra8UnormStorage = bgra8UnormStorage
+            parameters.maxImmediateSize = maxImmediateSize
+            parameters.linearIndexing = linearIndexing
+            parameters.subgroupSizeControl = subgroupSizeControl
+            parameters.subgroupMinSize = subgroupMinSize
+            parameters.subgroupMaxSize = subgroupMaxSize
+            parameters.subgroupUniformity = subgroupUniformity
+            parameters.maxComputeWorkgroupStorageSize = maxComputeWorkgroupStorageSize
+            parameters.maxComputeInvocationsPerWorkgroup = maxComputeInvocationsPerWorkgroup
+            parameters.maxComputeWorkgroupSizeX = maxComputeWorkgroupSizeX
+            parameters.maxComputeWorkgroupSizeY = maxComputeWorkgroupSizeY
+            parameters.maxComputeWorkgroupSizeZ = maxComputeWorkgroupSizeZ
+            parameters.maxComputeWorkgroupsPerDimension = maxComputeWorkgroupsPerDimension
+            parameters.maxVertexAttributes = maxVertexAttributes
+            parameters.maxVertexBuffers = maxVertexBuffers
+            parameters.maxVertexBufferArrayStride = maxVertexBufferArrayStride
+            parameters.vertexFormatSnorm1010102 = vertexFormatSnorm1010102
+            parameters.maxInterStageShaderVariables = maxInterStageShaderVariables
+            parameters.maxColorAttachments = maxColorAttachments
+            parameters.maxColorAttachmentBytesPerSample = maxColorAttachmentBytesPerSample
+            parameters.maxBindGroupsPlusVertexBuffers = maxBindGroupsPlusVertexBuffers
+            let capabilities = try makeWebDeviceCapabilities(parameters)
             message = try await runWebDiagnostic(capabilities: capabilities, supportsPresentation: presentation != 0,
                                                   videoFrames: (firstVideoFrame, secondVideoFrame, closedVideoFrame))
             status = 0

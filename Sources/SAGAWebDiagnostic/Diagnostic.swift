@@ -13,6 +13,7 @@ import SAGACore
 import SAGAShaderIR
 import SAGACompiler
 import SAGAWebGPU
+import SAGAWebHost
 
 func runWebDiagnostic(
     capabilities: DeviceCapabilities, supportsPresentation: Bool, videoFrames: (UInt64, UInt64, UInt64)
@@ -51,7 +52,9 @@ func runWebDiagnostic(
             output[i] = original + base + progress + 1u;
         }
         """
-    let host = WebGPUHost(capabilities: capabilities, supportsPresentation: supportsPresentation)
+    let host = makeWebGPUHost(
+        capabilities: capabilities, supportsPresentation: supportsPresentation, transport: BrowserRPC.shared
+    )
     let device = try await Device.make(backend: BrowserComputeBackend(host: host))
     do {
         try await validateNativeEarlyDepthFeature(device)
