@@ -28,7 +28,9 @@ WEB_FILES = {'web/index.html','web/reactor.mjs','web/wasi.mjs','web/webgpu.mjs',
              'scripts/test-web-submission-read-release-browser.mjs',
              'scripts/test-web-external-texture-release-race-browser.mjs',
              'scripts/test-web-map-unmap.mjs', 'scripts/test-web-map-unmap-browser.mjs'}
-WEB_REACTOR = 'Sources/SAGAWebDiagnostic/WebReactor.swift'
+WEB_FILES.update({'web/golden.mjs', 'web/webgpu-host.test.mjs', 'scripts/test-web-host-presentation.mjs'})
+WEB_REACTOR = 'Sources/SAGAWebReactor/WebReactor.swift'
+WEB_ENTRY = 'Sources/SAGAWebDiagnostic/WebEntry.swift'
 
 def is_docc_markdown(path):
     parts = path.parts
@@ -81,9 +83,11 @@ def audit_source(path, text):
     # Import declarations, not prose such as 'No SDK headers or import libraries'.
     for match in re.finditer(r'(?:^|;)\s*(?:@\w+(?:\([^\n]*?\))?\s+)*import\s+(?:(?:struct|class|enum|protocol|func|var|let|typealias)\s+)?([A-Za-z_]\w*)',text, re.M):
         if match[1] not in allowed: errors.append(f'{path}: forbidden import {match[1]}')
-    if path == WEB_REACTOR and text.startswith('#if os(WASI) && compiler(>=6.3)\n') and text.rstrip().endswith('#endif'):
-        text=re.sub(r'^@_extern\(wasm, module: "saga_host", name: "(schedule|request|copyReply|finish)"\)$','',text,flags=re.M)
-        text=re.sub(r'^@_expose\(wasm, "(saga_run_job|saga_reply|saga_start)"\)$','',text,flags=re.M)
+    if path in {WEB_REACTOR, WEB_ENTRY} and text.startswith('#if os(WASI) && compiler(>=6.3)\n') and text.rstrip().endswith('#endif'):
+        if path == WEB_REACTOR:
+            text=re.sub(r'^@_extern\(wasm, module: "saga_host", name: "(schedule|request|copyReply|finish)"\)$','',text,flags=re.M)
+        if path == WEB_ENTRY:
+            text=re.sub(r'^@_expose\(wasm, "(saga_run_job|saga_reply|saga_start)"\)$','',text,flags=re.M)
     exception = POLICY.get('native_abi_exceptions', {}).get(path, {})
     exact_exception = (exception.get('sha256') == hashlib.sha256(text.encode()).hexdigest()
                        and bool(exception.get('reason')))

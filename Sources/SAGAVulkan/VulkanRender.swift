@@ -189,6 +189,25 @@ extension VulkanDevice: RenderBackendDevice {
         var region: VkBufferImageCopy
     }
 
+    /// A color attachment at a location above zero of a multiple-render-target pass.
+    struct ExtraColorTarget {
+        var location: UInt32
+        var image: UInt64
+        var format: UInt32
+        var mipLevel: UInt32
+        var layer: UInt32
+        var clear: (UInt32, UInt32, UInt32, UInt32)?
+        var storeOp: UInt32
+    }
+
+    /// An extra color attachment as a render pass sees it.
+    struct ExtraColorAttachment {
+        var location: UInt32
+        var format: UInt32
+        var loadOp: UInt32
+        var storeOp: UInt32
+    }
+
     struct DepthTarget {
         var image: UInt64
         var format: UInt32
@@ -230,6 +249,8 @@ extension VulkanDevice: RenderBackendDevice {
         var multi: (count: IndirectDrawCount, stride: UInt64, countBuffer: (buffer: UInt64, offset: UInt64)?)?
         var occlusion: (pool: UInt64, index: UInt32)?
         var resolve: (image: UInt64, mipLevel: UInt32, layer: UInt32)?
+        /// Color targets at locations above zero, ordered by location. They never resolve.
+        var extraColors: [ExtraColorTarget] = []
         var colorStore: UInt32 = 0
         var samples: UInt32 = 1
         var layer: UInt32 = 0
@@ -542,11 +563,21 @@ extension VulkanDevice: RenderBackendDevice {
             }
             depthFormat = info
         }
-        guard pipeline.sampleCount == 1 || (pipeline.sampleCount == 4),
-                            pipeline.additionalColorTargets.isEmpty, !pipeline.primitive.unclippedDepth,
+        guard pipeline.sampleCount == 1 || (pipeline.sampleCount == 4), !pipeline.primitive.unclippedDepth,
               pipeline.storageTextures.isEmpty,
-              !pipeline.colorState.usesSecondBlendSource else {
-            throw GPUError.unsupported("Vulkan render pipelines support one single-sampled color target with buffer bindings only")
+              !pipeline.colorState.usesSecondBlendSource,
+              !pipeline.additionalColorTargets.values.contains(where: { $0.colorState.usesSecondBlendSource }) else {
+            throw GPUError.unsupported("Vulkan render pipelines do not support dual-source blending or storage textures")
+        }
+        guard pipeline.additionalColorTargets.isEmpty || pipeline.sampleCount == 1 else {
+            throw GPUError.unsupported("Vulkan multiple render targets are not implemented for multisampled pipelines")
+        }
+        var extraAttachments: [ExtraColorAttachment] = []
+        for (location, target) in pipeline.additionalColorTargets.sorted(by: { $0.key < $1.key }) {
+            guard location > 0, location < 8, let info = self.format(target.format), !info.isDepth else {
+                throw GPUError.unsupported("Vulkan render pipelines require supported additional color formats at locations 1 to 7")
+            }
+            extraAttachments.append(ExtraColorAttachment(location: location, format: info.vk, loadOp: 0, storeOp: 0))
         }
         guard pipeline.immediateByteSize <= UInt64(capabilities.maxImmediateSize) else {
             throw GPUError.validation("Immediate data exceeds the Vulkan push constant limit")
@@ -620,7 +651,7 @@ extension VulkanDevice: RenderBackendDevice {
             // Multisampled pipelines always resolve, so every compatible pass carries a resolve attachment.
             renderPass = try makeRenderPass(format: format.vk, load: 0, depthFormat: depthFormat?.vk,
                                             samples: pipeline.sampleCount, resolve: pipeline.sampleCount > 1,
-                                            viewMask: pipeline.multiviewMask)
+                                            viewMask: pipeline.multiviewMask, extraColors: extraAttachments)
 
             var bindingDescriptions: [VkVertexInputBindingDescription] = []
             var attributeDescriptions: [VkVertexInputAttributeDescription] = []
@@ -688,26 +719,36 @@ extension VulkanDevice: RenderBackendDevice {
                     maskPointer.initialize(to: pipeline.sampleMask)
                     defer { maskPointer.deallocate() }
                     multisample.pSampleMask = UnsafeRawPointer(maskPointer)
-                    var attachment = VkPipelineColorBlendAttachmentState()
-                    attachment.colorWriteMask = pipeline.colorState.writeMask.rawValue
-                    if let blend = pipeline.colorState.blend {
-                        attachment.blendEnable = 1
-                        attachment.srcColorBlendFactor = vulkanBlendFactor(blend.color.sourceFactor)
-                        attachment.dstColorBlendFactor = vulkanBlendFactor(blend.color.destinationFactor)
-                        attachment.colorBlendOp = blend.color.operation.rawValue
-                        attachment.srcAlphaBlendFactor = vulkanBlendFactor(blend.alpha.sourceFactor)
-                        attachment.dstAlphaBlendFactor = vulkanBlendFactor(blend.alpha.destinationFactor)
-                        attachment.alphaBlendOp = blend.alpha.operation.rawValue
+                    func blendAttachment(_ state: RenderColorState) -> VkPipelineColorBlendAttachmentState {
+                        var attachment = VkPipelineColorBlendAttachmentState()
+                        attachment.colorWriteMask = state.writeMask.rawValue
+                        if let blend = state.blend {
+                            attachment.blendEnable = 1
+                            attachment.srcColorBlendFactor = vulkanBlendFactor(blend.color.sourceFactor)
+                            attachment.dstColorBlendFactor = vulkanBlendFactor(blend.color.destinationFactor)
+                            attachment.colorBlendOp = blend.color.operation.rawValue
+                            attachment.srcAlphaBlendFactor = vulkanBlendFactor(blend.alpha.sourceFactor)
+                            attachment.dstAlphaBlendFactor = vulkanBlendFactor(blend.alpha.destinationFactor)
+                            attachment.alphaBlendOp = blend.alpha.operation.rawValue
+                        }
+                        return attachment
                     }
+                    // One state per color location; a location without a target writes nothing.
+                    let colorCount = Int((extraAttachments.last?.location ?? 0) + 1)
+                    var unused = VkPipelineColorBlendAttachmentState()
+                    unused.colorWriteMask = 0
+                    var blendAttachments = [VkPipelineColorBlendAttachmentState](repeating: unused, count: colorCount)
+                    blendAttachments[0] = blendAttachment(pipeline.colorState)
+                    for (location, target) in pipeline.additionalColorTargets { blendAttachments[Int(location)] = blendAttachment(target.colorState) }
                     var blendState = VkPipelineColorBlendStateCreateInfo()
-                    blendState.attachmentCount = 1
+                    blendState.attachmentCount = UInt32(colorCount)
                     var dynamicStates: [UInt32] = [VK.dynamicStateViewport, VK.dynamicStateScissor, VK.dynamicStateBlendConstants]
                     if pipeline.depthState?.stencil != nil { dynamicStates.append(VK.dynamicStateStencilReference) }
                     try bindingDescriptions.withUnsafeBufferPointer { bindingPointer in
                         try attributeDescriptions.withUnsafeBufferPointer { attributePointer in
                             try dynamicStates.withUnsafeBufferPointer { dynamicPointer in
-                                try withUnsafePointer(to: &attachment) { attachmentPointer in
-                                    blendState.pAttachments = UnsafeRawPointer(attachmentPointer)
+                                try blendAttachments.withUnsafeBufferPointer { attachmentPointer in
+                                    blendState.pAttachments = UnsafeRawPointer(attachmentPointer.baseAddress)
                                     var vertexInput = VkPipelineVertexInputStateCreateInfo()
                                     vertexInput.vertexBindingDescriptionCount = UInt32(bindingPointer.count)
                                     vertexInput.pVertexBindingDescriptions = bindingPointer.baseAddress.map(UnsafeRawPointer.init)
@@ -772,12 +813,29 @@ extension VulkanDevice: RenderBackendDevice {
     func makeRenderPass(format: UInt32, load: UInt32, depthFormat: UInt32? = nil, depthLoad: UInt32 = 0,
                         depthStore: UInt32 = 0, stencilLoad: UInt32 = 2, stencilStore: UInt32 = 1,
                         samples: UInt32 = 1, resolve: Bool = false, colorStore: UInt32 = 0,
-                        viewMask: UInt32? = nil) throws -> UInt64 {
+                        viewMask: UInt32? = nil, extraColors: [ExtraColorAttachment] = []) throws -> UInt64 {
+        // Attachment order: the primary color, extra colors by location, depth, then the resolve target.
         var attachments = [VkAttachmentDescription()]
         attachments[0].format = format
         attachments[0].loadOp = load
         attachments[0].storeOp = colorStore
         attachments[0].samples = samples
+        // One reference per color location up to the highest used; locations without a target stay unused.
+        let unusedAttachment = UInt32.max
+        var colorReferences = [VkAttachmentReference](
+            repeating: VkAttachmentReference(attachment: unusedAttachment),
+            count: Int((extraColors.map(\.location).max() ?? 0) + 1))
+        colorReferences[0] = VkAttachmentReference(attachment: 0)
+        for extra in extraColors {
+            var description = VkAttachmentDescription()
+            description.format = extra.format
+            description.loadOp = extra.loadOp
+            description.storeOp = extra.storeOp
+            description.samples = samples
+            colorReferences[Int(extra.location)] = VkAttachmentReference(attachment: UInt32(attachments.count))
+            attachments.append(description)
+        }
+        var depthReference = VkAttachmentReference(attachment: UInt32(attachments.count))
         if let depthFormat {
             var depth = VkAttachmentDescription()
             depth.format = depthFormat
@@ -795,14 +853,12 @@ extension VulkanDevice: RenderBackendDevice {
             target.loadOp = 2
             attachments.append(target)
         }
-        var reference = VkAttachmentReference()
-        var depthReference = VkAttachmentReference(attachment: 1)
         var renderPass: UInt64 = 0
         let g = native.g, device = native.device
-        try withUnsafePointer(to: &reference) { referencePointer in
+        try colorReferences.withUnsafeBufferPointer { referencePointer in
             var subpass = VkSubpassDescription()
-            subpass.colorAttachmentCount = 1
-            subpass.pColorAttachments = UnsafeRawPointer(referencePointer)
+            subpass.colorAttachmentCount = UInt32(referencePointer.count)
+            subpass.pColorAttachments = UnsafeRawPointer(referencePointer.baseAddress)
             try withUnsafePointer(to: &resolveReference) { resolvePointer in
             if resolve { subpass.pResolveAttachments = UnsafeRawPointer(resolvePointer) }
             try withUnsafePointer(to: &depthReference) { depthPointer in
@@ -844,8 +900,8 @@ extension VulkanDevice: RenderBackendDevice {
               let state = renderPipelines[pipeline.id], state.model == pipeline else {
             throw GPUError.validation("Unknown Vulkan render pipeline")
         }
-        guard additionalColors.isEmpty else {
-            throw GPUError.unsupported("Vulkan render commands support one color target")
+        guard additionalColors.isEmpty || resolve == nil else {
+            throw GPUError.unsupported("Vulkan cannot resolve a pass with multiple color targets")
         }
         guard pipeline.sampleCount > 1 || resolve == nil else {
             throw GPUError.validation("Single-sampled rendering has no resolve target")
@@ -904,6 +960,37 @@ extension VulkanDevice: RenderBackendDevice {
               texture.descriptor.sampleCount == pipeline.sampleCount, texture.descriptor.usage.contains(.renderAttachment), let extent = texture.descriptor.mipExtent(mipLevel + texture.baseMip) else {
             throw GPUError.validation("Invalid Vulkan render target")
         }
+        var extraTargets: [ExtraColorTarget] = []
+        for (location, attachment) in additionalColors.sorted(by: { $0.key < $1.key }) {
+            guard let format = pipeline.additionalColorTargets[location]?.format,
+                  let attachmentTexture = self.texture(for: attachment.texture),
+                  attachmentTexture.descriptor.format == format,
+                  attachmentTexture.descriptor.sampleCount == pipeline.sampleCount,
+                  attachmentTexture.descriptor.usage.contains(.renderAttachment),
+                  let attachmentExtent = attachmentTexture.descriptor.mipExtent(attachment.mipLevel + attachmentTexture.baseMip),
+                  attachmentExtent.width == extent.width, attachmentExtent.height == extent.height,
+                  attachment.resolve == nil, attachment.depthSlice == nil else {
+                throw GPUError.validation("Invalid Vulkan additional color attachment")
+            }
+            var words: (UInt32, UInt32, UInt32, UInt32)?
+            if case .clear(let color) = attachment.loadAction {
+                guard color.isValid(for: format) else { throw GPUError.validation("Invalid clear color") }
+                switch format.sampleType {
+                case .uint:
+                    words = (UInt32(color.red), UInt32(color.green), UInt32(color.blue), UInt32(color.alpha))
+                case .sint:
+                    words = (UInt32(bitPattern: Int32(color.red)), UInt32(bitPattern: Int32(color.green)),
+                             UInt32(bitPattern: Int32(color.blue)), UInt32(bitPattern: Int32(color.alpha)))
+                default:
+                    words = (Float(color.red).bitPattern, Float(color.green).bitPattern, Float(color.blue).bitPattern,
+                             Float(color.alpha).bitPattern)
+                }
+            }
+            extraTargets.append(ExtraColorTarget(
+                location: location, image: attachmentTexture.image, format: attachmentTexture.format.vk,
+                mipLevel: attachment.mipLevel + attachmentTexture.baseMip, layer: attachmentTexture.baseLayer, clear: words,
+                storeOp: attachment.storeAction == .discard ? 1 : 0))
+        }
         guard UInt64(immediates.count) * 4 == (pipeline.immediateByteSize + 3) / 4 * 4 else {
             throw GPUError.validation("Immediate data size does not match the render pipeline")
         }
@@ -961,7 +1048,7 @@ extension VulkanDevice: RenderBackendDevice {
             instanceCount: instances.count, firstInstance: instances.first, viewport: viewport, scissor: scissor,
             blendConstant: [Float(blendConstant.red), Float(blendConstant.green), Float(blendConstant.blue),
                             Float(blendConstant.alpha)],
-            immediates: immediates, indexed: nil, depth: depthTarget, resolve: resolveTarget,
+            immediates: immediates, indexed: nil, depth: depthTarget, resolve: resolveTarget, extraColors: extraTargets,
             colorStore: colorStore == .store ? 0 : 1, samples: pipeline.sampleCount, layer: texture.baseLayer + (depthSlice ?? 0),
             layerCount: pipeline.multiviewMask == nil ? 1 : (texture.viewLayers ?? texture.descriptor.arrayLayerCount),
             viewMask: pipeline.multiviewMask)
@@ -1086,16 +1173,34 @@ extension VulkanDevice {
         try vulkanCheck(withUnsafePointer(to: &viewInfo) { g.createImageView(device, UnsafeRawPointer($0), nil, &view) },
                         "image view creation")
         batch.views.append(view)
+        var extraViews: [UInt64] = []
+        for extra in plan.extraColors {
+            var extraInfo = VkImageViewCreateInfo()
+            extraInfo.image = extra.image
+            if plan.viewMask != nil { extraInfo.viewType = 5 }
+            extraInfo.format = extra.format
+            extraInfo.subresourceRange = VkImageSubresourceRange(baseMipLevel: extra.mipLevel, baseArrayLayer: extra.layer,
+                                                                 layerCount: plan.layerCount)
+            var extraView: UInt64 = 0
+            try vulkanCheck(withUnsafePointer(to: &extraInfo) { g.createImageView(device, UnsafeRawPointer($0), nil, &extraView) },
+                            "image view creation")
+            batch.views.append(extraView)
+            extraViews.append(extraView)
+        }
         let renderPass = try makeRenderPass(format: plan.format, load: plan.clear == nil ? 0 : 1,
                                             depthFormat: plan.depth?.format, depthLoad: plan.depth?.loadOp ?? 0,
                                             depthStore: plan.depth?.storeOp ?? 0,
                                             stencilLoad: plan.depth?.stencilLoadOp ?? 2,
                                             stencilStore: plan.depth?.stencilStoreOp ?? 1, samples: plan.samples,
                                             resolve: plan.resolve != nil, colorStore: plan.colorStore,
-                                            viewMask: plan.viewMask)
+                                            viewMask: plan.viewMask,
+                                            extraColors: plan.extraColors.map {
+                                                ExtraColorAttachment(location: $0.location, format: $0.format,
+                                                                     loadOp: $0.clear == nil ? 0 : 1, storeOp: $0.storeOp)
+                                            })
         batch.renderPasses.append(renderPass)
         var framebuffer: UInt64 = 0
-        var attachments = [view]
+        var attachments = [view] + extraViews
         if let depth = plan.depth {
             var depthInfo = VkImageViewCreateInfo()
             depthInfo.image = depth.image
@@ -1135,6 +1240,7 @@ extension VulkanDevice {
         batch.framebuffers.append(framebuffer)
 
         var clearValues = [VkClearColorValue(words: plan.clear ?? (0, 0, 0, 0))]
+        clearValues += plan.extraColors.map { VkClearColorValue(words: $0.clear ?? (0, 0, 0, 0)) }
         if let depth = plan.depth {
             clearValues.append(VkClearColorValue(words: (depth.clearValue.bitPattern, depth.stencilClear, 0, 0)))
         }
@@ -1143,7 +1249,9 @@ extension VulkanDevice {
         begin.framebuffer = framebuffer
         begin.areaWidth = plan.extent.width
         begin.areaHeight = plan.extent.height
-        begin.clearValueCount = plan.depth != nil ? 2 : (plan.clear == nil ? 0 : 1)
+        let colorCount = UInt32(1 + plan.extraColors.count)
+        let clearsColor = plan.clear != nil || plan.extraColors.contains { $0.clear != nil }
+        begin.clearValueCount = plan.depth != nil ? colorCount + 1 : (clearsColor ? colorCount : 0)
         clearValues.withUnsafeBufferPointer { clearPointer in
             begin.pClearValues = UnsafeRawPointer(clearPointer.baseAddress)
             withUnsafePointer(to: &begin) { g.cmdBeginRenderPass(commandBuffer, UnsafeRawPointer($0), VK.subpassContentsInline) }

@@ -37,7 +37,7 @@ func emitsFragmentStorageTextureWritesThroughHelpers(format: ShaderOutputFormat)
     guard case .text(_, let body) = fragment.artifact else { Issue.record("Expected fragment source"); return }
     switch format {
     case .msl:
-        #expect(body.contains("access::write> saga_texture_0 [[texture(16)]]"))
+        #expect(body.contains("access::write> saga_texture_0 [[texture(24)]]"))
         #expect(body.contains(".write("))
     case .hlsl:
         #expect(body.contains("RWTexture2D<unorm float4>") && body.contains("register(u4, space2)"))

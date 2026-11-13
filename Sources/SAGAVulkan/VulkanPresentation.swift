@@ -14,12 +14,15 @@ public enum VulkanSurfaceTarget: Sendable {
     case xlib(display: UInt, window: UInt)
     /// `wl_display*` and `wl_surface*`.
     case wayland(display: UInt, surface: UInt)
+    /// An `ANativeWindow*` retained by the caller until the Vulkan surface is removed.
+    case android(window: UInt)
 
     var instanceExtension: String {
         switch self {
         case .win32: "VK_KHR_win32_surface"
         case .xlib: "VK_KHR_xlib_surface"
         case .wayland: "VK_KHR_wayland_surface"
+        case .android: "VK_KHR_android_surface"
         }
     }
 }
@@ -117,6 +120,13 @@ struct VkXlibSurfaceCreateInfoKHR {
     var window: UInt = 0
 }
 
+struct VkAndroidSurfaceCreateInfoKHR {
+    var sType: UInt32 = 1000008000
+    var pNext: UnsafeRawPointer?
+    var flags: UInt32 = 0
+    var window: UInt = 0
+}
+
 struct VkWaylandSurfaceCreateInfoKHR {
     var sType: UInt32 = 1000006000
     var pNext: UnsafeRawPointer?
@@ -171,6 +181,7 @@ struct VulkanPresentationFunctions: Sendable {
         case .win32: "vkCreateWin32SurfaceKHR"
         case .xlib: "vkCreateXlibSurfaceKHR"
         case .wayland: "vkCreateWaylandSurfaceKHR"
+        case .android: "vkCreateAndroidSurfaceKHR"
         }
         createSurface = try load(name)
     }
@@ -206,6 +217,9 @@ final class VulkanPresenter {
             result = withUnsafePointer(to: &info) { create(instance, UnsafeRawPointer($0), nil, &surfaceHandle) }
         case .wayland(let display, let surface):
             var info = VkWaylandSurfaceCreateInfoKHR(display: display, surface: surface)
+            result = withUnsafePointer(to: &info) { create(instance, UnsafeRawPointer($0), nil, &surfaceHandle) }
+        case .android(let window):
+            var info = VkAndroidSurfaceCreateInfoKHR(window: window)
             result = withUnsafePointer(to: &info) { create(instance, UnsafeRawPointer($0), nil, &surfaceHandle) }
         }
         try vulkanCheck(result, "surface creation")
@@ -309,8 +323,39 @@ final class VulkanPresenter {
 
 extension VulkanDevice: PresentationBackendDevice {
     public func present(_ submission: Submission, source: ResourceID) async throws {
-        try requireActive()
         guard let presenter else { throw GPUError.unsupported("This Vulkan device has no presentation surface") }
+        try await present(submission, source: source, presenter: presenter)
+    }
+
+    public func present(_ submission: Submission, source: ResourceID, surface: UInt32) async throws {
+        guard supportsPresentation else { throw GPUError.unsupported("This Vulkan device has no presentation surface") }
+        guard let presenter = surface == 0 ? presenter : extraPresenters[surface] else {
+            throw GPUError.validation("Unknown presentation surface")
+        }
+        try await present(submission, source: source, presenter: presenter)
+    }
+
+    /// Attaches a window to a device created with swapchain support.
+    public func addSurface(_ target: VulkanSurfaceTarget) throws -> UInt32 {
+        guard supportsPresentation else { throw GPUError.unsupported("This Vulkan device has no presentation support") }
+        let id = nextSurfaceID
+        extraPresenters[id] = try VulkanPresenter(adapter: adapter, target: target)
+        nextSurfaceID += 1
+        return id
+    }
+
+    /// Detaches a surface. The device can still attach replacement surfaces.
+    public func removeSurface(_ id: UInt32) {
+        if id == 0 {
+            presenter?.destroy(native: native)
+            presenter = nil
+        } else {
+            extraPresenters.removeValue(forKey: id)?.destroy(native: native)
+        }
+    }
+
+    private func present(_ submission: Submission, source: ResourceID, presenter: VulkanPresenter) async throws {
+        try requireActive()
         guard let texture = textures[source], texture.descriptor.usage.contains(.copySource),
               texture.descriptor.sampleCount == 1, texture.format.aspect == VK.Image.aspectColor else {
             throw GPUError.validation("Presentation requires a single-sampled copy-source color texture")

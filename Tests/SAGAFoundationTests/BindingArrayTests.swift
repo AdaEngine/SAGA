@@ -262,7 +262,7 @@ func computeBindingArrayWritersEmitSpecializedResourceArrays(format: ShaderOutpu
 @Test func computeBindingArrayWritersRejectInvalidSpecializedCounts() throws {
     let compiler = IndependentShaderCompiler()
     let shader = ShaderInput.wgsl(compiledBindingArrayShader)
-    for value: Double in [0, 17] {
+    for value: Double in [0, 25] {
         #expect(throws: ShaderFailure.self) {
             try compiler.compileCompute(shader, to: .msl, constants: ["count": value])
         }

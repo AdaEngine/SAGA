@@ -43,8 +43,8 @@ func emitsRenderStorageAccessAndSharedBindings(format: ShaderOutputFormat) throw
         _ = try compiler.parseAndValidate(.wgsl(vs))
         _ = try compiler.parseAndValidate(.wgsl(fs))
     case .msl:
-        #expect(vs.contains("saga_texture_0 [[texture(16)]]"))
-        #expect(fs.contains("saga_texture_0 [[texture(17)]]"))
+        #expect(vs.contains("saga_texture_0 [[texture(24)]]"))
+        #expect(fs.contains("saga_texture_0 [[texture(25)]]"))
         #expect(fs.contains("texture2d<uint, access::read_write>"))
     case .hlsl:
         #expect(vs.contains("register(u5, space2)") && fs.contains("register(u5, space2)"))

@@ -112,8 +112,12 @@ class RuntimePolicyTests(unittest.TestCase):
             self.assertTrue(audit_source('Sources/SAGACore/Bad.swift',text),text)
         self.assertEqual(audit_source('Sources/SAGAMetal/Good.swift','#if canImport(Metal)\nimport Metal\n#endif'),[])
     def test_web_abi_is_confined_to_the_reactor(self):
-        path='Sources/SAGAWebDiagnostic/WebReactor.swift'
+        path='Sources/SAGAWebReactor/WebReactor.swift'
         self.assertEqual(audit_source(path,(ROOT/path).read_text()),[])
+        entry='Sources/SAGAWebDiagnostic/WebEntry.swift'
+        self.assertEqual(audit_source(entry,(ROOT/entry).read_text()),[])
+        self.assertTrue(audit_source(entry, '#if os(WASI) && compiler(>=6.3)\n@_extern(wasm, module: "saga_host", name: "request")\n#endif'))
+        self.assertTrue(audit_source(path, '#if os(WASI) && compiler(>=6.3)\n@_expose(wasm, "saga_start")\n#endif'))
         for escape in ['@_extern(c, "naga")', '@_extern(wasm, module: "other", name: "request")',
                        '@_expose(wasm, "unreviewed")', '@_silgen_name("anything")']:
             self.assertTrue(audit_source(path, f'#if os(WASI) && compiler(>=6.3)\n{escape}\n#endif'))

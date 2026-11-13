@@ -1,7 +1,7 @@
 /// A compiled compute shader and the layout required by its emitted entry point.
 public struct ComputeShaderArtifact: Sendable, Equatable {
     package static let storageBindingCapacity: UInt32 = 8
-    package static let sampledTextureBindingCapacity: UInt32 = 16
+    package static let sampledTextureBindingCapacity: UInt32 = 24
     package static let storageTextureBindingCapacity: UInt32 = 4
     package static let samplerBindingCapacity: UInt32 = 16
     package static let uniformBindingCapacity: UInt32 = 12

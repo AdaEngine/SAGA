@@ -81,7 +81,9 @@
       "SAGACore",
       "SAGAShaderIR",
       "SAGACompiler",
-      "SAGAWebGPU"
+      "SAGAWebGPU",
+      "SAGAWebHost",
+      "SAGAWebReactor"
     ],
     "SAGABenchmark": [
       "SAGATypes",
@@ -100,6 +102,17 @@
       "SAGABackend",
       "SAGAShaderIR",
       "SAGACompiler"
+    ],
+    "SAGAWebHost": [
+      "SAGATypes",
+      "SAGABackend",
+      "SAGAShaderIR",
+      "SAGAWebGPU"
+    ],
+    "SAGAWebReactor": [
+      "SAGATypes",
+      "SAGABackend",
+      "SAGAWebHost"
     ]
   },
   "products": {
@@ -132,6 +145,12 @@
     ],
     "SAGAD3D12": [
       "SAGAD3D12"
+    ],
+    "SAGAWebHost": [
+      "SAGAWebHost"
+    ],
+    "SAGAWebReactor": [
+      "SAGAWebReactor"
     ]
   },
   "extra_imports": {
@@ -152,9 +171,6 @@
       "Foundation",
       "QuartzCore"
     ],
-    "SAGAWebDiagnostic": [
-      "_Concurrency"
-    ],
     "SAGAVulkan": [
       "Dispatch",
       "WinSDK",
@@ -169,6 +185,9 @@
     "SAGABenchmark": [
       "Foundation",
       "WinSDK"
+    ],
+    "SAGAWebReactor": [
+      "_Concurrency"
     ]
   },
   "target_types": {
@@ -189,7 +208,9 @@
     "SAGAWebDiagnostic": "executable",
     "SAGABenchmark": "executable",
     "SAGAVulkan": "regular",
-    "SAGAD3D12": "regular"
+    "SAGAD3D12": "regular",
+    "SAGAWebHost": "regular",
+    "SAGAWebReactor": "regular"
   },
   "product_types": {
     "SAGAMetalDiagnostic": "executable",
@@ -201,7 +222,9 @@
     "SAGAMetal": "library",
     "SAGAWebGPU": "library",
     "SAGAVulkan": "library",
-    "SAGAD3D12": "library"
+    "SAGAD3D12": "library",
+    "SAGAWebHost": "library",
+    "SAGAWebReactor": "library"
   },
   "target_settings": {
     "SAGABenchmark": [
@@ -233,6 +256,16 @@
         },
         "tool": "linker"
       }
+    ],
+    "SAGAWebReactor": [
+      {
+        "kind": {
+          "enableExperimentalFeature": {
+            "_0": "Extern"
+          }
+        },
+        "tool": "swift"
+      }
     ]
   },
   "file_imports": {
@@ -252,6 +285,9 @@
     ],
     "Tests/SAGAFoundationTests/VulkanLinuxPresentationTests.swift": [
       "Glibc"
+    ],
+    "Tests/SAGAFoundationTests/VulkanNativePassTests.swift": [
+      "Foundation"
     ]
   },
   "standalone_benchmark_files": [
@@ -319,14 +355,14 @@
       "reason": "Windows COM/DXC/DXGI ABI boundary per native-backends ADR; raw pointers are confined to this backend. Hash records existing unchecked ownership; this policy is not a concurrency-safety proof."
     },
     "Sources/SAGAVulkan/VulkanDevice.swift": {
-      "sha256": "4f0ebec4b459c968677349590790bcbec52eec5d5d8859a55ac93e5b9e8699c2",
+      "sha256": "cb21cad61b2efd53c2ac55d4e61518c8926d4d38f5978912d57ceb55900f0a67",
       "patterns": [
         "unsafeBitCast\\b"
       ],
       "reason": "System Vulkan entry points resolved at runtime and cast to typed C ABI, per add-vulkan-and-direct3d-native-backends ADR; not a shader compiler bridge."
     },
     "Sources/SAGAVulkan/VulkanPresentation.swift": {
-      "sha256": "10a1ee240b15a3b6444ebceca6c7a9a5e41f1403c940cd1c6be45b6001d25227",
+      "sha256": "13f69987cb3334b35205a91badb9dd7e058dcde1e9ce46b77bc99aca94d117fb",
       "patterns": [
         "unsafeBitCast\\b"
       ],
@@ -355,7 +391,7 @@
       "reason": "System Vulkan entry points resolved at runtime and cast to typed C ABI, per add-vulkan-and-direct3d-native-backends ADR; not a shader compiler bridge."
     },
     "Sources/SAGAVulkan/VulkanAdapter.swift": {
-      "sha256": "20939115d72e3a380f78b30f6be37e4959e2f9fa9358c8035452a282b9c9d512",
+      "sha256": "cd76f2b75d31345a7d4100c9f5e00fc3bf4c292272d9c7d68b73b54465d9b736",
       "patterns": [
         "unsafeBitCast\\b"
       ],
@@ -392,11 +428,26 @@
       "reason": "Linux-only real Xlib/Wayland presentation fixture uses system dynamic entry points and synchronous registry callback state; not linked into the runtime product."
     },
     "Tests/SAGAFoundationTests/VulkanComputeTests.swift": {
-      "sha256": "b8315eca0f3dbab6b31ca8b21a245673d793fb35cb5eef43bc0391794f9dd7a5",
+      "sha256": "2f7942bf1a0520439007934c0006c541d4f6eb4ad4bf21f4b2437191725b33b3",
       "patterns": [
         "@unchecked\\s+Sendable"
       ],
       "reason": "Windows-only test window owned by a dedicated Thread and coordinated with semaphores; unchecked handle wrapper is not linked into runtime products."
+    },
+    "Sources/SAGAVulkan/VulkanNativePass.swift": {
+      "sha256": "360f1a673a6c81e56a66dafcb651347902ab8a5f72e44da0ec0f47d0be3bc6cb",
+      "patterns": [
+        "unsafeBitCast\\b"
+      ],
+      "reason": "System Vulkan entry points resolved at runtime and cast to typed C ABI, per add-vulkan-and-direct3d-native-backends ADR; not a shader compiler bridge."
+    },
+    "Tests/SAGAFoundationTests/VulkanNativePassTests.swift": {
+      "sha256": "ec64f437ae5f0c42b59fa0dc85daf1a11b1f70c134ccc8213684dd80da2c60c8",
+      "patterns": [
+        "@unchecked\\s+Sendable",
+        "unsafeBitCast\\b"
+      ],
+      "reason": "Vulkan native-pass test resolves vkCmdFillBuffer through the driver and records observations through an NSLock-protected probe."
     }
   },
   "archived_shader_artifacts": {

@@ -8,6 +8,7 @@ import SAGACompiler
 /// in `VulkanDevice` is destroyed through this handle's functions, and the device outlives them.
 final class VulkanNativeDevice: Sendable {
     let instance: VulkanInstance
+    let physical: UInt
     let limits: VulkanPhysicalLimits
     let device: UInt
     let queue: UInt
@@ -80,6 +81,7 @@ final class VulkanNativeDevice: Sendable {
         deviceAddresses = support.canEnableRayQuery
         positionFetch = support.canEnablePositionFetch
         instance = adapter.instance
+        physical = adapter.physical
         var meshDraw: (@convention(c) (UInt, UInt32, UInt32, UInt32) -> Void)?
         if support.canEnableMeshShaders, let library = VulkanLibrary.open(), let address = library.symbol("vkGetInstanceProcAddr") {
             let getProc = unsafeBitCast(address, to: GetInstanceProcAddr.self)
@@ -284,6 +286,9 @@ public actor VulkanDevice: ComputeAccelerationStructureBackendDevice, PlanarExte
     let native: VulkanNativeDevice
     let adapter: VulkanAdapter
     var presenter: VulkanPresenter?
+    /// Presenters of surfaces attached after creation, keyed by the id `addSurface` returned.
+    var extraPresenters: [UInt32: VulkanPresenter] = [:]
+    var nextSurfaceID: UInt32 = 1
     let timeout: Duration
     var buffers: [ResourceID: Buffer] = [:]
     var mappings: [ResourceID: BufferMapMode] = [:]
@@ -317,10 +322,11 @@ public actor VulkanDevice: ComputeAccelerationStructureBackendDevice, PlanarExte
     var idleStaging: [VulkanHostBuffer] = []
     var idleReadback: [VulkanHostBuffer] = []
 
-    init(adapter: VulkanAdapter, timeout: Duration, surface: VulkanSurfaceTarget? = nil) throws {
-        native = try VulkanNativeDevice(adapter: adapter, swapchain: surface != nil)
+    init(adapter: VulkanAdapter, timeout: Duration, surface: VulkanSurfaceTarget? = nil, enablePresentation: Bool = false) throws {
+        let presentable = surface != nil || enablePresentation
+        native = try VulkanNativeDevice(adapter: adapter, swapchain: presentable)
         self.adapter = adapter
-        supportsPresentation = surface != nil
+        supportsPresentation = presentable
         if let surface { presenter = try VulkanPresenter(adapter: adapter, target: surface) }
         self.timeout = timeout
         adapterName = adapter.name
@@ -332,6 +338,8 @@ public actor VulkanDevice: ComputeAccelerationStructureBackendDevice, PlanarExte
         let (sx, sy, sz) = limits.maxComputeWorkGroupSize
         var features: Set<GPUFeature> = []
         if limits.timestampsSupported { features.insert(.timestampQuery) }
+        if limits.float32Filterable { features.insert(.float32Filterable) }
+        if limits.float32Blendable { features.insert(.float32Blendable) }
         features.insert(.addressModeClampToBorder)  // core Vulkan: border colors need no extension for the fixed palette
         let support = limits.featureSupport
         if support.core[13] != 0 { features.formUnion([.polygonModeLine, .polygonModePoint]) }
@@ -366,6 +374,8 @@ public actor VulkanDevice: ComputeAccelerationStructureBackendDevice, PlanarExte
             maxVertexAttributes: min(limits.maxVertexInputAttributes, 16),
             maxVertexBuffers: min(limits.maxVertexInputBindings, 8),
             maxColorAttachments: min(limits.maxFragmentOutputAttachments, 8),
+            // Vulkan has no per-sample byte limit; this allows every one of the eight attachments to be RGBA32F.
+            maxColorAttachmentBytesPerSample: 128,
             maxMultiviewViewCount: multiviewViews > 1 ? multiviewViews : 0,
             cooperativeMatrixProperties: features.contains(.cooperativeMatrix) ? support.cooperativeProperties : [],
             maxTaskWorkgroupTotalCount: meshEnabled ? support.meshLimits.taskTotal : nil,
@@ -461,6 +471,8 @@ public actor VulkanDevice: ComputeAccelerationStructureBackendDevice, PlanarExte
         cachedValidator = nil
         cachedDrawValidator = nil
         if let presenter { presenter.destroy(native: native); self.presenter = nil }
+        for extra in extraPresenters.values { extra.destroy(native: native) }
+        extraPresenters.removeAll()
         for id in buffers.keys where id.device == owner { destroyBuffer(id: id) }
         for id in pipelines.keys where id.device == owner { destroyComputePipeline(id: id) }
         for id in renderPipelines.keys where id.device == owner { destroyRenderPipelineNow(id: id) }
@@ -607,6 +619,7 @@ public actor VulkanDevice: ComputeAccelerationStructureBackendDevice, PlanarExte
         case writeTimestamp(pool: UInt64, index: UInt32, end: Bool)
         case resolveQueries(QueryResolve)
         case buildStructure(BufferCommand)
+        case native(NativePlan)
     }
 
     struct DispatchPlan {
@@ -740,6 +753,8 @@ public actor VulkanDevice: ComputeAccelerationStructureBackendDevice, PlanarExte
                 }
             }
             switch command {
+            case .native(let pass):
+                operations.append(.native(try planNative(pass)))
             case .resolveQuerySet(let set, let first, let count, let destination, let offset):
                 operations.append(.resolveQueries(try planResolve(querySet: set, first: first, count: count,
                                                                   destination: destination, offset: offset)))
@@ -968,11 +983,9 @@ public actor VulkanDevice: ComputeAccelerationStructureBackendDevice, PlanarExte
                 }
             }
 
-            var commandBuffer: UInt = 0
             if let idle = idleCommandPools.popLast() {
                 batch.commandPool = idle.pool
                 batch.commandBuffer = idle.buffer
-                commandBuffer = idle.buffer
                 try vulkanCheck(f.resetCommandPool(device, idle.pool, 0), "command pool reset")
             } else {
                 var poolInfo = VkCommandPoolCreateInfo()
@@ -983,10 +996,10 @@ public actor VulkanDevice: ComputeAccelerationStructureBackendDevice, PlanarExte
                 var allocateInfo = VkCommandBufferAllocateInfo()
                 allocateInfo.commandPool = batch.commandPool
                 try vulkanCheck(withUnsafePointer(to: &allocateInfo) {
-                    f.allocateCommandBuffers(device, UnsafeRawPointer($0), &commandBuffer)
+                    f.allocateCommandBuffers(device, UnsafeRawPointer($0), &batch.commandBuffer)
                 }, "command buffer allocation")
-                batch.commandBuffer = commandBuffer
             }
+            let commandBuffer = batch.commandBuffer
 
             let sizes = descriptorTotals.counts.filter { $0.value > 0 }.map { VkDescriptorPoolSize(type: $0.key, descriptorCount: $0.value) }
             if descriptorTotals.sets > 0, !sizes.isEmpty {
@@ -1047,6 +1060,11 @@ public actor VulkanDevice: ComputeAccelerationStructureBackendDevice, PlanarExte
                     native.g.cmdWriteTimestamp(commandBuffer, end ? VulkanQuery.bottomOfPipe : VulkanQuery.topOfPipe, pool, index)
                 case .buildStructure(let command):
                     try recordStructureBuild(command, commandBuffer: commandBuffer, batch: &batch, barrier: { barrier() })
+                case .native(let plan):
+                    // Earlier commands are visible to the pass, and its writes to the commands after it.
+                    barrier()
+                    try recordNative(plan, commandBuffer: commandBuffer, batch: &batch)
+                    barrier()
                 case .resolveQueries(let resolve):
                     f.cmdFillBuffer(commandBuffer, resolve.destination, resolve.destinationOffset, UInt64(resolve.count) * 8, 0)
                     barrier()

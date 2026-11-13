@@ -1663,6 +1663,8 @@ public final class MetalDevice: ComputeAccelerationStructureBackendDevice, Prese
         }
         for (index, command) in commands.enumerated() {
             switch command {
+            case .native:
+                throw GPUError.unsupported("Metal does not support native passes")
             case .timestamped, .occlusionQueried:
                 let (_, timestamps, occlusion) = command.recordedPass
                 let samples = [timestamps.map { ($0.querySet, $0.indices) },

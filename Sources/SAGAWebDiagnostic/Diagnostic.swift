@@ -16,7 +16,8 @@ import SAGAWebGPU
 import SAGAWebHost
 
 func runWebDiagnostic(
-    capabilities: DeviceCapabilities, supportsPresentation: Bool, videoFrames: (UInt64, UInt64, UInt64)
+    capabilities: DeviceCapabilities, supportsPresentation: Bool, videoFrames: (UInt64, UInt64, UInt64),
+    transport: any BrowserTransport
 ) async throws -> String {
     let source = """
         @group(0) @binding(1) var<storage, read> input: array<u32, 4>;
@@ -53,7 +54,7 @@ func runWebDiagnostic(
         }
         """
     let host = makeWebGPUHost(
-        capabilities: capabilities, supportsPresentation: supportsPresentation, transport: BrowserRPC.shared
+        capabilities: capabilities, supportsPresentation: supportsPresentation, transport: transport
     )
     let device = try await Device.make(backend: BrowserComputeBackend(host: host))
     do {

@@ -3,19 +3,12 @@ import SAGABackend
 import SAGAShaderIR
 import SAGAWebGPU
 
-/// A transport sends a single SAGA command packet to a browser GPU host.
-public protocol BrowserTransport: Sendable {
-    func send(_ bytes: [UInt8]) async throws -> [UInt8]
-}
-
 /// Creates a host that sends SAGA commands through a caller-owned transport.
 public func makeWebGPUHost(
     capabilities: DeviceCapabilities, supportsPresentation: Bool, transport: some BrowserTransport
 ) -> some BrowserGPUPresentationHost {
     WebGPUHost(capabilities: capabilities, supportsPresentation: supportsPresentation, transport: transport)
 }
-
-private let browserPacketLimit = 16 * 1024 * 1024
 
 private struct Packet {
     var bytes: [UInt8] = []
@@ -434,6 +427,8 @@ private struct WebGPUHost: BrowserGPUPresentationHost, SamplerBackendDevice, Tex
             switch command {
             case .buildAccelerationStructure, .buildBoxAccelerationStructure, .buildTopLevelAccelerationStructure:
                 throw GPUError.unsupported("Browser acceleration structures are not supported")
+            case .native:
+                throw GPUError.unsupported("Browser does not support native passes")
             case .timestamped, .occlusionQueried:
                 throw GPUError.validation("Invalid query pass nesting")
             case .resolveQuerySet(let set, let first, let count, let destination, let offset):

@@ -319,7 +319,8 @@ public actor Device {
 
     private func requireResource(_ id: ResourceID) throws {
         guard id.device == identity, let resource = resources[id], resource.ready, !resource.destroyed else {
-            throw GPUError.validation("Unknown, foreign or destroyed resource")
+            let state = resources[id].map { "ready: \($0.ready), destroyed: \($0.destroyed)" } ?? "not registered"
+            throw GPUError.validation("Unknown, foreign or destroyed resource \(id) (\(state), device \(id.device) vs \(identity))")
         }
         if let view = resource.descriptor.textureView,
            resources[view.texture]?.destroyed != false {

@@ -99,6 +99,8 @@ public enum BufferCommand: Sendable, Equatable {
     indirect case occlusionQueried(pass: BufferCommand, query: PassOcclusionQuery)
     case resolveQuerySet(querySet: ResourceID, firstQuery: UInt32, queryCount: UInt32,
                          destination: ResourceID, destinationOffset: UInt64 = 0)
+    /// Native commands recorded by the caller. Only backends with native pass support accept it.
+    case native(NativePass)
 
     /// Draws using three packed UInt32 workgroup counts read from the GPU buffer at execution time.
     public static func drawMeshIndirect(
@@ -251,6 +253,8 @@ public enum BufferCommand: Sendable, Equatable {
             return measuredPassResources
         case .resolveQuerySet(let set, _, _, let destination, _):
             return [set, destination]
+        case .native(let pass):
+            return pass.uses.map(\.resource)
         case .writeTexture(let destination, _, _, _, _): return [destination]
         case .copy(let source, _, let destination, _, _), .copyTextureToBuffer(let source, let destination, _, _, _, _, _, _, _, _),
              .copyTextureRegionToBuffer(let source, let destination, _, _, _),
@@ -783,6 +787,12 @@ public enum BufferCommand: Sendable, Equatable {
                               accelerationStructures: accelerationStructures, maxComputeWorkgroupsPerDimension: maxComputeWorkgroupsPerDimension,
                               maxTaskWorkgroupTotalCount: maxTaskWorkgroupTotalCount, maxTaskWorkgroupsPerDimension: maxTaskWorkgroupsPerDimension,
                               maxMeshWorkgroupTotalCount: maxMeshWorkgroupTotalCount, maxMeshWorkgroupsPerDimension: maxMeshWorkgroupsPerDimension)
+        case .native(let pass):
+            guard pass.uses.allSatisfy({ use in
+                use.resource.device == device && (descriptors[use.resource] != nil || textures[use.resource] != nil)
+            }) else {
+                throw GPUError.validation("A native pass names a resource that does not exist on this device")
+            }
         case .resolveQuerySet(let set, let first, let count, let destination, let offset):
             guard set.device == device, let query = querySets[set], first <= query.count, count <= query.count - first,
                   destination.device == device, let buffer = descriptors[destination],

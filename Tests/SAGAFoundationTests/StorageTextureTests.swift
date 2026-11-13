@@ -37,7 +37,7 @@ func emitsGuardedWriteOnlyStorageTextures(format: ShaderOutputFormat) throws {
         #expect(source.contains("textureStore(") && source.contains("textureDimensions("))
         _ = try compiler.parseAndValidate(.wgsl(source))
     case .msl:
-        #expect(source.contains("access::write> saga_texture_1 [[texture(16)]]"))
+        #expect(source.contains("access::write> saga_texture_1 [[texture(24)]]"))
         #expect(source.contains(".write(") && source.contains(".get_width()"))
     case .hlsl:
         #expect(source.contains("RWTexture2D<unorm float4>") && source.contains("register(u4, space2)"))

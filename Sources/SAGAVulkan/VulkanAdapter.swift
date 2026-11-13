@@ -39,6 +39,10 @@ struct VulkanPhysicalLimits: Sendable {
     var timestampPeriod: Float
     var timestampsSupported: Bool
     var featureSupport: VulkanFeatureSupport
+    /// 32-bit float color formats (r32, rg32, rgba32) can be sampled with linear filtering.
+    var float32Filterable = false
+    /// 32-bit float color formats can be blended when used as color attachments.
+    var float32Blendable = false
 }
 
 /// Owns the Vulkan instance. Devices and adapters retain it, so the instance outlives every handle.
@@ -74,7 +78,7 @@ final class VulkanInstance: Sendable {
                 let available = Set((0..<Int(count)).map { index in
                     String(decoding: raw[(index * 260)..<(index * 260 + 256)].prefix { $0 != 0 }, as: UTF8.self)
                 })
-                let wanted = [VKPresent.surfaceExtension, "VK_KHR_win32_surface", "VK_KHR_xlib_surface", "VK_KHR_wayland_surface"]
+                let wanted = [VKPresent.surfaceExtension, "VK_KHR_win32_surface", "VK_KHR_xlib_surface", "VK_KHR_wayland_surface", "VK_KHR_android_surface"]
                 extensions = wanted.filter(available.contains)
                 if !extensions.contains(VKPresent.surfaceExtension) { extensions = [] }
             }
@@ -138,6 +142,12 @@ public enum VulkanBackend {
         return try VulkanDevice(adapter: adapter, timeout: timeout)
     }
 
+    /// Creates a device that can attach native windows after creating GPU resources.
+    public static func makePresentableDevice(adapter: VulkanAdapter?, timeout: Duration = .seconds(10)) throws -> VulkanDevice {
+        guard let adapter else { throw GPUError.adapterUnavailable }
+        return try VulkanDevice(adapter: adapter, timeout: timeout, enablePresentation: true)
+    }
+
     /// Creates a device that can present to `surface`. Throws `GPUError.unsupported` when the driver cannot.
     public static func makeDevice(
         surface: VulkanSurfaceTarget, adapter: VulkanAdapter? = requestAdapter(), timeout: Duration = .seconds(10)
@@ -194,6 +204,15 @@ public enum VulkanBackend {
             let required: UInt32 = 0x200 | 0x1 | 0x4000 | 0x8000
             if properties[1] & required == required { depthFormats.insert(candidate) }
         }
+        // optimalTilingFeatures bit 0x1000 is linear sampling and 0x80 is blending, for R32, RG32 and RGBA32 float.
+        var float32Filterable = true
+        var float32Blendable = true
+        for candidate: UInt32 in [100, 103, 109] {
+            var properties = [UInt32](repeating: 0, count: 3)
+            properties.withUnsafeMutableBytes { f.getPhysicalDeviceFormatProperties(physical, candidate, $0.baseAddress!) }
+            if properties[1] & 0x1000 == 0 { float32Filterable = false }
+            if properties[1] & 0x80 == 0 { float32Blendable = false }
+        }
         let limits = VulkanPhysicalLimits(
             maxStorageBufferRange: limit(28), maxUniformBufferRange: limit(24), maxBoundDescriptorSets: limit(64), maxPushConstantsSize: limit(32), maxImageDimension2D: limit(4), maxFragmentOutputAttachments: limit(204), maxVertexInputAttributes: limit(128), maxVertexInputBindings: limit(132),
             maxComputeSharedMemorySize: limit(216),
@@ -205,7 +224,8 @@ public enum VulkanBackend {
             heapSizes: heapSizes, heapIsDeviceLocal: heapLocal, depthStencilFormats: depthFormats,
             timestampPeriod: Float(bitPattern: limit(424)),
             timestampsSupported: limit(420) != 0 && families[family].timestampValidBits > 0,
-            featureSupport: vulkanQueryFeatures(physical: physical, instance: instance))
+            featureSupport: vulkanQueryFeatures(physical: physical, instance: instance),
+            float32Filterable: float32Filterable, float32Blendable: float32Blendable)
         let kind: VulkanAdapterKind = switch VK.PhysicalDeviceType(rawValue: type) {
         case .discreteGPU: .discrete
         case .integratedGPU: .integrated
