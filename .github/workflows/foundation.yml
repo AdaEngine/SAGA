@@ -4,7 +4,9 @@ permissions:
   contents: read
 jobs:
   apple-native:
-    runs-on: macos-15
+    runs-on: macos-26
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app
     strategy:
       fail-fast: false
       matrix:
@@ -21,6 +23,8 @@ jobs:
         env:
           EXPECTED_SWIFT: ${{ matrix.swift }}
         run: |
+          xcodebuild -version
+          xcrun --sdk macosx --show-sdk-version
           swift --version
           swift --version | grep -F "version $EXPECTED_SWIFT "
       - name: Build with strict concurrency
