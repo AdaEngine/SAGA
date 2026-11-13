@@ -3,7 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "SAGA",
-    platforms: [.macOS(.v14)],
+    platforms: [.macOS(.v14), .iOS(.v18), .tvOS(.v18)],
     products: [
         .executable(name: "SAGAMetalDiagnostic", targets: ["SAGAMetalDiagnostic"]),
         .executable(name: "SAGAMetalWindowDiagnostic", targets: ["SAGAMetalWindowDiagnostic"]),
@@ -13,13 +13,14 @@ let package = Package(
         .library(name: "SAGACompiler", targets: ["SAGACompiler"]),
         .library(name: "SAGAMetal", targets: ["SAGAMetal"]),
         .library(name: "SAGAWebGPU", targets: ["SAGAWebGPU"]),
+        .library(name: "SAGAWebHost", targets: ["SAGAWebHost"]),
         .library(name: "SAGAVulkan", targets: ["SAGAVulkan"]),
         .library(name: "SAGAD3D12", targets: ["SAGAD3D12"]),
     ],
     targets: [
         .executableTarget(name: "SAGAMetalDiagnostic", dependencies: ["SAGATypes", "SAGACore", "SAGAMetal"]),
         .executableTarget(name: "SAGAMetalWindowDiagnostic", dependencies: ["SAGATypes", "SAGACore", "SAGACompiler", "SAGAShaderIR", "SAGAMetal"]),
-        .executableTarget(name: "SAGAWebDiagnostic", dependencies: ["SAGATypes", "SAGABackend", "SAGACore", "SAGAShaderIR", "SAGACompiler", "SAGAWebGPU"]),
+        .executableTarget(name: "SAGAWebDiagnostic", dependencies: ["SAGATypes", "SAGABackend", "SAGACore", "SAGAShaderIR", "SAGACompiler", "SAGAWebGPU", "SAGAWebHost"]),
         .executableTarget(name: "SAGABenchmark", dependencies: ["SAGATypes", "SAGACore", "SAGACompiler", "SAGAVulkan"],
                           linkerSettings: [.linkedLibrary("winmm", .when(platforms: [.windows]))]),
         .target(name: "SAGATypes"),
@@ -34,6 +35,7 @@ let package = Package(
         .target(name: "SAGACompiler", dependencies: ["SAGAShaderIR", "SAGAValidation", "SAGAFrontends", "SAGABackends", "SAGATypes"]),
         .target(name: "SAGAMetal", dependencies: ["SAGATypes", "SAGABackend", "SAGAShaderIR"]),
         .target(name: "SAGAWebGPU", dependencies: ["SAGATypes", "SAGABackend", "SAGAShaderIR"]),
+        .target(name: "SAGAWebHost", dependencies: ["SAGATypes", "SAGABackend", "SAGAShaderIR", "SAGAWebGPU"]),
         .target(name: "SAGAVulkan", dependencies: ["SAGATypes", "SAGABackend", "SAGAShaderIR", "SAGACompiler"]),
         .target(name: "SAGAD3D12", dependencies: ["SAGATypes", "SAGABackend", "SAGAShaderIR", "SAGACompiler"]),
         .testTarget(name: "SAGAFoundationTests", dependencies: ["SAGA", "SAGATypes", "SAGACore", "SAGABackend", "SAGAShaderIR", "SAGAValidation", "SAGAFrontends", "SAGABackends", "SAGACompiler", "SAGAMetal", "SAGAWebGPU", "SAGAVulkan", "SAGAD3D12"]),

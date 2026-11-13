@@ -241,8 +241,8 @@ async function probeSnorm1010102VertexFormat(device) {
     }
 }
 
-export async function openWebGPU(canvas) {
-    const context = canvas?.getContext("webgpu");
+export async function openWebGPU(canvas, { deferCanvas = false } = {}) {
+    let context = canvas?.getContext("webgpu");
     if (canvas && !context) throw new Error("Canvas cannot supply a WebGPU surface");
     const adapter = await navigator.gpu?.requestAdapter();
     if (!adapter || adapter.info.isFallbackAdapter) throw new Error("No hardware WebGPU adapter available");
@@ -308,6 +308,7 @@ export async function openWebGPU(canvas) {
     let timestampMarkerPipeline;
     let submissions = 0;
     let presentedFrames = 0;
+    let nextCapture;
     let configuredFormat;
     let ownsConfiguration = false;
     let closed = false;
@@ -1534,28 +1535,92 @@ export async function openWebGPU(canvas) {
         return new Uint8Array();
     }
 
+    function attachCanvas(target) {
+        if (closed) throw new Error("Browser host is closed");
+        if (target === canvas && context) return;
+        if (context) throw new Error("Browser host already has a presentation surface");
+        if (!deferCanvas) throw new Error("Browser host did not request deferred presentation");
+        const targetContext = target?.getContext("webgpu");
+        if (!targetContext) throw new Error("Canvas cannot supply a WebGPU surface");
+        canvas = target;
+        context = targetContext;
+    }
+
+    function captureNextFrame({ signal } = {}) {
+        if (closed || !context) return Promise.reject(new Error("No open browser presentation surface"));
+        if (nextCapture) return Promise.reject(new Error("A browser frame capture is already pending"));
+        if (signal?.aborted) return Promise.reject(signal.reason);
+        return new Promise((resolve, reject) => {
+            function finish(callback, value) {
+                signal?.removeEventListener("abort", abort);
+                callback(value);
+            }
+            function abort() {
+                if (nextCapture === capture) nextCapture = undefined;
+                finish(reject, signal.reason);
+            }
+            const capture = { resolve: frame => finish(resolve, frame), reject: error => finish(reject, error) };
+            signal?.addEventListener("abort", abort, { once: true });
+            nextCapture = capture;
+        });
+    }
+
     async function present(id, source) {
         if (!context) throw new Error("Browser host does not have a presentation surface");
         const { width, height, format } = source;
-        await withErrors(async () => {
-            if (textures.get(id) !== source) {
-                throw Object.assign(new Error("Browser texture released before presentation"), { status: 1 });
+        const capture = nextCapture;
+        nextCapture = undefined;
+        let staging;
+        const stride = Math.ceil(width * 4 / 256) * 256;
+        const canCapture = /^(rgba|bgra)8unorm(-srgb)?$/.test(format);
+        try {
+            await withErrors(async () => {
+                if (textures.get(id) !== source) {
+                    throw Object.assign(new Error("Browser texture released before presentation"), { status: 1 });
+                }
+                if (canvas.width !== width) canvas.width = width;
+                if (canvas.height !== height) canvas.height = height;
+                if (configuredFormat !== format) {
+                    context.configure({ device, format, alphaMode: "opaque", usage: GPUTextureUsage.COPY_DST });
+                    ownsConfiguration = true;
+                }
+                // Acquire and submit in the same turn before the canvas texture can expire.
+                const destination = context.getCurrentTexture();
+                const encoder = device.createCommandEncoder();
+                encoder.copyTextureToTexture({ texture: source }, { texture: destination }, [width, height]);
+                if (capture && canCapture) {
+                    staging = device.createBuffer({ size: stride * height, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
+                    encoder.copyTextureToBuffer({ texture: source }, { buffer: staging, bytesPerRow: stride }, [width, height]);
+                }
+                device.queue.submit([encoder.finish()]);
+                await device.queue.onSubmittedWorkDone();
+            });
+            configuredFormat = format;
+            presentedFrames += 1;
+        } catch (error) {
+            staging?.destroy();
+            capture?.reject(error);
+            throw error;
+        }
+        if (!capture) return;
+        if (!staging) {
+            capture.reject(new Error(`Browser frame capture does not support ${format}`));
+            return;
+        }
+        try {
+            await withErrors(() => staging.mapAsync(GPUMapMode.READ));
+            const padded = new Uint8Array(staging.getMappedRange());
+            const pixels = new Uint8ClampedArray(width * height * 4);
+            for (let row = 0; row < height; row++) pixels.set(padded.subarray(row * stride, row * stride + width * 4), row * width * 4);
+            if (format.startsWith("bgra")) {
+                for (let i = 0; i < pixels.length; i += 4) [pixels[i], pixels[i + 2]] = [pixels[i + 2], pixels[i]];
             }
-            if (canvas.width !== width) canvas.width = width;
-            if (canvas.height !== height) canvas.height = height;
-            if (configuredFormat !== format) {
-                context.configure({ device, format, alphaMode: "opaque", usage: GPUTextureUsage.COPY_DST });
-                ownsConfiguration = true;
-            }
-            // Acquire and submit in the same turn before the canvas texture can expire.
-            const destination = context.getCurrentTexture();
-            const encoder = device.createCommandEncoder();
-            encoder.copyTextureToTexture({ texture: source }, { texture: destination }, [width, height]);
-            device.queue.submit([encoder.finish()]);
-            await device.queue.onSubmittedWorkDone();
-        });
-        configuredFormat = format;
-        presentedFrames += 1;
+            capture.resolve({ width, height, pixels });
+        } catch (error) {
+            capture.reject(error);
+        } finally {
+            staging.destroy();
+        }
     }
 
     return {
@@ -1580,7 +1645,7 @@ export async function openWebGPU(canvas) {
             ? device.limits.maxImmediateSize ?? 0 : 0,
         maxTextureDimension2D: device.limits.maxTextureDimension2D,
         supportsReadableStorage: navigator.gpu.wgslLanguageFeatures?.has("readonly_and_readwrite_storage_textures") ?? false,
-        supportsPresentation: context != null,
+        supportsPresentation: context != null || deferCanvas,
         supportsShaderF16: device.features.has("shader-f16"),
         supportsIndirectFirstInstance: indirectFirstInstance,
         supportsClipDistances: device.features.has("clip-distances"),
@@ -1613,6 +1678,8 @@ export async function openWebGPU(canvas) {
         registerVideoFrame,
         unregisterVideoFrame: token => videoFrames.delete(token),
         handle,
+        attachCanvas,
+        captureNextFrame,
         metrics: () => ({
             submissions, remainingResources: buffers.size + textures.size + textureViews.size + samplers.size +
                 pipelines.size + renderPipelines.size + querySets.size + mappings.size + stagedSubmissions.size +
@@ -1622,6 +1689,8 @@ export async function openWebGPU(canvas) {
         close() {
             if (closed) return;
             closed = true;
+            nextCapture?.reject(new Error("Browser host is closed"));
+            nextCapture = undefined;
             for (const resources of [buffers, mappings, pendingMappings, textures, textureViews, samplers, pipelines,
                 renderPipelines, querySets, stagedSubmissions, externalTextures, videoFrames]) resources.clear();
             if (ownsConfiguration) context.unconfigure();

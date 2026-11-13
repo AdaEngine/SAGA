@@ -10,7 +10,7 @@ public struct MetalPresentedFrame: Sendable, Equatable {
     public let presentedTime: Double
 }
 
-/// Owns configuration of an AppKit-hosted Metal layer for one backend.
+/// Owns configuration of an Apple Metal layer for one backend.
 @MainActor
 public final class MetalPresentationSurface {
     #if canImport(Metal) && canImport(QuartzCore)
@@ -29,8 +29,12 @@ public final class MetalPresentationSurface {
         layer.device = device
         layer.pixelFormat = .bgra8Unorm
         layer.framebufferOnly = true
-        layer.isOpaque = true
         layer.allowsNextDrawableTimeout = true
+    }
+
+    func detach() {
+        attached = false
+        layer.device = nil
     }
 
     func acquire(width: UInt32, height: UInt32) throws -> any CAMetalDrawable {
@@ -39,12 +43,14 @@ public final class MetalPresentationSurface {
         guard let drawable = layer.nextDrawable() else {
             throw GPUError.backendFailure("Metal surface did not supply a drawable")
         }
+        #if !targetEnvironment(simulator)
         if let onPresented {
             drawable.addPresentedHandler { drawable in
                 let frame = MetalPresentedFrame(width: width, height: height, presentedTime: drawable.presentedTime)
                 Task { @MainActor in onPresented(frame) }
             }
         }
+        #endif
         return drawable
     }
     #else
