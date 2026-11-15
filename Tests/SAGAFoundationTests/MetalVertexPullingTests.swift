@@ -29,7 +29,7 @@ import SAGAMetal
 }
 
 #if canImport(Metal)
-@Test func metalVertexPullingUsesBoundOffsetsAndDrawIndices() async throws {
+@Test(.gpuExclusive, arguments: [false, true]) func metalVertexPullingUsesBoundOffsetsAndDrawIndices(profiled: Bool) async throws {
     let source = ShaderInput.wgsl("""
         struct Raster {
             @builtin(position) position: vec4f,
@@ -50,7 +50,10 @@ import SAGAMetal
         ]),
     ]
     let compiler = IndependentShaderCompiler()
-    let vertex = try compiler.compileMetalVertexStage(source, entryPoint: "vs", vertexBuffers: layout)
+    let vertex = try profiled
+        ? compiler.compileMetalVertexStage(source, entryPoint: "vs", vertexBuffers: layout, maxSampledTextures: 0)
+        : compiler.compileMetalVertexStage(source, entryPoint: "vs", vertexBuffers: layout)
+    #expect(vertex.usesMetalVertexPulling)
     let fragment = try compiler.compileRenderStage(source, entryPoint: "fs", to: .msl)
     let device = try await Device.make(backend: MetalBackend.makeDevice())
     do {

@@ -57,6 +57,20 @@ extent of a variable-rate map. For multi-layer maps, compile the WGSL vertex ent
 Use 2D array textures sized to cover each layer's physical extent. For a single-layer map,
 bind the map to a regular 2D attachment and use the ordinary vertex stage. Render targets are single-sample.
 
+`IndependentShaderCompiler.compileMetalRenderStage` accepts an explicit per-stage
+sampled-texture ceiling for MSL render output. For vertex pulling, use the
+`compileMetalVertexStage` overload with `vertexBuffers` and `maxSampledTextures`.
+The compiler checks the ceiling and allocates sampled texture indices within it,
+without moving Metal's existing storage-texture slots. The ceiling cannot exceed
+SAGA's existing 24-slot layout; this is not support for 32 textures. The caller
+must establish a device-supported value: neither overload negotiates limits or
+validates the ceiling at runtime. Use compatible limits for both stages.
+
+For browser WebGPU, the host must report the created device's positive
+`maxSampledTexturesPerShaderStage` through `WebHostParameters`. The value is
+available in `DeviceCapabilities`; an unknown limit on other backends is `nil`.
+Reporting this capability does not yet enforce it during pipeline creation.
+
 For native shader translation, `WGSLSourceProfile.nagaNative` enables selected
 compatibility behavior of the pinned Naga frontend, including its fallback
 from abstract integers to `u32` or `f32` when `i32` cannot represent a value.

@@ -76,17 +76,22 @@ struct MetalNativePassTests {
         do {
             let target = try await device.createBuffer(.init(size: 16, usage: [.copySource, .copyDestination]))
             let other = try await device.createBuffer(.init(size: 16, usage: [.copySource]))
+            let retired = try await device.createBuffer(.init(size: 16, usage: .copyDestination))
             let readback = try await device.createBuffer(.init(size: 16, usage: [.copyDestination, .mapRead]))
             _ = try await device.submitCommands([.write(buffer: target, offset: 0, words: [7])]).wait()
-            let pass = NativePass(label: "Invalid buffer lookup", uses: [.init(target, .write)]) { context in
+            let pass = NativePass(label: "Invalid buffer lookup", uses: [.init(target, .write), .init(retired, .write)]) { context in
                 let metal = try #require(context as? MetalNativePassContext)
                 _ = try metal.buffer(other)
             }
             let ticket = try await device.submitCommands([
                 .write(buffer: target, offset: 0, words: [99]), .native(pass),
             ])
+            try await device.destroyBuffer(retired)
             await #expect(throws: GPUError.validation("The native pass did not name this buffer")) {
                 _ = try await ticket.wait()
+            }
+            await #expect(throws: GPUError.self) {
+                _ = try await device.submitCommands([.write(buffer: retired, offset: 0, words: [1])])
             }
             let next = try await device.submitCommands([
                 .copy(source: target, destination: readback, byteCount: 16), .read(buffer: readback, byteCount: 16),
@@ -115,7 +120,7 @@ struct MetalNativePassTests {
                 writes: .init(querySet: query, beginningOfPassWriteIndex: 0)
             )
             let failure = GPUError.validation("Native pass could not encode")
-            let pass = NativePass(label: "Fail recording", uses: []) { _ in throw failure }
+            let pass = NativePass(label: "Fail recording", uses: [.init(buffer, .write)]) { _ in throw failure }
             let marker = NativePass(label: "Record before split", uses: []) { context in
                 let metal = try #require(context as? MetalNativePassContext)
                 metal.addCommittedHandler { Issue.record("A failed submission committed an earlier native pass") }
@@ -137,6 +142,11 @@ struct MetalNativePassTests {
                 .read(buffer: queryReadback, byteCount: 8),
             ])
             #expect(try await next.wait() == [[7, 0, 0, 0], [0, 0]])
+            try await device.destroyBuffer(queryReadback)
+            try await device.destroyBuffer(buffer)
+            try await device.destroyBuffer(readback)
+            try await device.destroyBuffer(queryResult)
+            try await device.destroyQuerySet(query)
         } catch {
             await device.close()
             throw error

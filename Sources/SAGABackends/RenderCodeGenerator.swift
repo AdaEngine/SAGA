@@ -110,11 +110,13 @@ package struct RenderCodeGenerator {
     private let metalVertexBuffers: [VertexBufferLayout]?
     private let metalRenderTargetLayer: UInt32?
     private let glslPipelineFamily: GLSLRenderPipelineFamily?
+    private let sampledTextureLimit: UInt32
 
     package init(
         _ format: ShaderOutputFormat, bindingArrayLengths: [IRResourceBinding: UInt32] = [:],
         webGPU: Bool = false, metalVertexBuffers: [VertexBufferLayout]? = nil,
-        glslPipelineFamily: GLSLRenderPipelineFamily? = nil, metalRenderTargetLayer: UInt32? = nil
+        glslPipelineFamily: GLSLRenderPipelineFamily? = nil,
+        metalRenderTargetLayer: UInt32? = nil, sampledTextureLimit: UInt32? = nil
     ) {
         self.format = format
         self.bindingArrayLengths = bindingArrayLengths
@@ -122,6 +124,7 @@ package struct RenderCodeGenerator {
         self.metalVertexBuffers = metalVertexBuffers
         self.metalRenderTargetLayer = metalRenderTargetLayer
         self.glslPipelineFamily = glslPipelineFamily
+        self.sampledTextureLimit = sampledTextureLimit ?? ComputeShaderArtifact.sampledTextureBindingCapacity
     }
 
     package func generate(_ validated: ValidatedModule<IRModule>, entryPoint: String) throws -> RenderStageArtifact {
@@ -179,7 +182,7 @@ package struct RenderCodeGenerator {
         }
         guard slotCount(activeUniforms) + externalCount <= UInt64(ComputeShaderArtifact.uniformBindingCapacity),
               slotCount(activeStorageBuffers) <= UInt64(ComputeShaderArtifact.storageBindingCapacity),
-              slotCount(activeHandles.textures) + 3 * externalCount <= UInt64(ComputeShaderArtifact.sampledTextureBindingCapacity),
+              slotCount(activeHandles.textures) + 3 * externalCount <= UInt64(sampledTextureLimit),
               slotCount(activeHandles.storageTextures) <= UInt64(ComputeShaderArtifact.storageTextureBindingCapacity),
               slotCount(activeHandles.samplers) <= UInt64(ComputeShaderArtifact.samplerBindingCapacity) else {
             throw unsupported("render resource count exceeds the per-stage limit")
@@ -243,7 +246,7 @@ package struct RenderCodeGenerator {
         let textureResources = sampled.textures + nativeExternal
         let textureCounts = try externalPlaneCounts(nativeExternal, in: linkedArrayCounts(textureResources))
         let flatTextures = try flatResourceBindingIndices(textureResources,
-            capacity: ComputeShaderArtifact.sampledTextureBindingCapacity * namespaceCount, arrayCounts: textureCounts)
+            capacity: sampledTextureLimit * namespaceCount, arrayCounts: textureCounts)
         let mappedStorage: [IRGlobalVariable]
         if meshLinked {
             mappedStorage = sampled.storageTextures

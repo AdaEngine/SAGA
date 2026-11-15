@@ -6,13 +6,13 @@ test("deferred presentation can attach the engine canvas after opening the host"
     globalThis.GPUTextureUsage = { RENDER_ATTACHMENT: 16, TEXTURE_BINDING: 4 };
     const device = {
         createTexture() { return { destroy() {} }; },
-        features: new Set(), limits: {}, lost: new Promise(() => {}),
+        features: new Set(), limits: { maxSampledTexturesPerShaderStage: 16 }, lost: new Promise(() => {}),
         pushErrorScope() {}, async popErrorScope() { return null; },
         createShaderModule() {}, async createRenderPipelineAsync() {}, destroy() {},
     };
     Object.defineProperty(globalThis, "navigator", { configurable: true, value: {
         gpu: { requestAdapter: async () => ({
-            info: { isFallbackAdapter: false }, features: new Set(), limits: {},
+            info: { isFallbackAdapter: false }, features: new Set(), limits: { maxSampledTexturesPerShaderStage: 32 },
             requestDevice: async () => device,
         }) },
     } });
@@ -22,6 +22,7 @@ test("deferred presentation can attach the engine canvas after opening the host"
     const context = {};
     const canvas = { getContext: name => { assert.equal(name, "webgpu"); calls++; return context; } };
     try {
+        assert.equal(headless.maxSampledTexturesPerShaderStage, 16);
         assert.equal(headless.supportsPresentation, false);
         assert.equal(deferred.supportsPresentation, true);
         assert.throws(() => deferred.attachCanvas({ getContext: () => null }), /cannot supply/);
@@ -35,4 +36,18 @@ test("deferred presentation can attach the engine canvas after opening the host"
         delete globalThis.navigator;
         delete globalThis.GPUTextureUsage;
     }
+});
+
+
+test("invalid device limits reject and release the created device", async () => {
+    let destroyed = 0;
+    const device = { limits: {}, destroy() { destroyed++; } };
+    Object.defineProperty(globalThis, "navigator", { configurable: true, value: { gpu: {
+        requestAdapter: async () => ({ info: {}, features: new Set(), limits: { maxSampledTexturesPerShaderStage: 32 },
+            requestDevice: async () => device }),
+    } } });
+    try {
+        await assert.rejects(openWebGPU(null), /Invalid WebGPU device sampled texture limit/);
+        assert.equal(destroyed, 1);
+    } finally { delete globalThis.navigator; }
 });

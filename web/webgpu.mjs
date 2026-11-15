@@ -1,3 +1,12 @@
+// This must be read from the created GPUDevice, never its adapter.
+export function sampledTextureLimitFromDevice(device) {
+    const value = device?.limits?.maxSampledTexturesPerShaderStage;
+    if (!Number.isInteger(value) || value <= 0 || value > 0xffffffff) {
+        throw new Error("Invalid WebGPU device sampled texture limit");
+    }
+    return value;
+}
+
 const limit = 16 * 1024 * 1024;
 const text = new TextDecoder("utf-8", { fatal: true });
 
@@ -280,6 +289,9 @@ export async function openWebGPU(canvas, { deferCanvas = false } = {}) {
         requiredLimits.maxBindGroupsPlusVertexBuffers = adapter.limits.maxBindGroupsPlusVertexBuffers;
     }
     const device = await adapter.requestDevice({ requiredFeatures, requiredLimits });
+    let sampledTextureLimit;
+    try { sampledTextureLimit = sampledTextureLimitFromDevice(device); }
+    catch (error) { device.destroy(); throw error; }
     let supportsVertexFormatSnorm1010102;
     try {
         supportsVertexFormatSnorm1010102 = await probeSnorm1010102VertexFormat(device);
@@ -1624,6 +1636,7 @@ export async function openWebGPU(canvas, { deferCanvas = false } = {}) {
     }
 
     return {
+        maxSampledTexturesPerShaderStage: sampledTextureLimit,
         maxBufferSize: device.limits.maxBufferSize,
         maxComputeWorkgroupStorageSize: device.limits.maxComputeWorkgroupStorageSize,
         maxComputeInvocationsPerWorkgroup: device.limits.maxComputeInvocationsPerWorkgroup,

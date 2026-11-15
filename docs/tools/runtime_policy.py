@@ -4,6 +4,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 POLICY = json.loads((ROOT/'docs/runtime-policy.json').read_text())
 WEB_FILES = {'web/index.html','web/reactor.mjs','web/wasi.mjs','web/webgpu.mjs',
              'scripts/test-web-diagnostic.mjs','scripts/test-web-error-scopes.mjs',
+             'scripts/test-web-device-limit.mjs',
              'scripts/test-web-host-close.mjs','scripts/test-web-texture-layout.mjs',
                                                    'scripts/test-web-resource-limits.mjs',
                                                    'scripts/test-web-core-limits.mjs',

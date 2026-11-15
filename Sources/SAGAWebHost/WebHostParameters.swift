@@ -2,6 +2,7 @@ import SAGATypes
 
 /// Feature flags and limits reported by the JavaScript WebGPU host.
 public struct WebHostParameters: Sendable {
+    public var maxSampledTexturesPerShaderStage: UInt32 = 0
     public var maxBufferSize: UInt64 = 0
     public var maxTextureDimension2D: UInt32 = 0
     public var presentation: UInt32 = 0
@@ -55,6 +56,9 @@ public struct WebHostParameters: Sendable {
 
 /// Validates the limits and maps the host feature flags to SAGA capabilities.
 public func makeWebDeviceCapabilities(_ parameters: WebHostParameters) throws -> DeviceCapabilities {
+    guard parameters.maxSampledTexturesPerShaderStage > 0 else {
+        throw GPUError.validation("WebGPU sampled texture limit is missing or invalid")
+    }
     let maxBufferSize = parameters.maxBufferSize
     let maxTextureDimension2D = parameters.maxTextureDimension2D
     let readableStorage = parameters.readableStorage
@@ -151,5 +155,6 @@ public func makeWebDeviceCapabilities(_ parameters: WebHostParameters) throws ->
                                                maxVertexBufferArrayStride: maxVertexBufferArrayStride,
                                                maxInterStageShaderVariables: maxInterStageShaderVariables,
                                                maxColorAttachments: maxColorAttachments,
-                                               maxColorAttachmentBytesPerSample: maxColorAttachmentBytesPerSample)
+                                               maxColorAttachmentBytesPerSample: maxColorAttachmentBytesPerSample,
+                                               maxSampledTexturesPerShaderStage: parameters.maxSampledTexturesPerShaderStage)
 }

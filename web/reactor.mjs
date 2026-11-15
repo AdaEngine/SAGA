@@ -144,7 +144,8 @@ async function runReactor(module, host) {
             host.maxComputeWorkgroupSize.y, host.maxComputeWorkgroupSize.z, host.maxComputeWorkgroupsPerDimension,
             host.maxVertexAttributes, host.maxVertexBuffers, host.maxVertexBufferArrayStride,
             Number(host.supportsVertexFormatSnorm1010102), host.maxInterStageShaderVariables,
-            host.maxColorAttachments, host.maxColorAttachmentBytesPerSample, host.maxBindGroupsPlusVertexBuffers);
+            host.maxColorAttachments, host.maxColorAttachmentBytesPerSample, host.maxBindGroupsPlusVertexBuffers,
+            host.maxSampledTexturesPerShaderStage);
         result = await withDeadline(completion, 30_000, () => { failed = true; });
     } finally {
         for (const token of tokens) host.unregisterVideoFrame(token);

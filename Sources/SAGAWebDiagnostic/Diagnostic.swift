@@ -10892,7 +10892,7 @@ private func mappedBufferDiagnostic(_ device: Device) async throws -> [UInt32] {
     }
     try await device.unmapBuffer(readback)
 
-    let largeSize = BrowserRPC.packetLimit + 8
+    let largeSize = browserPacketLimit + 8
     let large = try await device.createBuffer(.init(size: UInt64(largeSize), usage: .mapWrite, mappedAtCreation: true))
     let largeMapping = try await device.mappedBuffer(large)
     var payload = [UInt8](repeating: 0x5a, count: largeSize)
@@ -10927,17 +10927,17 @@ private func bufferRangeDiagnostic(_ device: Device) async throws -> [UInt32] {
     let bytes = try await device.readMappedBytes(mapping)
     try await device.unmapBuffer(readback)
 
-    let largeSize = BrowserRPC.packetLimit + 8
+    let largeSize = browserPacketLimit + 8
     let large = try await device.createBuffer(.init(size: UInt64(largeSize), usage: [.copySource, .copyDestination]))
     let probe = try await device.createBuffer(.init(size: 136, usage: [.mapRead, .copyDestination]))
     let middle = Array(UInt8(0)...UInt8(127))
     let tail: [UInt8] = [200, 201, 202, 203, 204, 205, 206, 207]
     var bulk = [UInt8](repeating: 0x5a, count: largeSize)
-    bulk.replaceSubrange((BrowserRPC.packetLimit - middle.count)..<BrowserRPC.packetLimit, with: middle)
-    bulk.replaceSubrange(BrowserRPC.packetLimit..<largeSize, with: tail)
+    bulk.replaceSubrange((browserPacketLimit - middle.count)..<browserPacketLimit, with: middle)
+    bulk.replaceSubrange(browserPacketLimit..<largeSize, with: tail)
     _ = try await device.writeBuffer(large, bytes: bulk)
     _ = try await device.submitCommands([
-        .copy(source: large, sourceOffset: UInt64(BrowserRPC.packetLimit - middle.count), destination: probe),
+        .copy(source: large, sourceOffset: UInt64(browserPacketLimit - middle.count), destination: probe),
     ])
     let probeMapping = try await device.mapBuffer(probe, mode: .read)
     guard try await device.readMappedBytes(probeMapping) == middle + tail else {

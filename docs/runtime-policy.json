@@ -60,6 +60,7 @@
       "SAGACompiler",
       "SAGAMetal",
       "SAGAWebGPU",
+      "SAGAWebHost",
       "SAGAVulkan",
       "SAGAD3D12"
     ],
