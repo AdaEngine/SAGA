@@ -50,6 +50,13 @@ submission, such as ending a compositor frame. Encoding failures leave this hand
 Use `NativePass.onMainActor` when the recording body itself owns main-actor platform state.
 Metal runs the body and its commit callbacks on that actor.
 
+Metal devices with the `rasterizationRateMap` feature can render into the physical
+extent of a variable-rate map. Compile the WGSL vertex entry with
+`compileMetalRasterizedVertexStage` for the selected layer, then pass a
+`MetalRasterizationRateBinding` with that same layer in the draw's raster state.
+Provide a single-sample attachment for every layer in the map. Use 2D array textures
+for multi-layer maps and size them to cover each layer's physical extent.
+
 For native shader translation, `WGSLSourceProfile.nagaNative` enables selected
 compatibility behavior of the pinned Naga frontend, including its fallback
 from abstract integers to `u32` or `f32` when `i32` cannot represent a value.

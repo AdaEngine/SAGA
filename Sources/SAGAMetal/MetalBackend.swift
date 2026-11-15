@@ -124,6 +124,7 @@ public final class MetalDevice: ComputeAccelerationStructureBackendDevice, Prese
         let fragmentTextureAtomicGuardBufferIndex: UInt32?
         let vertexImmediateBufferIndex: UInt32?
         let fragmentImmediateBufferIndex: UInt32?
+        var metalRenderTargetLayer: UInt32? = nil
     }
 
     private struct TextureSubresource: Hashable {
@@ -264,6 +265,7 @@ public final class MetalDevice: ComputeAccelerationStructureBackendDevice, Prese
             maxMultiviewViewCount *= 2
         }
         if maxMultiviewViewCount > 1 { features.formUnion([.multiview, .selectiveMultiview]) }
+        if native.supportsRasterizationRateMap(layerCount: 1) { features.insert(.rasterizationRateMap) }
         if native.supportsTextureSampleCount(4) && (native.supportsFamily(.apple7) || native.supportsFamily(.mac2)) {
             features.insert(.multisampleArray)
         }
@@ -1183,7 +1185,8 @@ public final class MetalDevice: ComputeAccelerationStructureBackendDevice, Prese
                                                        fragmentExternalTextures: fragment?.externalTextureLayouts ?? [],
                                                        fragmentTextureAtomicGuardBufferIndex: fragment?.metalTextureAtomicGuardBufferIndex,
                                                        vertexImmediateBufferIndex: vertex.immediateLayout?.metalBufferIndex,
-                                                       fragmentImmediateBufferIndex: fragment?.immediateLayout?.metalBufferIndex)
+                                                       fragmentImmediateBufferIndex: fragment?.immediateLayout?.metalBufferIndex,
+                                                       metalRenderTargetLayer: vertex.metalRenderTargetLayer)
         } catch let error as GPUError {
             throw error
         } catch {
@@ -1711,9 +1714,33 @@ public final class MetalDevice: ComputeAccelerationStructureBackendDevice, Prese
             draw: (any MTLRenderCommandEncoder) -> Void
         ) throws {
             let state = renderPipelines[pipeline.id]!
+            let rateBinding = raster.rateMap as? MetalRasterizationRateBinding
+            guard (raster.rateMap == nil || rateBinding != nil), state.metalRenderTargetLayer == rateBinding?.layer else {
+                throw GPUError.validation("Metal rate map layer does not match the vertex stage")
+            }
+            if let rateBinding {
+                let attachment = target.map { ($0, level) }
+                    ?? additionalColors.values.first.map { ($0.texture, $0.mipLevel) }
+                    ?? depth.map { ($0.texture, $0.mipLevel) }
+                guard rateBinding.map.device.registryID == native.registryID,
+                      native.supportsRasterizationRateMap(layerCount: Int(rateBinding.layerCount)),
+                      let (id, mip) = attachment,
+                      max(1, nativeTexture(id).width >> Int(mip)) >= rateBinding.physicalSize.width,
+                      max(1, nativeTexture(id).height >> Int(mip)) >= rateBinding.physicalSize.height else {
+                    throw GPUError.validation("Metal rate map cannot rasterize to the supplied attachments")
+                }
+            }
             if drawEnabled { try initializeBoundTextures(textures, on: commandBuffer, initialized: &initialized) }
-            try initializeLoadedAttachments(target: target, level: level, depthSlice: layer, colorLoad: colorLoad, depth: depth,
-                                            additionalColors: additionalColors, on: commandBuffer, initialized: &initialized)
+            if rateBinding != nil {
+                // Initialize the entire allocation, including padding outside the physical rate-map region.
+                let attachments = [target, depth?.texture].compactMap { $0 } + additionalColors.values.map(\.texture)
+                for id in attachments {
+                    try initializeTextureSubresources(id, on: commandBuffer, initialized: &initialized)
+                }
+            } else {
+                try initializeLoadedAttachments(target: target, level: level, depthSlice: layer, colorLoad: colorLoad, depth: depth,
+                                                additionalColors: additionalColors, on: commandBuffer, initialized: &initialized)
+            }
             let vertexLengths = drawEnabled ? try runtimeLengthValues(state.vertexRuntimeLengths, bindings: storageBuffers) : []
             let fragmentLengths = drawEnabled ? try runtimeLengthValues(state.fragmentRuntimeLengths, bindings: storageBuffers) : []
             let clear = colorLoad.clearColor.map { MTLClearColor(red: $0.red, green: $0.green, blue: $0.blue, alpha: $0.alpha) }
@@ -1754,7 +1781,7 @@ public final class MetalDevice: ComputeAccelerationStructureBackendDevice, Prese
                                             clear: clear, depth: depth, resolve: resolve, additionalColors: additionalColors,
                                             colorStore: colorStore, timestamps: drawEnabled ? timestamps : nil, visibility: visibility,
                                             viewCount: viewMappings.isEmpty ? 1 : viewCount, viewLayer: viewLayer,
-                                            deferResolve: deferResolve)
+                                            deferResolve: deferResolve, rateMap: rateBinding?.map)
             if drawEnabled {
                 if !viewMappings.isEmpty {
                     viewMappings.withUnsafeBufferPointer {
@@ -1764,6 +1791,11 @@ public final class MetalDevice: ComputeAccelerationStructureBackendDevice, Prese
                 bindRender(encoder, state: state, pipeline: pipeline, vertexBuffers: vertexBuffers, uniforms: uniforms,
                            storageBuffers: storageBuffers, vertexLengths: vertexLengths, fragmentLengths: fragmentLengths,
                            boundTextures: textures, samplerBindings: samplers, blendConstant: blendConstant, raster: raster)
+                if let rateBinding, raster.viewport == nil {
+                    let size = rateBinding.map.screenSize
+                    encoder.setViewport(MTLViewport(originX: 0, originY: 0, width: Double(size.width),
+                                                    height: Double(size.height), znear: 0, zfar: 1))
+                }
                 if !immediates.isEmpty {
                     immediates.withUnsafeBytes { bytes in
                         if let index = state.vertexImmediateBufferIndex {
@@ -2893,11 +2925,14 @@ public final class MetalDevice: ComputeAccelerationStructureBackendDevice, Prese
         depth: RenderDepthAttachment? = nil, resolve: RenderResolveAttachment? = nil,
         additionalColors: [UInt32: RenderColorAttachment] = [:], colorStore: RenderStoreAction = .store,
         timestamps: PassTimestampWrites? = nil,
-        visibility: (any MTLBuffer)? = nil, viewCount: Int = 1, viewLayer: UInt32 = 0, deferResolve: Bool = false
+        visibility: (any MTLBuffer)? = nil, viewCount: Int = 1, viewLayer: UInt32 = 0, deferResolve: Bool = false,
+        rateMap: (any MTLRasterizationRateMap)? = nil
     ) throws -> any MTLRenderCommandEncoder {
         let pass = MTLRenderPassDescriptor()
         pass.visibilityResultBuffer = visibility
-        if viewCount > 1 { pass.renderTargetArrayLength = viewCount }
+        pass.rasterizationRateMap = rateMap
+        let attachmentLayers = rateMap?.layerCount ?? viewCount
+        if attachmentLayers > 1 { pass.renderTargetArrayLength = attachmentLayers }
         if let timestamps {
             guard let attachment = pass.sampleBufferAttachments[0] else { throw GPUError.outOfMemory }
             attachment.sampleBuffer = querySets[timestamps.querySet]!.samples

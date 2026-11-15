@@ -26,6 +26,7 @@ public enum GPUFeature: String, Sendable, Hashable, CaseIterable {
     case indirectFirstInstance, clipDistances, primitiveIndex, depthClipControl, subgroups, subgroupID, dualSourceBlending
     case subgroupSizeControl, subgroupUniformity, shaderBarycentrics, shaderPerVertex, vertexFormatSnorm1010102
     case multiview, selectiveMultiview, multisampleArray, vertexWritableStorage
+    case rasterizationRateMap
     case memoryDecorationCoherent, shaderDebugPrintf, cooperativeMatrix, rayQuery, meshShaders
     case addressModeClampToBorder, polygonModeLine, polygonModePoint, multiDrawIndirect, multiDrawIndirectCount
 }
