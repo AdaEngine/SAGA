@@ -3,7 +3,7 @@
 /// Each backend that supports native passes provides its own conforming type (for example `VulkanNativePassContext`
 /// in `SAGAVulkan`); a body downcasts to the one it was written for. Handles are valid only for the duration of the
 /// call and must not be retained: the command stream they belong to is submitted after the body returns.
-public protocol NativePassContext: Sendable {}
+public protocol NativePassContext {}
 
 /// A pass whose commands are recorded by the caller into the backend's native command stream.
 ///

@@ -5,7 +5,7 @@ import SAGATypes
 /// Every handle is valid only while the body runs. SAGA keeps all images in `VK_IMAGE_LAYOUT_GENERAL`, so a body can use
 /// them as they are; it must leave each resource in that layout. SAGA places a full memory barrier before and after the
 /// body, so earlier commands are visible to it and its writes are visible to later commands.
-public struct VulkanNativePassContext: NativePassContext {
+public struct VulkanNativePassContext: NativePassContext, Sendable {
     /// A texture of the pass, with a view over all of its mip levels and array layers.
     public struct Image: Sendable {
         public let image: UInt64

@@ -40,6 +40,12 @@ programs. Choose `SAGAMetal` for native Metal or `SAGAWebGPU` for an injected
 browser WebGPU host. The compiler reflects the entry point and bindings that the
 runtime uses to create a pipeline.
 
+On Metal, submit a `BufferCommand.native(NativePass(...))` to record commands that use
+platform APIs. Declare every SAGA buffer and texture in the pass's `uses`, then downcast the
+body's context to `SAGAMetal.MetalNativePassContext`. The context looks up declared resources
+and supplies the Metal command buffer for recording. End your encoders before returning.
+SAGA submits the command buffer and retains the resources until the work completes.
+
 For native shader translation, `WGSLSourceProfile.nagaNative` enables selected
 compatibility behavior of the pinned Naga frontend, including its fallback
 from abstract integers to `u32` or `f32` when `i32` cannot represent a value.

@@ -1663,8 +1663,6 @@ public final class MetalDevice: ComputeAccelerationStructureBackendDevice, Prese
         }
         for (index, command) in commands.enumerated() {
             switch command {
-            case .native:
-                throw GPUError.unsupported("Metal does not support native passes")
             case .timestamped, .occlusionQueried:
                 let (_, timestamps, occlusion) = command.recordedPass
                 let samples = [timestamps.map { ($0.querySet, $0.indices) },
@@ -1801,6 +1799,8 @@ public final class MetalDevice: ComputeAccelerationStructureBackendDevice, Prese
             if let timestamps { writtenQueries[timestamps.querySet, default: []].formUnion(timestamps.indices) }
             if let occlusion { writtenQueries[occlusion.querySet, default: []].insert(occlusion.queryIndex) }
             switch command {
+            case let .native(pass):
+                try recordNativePass(pass, on: commandBuffer, initialized: &initialized)
             case .drawMesh(let pipeline, let target, let colorLoad, let workgroups, let taskBuffers, let meshBuffers, let taskTextures, let meshTextures, let taskSamplers, let meshSamplers, let additionalColors, let colorStore, let resolve, let depth, let indirectBuffer, let indirectOffset, let fragmentBuffers, let fragmentTextures, let fragmentSamplers, let raster):
                 guard #available(macOS 13, iOS 16, *) else { throw GPUError.unsupported("Metal mesh shaders are unavailable") }
                 let state = meshPipelines[pipeline.id]!
@@ -2361,18 +2361,46 @@ public final class MetalDevice: ComputeAccelerationStructureBackendDevice, Prese
         initialized: inout [ResourceID: Set<TextureSubresource>]
     ) throws {
         for id in Set(bindings.values.flatMap { externalTextures[$0]?.planes ?? [$0] }) {
-            let view = textureViews[id]?.resource
-            let parent = view?.texture ?? id
-            let levels = view?.levels ?? 0..<textures[parent]!.descriptor.mipLevelCount
-            let descriptor = textures[parent]!.descriptor
-            for level in levels {
-                let layers = descriptor.dimension == .d3 ? 0..<descriptor.mipDepth(level) :
-                    (view?.layers ?? 0..<descriptor.arrayLayerCount)
-                for layer in layers {
-                    try initializeTexture(parent, level: level, layer: layer, on: commands, initialized: &initialized)
-                }
+            try initializeTextureSubresources(id, on: commands, initialized: &initialized)
+        }
+    }
+
+    private func initializeTextureSubresources(
+        _ id: ResourceID, on commands: any MTLCommandBuffer,
+        initialized: inout [ResourceID: Set<TextureSubresource>]
+    ) throws {
+        let view = textureViews[id]?.resource
+        let parent = view?.texture ?? id
+        let descriptor = textures[parent]!.descriptor
+        let levels = view?.levels ?? 0..<descriptor.mipLevelCount
+        for level in levels {
+            let layers = descriptor.dimension == .d3 ? 0..<descriptor.mipDepth(level) :
+                (view?.layers ?? 0..<descriptor.arrayLayerCount)
+            for layer in layers {
+                try initializeTexture(parent, level: level, layer: layer, on: commands, initialized: &initialized)
             }
         }
+    }
+
+    private func recordNativePass(
+        _ pass: NativePass, on commands: any MTLCommandBuffer,
+        initialized: inout [ResourceID: Set<TextureSubresource>]
+    ) throws {
+        var nativeBuffers: [ResourceID: any MTLBuffer] = [:]
+        var nativeTextures: [ResourceID: any MTLTexture] = [:]
+        for use in pass.uses {
+            let id = use.resource
+            if let buffer = buffers[id] {
+                nativeBuffers[id] = buffer.native
+            } else if let texture = textures[id] {
+                // A native write may touch only part of a subresource.
+                try initializeTextureSubresources(id, on: commands, initialized: &initialized)
+                nativeTextures[id] = texture.native
+            } else {
+                throw GPUError.validation("A native pass names an unknown Metal resource")
+            }
+        }
+        try pass.record(into: MetalNativePassContext(commandBuffer: commands, buffers: nativeBuffers, textures: nativeTextures))
     }
 
     private func validateExternalTextureLayouts(
