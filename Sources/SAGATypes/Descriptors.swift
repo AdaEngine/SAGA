@@ -54,6 +54,8 @@ public struct CooperativeMatrixProperties: Sendable, Hashable {
 }
 
 public struct DeviceCapabilities: Sendable, Equatable {
+    /// Per-stage sampled-texture limit if supplied by the backend; nil means unknown.
+    public let maxSampledTexturesPerShaderStage: UInt32?
     public let maxBufferSize: UInt64
     public let maxTextureDimension2D: UInt32
     public let maxImmediateSize: UInt32
@@ -108,7 +110,10 @@ public struct DeviceCapabilities: Sendable, Equatable {
                 maxTaskInvocationsPerWorkgroup: UInt32? = nil, maxTaskInvocationsPerDimension: UInt32? = nil,
                 maxMeshInvocationsPerWorkgroup: UInt32? = nil, maxMeshInvocationsPerDimension: UInt32? = nil,
                 maxTaskPayloadSize: UInt32? = nil, maxMeshOutputVertices: UInt32 = 256,
-                maxMeshOutputPrimitives: UInt32 = 256) throws {
+                maxMeshOutputPrimitives: UInt32 = 256, maxSampledTexturesPerShaderStage: UInt32? = nil) throws {
+        if let limit = maxSampledTexturesPerShaderStage, limit == 0 {
+            throw GPUError.validation("Sampled texture limit must be positive")
+        }
         guard maxBufferSize > 0 else { throw GPUError.validation("maxBufferSize must be positive") }
         guard maxTextureDimension2D > 0 else { throw GPUError.validation("maxTextureDimension2D must be positive") }
         guard maxImmediateSize.isMultiple(of: 4) else { throw GPUError.validation("maxImmediateSize must be word-aligned") }
@@ -159,6 +164,7 @@ public struct DeviceCapabilities: Sendable, Equatable {
         self.maxBufferSize = maxBufferSize
         self.cooperativeMatrixProperties = cooperativeMatrixProperties
         self.maxTextureDimension2D = maxTextureDimension2D
+        self.maxSampledTexturesPerShaderStage = maxSampledTexturesPerShaderStage
         self.maxImmediateSize = maxImmediateSize
         self.maxComputeWorkgroupStorageSize = maxComputeWorkgroupStorageSize
         self.maxComputeInvocationsPerWorkgroup = maxComputeInvocationsPerWorkgroup

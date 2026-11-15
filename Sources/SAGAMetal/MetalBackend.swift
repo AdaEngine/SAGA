@@ -1663,8 +1663,6 @@ public final class MetalDevice: ComputeAccelerationStructureBackendDevice, Prese
         }
         for (index, command) in commands.enumerated() {
             switch command {
-            case .native:
-                throw GPUError.unsupported("Metal does not support native passes")
             case .timestamped, .occlusionQueried:
                 let (_, timestamps, occlusion) = command.recordedPass
                 let samples = [timestamps.map { ($0.querySet, $0.indices) },
@@ -1801,6 +1799,8 @@ public final class MetalDevice: ComputeAccelerationStructureBackendDevice, Prese
             if let timestamps { writtenQueries[timestamps.querySet, default: []].formUnion(timestamps.indices) }
             if let occlusion { writtenQueries[occlusion.querySet, default: []].insert(occlusion.queryIndex) }
             switch command {
+            case .native:
+                throw GPUError.unsupported("Metal does not support native passes")
             case .drawMesh(let pipeline, let target, let colorLoad, let workgroups, let taskBuffers, let meshBuffers, let taskTextures, let meshTextures, let taskSamplers, let meshSamplers, let additionalColors, let colorStore, let resolve, let depth, let indirectBuffer, let indirectOffset, let fragmentBuffers, let fragmentTextures, let fragmentSamplers, let raster):
                 guard #available(macOS 13, iOS 16, *) else { throw GPUError.unsupported("Metal mesh shaders are unavailable") }
                 let state = meshPipelines[pipeline.id]!

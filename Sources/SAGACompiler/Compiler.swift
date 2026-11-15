@@ -376,6 +376,21 @@ public struct IndependentShaderCompiler: Sendable {
                                       glslPipelineFamily: glslPipelineFamily)
     }
 
+    /// Compiles a Metal render stage with an explicit sampled-texture ceiling.
+    /// The caller must select a ceiling supported by its target device. This does not
+    /// negotiate device limits; the existing Metal storage-texture slots remain unchanged.
+    public func compileMetalRenderStage(
+        _ input: ShaderInput, entryPoint: String, maxSampledTextures: UInt32,
+        constants: [String: Double] = [:], bindingArrayLengths: [IRResourceBinding: UInt32] = [:]
+    ) throws -> RenderStageArtifact {
+        guard maxSampledTextures <= ComputeShaderArtifact.sampledTextureBindingCapacity else {
+            throw ShaderFailure.unsupported("Metal sampled-texture ceiling exceeds the supported slot layout")
+        }
+        return try compileRenderStage(input, entryPoint: entryPoint, to: .msl, constants: constants,
+                                      bindingArrayLengths: bindingArrayLengths, webGPU: false,
+                                      sampledTextureLimit: maxSampledTextures)
+    }
+
     /// Compiles an MSL vertex entry that loads the supplied vertex streams directly.
     /// Pass the same layouts when creating a render pipeline with the returned artifact.
     public func compileMetalVertexStage(
@@ -386,10 +401,24 @@ public struct IndependentShaderCompiler: Sendable {
                                bindingArrayLengths: bindingArrayLengths, webGPU: false, metalVertexBuffers: vertexBuffers)
     }
 
+    /// Compiles vertex pulling with an explicit sampled-texture ceiling for the target.
+    /// The caller is responsible for selecting a ceiling supported by the device.
+    public func compileMetalVertexStage(
+        _ input: ShaderInput, entryPoint: String, vertexBuffers: [VertexBufferLayout], maxSampledTextures: UInt32,
+        constants: [String: Double] = [:], bindingArrayLengths: [IRResourceBinding: UInt32] = [:]
+    ) throws -> RenderStageArtifact {
+        guard maxSampledTextures <= ComputeShaderArtifact.sampledTextureBindingCapacity else {
+            throw ShaderFailure.unsupported("Metal sampled-texture ceiling exceeds the supported slot layout")
+        }
+        return try compileRenderStage(input, entryPoint: entryPoint, to: .msl, constants: constants,
+                                      bindingArrayLengths: bindingArrayLengths, webGPU: false,
+                                      metalVertexBuffers: vertexBuffers, sampledTextureLimit: maxSampledTextures)
+    }
+
     private func compileRenderStage(
         _ input: ShaderInput, entryPoint: String, to output: ShaderOutputFormat, constants: [String: Double],
         bindingArrayLengths: [IRResourceBinding: UInt32], webGPU: Bool, metalVertexBuffers: [VertexBufferLayout]? = nil,
-        glslPipelineFamily: GLSLRenderPipelineFamily? = nil
+        glslPipelineFamily: GLSLRenderPipelineFamily? = nil, sampledTextureLimit: UInt32? = nil
     ) throws -> RenderStageArtifact {
         try Task.checkCancellation()
         let module = try pipelineModule(input, output: output, entryPoint: entryPoint, constants: constants,
@@ -398,7 +427,7 @@ public struct IndependentShaderCompiler: Sendable {
         // SPIR-V reuses the GLSL writer's reflection and takes its binary from the SPIR-V writer.
         var compiled = try RenderCodeGenerator(output == .spirv ? .glsl : output, bindingArrayLengths: bindingArrayLengths,
                                                webGPU: webGPU, metalVertexBuffers: metalVertexBuffers,
-                                               glslPipelineFamily: glslPipelineFamily)
+                                               glslPipelineFamily: glslPipelineFamily, sampledTextureLimit: sampledTextureLimit)
             .generate(module, entryPoint: entryPoint)
         if output == .spirv {
             guard case .spirv(let words) = try SPIRVCodeGenerator(bindingArrayLengths: bindingArrayLengths, entryPoint: entryPoint).generate(module) else {

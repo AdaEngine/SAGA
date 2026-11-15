@@ -109,17 +109,19 @@ package struct RenderCodeGenerator {
     private let webGPU: Bool
     private let metalVertexBuffers: [VertexBufferLayout]?
     private let glslPipelineFamily: GLSLRenderPipelineFamily?
+    private let sampledTextureLimit: UInt32
 
     package init(
         _ format: ShaderOutputFormat, bindingArrayLengths: [IRResourceBinding: UInt32] = [:],
         webGPU: Bool = false, metalVertexBuffers: [VertexBufferLayout]? = nil,
-        glslPipelineFamily: GLSLRenderPipelineFamily? = nil
+        glslPipelineFamily: GLSLRenderPipelineFamily? = nil, sampledTextureLimit: UInt32? = nil
     ) {
         self.format = format
         self.bindingArrayLengths = bindingArrayLengths
         self.webGPU = webGPU
         self.metalVertexBuffers = metalVertexBuffers
         self.glslPipelineFamily = glslPipelineFamily
+        self.sampledTextureLimit = sampledTextureLimit ?? ComputeShaderArtifact.sampledTextureBindingCapacity
     }
 
     package func generate(_ validated: ValidatedModule<IRModule>, entryPoint: String) throws -> RenderStageArtifact {
@@ -174,7 +176,7 @@ package struct RenderCodeGenerator {
         }
         guard slotCount(activeUniforms) + externalCount <= UInt64(ComputeShaderArtifact.uniformBindingCapacity),
               slotCount(activeStorageBuffers) <= UInt64(ComputeShaderArtifact.storageBindingCapacity),
-              slotCount(activeHandles.textures) + 3 * externalCount <= UInt64(ComputeShaderArtifact.sampledTextureBindingCapacity),
+              slotCount(activeHandles.textures) + 3 * externalCount <= UInt64(sampledTextureLimit),
               slotCount(activeHandles.storageTextures) <= UInt64(ComputeShaderArtifact.storageTextureBindingCapacity),
               slotCount(activeHandles.samplers) <= UInt64(ComputeShaderArtifact.samplerBindingCapacity) else {
             throw unsupported("render resource count exceeds the per-stage limit")
@@ -238,7 +240,7 @@ package struct RenderCodeGenerator {
         let textureResources = sampled.textures + nativeExternal
         let textureCounts = try externalPlaneCounts(nativeExternal, in: linkedArrayCounts(textureResources))
         let flatTextures = try flatResourceBindingIndices(textureResources,
-            capacity: ComputeShaderArtifact.sampledTextureBindingCapacity * namespaceCount, arrayCounts: textureCounts)
+            capacity: sampledTextureLimit * namespaceCount, arrayCounts: textureCounts)
         let mappedStorage: [IRGlobalVariable]
         if meshLinked {
             mappedStorage = sampled.storageTextures

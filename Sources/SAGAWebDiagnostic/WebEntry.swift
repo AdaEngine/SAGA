@@ -58,8 +58,10 @@ func start(_ maxBufferSize: UInt64,
            _ maxInterStageShaderVariables: UInt32,
            _ maxColorAttachments: UInt32,
            _ maxColorAttachmentBytesPerSample: UInt32,
-           _ maxBindGroupsPlusVertexBuffers: UInt32) {
+           _ maxBindGroupsPlusVertexBuffers: UInt32,
+           _ maxSampledTexturesPerShaderStage: UInt32) {
     var p = WebHostParameters()
+    p.maxSampledTexturesPerShaderStage = maxSampledTexturesPerShaderStage
     p.maxBufferSize = maxBufferSize
     p.maxTextureDimension2D = maxTextureDimension2D
     p.presentation = presentation

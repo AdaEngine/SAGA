@@ -56,12 +56,18 @@ func emitsSampledTexturesReachableFromEachRenderStage(format: ShaderOutputFormat
 }
 
 #if canImport(Metal)
-@Test func drawsWithSharedSampledTexturesAndRejectsAliasedAttachmentsOnMetal() async throws {
+@Test(.gpuExclusive, arguments: [false, true]) func drawsWithSharedSampledTexturesAndRejectsAliasedAttachmentsOnMetal(profiled: Bool) async throws {
     let device = try await Device.make(backend: MetalBackend.makeDevice())
     do {
         let compiler = IndependentShaderCompiler()
-        let vertex = try compiler.compileRenderStage(.wgsl(renderTextureShader), entryPoint: "vs", to: .msl)
-        let fragment = try compiler.compileRenderStage(.wgsl(renderTextureShader), entryPoint: "fs", to: .msl)
+        let vertex = try profiled
+            ? compiler.compileMetalRenderStage(.wgsl(renderTextureShader), entryPoint: "vs", maxSampledTextures: 1)
+            : compiler.compileRenderStage(.wgsl(renderTextureShader), entryPoint: "vs", to: .msl)
+        let fragment = try profiled
+            ? compiler.compileMetalRenderStage(.wgsl(renderTextureShader), entryPoint: "fs", maxSampledTextures: 2)
+            : compiler.compileRenderStage(.wgsl(renderTextureShader), entryPoint: "fs", to: .msl)
+        #expect(vertex.sampledTextures.map(\.flatBindingIndex) == [0])
+        #expect(fragment.sampledTextures.map(\.flatBindingIndex) == [1, 0])
         let layouts = [VertexBufferLayout(stride: 8, attributes: [.init(location: 0, offset: 0, format: .float32x2)])]
         let pipeline = try await device.createRenderPipeline(
             vertex: vertex, fragment: fragment, colorFormat: .rgba8Unorm, vertexBuffers: layouts)

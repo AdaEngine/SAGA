@@ -107,6 +107,15 @@ public struct RenderStageArtifact: Sendable, Equatable {
     public let sampledTextures: [ComputeShaderArtifact.SampledTextureBinding]
     public let externalTextures: [IRResourceBinding]
     public let externalTextureLayouts: [ComputeShaderArtifact.ExternalTextureLayout]
+    /// Number of sampled texture slots in an emitted MSL stage, including array elements
+    /// and the three slots reserved per external texture. Nil for non-MSL artifacts.
+    /// This is a resource count, not an index bound or a negotiated device limit.
+    public var metalSampledTextureSlotCount: UInt64? {
+        guard case .text(.msl, _) = artifact else { return nil }
+        return sampledTextures.reduce(UInt64(externalTextures.count) * 3) {
+            $0 + UInt64($1.bindingArray?.count ?? 1)
+        }
+    }
     /// Acceleration structures a ray query in this stage reads.
     public let accelerationStructures: [ComputeShaderArtifact.AccelerationStructureBinding]
     public let storageTextures: [ComputeShaderArtifact.StorageTextureBinding]

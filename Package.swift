@@ -41,7 +41,7 @@ let package = Package(
                 swiftSettings: [.enableExperimentalFeature("Extern")]),
         .target(name: "SAGAVulkan", dependencies: ["SAGATypes", "SAGABackend", "SAGAShaderIR", "SAGACompiler"]),
         .target(name: "SAGAD3D12", dependencies: ["SAGATypes", "SAGABackend", "SAGAShaderIR", "SAGACompiler"]),
-        .testTarget(name: "SAGAFoundationTests", dependencies: ["SAGA", "SAGATypes", "SAGACore", "SAGABackend", "SAGAShaderIR", "SAGAValidation", "SAGAFrontends", "SAGABackends", "SAGACompiler", "SAGAMetal", "SAGAWebGPU", "SAGAVulkan", "SAGAD3D12"]),
+        .testTarget(name: "SAGAFoundationTests", dependencies: ["SAGA", "SAGATypes", "SAGACore", "SAGABackend", "SAGAShaderIR", "SAGAValidation", "SAGAFrontends", "SAGABackends", "SAGACompiler", "SAGAMetal", "SAGAWebGPU", "SAGAWebHost", "SAGAVulkan", "SAGAD3D12"]),
     ],
     swiftLanguageModes: [.v6]
 )
