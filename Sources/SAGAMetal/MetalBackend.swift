@@ -108,6 +108,7 @@ public final class MetalDevice: ComputeAccelerationStructureBackendDevice, Prese
         let drawable: (any MTLDrawable)?
         var meshPipelines: [any MTLRenderPipelineState] = []
         var counterSampleBuffers: [any MTLCounterSampleBuffer] = []
+        var committedHandlers: [@MainActor @Sendable () -> Void] = []
         var accelerationBuilds: [ResourceID: PendingAccelerationBuild] = [:]
         var retainedAccelerationBuilds: [MetalAccelerationStructureBuild] = []
     }
@@ -1695,6 +1696,7 @@ public final class MetalDevice: ComputeAccelerationStructureBackendDevice, Prese
         var retainedPipelines: [any MTLComputePipelineState] = []
         var retainedRenderPipelines: [RenderState] = []
         var retainedMeshPipelines: [any MTLRenderPipelineState] = []
+        var committedHandlers: [@MainActor @Sendable () -> Void] = []
         var reads: [(any MTLBuffer, Int)] = []
         var accelerationBuilds: [ResourceID: PendingAccelerationBuild] = [:]
         var retainedAccelerationBuilds: [MetalAccelerationStructureBuild] = []
@@ -1800,7 +1802,7 @@ public final class MetalDevice: ComputeAccelerationStructureBackendDevice, Prese
             if let occlusion { writtenQueries[occlusion.querySet, default: []].insert(occlusion.queryIndex) }
             switch command {
             case let .native(pass):
-                try recordNativePass(pass, on: commandBuffer, initialized: &initialized)
+                try committedHandlers.append(contentsOf: recordNativePass(pass, on: commandBuffer, initialized: &initialized))
             case .drawMesh(let pipeline, let target, let colorLoad, let workgroups, let taskBuffers, let meshBuffers, let taskTextures, let meshTextures, let taskSamplers, let meshSamplers, let additionalColors, let colorStore, let resolve, let depth, let indirectBuffer, let indirectOffset, let fragmentBuffers, let fragmentTextures, let fragmentSamplers, let raster):
                 guard #available(macOS 13, iOS 16, *) else { throw GPUError.unsupported("Metal mesh shaders are unavailable") }
                 let state = meshPipelines[pipeline.id]!
@@ -2286,6 +2288,7 @@ public final class MetalDevice: ComputeAccelerationStructureBackendDevice, Prese
             textures: resources.compactMap { textures[$0]?.native ?? textureViews[$0]?.native } + retainedCopyViews,
             samplers: resources.compactMap { samplers[$0]?.native }, renderPipelines: retainedRenderPipelines, drawable: nil,
             meshPipelines: retainedMeshPipelines, counterSampleBuffers: resources.compactMap { querySets[$0]?.samples },
+            committedHandlers: committedHandlers,
             accelerationBuilds: accelerationBuilds, retainedAccelerationBuilds: retainedAccelerationBuilds)
         return (batch, reads)
     }
@@ -2385,7 +2388,7 @@ public final class MetalDevice: ComputeAccelerationStructureBackendDevice, Prese
     private func recordNativePass(
         _ pass: NativePass, on commands: any MTLCommandBuffer,
         initialized: inout [ResourceID: Set<TextureSubresource>]
-    ) throws {
+    ) throws -> [@MainActor @Sendable () -> Void] {
         var nativeBuffers: [ResourceID: any MTLBuffer] = [:]
         var nativeTextures: [ResourceID: any MTLTexture] = [:]
         for use in pass.uses {
@@ -2400,7 +2403,9 @@ public final class MetalDevice: ComputeAccelerationStructureBackendDevice, Prese
                 throw GPUError.validation("A native pass names an unknown Metal resource")
             }
         }
-        try pass.record(into: MetalNativePassContext(commandBuffer: commands, buffers: nativeBuffers, textures: nativeTextures))
+        let context = MetalNativePassContext(commandBuffer: commands, buffers: nativeBuffers, textures: nativeTextures)
+        try pass.recordOnMainActor(into: context)
+        return context.committedHandlers
     }
 
     private func validateExternalTextureLayouts(
@@ -2579,6 +2584,7 @@ public final class MetalDevice: ComputeAccelerationStructureBackendDevice, Prese
             }
         }
         batch.commandBuffer.commit()
+        for handler in batch.committedHandlers { handler() }
         for (id, build) in batch.accelerationBuilds {
             if let current = accelerationStructures[id], (current.build?.serial ?? 0) < build.serial {
                 accelerationStructures[id]?.build = build

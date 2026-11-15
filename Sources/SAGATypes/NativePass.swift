@@ -33,9 +33,14 @@ public struct NativePass: Sendable, Equatable {
         }
     }
 
+    private enum Body: Sendable {
+        case generic(@Sendable (any NativePassContext) throws -> Void)
+        case mainActor(@MainActor @Sendable (any NativePassContext) throws -> Void)
+    }
+
     private final class Storage: Sendable {
-        let body: @Sendable (any NativePassContext) throws -> Void
-        init(_ body: @escaping @Sendable (any NativePassContext) throws -> Void) { self.body = body }
+        let body: Body
+        init(_ body: Body) { self.body = body }
     }
 
     public let label: String
@@ -47,14 +52,39 @@ public struct NativePass: Sendable, Equatable {
     ///   - uses: Every buffer and texture the body reads or writes.
     ///   - body: Records native commands. It may throw; the submission then fails and nothing of it executes.
     public init(label: String, uses: [Use], body: @escaping @Sendable (any NativePassContext) throws -> Void) {
+        self.init(label: label, uses: uses, body: .generic(body))
+    }
+
+    private init(label: String, uses: [Use], body: Body) {
         self.label = label
         self.uses = uses
         self.storage = Storage(body)
     }
 
+    /// Records platform work that is isolated to the main actor, such as Metal compositor presentation.
+    /// The backend must support recording on the main actor.
+    public static func onMainActor(
+        label: String, uses: [Use],
+        body: @escaping @MainActor @Sendable (any NativePassContext) throws -> Void
+    ) -> NativePass {
+        NativePass(label: label, uses: uses, body: .mainActor(body))
+    }
+
     /// Runs the body. Backends call this while they record the submission.
     public func record(into context: any NativePassContext) throws {
-        try storage.body(context)
+        guard case let .generic(body) = storage.body else {
+            throw GPUError.unsupported("This backend cannot record a main-actor native pass")
+        }
+        try body(context)
+    }
+
+    /// Records a pass on a backend that already owns its native context on the main actor.
+    @MainActor
+    public func recordOnMainActor(into context: any NativePassContext) throws {
+        switch storage.body {
+        case let .generic(body): try body(context)
+        case let .mainActor(body): try body(context)
+        }
     }
 
     public static func == (lhs: NativePass, rhs: NativePass) -> Bool {

@@ -45,6 +45,10 @@ platform APIs. Declare every SAGA buffer and texture in the pass's `uses`, then 
 body's context to `SAGAMetal.MetalNativePassContext`. The context looks up declared resources
 and supplies the Metal command buffer for recording. End your encoders before returning.
 SAGA submits the command buffer and retains the resources until the work completes.
+Register an `addCommittedHandler` on the context for platform work that must follow Metal
+submission, such as ending a compositor frame. Encoding failures leave this handler uncalled.
+Use `NativePass.onMainActor` when the recording body itself owns main-actor platform state.
+Metal runs the body and its commit callbacks on that actor.
 
 For native shader translation, `WGSLSourceProfile.nagaNative` enables selected
 compatibility behavior of the pinned Naga frontend, including its fallback

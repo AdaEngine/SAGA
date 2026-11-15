@@ -8,12 +8,23 @@ import Testing
 
 @Suite
 struct MetalNativePassTests {
+    @MainActor
+    private final class SubmissionEvents {
+        var values: [String] = []
+    }
+
+    @MainActor
     @Test(.gpuExclusive) func recordsInAnOrderedMetalSubmission() async throws {
         let device = try await Device.make(backend: MetalBackend.makeDevice())
         do {
             let buffer = try await device.createBuffer(.init(size: 16, usage: [.copySource, .copyDestination]))
             let result = try await device.createBuffer(.init(size: 16, usage: [.copyDestination, .mapRead]))
-            let pass = NativePass(label: "Native marker", uses: [.init(buffer, .read)]) { _ in }
+            let events = SubmissionEvents()
+            let pass = NativePass.onMainActor(label: "Native marker", uses: [.init(buffer, .read)]) { context in
+                let metal = try #require(context as? MetalNativePassContext)
+                events.values.append("recorded")
+                metal.addCommittedHandler { events.values.append("committed") }
+            }
             let ticket = try await device.submitCommands([
                 .write(buffer: buffer, offset: 0, words: [7]),
                 .native(pass),
@@ -21,6 +32,7 @@ struct MetalNativePassTests {
                 .read(buffer: result, byteCount: 16),
             ])
             #expect(try await ticket.wait() == [[7, 0, 0, 0]])
+            #expect(events.values == ["recorded", "committed"])
         } catch {
             await device.close()
             throw error
@@ -104,9 +116,14 @@ struct MetalNativePassTests {
             )
             let failure = GPUError.validation("Native pass could not encode")
             let pass = NativePass(label: "Fail recording", uses: []) { _ in throw failure }
+            let marker = NativePass(label: "Record before split", uses: []) { context in
+                let metal = try #require(context as? MetalNativePassContext)
+                metal.addCommittedHandler { Issue.record("A failed submission committed an earlier native pass") }
+            }
             _ = try await device.submitCommands([.write(buffer: buffer, offset: 0, words: [7])]).wait()
             let ticket = try await device.submitCommands([
                 .write(buffer: buffer, offset: 0, words: [99]),
+                .native(marker),
                 timed,
                 .resolveQuerySet(querySet: query, firstQuery: 0, queryCount: 1, destination: queryResult),
                 .native(pass),

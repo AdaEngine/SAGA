@@ -6,10 +6,11 @@ import SAGATypes
 ///
 /// Use these objects during the pass body. End any encoders before returning and let SAGA submit
 /// the command buffer. Commands run in the same order as the surrounding SAGA commands.
-public struct MetalNativePassContext: NativePassContext {
+public final class MetalNativePassContext: NativePassContext {
     public let commandBuffer: any MTLCommandBuffer
     private let buffers: [ResourceID: any MTLBuffer]
     private let textures: [ResourceID: any MTLTexture]
+    private(set) var committedHandlers: [@MainActor @Sendable () -> Void] = []
 
     init(
         commandBuffer: any MTLCommandBuffer,
@@ -31,6 +32,12 @@ public struct MetalNativePassContext: NativePassContext {
     public func texture(_ id: ResourceID) throws -> any MTLTexture {
         guard let texture = textures[id] else { throw GPUError.validation("The native pass did not name this texture") }
         return texture
+    }
+
+    /// Registers a callback at the point Metal accepts the command buffer.
+    /// A submission that fails during recording leaves the callback uncalled.
+    public func addCommittedHandler(_ handler: @escaping @MainActor @Sendable () -> Void) {
+        committedHandlers.append(handler)
     }
 }
 #endif
