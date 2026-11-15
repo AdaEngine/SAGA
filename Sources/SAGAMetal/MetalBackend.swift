@@ -1715,7 +1715,7 @@ public final class MetalDevice: ComputeAccelerationStructureBackendDevice, Prese
         ) throws {
             let state = renderPipelines[pipeline.id]!
             let rateBinding = raster.rateMap as? MetalRasterizationRateBinding
-            guard (raster.rateMap == nil || rateBinding != nil), state.metalRenderTargetLayer == rateBinding?.layer else {
+            guard (raster.rateMap == nil || rateBinding != nil), state.metalRenderTargetLayer == rateBinding?.vertexLayer else {
                 throw GPUError.validation("Metal rate map layer does not match the vertex stage")
             }
             if let rateBinding {

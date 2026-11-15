@@ -51,11 +51,11 @@ Use `NativePass.onMainActor` when the recording body itself owns main-actor plat
 Metal runs the body and its commit callbacks on that actor.
 
 Metal devices with the `rasterizationRateMap` feature can render into the physical
-extent of a variable-rate map. Compile the WGSL vertex entry with
+extent of a variable-rate map. For multi-layer maps, compile the WGSL vertex entry with
 `compileMetalRasterizedVertexStage` for the selected layer, then pass a
 `MetalRasterizationRateBinding` with that same layer in the draw's raster state.
-Provide a single-sample attachment for every layer in the map. Use 2D array textures
-for multi-layer maps and size them to cover each layer's physical extent.
+Use 2D array textures sized to cover each layer's physical extent. For a single-layer map,
+bind the map to a regular 2D attachment and use the ordinary vertex stage. Render targets are single-sample.
 
 For native shader translation, `WGSLSourceProfile.nagaNative` enables selected
 compatibility behavior of the pinned Naga frontend, including its fallback

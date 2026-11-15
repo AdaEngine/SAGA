@@ -7,6 +7,8 @@ public final class MetalRasterizationRateBinding: RenderRasterizationRateMap {
     let map: any MTLRasterizationRateMap
     public let layer: UInt32
     public let layerCount: UInt32
+    /// A vertex layer output is required only for layered attachments.
+    public var vertexLayer: UInt32? { layerCount > 1 ? layer : nil }
     let physicalSize: MTLSize
 
     public init(map: any MTLRasterizationRateMap, layer: UInt32) throws {
