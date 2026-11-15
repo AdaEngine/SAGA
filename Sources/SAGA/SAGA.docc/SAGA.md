@@ -40,6 +40,23 @@ programs. Choose `SAGAMetal` for native Metal or `SAGAWebGPU` for an injected
 browser WebGPU host. The compiler reflects the entry point and bindings that the
 runtime uses to create a pipeline.
 
+On Metal, submit a `BufferCommand.native(NativePass(...))` to record commands that use
+platform APIs. Declare every SAGA buffer and texture in the pass's `uses`, then downcast the
+body's context to `SAGAMetal.MetalNativePassContext`. The context looks up declared resources
+and supplies the Metal command buffer for recording. End your encoders before returning.
+SAGA submits the command buffer and retains the resources until the work completes.
+Register an `addCommittedHandler` on the context for platform work that must follow Metal
+submission, such as ending a compositor frame. Encoding failures leave this handler uncalled.
+Use `NativePass.onMainActor` when the recording body itself owns main-actor platform state.
+Metal runs the body and its commit callbacks on that actor.
+
+Metal devices with the `rasterizationRateMap` feature can render into the physical
+extent of a variable-rate map. For multi-layer maps, compile the WGSL vertex entry with
+`compileMetalRasterizedVertexStage` for the selected layer, then pass a
+`MetalRasterizationRateBinding` with that same layer in the draw's raster state.
+Use 2D array textures sized to cover each layer's physical extent. For a single-layer map,
+bind the map to a regular 2D attachment and use the ordinary vertex stage. Render targets are single-sample.
+
 `IndependentShaderCompiler.compileMetalRenderStage` accepts an explicit per-stage
 sampled-texture ceiling for MSL render output. For vertex pulling, use the
 `compileMetalVertexStage` overload with `vertexBuffers` and `maxSampledTextures`.

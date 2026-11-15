@@ -503,6 +503,17 @@ public enum BufferCommand: Sendable, Equatable {
             guard (pipeline.depthState == nil) == (depth == nil) else {
                 throw GPUError.validation("Depth attachment does not match the render pipeline")
             }
+            if let rateMap = raster.rateMap {
+                guard features.contains(.rasterizationRateMap) else {
+                    throw GPUError.unsupported("Rasterization rate maps are unavailable")
+                }
+                guard rateMap.layer < rateMap.layerCount, pipeline.multiviewMask == nil, pipeline.sampleCount == 1,
+                      resolve == nil, colorStore == .store, depth?.storeAction != .discard,
+                      depth?.stencil?.storeAction != .discard,
+                      additionalColors.values.allSatisfy({ $0.resolve == nil && $0.storeAction == .store }) else {
+                    throw GPUError.validation("Invalid rasterization rate map or attachment operations")
+                }
+            }
 
             var usedTextures: [(view: TextureViewResource, writable: Bool)] = []
             var colorRegions: [(view: TextureViewResource, depthSlice: UInt32?)] = []
@@ -521,7 +532,10 @@ public enum BufferCommand: Sendable, Equatable {
             ) -> (id: ResourceID, level: UInt32, layers: Range<UInt32>, texture: TextureDescriptor)? {
                 guard let binding = textureBinding(id, usage: .renderAttachment) else { return nil }
                 let layers = binding.view.layers
-                if let mask = pipeline.multiviewMask {
+                if let rateMap = raster.rateMap {
+                    guard layers.count == Int(rateMap.layerCount),
+                          binding.view.dimension == (rateMap.layerCount == 1 ? .d2 : .d2Array) else { return nil }
+                } else if let mask = pipeline.multiviewMask {
                     let count = UInt32(layers.count)
                     let span = 32 - mask.leadingZeroBitCount
                     guard features.contains(.multiview), span > 0, span <= count, count <= maxMultiviewViewCount,
@@ -930,6 +944,7 @@ public enum BufferCommand: Sendable, Equatable {
                   texture.width <= maximumViewportDimension, texture.height <= maximumViewportDimension else {
                 throw GPUError.validation("Invalid mesh draw pipeline, target or workgroup count")
             }
+            guard raster.rateMap == nil else { throw GPUError.unsupported("Rasterization rate maps for mesh draws") }
             try raster.validate(width: texture.width, height: texture.height, maximumViewportDimension: maximumViewportDimension)
             if case .clear(let color) = colorLoad, !color.isValid(for: texture.format) {
                 throw GPUError.validation("Invalid mesh draw clear color")

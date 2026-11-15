@@ -401,6 +401,15 @@ public struct IndependentShaderCompiler: Sendable {
                                bindingArrayLengths: bindingArrayLengths, webGPU: false, metalVertexBuffers: vertexBuffers)
     }
 
+    /// Compiles the vertex stage for one array layer of a Metal rasterization rate map.
+    public func compileMetalRasterizedVertexStage(
+        _ input: ShaderInput, entryPoint: String, layer: UInt32, vertexBuffers: [VertexBufferLayout]? = nil
+    ) throws -> RenderStageArtifact {
+        try compileRenderStage(input, entryPoint: entryPoint, to: .msl, constants: [:],
+                               bindingArrayLengths: [:], webGPU: false,
+                               metalVertexBuffers: vertexBuffers, metalRenderTargetLayer: layer)
+    }
+
     /// Compiles vertex pulling with an explicit sampled-texture ceiling for the target.
     /// The caller is responsible for selecting a ceiling supported by the device.
     public func compileMetalVertexStage(
@@ -418,7 +427,8 @@ public struct IndependentShaderCompiler: Sendable {
     private func compileRenderStage(
         _ input: ShaderInput, entryPoint: String, to output: ShaderOutputFormat, constants: [String: Double],
         bindingArrayLengths: [IRResourceBinding: UInt32], webGPU: Bool, metalVertexBuffers: [VertexBufferLayout]? = nil,
-        glslPipelineFamily: GLSLRenderPipelineFamily? = nil, sampledTextureLimit: UInt32? = nil
+        glslPipelineFamily: GLSLRenderPipelineFamily? = nil,
+        metalRenderTargetLayer: UInt32? = nil, sampledTextureLimit: UInt32? = nil
     ) throws -> RenderStageArtifact {
         try Task.checkCancellation()
         let module = try pipelineModule(input, output: output, entryPoint: entryPoint, constants: constants,
@@ -427,7 +437,8 @@ public struct IndependentShaderCompiler: Sendable {
         // SPIR-V reuses the GLSL writer's reflection and takes its binary from the SPIR-V writer.
         var compiled = try RenderCodeGenerator(output == .spirv ? .glsl : output, bindingArrayLengths: bindingArrayLengths,
                                                webGPU: webGPU, metalVertexBuffers: metalVertexBuffers,
-                                               glslPipelineFamily: glslPipelineFamily, sampledTextureLimit: sampledTextureLimit)
+                                               glslPipelineFamily: glslPipelineFamily, metalRenderTargetLayer: metalRenderTargetLayer,
+                                               sampledTextureLimit: sampledTextureLimit)
             .generate(module, entryPoint: entryPoint)
         if output == .spirv {
             guard case .spirv(let words) = try SPIRVCodeGenerator(bindingArrayLengths: bindingArrayLengths, entryPoint: entryPoint).generate(module) else {

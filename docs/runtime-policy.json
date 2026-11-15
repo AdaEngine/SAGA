@@ -60,6 +60,7 @@
       "SAGACompiler",
       "SAGAMetal",
       "SAGAWebGPU",
+      "SAGAWebHost",
       "SAGAVulkan",
       "SAGAD3D12"
     ],
@@ -435,7 +436,7 @@
       "reason": "Windows-only test window owned by a dedicated Thread and coordinated with semaphores; unchecked handle wrapper is not linked into runtime products."
     },
     "Sources/SAGAVulkan/VulkanNativePass.swift": {
-      "sha256": "360f1a673a6c81e56a66dafcb651347902ab8a5f72e44da0ec0f47d0be3bc6cb",
+      "sha256": "8f78bb0a4c70c20144b05eb7eed2014e261b23c9cda42457f297caac385fa319",
       "patterns": [
         "unsafeBitCast\\b"
       ],

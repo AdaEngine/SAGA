@@ -411,37 +411,6 @@ struct ShaderBodyWriter {
             let beforeStatement = temporaryOrder.count
             let statement = try function.statements.value(for: handle).kind
             switch statement {
-            case .rayQuery(let query, let operation):
-                if outputFormat == .glsl { try writeGLSLRayQuery(query, operation: operation, to: &lines) }
-                else if outputFormat == .hlsl { try writeHLSLRayQuery(query, operation: operation, to: &lines) }
-                else { try writeMetalRayQuery(query, operation: operation, to: &lines) }
-            case .emit(let handles):
-                for expression in handles { try emit(expression, to: &lines) }
-            case .call(let callee, let args, let result):
-                try writeCall(callee, arguments: args, result: result, statementIndex: handle.index, to: &lines)
-            case .returnValue(nil):
-                try writeVoidReturn(to: &lines)
-            case .returnValue(let result?):
-                let value = try value(result)
-                try writeResult(value, to: &lines)
-            case .kill:
-                try append(outputFormat == .msl ? "discard_fragment();" : "discard;", to: &lines)
-            case .demoteToHelperInvocation:
-                switch outputFormat {
-                case .msl: try append("discard_fragment();", to: &lines)
-                case .glsl: try append("demote;", to: &lines)
-                default: try append("discard;", to: &lines)
-                }
-            case .subgroupGather(let mode, let argument, let result):
-                try writeSubgroupGather(mode, argument: argument, result: result, to: &lines)
-            case .subgroupBallot(let result, let predicate):
-                try writeSubgroupBallot(predicate, result: result, to: &lines)
-            case .subgroupCollectiveOperation(let operation, let collective, let argument, let result):
-                try writeSubgroupCollective(operation, collective: collective, argument: argument, result: result, to: &lines)
-            case .break:
-                try append("break;", to: &lines)
-            case .continue:
-                try append("continue;", to: &lines)
             case .block(let child):
                 try append("{", to: &lines)
                 try writeBlock(child, to: &lines)
@@ -460,137 +429,8 @@ struct ShaderBodyWriter {
             case .loop(let body, let continuing, let condition):
                 try writeLoop(body, continuing: continuing, breakIf: condition,
                               index: handle.index, to: &lines)
-            case .controlBarrier(let flags):
-                for line in try shaderControlBarrier(flags, in: outputFormat) { try append(line, to: &lines) }
-            case .debugPrintf(let format, let arguments):
-                let callable: String
-                switch outputFormat {
-                case .wgsl: callable = "debugPrintf"
-                case .msl: callable = "metal::os_log_default.log_info"
-                default: throw unsupported("debugPrintf requires native WGSL, Metal or SPIR-V output")
-                }
-                var operands = [DebugPrintfFormat.sourceLiteral(format)]
-                for argument in arguments {
-                    let expression = try value(argument)
-                    let type = try function.expressions.value(for: argument).type
-                    if outputFormat == .msl, try module.types.value(for: type).kind == .scalar(.f16) {
-                        operands.append("float(\(expression))")
-                    } else {
-                        operands.append(expression)
-                    }
-                }
-                try append("\(callable)(\(operands.joined(separator: ", ")));", to: &lines)
-            case .workgroupUniformLoad(let pointer, let result):
-                try writeUniformLoad(pointer: pointer, result: result, to: &lines)
-            case .imageStore(let image, let coordinate, let arrayIndex, let value):
-                try writeImageVariants([image], named: "saga_texel_store_\(handle.index)", to: &lines) { writer, name, lines in
-                    try writer.writeImageStore(image: image, coordinate: coordinate, arrayIndex: arrayIndex, value: value,
-                                               named: name, to: &lines)
-                }
-            case .imageAtomic(let image, let coordinate, let arrayIndex, let function, let value):
-                try writeImageVariants([image], named: "saga_texel_atomic_\(handle.index)", to: &lines) { writer, name, lines in
-                    try writer.writeImageAtomic(image: image, coordinate: coordinate, arrayIndex: arrayIndex,
-                                                function: function, value: value, named: name, to: &lines)
-                }
-            case .store(let pointer, let expression):
-                try writeBufferVariants(splitBufferAccess(pointer), named: "saga_store_\(handle.index)", to: &lines) { writer, name, lines in
-                    let target = try writer.address(pointer)
-                    guard target.writable else { throw unsupported("store to read-only storage") }
-                    let rhs = try writer.value(expression)
-                    if let scalar = try writer.atomicScalar(at: pointer) {
-                        let bits = try scalar == .f32 ? writer.wgslFloatAtomicConstantBits(expression) : nil
-                        try writer.writeAtomic(.store(rhs), target: target, scalar: scalar, result: nil,
-                                               temporary: name, constantFloatBits: bits, to: &lines)
-                    } else {
-                        let statements: [String]
-                        if case .aggregate(let access) = target.memory {
-                            let type = try writer.typeName(access.type)
-                            statements = ["\(writer.declaration(type, named: name)) = \(rhs);"] +
-                                (try writer.storeNested(access, value: name, temporary: name + "_field"))
-                        } else {
-                            statements = try target.memory.stores(rhs, temporary: name, in: writer.outputFormat)
-                        }
-                        try writer.writeStatements(statements, when: target.boundsCheck, to: &lines)
-                    }
-                }
-            case .cooperativeStore(let target, let data):
-                let tile = try value(target)
-                let address = try cooperativeAddress(data, tileType: try function.expressions.value(for: target).type, named: "saga_coop_store_\(handle.index)", to: &lines)
-                guard address.writable else { throw unsupported("cooperative store requires writable storage") }
-                if outputFormat == .hlsl {
-                    guard case .cooperativeMatrix(let columns, let rows, let scalar, _) = try module.types.value(for: function.expressions.value(for: target).type).kind,
-                          scalar == .f16 || scalar == .f32 else {
-                        throw unsupported("HLSL cooperative matrix store shape or scalar")
-                    }
-                    let count = Int(columns.rawValue) * Int(rows.rawValue) / 32
-                    let index: (String) -> String = { element in
-                        let row = "((\(element)) / \(columns.rawValue)u)"
-                        let column = "((\(element)) % \(columns.rawValue)u)"
-                        return data.rowMajor ? "\(address.index) + \(row) * \(address.stride) + \(column)" : "\(address.index) + \(column) * \(address.stride) + \(row)"
-                    }
-                    let store: (String, String) -> String = { element, component in
-                        let offset = index(element)
-                        return scalar == .f16
-                            ? "\(address.buffer).Store<float16_t>((\(offset)) * 2u, float16_t(\(tile).\(component)));"
-                            : "\(address.buffer)[\(offset)] = asuint(\(tile).\(component));"
-                    }
-                    let stores = (0..<count).map { component in
-                        let field = component < 4 ? "lo[\(component)]" : "hi[\(component - 4)]"
-                        return store("(WaveGetLaneIndex() * \(count)u + \(component)u)", field)
-                    }
-                    let minimumStride = data.rowMajor ? columns.rawValue : rows.rawValue
-                    try writeStatements(stores, when: "(\(address.bounds)) && (\(address.stride) >= \(minimumStride)u)", to: &lines)
-                    break
-                }
-                if outputFormat == .msl {
-                    let tileType = try function.expressions.value(for: target).type
-                    guard case .cooperativeMatrix(let columns, let rows, _, _) = try module.types.value(for: tileType).kind else {
-                        throw unsupported("cooperative matrix store type")
-                    }
-                    let statements = (0..<Int(rows.rawValue / 8)).flatMap { row in
-                        (0..<Int(columns.rawValue / 8)).map { column in
-                            let part = rows == .eight && columns == .eight ? tile : "\(tile).t\(row)_\(column)"
-                            let offset = data.rowMajor ? "\(row * 8)u * \(address.stride) + \(column * 8)u" : "\(column * 8)u * \(address.stride) + \(row * 8)u"
-                            return "simdgroup_store(\(part), \(address.pointer) + (\(offset)), \(address.stride), ulong2(0), \(!data.rowMajor));"
-                        }
-                    }
-                    let minor = data.rowMajor ? columns.rawValue : rows.rawValue
-                    try writeStatements(statements, when: "(\(address.bounds)) && (\(address.stride) >= \(minor)u)", to: &lines)
-                    break
-                }
-                let statement = outputFormat == .wgsl
-                    ? "\(data.rowMajor ? "coopStoreT" : "coopStore")(\(tile), \(address.pointer), \(address.stride));"
-                    : outputFormat == .glsl
-                        ? "coopMatStore(\(tile), \(address.buffer), \(address.index), \(address.stride), \(data.rowMajor ? "gl_CooperativeMatrixLayoutRowMajor" : "gl_CooperativeMatrixLayoutColumnMajor"));"
-                        : "simdgroup_store(\(tile), \(address.pointer), \(address.stride), ulong2(0), \(!data.rowMajor));"
-                guard case .cooperativeMatrix(let columns, let rows, _, _) = try module.types.value(for: function.expressions.value(for: target).type).kind else { throw unsupported("cooperative matrix store type") }
-                let minor = data.rowMajor ? columns.rawValue : rows.rawValue
-                let storeBounds = "(\(address.bounds)) && (\(address.stride) >= \(minor)u)"
-                try writeStatements([statement], when: storeBounds, to: &lines)
-            case .atomic(let pointer, let operation, let operand, let result):
-                let resultType = try result.map { try function.expressions.value(for: $0).type }
-                let resultName = result.map { "saga_atomic_\($0.index)" } ?? "saga_atomic_statement_\(handle.index)"
-                try writeBufferVariants(splitBufferAccess(pointer), named: resultName, resultType: resultType, to: &lines) { writer, name, lines in
-                    let target = try writer.address(pointer)
-                    guard target.writable, let scalar = try writer.atomicScalar(at: pointer) else {
-                        throw unsupported("atomic read-modify-write address")
-                    }
-                    let value = try writer.value(operand)
-                    let temporary = name == resultName ? "saga_atomic_tmp_\(handle.index)" : name + "_tmp"
-                    if case .exchange(let compare?, let strong) = operation {
-                        let expected = try writer.value(compare)
-                        try writer.writeCompareExchange(target: target, scalar: scalar, expected: expected, replacement: value,
-                            strong: strong, result: resultType.map { (name, $0) }, temporary: temporary, to: &lines)
-                    } else {
-                        let bits = try scalar == .f32 && operation == .exchange(compare: nil)
-                            ? writer.wgslFloatAtomicConstantBits(operand) : nil
-                        try writer.writeAtomic(.readModifyWrite(operation, value), target: target, scalar: scalar,
-                                               result: result == nil ? nil : name, temporary: temporary,
-                                               constantFloatBits: bits, to: &lines)
-                    }
-                }
-                if let result { remember(result) }
-            default: throw unsupported("statement")
+            default:
+                try writeLeafStatement(statement, index: handle.index, to: &lines)
             }
             if retainLoopBodyScope {
                 for expression in temporaryOrder[beforeStatement...] {
@@ -606,6 +446,176 @@ struct ShaderBodyWriter {
             try append("if (\(test)) { break; }", to: &lines)
         }
         return loopTemporaries
+    }
+
+    // Keep non-recursive statements out of the block stack frame.
+    private mutating func writeLeafStatement(
+        _ statement: IRStatementKind, index statementIndex: Int, to lines: inout [String]
+    ) throws {
+        switch statement {
+        case .rayQuery(let query, let operation):
+            if outputFormat == .glsl { try writeGLSLRayQuery(query, operation: operation, to: &lines) }
+            else if outputFormat == .hlsl { try writeHLSLRayQuery(query, operation: operation, to: &lines) }
+            else { try writeMetalRayQuery(query, operation: operation, to: &lines) }
+        case .emit(let handles):
+            for expression in handles { try emit(expression, to: &lines) }
+        case .call(let callee, let args, let result):
+            try writeCall(callee, arguments: args, result: result, statementIndex: statementIndex, to: &lines)
+        case .returnValue(nil):
+            try writeVoidReturn(to: &lines)
+        case .returnValue(let result?):
+            let value = try value(result)
+            try writeResult(value, to: &lines)
+        case .kill:
+            try append(outputFormat == .msl ? "discard_fragment();" : "discard;", to: &lines)
+        case .demoteToHelperInvocation:
+            switch outputFormat {
+            case .msl: try append("discard_fragment();", to: &lines)
+            case .glsl: try append("demote;", to: &lines)
+            default: try append("discard;", to: &lines)
+            }
+        case .subgroupGather(let mode, let argument, let result):
+            try writeSubgroupGather(mode, argument: argument, result: result, to: &lines)
+        case .subgroupBallot(let result, let predicate):
+            try writeSubgroupBallot(predicate, result: result, to: &lines)
+        case .subgroupCollectiveOperation(let operation, let collective, let argument, let result):
+            try writeSubgroupCollective(operation, collective: collective, argument: argument, result: result, to: &lines)
+        case .break:
+            try append("break;", to: &lines)
+        case .continue:
+            try append("continue;", to: &lines)
+        case .controlBarrier(let flags):
+            for line in try shaderControlBarrier(flags, in: outputFormat) { try append(line, to: &lines) }
+        case .debugPrintf(let format, let arguments):
+            let callable: String
+            switch outputFormat {
+            case .wgsl: callable = "debugPrintf"
+            case .msl: callable = "metal::os_log_default.log_info"
+            default: throw unsupported("debugPrintf requires native WGSL, Metal or SPIR-V output")
+            }
+            var operands = [DebugPrintfFormat.sourceLiteral(format)]
+            for argument in arguments {
+                let expression = try value(argument)
+                let type = try function.expressions.value(for: argument).type
+                if outputFormat == .msl, try module.types.value(for: type).kind == .scalar(.f16) {
+                    operands.append("float(\(expression))")
+                } else {
+                    operands.append(expression)
+                }
+            }
+            try append("\(callable)(\(operands.joined(separator: ", ")));", to: &lines)
+        case .workgroupUniformLoad(let pointer, let result):
+            try writeUniformLoad(pointer: pointer, result: result, to: &lines)
+        case .imageStore(let image, let coordinate, let arrayIndex, let value):
+            try writeImageVariants([image], named: "saga_texel_store_\(statementIndex)", to: &lines) { writer, name, lines in
+                try writer.writeImageStore(image: image, coordinate: coordinate, arrayIndex: arrayIndex, value: value,
+                                           named: name, to: &lines)
+            }
+        case .imageAtomic(let image, let coordinate, let arrayIndex, let function, let value):
+            try writeImageVariants([image], named: "saga_texel_atomic_\(statementIndex)", to: &lines) { writer, name, lines in
+                try writer.writeImageAtomic(image: image, coordinate: coordinate, arrayIndex: arrayIndex,
+                                            function: function, value: value, named: name, to: &lines)
+            }
+        case .store(let pointer, let expression):
+            try writeBufferVariants(splitBufferAccess(pointer), named: "saga_store_\(statementIndex)", to: &lines) { writer, name, lines in
+                let target = try writer.address(pointer)
+                guard target.writable else { throw unsupported("store to read-only storage") }
+                let rhs = try writer.value(expression)
+                if let scalar = try writer.atomicScalar(at: pointer) {
+                    let bits = try scalar == .f32 ? writer.wgslFloatAtomicConstantBits(expression) : nil
+                    try writer.writeAtomic(.store(rhs), target: target, scalar: scalar, result: nil,
+                                           temporary: name, constantFloatBits: bits, to: &lines)
+                } else {
+                    let statements: [String]
+                    if case .aggregate(let access) = target.memory {
+                        let type = try writer.typeName(access.type)
+                        statements = ["\(writer.declaration(type, named: name)) = \(rhs);"] +
+                            (try writer.storeNested(access, value: name, temporary: name + "_field"))
+                    } else {
+                        statements = try target.memory.stores(rhs, temporary: name, in: writer.outputFormat)
+                    }
+                    try writer.writeStatements(statements, when: target.boundsCheck, to: &lines)
+                }
+            }
+        case .cooperativeStore(let target, let data):
+            let tile = try value(target)
+            let address = try cooperativeAddress(data, tileType: try function.expressions.value(for: target).type, named: "saga_coop_store_\(statementIndex)", to: &lines)
+            guard address.writable else { throw unsupported("cooperative store requires writable storage") }
+            if outputFormat == .hlsl {
+                guard case .cooperativeMatrix(let columns, let rows, let scalar, _) = try module.types.value(for: function.expressions.value(for: target).type).kind,
+                      scalar == .f16 || scalar == .f32 else {
+                    throw unsupported("HLSL cooperative matrix store shape or scalar")
+                }
+                let count = Int(columns.rawValue) * Int(rows.rawValue) / 32
+                let index: (String) -> String = { element in
+                    let row = "((\(element)) / \(columns.rawValue)u)"
+                    let column = "((\(element)) % \(columns.rawValue)u)"
+                    return data.rowMajor ? "\(address.index) + \(row) * \(address.stride) + \(column)" : "\(address.index) + \(column) * \(address.stride) + \(row)"
+                }
+                let store: (String, String) -> String = { element, component in
+                    let offset = index(element)
+                    return scalar == .f16
+                        ? "\(address.buffer).Store<float16_t>((\(offset)) * 2u, float16_t(\(tile).\(component)));"
+                        : "\(address.buffer)[\(offset)] = asuint(\(tile).\(component));"
+                }
+                let stores = (0..<count).map { component in
+                    let field = component < 4 ? "lo[\(component)]" : "hi[\(component - 4)]"
+                    return store("(WaveGetLaneIndex() * \(count)u + \(component)u)", field)
+                }
+                let minimumStride = data.rowMajor ? columns.rawValue : rows.rawValue
+                try writeStatements(stores, when: "(\(address.bounds)) && (\(address.stride) >= \(minimumStride)u)", to: &lines)
+                break
+            }
+            if outputFormat == .msl {
+                let tileType = try function.expressions.value(for: target).type
+                guard case .cooperativeMatrix(let columns, let rows, _, _) = try module.types.value(for: tileType).kind else {
+                    throw unsupported("cooperative matrix store type")
+                }
+                let statements = (0..<Int(rows.rawValue / 8)).flatMap { row in
+                    (0..<Int(columns.rawValue / 8)).map { column in
+                        let part = rows == .eight && columns == .eight ? tile : "\(tile).t\(row)_\(column)"
+                        let offset = data.rowMajor ? "\(row * 8)u * \(address.stride) + \(column * 8)u" : "\(column * 8)u * \(address.stride) + \(row * 8)u"
+                        return "simdgroup_store(\(part), \(address.pointer) + (\(offset)), \(address.stride), ulong2(0), \(!data.rowMajor));"
+                    }
+                }
+                let minor = data.rowMajor ? columns.rawValue : rows.rawValue
+                try writeStatements(statements, when: "(\(address.bounds)) && (\(address.stride) >= \(minor)u)", to: &lines)
+                break
+            }
+            let statement = outputFormat == .wgsl
+                ? "\(data.rowMajor ? "coopStoreT" : "coopStore")(\(tile), \(address.pointer), \(address.stride));"
+                : outputFormat == .glsl
+                    ? "coopMatStore(\(tile), \(address.buffer), \(address.index), \(address.stride), \(data.rowMajor ? "gl_CooperativeMatrixLayoutRowMajor" : "gl_CooperativeMatrixLayoutColumnMajor"));"
+                    : "simdgroup_store(\(tile), \(address.pointer), \(address.stride), ulong2(0), \(!data.rowMajor));"
+            guard case .cooperativeMatrix(let columns, let rows, _, _) = try module.types.value(for: function.expressions.value(for: target).type).kind else { throw unsupported("cooperative matrix store type") }
+            let minor = data.rowMajor ? columns.rawValue : rows.rawValue
+            let storeBounds = "(\(address.bounds)) && (\(address.stride) >= \(minor)u)"
+            try writeStatements([statement], when: storeBounds, to: &lines)
+        case .atomic(let pointer, let operation, let operand, let result):
+            let resultType = try result.map { try function.expressions.value(for: $0).type }
+            let resultName = result.map { "saga_atomic_\($0.index)" } ?? "saga_atomic_statement_\(statementIndex)"
+            try writeBufferVariants(splitBufferAccess(pointer), named: resultName, resultType: resultType, to: &lines) { writer, name, lines in
+                let target = try writer.address(pointer)
+                guard target.writable, let scalar = try writer.atomicScalar(at: pointer) else {
+                    throw unsupported("atomic read-modify-write address")
+                }
+                let value = try writer.value(operand)
+                let temporary = name == resultName ? "saga_atomic_tmp_\(statementIndex)" : name + "_tmp"
+                if case .exchange(let compare?, let strong) = operation {
+                    let expected = try writer.value(compare)
+                    try writer.writeCompareExchange(target: target, scalar: scalar, expected: expected, replacement: value,
+                        strong: strong, result: resultType.map { (name, $0) }, temporary: temporary, to: &lines)
+                } else {
+                    let bits = try scalar == .f32 && operation == .exchange(compare: nil)
+                        ? writer.wgslFloatAtomicConstantBits(operand) : nil
+                    try writer.writeAtomic(.readModifyWrite(operation, value), target: target, scalar: scalar,
+                                           result: result == nil ? nil : name, temporary: temporary,
+                                           constantFloatBits: bits, to: &lines)
+                }
+            }
+            if let result { remember(result) }
+        default: throw unsupported("statement")
+        }
     }
 
     private func statementEndsBlock(_ statement: IRStatementKind) -> Bool {

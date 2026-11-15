@@ -108,18 +108,21 @@ package struct RenderCodeGenerator {
     private let bindingArrayLengths: [IRResourceBinding: UInt32]
     private let webGPU: Bool
     private let metalVertexBuffers: [VertexBufferLayout]?
+    private let metalRenderTargetLayer: UInt32?
     private let glslPipelineFamily: GLSLRenderPipelineFamily?
     private let sampledTextureLimit: UInt32
 
     package init(
         _ format: ShaderOutputFormat, bindingArrayLengths: [IRResourceBinding: UInt32] = [:],
         webGPU: Bool = false, metalVertexBuffers: [VertexBufferLayout]? = nil,
-        glslPipelineFamily: GLSLRenderPipelineFamily? = nil, sampledTextureLimit: UInt32? = nil
+        glslPipelineFamily: GLSLRenderPipelineFamily? = nil,
+        metalRenderTargetLayer: UInt32? = nil, sampledTextureLimit: UInt32? = nil
     ) {
         self.format = format
         self.bindingArrayLengths = bindingArrayLengths
         self.webGPU = webGPU
         self.metalVertexBuffers = metalVertexBuffers
+        self.metalRenderTargetLayer = metalRenderTargetLayer
         self.glslPipelineFamily = glslPipelineFamily
         self.sampledTextureLimit = sampledTextureLimit ?? ComputeShaderArtifact.sampledTextureBindingCapacity
     }
@@ -139,6 +142,9 @@ package struct RenderCodeGenerator {
         }
         if metalVertexBuffers != nil, !vertex || format != .msl {
             throw unsupported("vertex pulling requires an MSL vertex entry point")
+        }
+        if metalRenderTargetLayer != nil, !vertex || format != .msl {
+            throw unsupported("a render target layer requires an MSL vertex entry point")
         }
         guard module.overrides.count == 0 else { throw unsupported("overrides") }
 
@@ -477,7 +483,7 @@ package struct RenderCodeGenerator {
                 resultTarget = .metalVoidFragment(output)
             } else {
                 if vertex {
-                    declarations += ["struct \(output) {", "    \(directType) \(field);"] + Self.metalPointOutput + ["};"]
+                    declarations += ["struct \(output) {", "    \(directType) \(field);"] + metalVertexOutput + ["};"]
                 } else if fragmentOutput?.isStructure != true {
                     let maskOutput = directField == .sampleMask ? [] : Self.metalPipelineMaskOutput
                     declarations += ["struct \(output) {", "    \(directType) \(field);"] + maskOutput + ["};"]
@@ -775,7 +781,8 @@ package struct RenderCodeGenerator {
                      requiresDebugPrintf: helpers.requiresDebugPrintf,
                      immediateLayout: immediate?.layout,
                      requiresSubgroupUniformity: module.requiresSubgroupUniformity,
-                     metalVertexPullingLayout: metalVertexBuffers.map(VertexBufferLayout.metalPullingSignature))
+                     metalVertexPullingLayout: metalVertexBuffers.map(VertexBufferLayout.metalPullingSignature),
+                     metalRenderTargetLayer: metalRenderTargetLayer)
     }
 
     private func vertexArguments(
@@ -1189,8 +1196,12 @@ package struct RenderCodeGenerator {
                 return ["    \(type) \(field.name);"]
             }
         }
-        let pointOutput = format == .msl && vertexOutput ? Self.metalPointOutput : []
-        return ["struct \(name) {"] + lines + pointOutput + [format == .wgsl ? "}" : "};"]
+        let nativeOutput = format == .msl && vertexOutput ? metalVertexOutput : []
+        return ["struct \(name) {"] + lines + nativeOutput + [format == .wgsl ? "}" : "};"]
+    }
+
+    private var metalVertexOutput: [String] {
+        Self.metalPointOutput + (metalRenderTargetLayer.map { ["    uint saga_render_layer [[render_target_array_index]] = \($0)u;"] } ?? [])
     }
 
     private func varyingQualifiers(_ varying: RenderStageArtifact.Varying, flat: String) -> String {

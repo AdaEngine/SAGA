@@ -53,6 +53,8 @@ public struct RenderStageArtifact: Sendable, Equatable {
     package let metalVertexPullingLayout: [UInt32]?
     /// The MSL entry point loads its vertex streams directly.
     public var usesMetalVertexPulling: Bool { metalVertexPullingLayout != nil }
+    /// Array layer selected by a Metal vertex stage compiled for a rasterization rate map.
+    public let metalRenderTargetLayer: UInt32?
     /// Scalar kinds of the color outputs, keyed by fragment location.
     public let colorOutputKinds: [UInt32: IRScalarKind]
     /// Component counts of the color outputs, keyed by fragment location.
@@ -145,7 +147,8 @@ public struct RenderStageArtifact: Sendable, Equatable {
         requiresShaderInt64AtomicAllOps: Bool = false, requiresShaderInt64: Bool = false, requiresShaderInt16: Bool = false,
         requiresDebugPrintf: Bool = false,
         immediateLayout: ShaderImmediateLayout? = nil,
-        requiresSubgroupUniformity: Bool = false, metalVertexPullingLayout: [UInt32]? = nil
+        requiresSubgroupUniformity: Bool = false, metalVertexPullingLayout: [UInt32]? = nil,
+        metalRenderTargetLayer: UInt32? = nil
     ) {
         self.artifact = artifact
         self.stage = stage
@@ -155,6 +158,7 @@ public struct RenderStageArtifact: Sendable, Equatable {
         self.varyings = varyings
         self.vertexInputs = vertexInputs
         self.metalVertexPullingLayout = metalVertexPullingLayout
+        self.metalRenderTargetLayer = metalRenderTargetLayer
         self.colorOutputKinds = colorOutputKinds
         self.colorOutputComponentCounts = colorOutputComponentCounts
         self.writesDepth = writesDepth

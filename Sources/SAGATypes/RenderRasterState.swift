@@ -30,14 +30,26 @@ public struct RenderScissor: Sendable, Equatable {
     }
 }
 
+/// A backend-owned rasterization rate map and the array layer written by a draw.
+public protocol RenderRasterizationRateMap: AnyObject, Sendable {
+    var layer: UInt32 { get }
+    var layerCount: UInt32 { get }
+}
+
 /// Viewport and scissor for a single draw. Omitted values use the full attachment.
 public struct RenderRasterState: Sendable, Equatable {
     public let viewport: RenderViewport?
     public let scissor: RenderScissor?
+    public let rateMap: (any RenderRasterizationRateMap)?
 
-    public init(viewport: RenderViewport? = nil, scissor: RenderScissor? = nil) {
+    public init(viewport: RenderViewport? = nil, scissor: RenderScissor? = nil, rateMap: (any RenderRasterizationRateMap)? = nil) {
         self.viewport = viewport
         self.scissor = scissor
+        self.rateMap = rateMap
+    }
+
+    public static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.viewport == rhs.viewport && lhs.scissor == rhs.scissor && lhs.rateMap === rhs.rateMap
     }
 
     package var hasEmptyScissor: Bool {
