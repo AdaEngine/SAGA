@@ -2795,6 +2795,155 @@ private struct SemanticChecker {
     return vertexReturn
   }
 
+  private func statementOperand(
+    _ handle: IRHandle<IRExpression>, in function: IRFunction, available: Set<IRHandle<IRExpression>>,
+    at location: ShaderLocation?
+  ) throws -> IRExpression {
+    try need(available.contains(handle), .invalidReference, "Expression is outside evaluation scope", location)
+    return try function.expressions.value(for: handle)
+  }
+
+  // Split the larger leaf rules to keep their unoptimized stack frames separate.
+  private mutating func validateEmittedExpressions(
+    _ expressions: [IRHandle<IRExpression>], f: IRFunction, available: inout Set<IRHandle<IRExpression>>,
+    uniform: inout [UniformValue], locals: [UniformValue], control: UniformValue, at loc: ShaderLocation?
+  ) throws {
+    let severities = diagnosticLevels(for: f)
+    for x in expressions {
+      try budget.consume(.work)
+      let e = try f.expressions.value(for: x)
+      try need(!available.contains(x), .invalidReference, "Duplicate or invalid emit", loc)
+      switch e.kind {
+      case .callResult, .atomicResult, .workgroupUniformLoadResult, .subgroupOperationResult, .subgroupBallotResult, .rayQueryProceedResult:
+        try fail(.invalidReference, "Statement result cannot be produced by emit", loc)
+      default: break
+      }
+      for dep in e.kind.operands { _ = try statementOperand(dep, in: f, available: available, at: loc) }
+      switch e.kind {
+      case .cooperativeLoad(_, _, _, let data):
+        try requireUniformControl(control, rule: .cooperativeMatrix, severity: .error,
+                                  message: "Cooperative matrices require uniform control flow", at: e.location ?? loc)
+        let address = try cooperativePointerUniformity(data.pointer, in: f, uniform: uniform)
+        for operand in [address, uniform[data.stride.index]] {
+          try requireUniformity(operand, rule: .cooperativeMatrix, severity: .error,
+                                message: "Cooperative matrix address and stride must be uniform", at: e.location ?? loc)
+        }
+      case .cooperativeMultiplyAdd:
+        try requireUniformControl(control, rule: .cooperativeMatrix, severity: .error,
+                                  message: "Cooperative matrices require uniform control flow", at: e.location ?? loc)
+      default: break
+      }
+      if requiresImplicitDerivatives(e.kind) {
+        try requireUniformControl(control, rule: .derivative, severity: severities.derivative,
+                                  message: "Operation requiring derivatives in non-uniform control flow", at: e.location ?? loc)
+      }
+      uniform[x.index] = try expressionUniformity(e, handle: x, in: f, uniform: uniform, locals: locals)
+      available.insert(x)
+    }
+  }
+
+  private mutating func validateImageWrite(
+    _ image: IRHandle<IRExpression>, coordinate: IRHandle<IRExpression>, arrayIndex: IRHandle<IRExpression>?,
+    value: IRHandle<IRExpression>, operation: IRAtomicFunction?, f: IRFunction,
+    available: Set<IRHandle<IRExpression>>, at loc: ShaderLocation?
+  ) throws {
+    let coordinateType = try type(statementOperand(coordinate, in: f, available: available, at: loc).type)
+    let imageExpression = try statementOperand(image, in: f, available: available, at: loc)
+    let imageType = try type(imageExpression.type)
+    guard let storage = imageType.storageTexture, storage.access.contains(.store),
+          imageType.isArrayedTexture == (arrayIndex != nil),
+          [imageType.texelCoordinateType(.i32), imageType.texelCoordinateType(.u32)].contains(coordinateType) else {
+      try fail(.typeMismatch, "Invalid storage texture store", loc)
+    }
+    let valueType: IRTypeKind
+    if let operation {
+      try cap(storage.scalar == .u64 ? .textureInt64Atomic : .textureAtomic, loc)
+      try need(storage.access.contains(.atomic), .typeMismatch, "Texture atomic operation requires atomic access", loc)
+      switch operation {
+      case .min, .max: break
+      case .add, .and, .inclusiveOr, .exclusiveOr:
+        try need(storage.scalar != .u64, .typeMismatch, "R64Uint atomics support min and max", loc)
+      default: try fail(.typeMismatch, "Invalid texture atomic operation", loc)
+      }
+      let root: IRExpressionKind
+      switch imageExpression.kind {
+      case .access(let base, _), .accessIndex(let base, _): root = try statementOperand(base, in: f, available: available, at: loc).kind
+      default: root = imageExpression.kind
+      }
+      switch (root, imageExpression.kind) {
+      case (.globalVariable, _), (_, .functionArgument): break
+      default: try fail(.invalidReference, "Texture atomics require a texture binding or parameter", loc)
+      }
+      valueType = .scalar(storage.scalar)
+    } else {
+      valueType = .vector(size: .four, scalar: storage.scalar)
+    }
+    try need(try type(statementOperand(value, in: f, available: available, at: loc).type) == valueType, .typeMismatch, "Invalid storage texture value", loc)
+    if let arrayIndex {
+      try need(try [.scalar(.i32), .scalar(.u32)].contains(type(statementOperand(arrayIndex, in: f, available: available, at: loc).type)),
+               .typeMismatch, "Texture array index must be i32 or u32", loc)
+    }
+  }
+
+  private mutating func validateAtomicStatement(
+    _ pointer: IRHandle<IRExpression>, operation: IRAtomicFunction, value: IRHandle<IRExpression>,
+    result: IRHandle<IRExpression>?, f: IRFunction, available: inout Set<IRHandle<IRExpression>>,
+    callResults: inout Set<IRHandle<IRExpression>>, at loc: ShaderLocation?
+  ) throws {
+    let p = try statementOperand(pointer, in: f, available: available, at: loc)
+    let v = try statementOperand(value, in: f, available: available, at: loc)
+    guard let atomic = try atomicPointee(p.type) else {
+      try fail(.typeMismatch, "Atomic operation requires a pointer to an atomic integer", loc)
+    }
+    try need(try type(v.type) == .scalar(atomic), .typeMismatch, "Atomic operand type mismatch", loc)
+    if operation == .addFloat32Bits {
+      try need(atomic == .u32, .typeMismatch, "Float32 bitwise atomic add requires atomic<u32>", loc)
+      guard case .pointer(_, .storage) = try type(p.type) else {
+        try fail(.invalidAddressSpace, "Float atomic read-modify-write requires storage memory", loc)
+      }
+      try cap(.shaderFloat32Atomic, loc)
+    }
+    if operation == .minWithOppositeSignedness || operation == .maxWithOppositeSignedness {
+      try need(atomic.kind == .sint || atomic.kind == .uint, .typeMismatch,
+               "An explicit atomic comparison order requires an integer", loc)
+    }
+    if atomic == .f32 {
+      guard case .pointer(_, .storage) = try type(p.type) else {
+        try fail(.invalidAddressSpace, "Float atomic read-modify-write requires storage memory", loc)
+      }
+      switch operation {
+      case .add, .subtract, .exchange(compare: nil, strong: false): break
+      default: try fail(.typeMismatch, "Float atomics support add, subtract and exchange", loc)
+      }
+    }
+    if atomic.width == 8, !capabilities.contains(.shaderInt64AtomicAllOps) {
+      if (operation == .min || operation == .max), result == nil,
+         case .pointer(_, .storage) = try type(p.type) {
+        try cap(.shaderInt64AtomicMinMax, loc)
+      } else {
+        try cap(.shaderInt64AtomicAllOps, loc)
+      }
+    }
+    let compares: Bool
+    if case .exchange(compare: nil, strong: true) = operation {
+      try fail(.invalidReference, "Strong compare-exchange requires a comparator", loc)
+    }
+    if case .exchange(let compare?, _) = operation {
+      let expected = try statementOperand(compare, in: f, available: available, at: loc)
+      try need(try type(expected.type) == .scalar(atomic), .typeMismatch, "Atomic comparison type mismatch", loc)
+      compares = true
+    } else { compares = false }
+    if let result {
+      let e = try f.expressions.value(for: result)
+      let matches = try compares ? atomicCompareResults[e.type] == atomic : type(e.type) == .scalar(atomic)
+      guard case .atomicResult(_, let comparison) = e.kind, comparison == compares, matches,
+            callResults.insert(result).inserted else {
+        try fail(.invalidReference, "Incorrect or duplicate atomic result", loc)
+      }
+      available.insert(result)
+    }
+  }
+
   // Keep leaf validation out of the recursive block frame.
   mutating func validateLeafStatement(
     _ s: IRStatement, f: IRFunction, available: inout Set<IRHandle<IRExpression>>,
@@ -2805,47 +2954,13 @@ private struct SemanticChecker {
     let loc = s.location
     let severities = diagnosticLevels(for: f)
     var step: StatementFlow = .next
-    func use(_ handle: IRHandle<IRExpression>, _ location: ShaderLocation?) throws -> IRExpression {
-      try need(available.contains(handle), .invalidReference, "Expression is outside evaluation scope", location)
-      return try f.expressions.value(for: handle)
-    }
     switch s.kind {
     case .emit(let xs):
-      for x in xs {
-        try budget.consume(.work)
-        let e = try f.expressions.value(for: x)
-        try need(!available.contains(x), .invalidReference, "Duplicate or invalid emit", loc)
-        switch e.kind {
-        case .callResult, .atomicResult, .workgroupUniformLoadResult, .subgroupOperationResult, .subgroupBallotResult, .rayQueryProceedResult:
-          try fail(.invalidReference, "Statement result cannot be produced by emit", loc)
-        default: break
-        }
-        for dep in e.kind.operands { _ = try use(dep, loc) }
-        switch e.kind {
-        case .cooperativeLoad(_, _, _, let data):
-          try requireUniformControl(ctrl, rule: .cooperativeMatrix, severity: .error,
-                                    message: "Cooperative matrices require uniform control flow", at: e.location ?? loc)
-          let address = try cooperativePointerUniformity(data.pointer, in: f, uniform: uniform)
-          for operand in [address, uniform[data.stride.index]] {
-            try requireUniformity(operand, rule: .cooperativeMatrix, severity: .error,
-                                  message: "Cooperative matrix address and stride must be uniform", at: e.location ?? loc)
-          }
-        case .cooperativeMultiplyAdd:
-          try requireUniformControl(ctrl, rule: .cooperativeMatrix, severity: .error,
-                                    message: "Cooperative matrices require uniform control flow", at: e.location ?? loc)
-        default: break
-        }
-        if requiresImplicitDerivatives(e.kind) {
-          try requireUniformControl(ctrl, rule: .derivative, severity: severities.derivative,
-                                    message: "Operation requiring derivatives in non-uniform control flow", at: e.location ?? loc)
-        }
-        uniform[x.index] = try expressionUniformity(e, handle: x, in: f, uniform: uniform, locals: locals)
-        available.insert(x)
-      }
+      try validateEmittedExpressions(xs, f: f, available: &available, uniform: &uniform, locals: locals, control: ctrl, at: loc)
     case .returnValue(let x):
       try need(!inContinuing, .invalidControlFlow, "Return forbidden in continuing", loc)
       if let r = f.result, let x {
-        try need(try same(use(x, loc).type, r.type), .typeMismatch, "Return type mismatch", loc)
+        try need(try same(statementOperand(x, in: f, available: available, at: loc).type, r.type), .typeMismatch, "Return type mismatch", loc)
         if reachable {
           let active = try mergeUniformity(ctrl, uniformity.exits)
           let result = try mergeUniformity(active, uniform[x.index])
@@ -2856,47 +2971,15 @@ private struct SemanticChecker {
       }
       if reachable { uniformity.exits = try mergeUniformity(uniformity.exits, ctrl) }
       step = .exit
-    case .imageStore(let image, let coordinate, let arrayIndex, let value),
-         .imageAtomic(let image, let coordinate, let arrayIndex, _, let value):
-      let coordinateType = try type(use(coordinate, loc).type)
-      let imageExpression = try use(image, loc)
-      let imageType = try type(imageExpression.type)
-      guard let storage = imageType.storageTexture, storage.access.contains(.store),
-            imageType.isArrayedTexture == (arrayIndex != nil),
-            [imageType.texelCoordinateType(.i32), imageType.texelCoordinateType(.u32)].contains(coordinateType) else {
-        try fail(.typeMismatch, "Invalid storage texture store", loc)
-      }
-      let valueType: IRTypeKind
-      if case .imageAtomic(_, _, _, let operation, _) = s.kind {
-        try cap(storage.scalar == .u64 ? .textureInt64Atomic : .textureAtomic, loc)
-        try need(storage.access.contains(.atomic), .typeMismatch, "Texture atomic operation requires atomic access", loc)
-        switch operation {
-        case .min, .max: break
-        case .add, .and, .inclusiveOr, .exclusiveOr:
-          try need(storage.scalar != .u64, .typeMismatch, "R64Uint atomics support min and max", loc)
-        default: try fail(.typeMismatch, "Invalid texture atomic operation", loc)
-        }
-        let root: IRExpressionKind
-        switch imageExpression.kind {
-        case .access(let base, _), .accessIndex(let base, _): root = try use(base, loc).kind
-        default: root = imageExpression.kind
-        }
-        switch (root, imageExpression.kind) {
-        case (.globalVariable, _), (_, .functionArgument): break
-        default: try fail(.invalidReference, "Texture atomics require a texture binding or parameter", loc)
-        }
-        valueType = .scalar(storage.scalar)
-      } else {
-        valueType = .vector(size: .four, scalar: storage.scalar)
-      }
-      try need(try type(use(value, loc).type) == valueType, .typeMismatch, "Invalid storage texture value", loc)
-      if let arrayIndex {
-        try need(try [.scalar(.i32), .scalar(.u32)].contains(type(use(arrayIndex, loc).type)),
-                 .typeMismatch, "Texture array index must be i32 or u32", loc)
-      }
+    case .imageStore(let image, let coordinate, let arrayIndex, let value):
+      try validateImageWrite(image, coordinate: coordinate, arrayIndex: arrayIndex, value: value,
+                             operation: nil, f: f, available: available, at: loc)
+    case .imageAtomic(let image, let coordinate, let arrayIndex, let operation, let value):
+      try validateImageWrite(image, coordinate: coordinate, arrayIndex: arrayIndex, value: value,
+                             operation: operation, f: f, available: available, at: loc)
     case .store(let pointer, let value):
-      let p = try use(pointer, loc)
-      let v = try use(value, loc)
+      let p = try statementOperand(pointer, in: f, available: available, at: loc)
+      let v = try statementOperand(value, in: f, available: available, at: loc)
       guard case .pointer(let base, let space) = try type(p.type) else {
         try fail(.typeMismatch, "Store requires pointer", loc)
       }
@@ -2921,58 +3004,8 @@ private struct SemanticChecker {
         locals[reference.index] = reference.partial ? try mergeUniformity(locals[reference.index], assignment) : assignment
       }
     case .atomic(let pointer, let operation, let value, let result):
-      let p = try use(pointer, loc)
-      let v = try use(value, loc)
-      guard let atomic = try atomicPointee(p.type) else {
-        try fail(.typeMismatch, "Atomic operation requires a pointer to an atomic integer", loc)
-      }
-      try need(try type(v.type) == .scalar(atomic), .typeMismatch, "Atomic operand type mismatch", loc)
-      if operation == .addFloat32Bits {
-        try need(atomic == .u32, .typeMismatch, "Float32 bitwise atomic add requires atomic<u32>", loc)
-        guard case .pointer(_, .storage) = try type(p.type) else {
-          try fail(.invalidAddressSpace, "Float atomic read-modify-write requires storage memory", loc)
-        }
-        try cap(.shaderFloat32Atomic, loc)
-      }
-      if operation == .minWithOppositeSignedness || operation == .maxWithOppositeSignedness {
-        try need(atomic.kind == .sint || atomic.kind == .uint, .typeMismatch,
-                 "An explicit atomic comparison order requires an integer", loc)
-      }
-      if atomic == .f32 {
-        guard case .pointer(_, .storage) = try type(p.type) else {
-          try fail(.invalidAddressSpace, "Float atomic read-modify-write requires storage memory", loc)
-        }
-        switch operation {
-        case .add, .subtract, .exchange(compare: nil, strong: false): break
-        default: try fail(.typeMismatch, "Float atomics support add, subtract and exchange", loc)
-        }
-      }
-      if atomic.width == 8, !capabilities.contains(.shaderInt64AtomicAllOps) {
-        if (operation == .min || operation == .max), result == nil,
-           case .pointer(_, .storage) = try type(p.type) {
-          try cap(.shaderInt64AtomicMinMax, loc)
-        } else {
-          try cap(.shaderInt64AtomicAllOps, loc)
-        }
-      }
-      let compares: Bool
-      if case .exchange(compare: nil, strong: true) = operation {
-        try fail(.invalidReference, "Strong compare-exchange requires a comparator", loc)
-      }
-      if case .exchange(let compare?, _) = operation {
-        let expected = try use(compare, loc)
-        try need(try type(expected.type) == .scalar(atomic), .typeMismatch, "Atomic comparison type mismatch", loc)
-        compares = true
-      } else { compares = false }
-      if let result {
-        let e = try f.expressions.value(for: result)
-        let matches = try compares ? atomicCompareResults[e.type] == atomic : type(e.type) == .scalar(atomic)
-        guard case .atomicResult(_, let comparison) = e.kind, comparison == compares, matches,
-              callResults.insert(result).inserted else {
-          try fail(.invalidReference, "Incorrect or duplicate atomic result", loc)
-        }
-        available.insert(result)
-      }
+      try validateAtomicStatement(pointer, operation: operation, value: value, result: result, f: f,
+                                  available: &available, callResults: &callResults, at: loc)
     case .subgroupBallot, .subgroupCollectiveOperation, .subgroupGather:
       try requireUniformControl(ctrl, rule: .subgroup, severity: severities.subgroup,
                                 message: "Subgroup operations require uniform control flow", at: loc)
@@ -2981,11 +3014,12 @@ private struct SemanticChecker {
     case .cooperativeStore(let target, let data):
       try requireUniformControl(ctrl, rule: .cooperativeMatrix, severity: .error,
                                 message: "Cooperative matrix operations require subgroup-uniform control flow", at: loc)
-      let targetExpression = try use(target, loc)
+      let targetExpression = try statementOperand(target, in: f, available: available, at: loc)
       guard case .cooperativeMatrix(_, _, let scalar, _) = try type(targetExpression.type) else {
         try fail(.typeMismatch, "coopStore requires a cooperative matrix value", loc)
       }
-      let pointer = try use(data.pointer, loc), stride = try use(data.stride, loc)
+      let pointer = try statementOperand(data.pointer, in: f, available: available, at: loc)
+      let stride = try statementOperand(data.stride, in: f, available: available, at: loc)
       let address = try cooperativePointerUniformity(data.pointer, in: f, uniform: uniform)
       for operand in [address, uniform[data.stride.index]] {
         try requireUniformity(operand, rule: .cooperativeMatrix, severity: .error,
@@ -3003,7 +3037,7 @@ private struct SemanticChecker {
       try need([.scalar(.i32), .scalar(.u32)].contains(type(stride.type)), .typeMismatch,
                "Cooperative matrix stride must be i32 or u32", loc)
     case .workgroupUniformLoad(let pointer, let result):
-      let p = try use(pointer, loc)
+      let p = try statementOperand(pointer, in: f, available: available, at: loc)
       guard case .pointer(let base, .workgroup) = try type(p.type) else {
         try fail(.typeMismatch, "Uniform load requires a workgroup pointer", loc)
       }
@@ -3025,11 +3059,11 @@ private struct SemanticChecker {
       available.insert(result)
     case .rayQuery(let query, let operation):
       try cap(.rayQuery, loc)
-      _ = try use(query, loc)
+      _ = try statementOperand(query, in: f, available: available, at: loc)
       let vertexReturn = try validateRayQuery(query, in: f, at: loc)
       switch operation {
       case .initialize(let acceleration, let descriptor):
-        let accelerationType = try type(use(acceleration, loc).type)
+        let accelerationType = try type(statementOperand(acceleration, in: f, available: available, at: loc).type)
         guard case .accelerationStructure(let providesVertices) = accelerationType else {
           try fail(.typeMismatch, "Ray initialization requires an acceleration structure", loc)
         }
@@ -3037,7 +3071,7 @@ private struct SemanticChecker {
         guard let expected = module.specialTypes.rayDescriptor else {
           try fail(.invalidType, "Ray descriptor special type is missing", loc)
         }
-        try need(try same(use(descriptor, loc).type, expected), .typeMismatch, "Ray descriptor type mismatch", loc)
+        try need(try same(statementOperand(descriptor, in: f, available: available, at: loc).type, expected), .typeMismatch, "Ray descriptor type mismatch", loc)
       case .proceed(let result):
         let expression = try f.expressions.value(for: result)
         try need(expression.kind == .rayQueryProceedResult && callResults.insert(result).inserted,
@@ -3045,7 +3079,7 @@ private struct SemanticChecker {
         uniform[result.index] = .varying
         available.insert(result)
       case .generateIntersection(let hitT):
-        try need(try type(use(hitT, loc).type) == .scalar(.f32), .typeMismatch,
+        try need(try type(statementOperand(hitT, in: f, available: available, at: loc).type) == .scalar(.f32), .typeMismatch,
                  "Ray hit distance must be f32", loc)
       case .confirmIntersection, .terminate, .begin: break
       }
@@ -3059,7 +3093,7 @@ private struct SemanticChecker {
       try need(expected.count == arguments.count, .typeMismatch, "debugPrintf format argument count mismatch", loc)
       for (specifier, handle) in zip(expected, arguments) {
         try budget.consume(.work)
-        let argument = try use(handle, loc)
+        let argument = try statementOperand(handle, in: f, available: available, at: loc)
         try need(try specifier.accepts(type(argument.type)), .typeMismatch, "debugPrintf argument type mismatch", argument.location ?? loc)
       }
     case .controlBarrier(let barrier), .memoryBarrier(let barrier):
