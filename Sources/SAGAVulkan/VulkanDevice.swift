@@ -113,6 +113,9 @@ final class VulkanNativeDevice: Sendable {
         }
         drawIndirectCount = countDraw
         drawIndexedIndirectCount = countDrawIndexed
+        deviceExtensions += VulkanExtensionRequest.accepted(
+            VulkanExtensionRequest.requestedDevice, available: support.deviceExtensions, alreadyEnabled: Set(deviceExtensions)
+        ).enabled
         graphics = try VulkanGraphicsFunctions(instance: adapter.instance)
         limits = adapter.limits
         queueFamily = adapter.queueFamily

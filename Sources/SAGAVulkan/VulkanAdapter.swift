@@ -81,6 +81,9 @@ final class VulkanInstance: Sendable {
                 let wanted = [VKPresent.surfaceExtension, "VK_KHR_win32_surface", "VK_KHR_xlib_surface", "VK_KHR_wayland_surface", "VK_KHR_android_surface"]
                 extensions = wanted.filter(available.contains)
                 if !extensions.contains(VKPresent.surfaceExtension) { extensions = [] }
+                extensions += VulkanExtensionRequest.accepted(
+                    VulkanExtensionRequest.requestedInstance, available: available, alreadyEnabled: Set(extensions)
+                ).enabled
             }
         }
         var handle: UInt = 0
