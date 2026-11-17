@@ -1,5 +1,8 @@
 # SAGA
 
+[![](https://img.shields.io/endpoint?url=https%3A%2F%2Fswiftpackageindex.com%2Fapi%2Fpackages%2FAdaEngine%2FSAGA%2Fbadge%3Ftype%3Dswift-versions)](https://swiftpackageindex.com/AdaEngine/SAGA)
+[![](https://img.shields.io/endpoint?url=https%3A%2F%2Fswiftpackageindex.com%2Fapi%2Fpackages%2FAdaEngine%2FSAGA%2Fbadge%3Ftype%3Dplatforms)](https://swiftpackageindex.com/AdaEngine/SAGA)
+
 SAGA is an independent shader compiler and WebGPU-style GPU runtime written in Swift. It lets Swift applications share shader source and GPU submission code across native GPU backends and browser WebGPU.
 
 ## Supported platforms
