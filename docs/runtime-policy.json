@@ -270,6 +270,9 @@
     ]
   },
   "file_imports": {
+    "Sources/SAGAVulkan/VulkanExtensionRequest.swift": [
+      "Synchronization"
+    ],
     "Tests/SAGAFoundationTests/MeshFragmentGLSLResourceLayoutTests.swift": [
       "Foundation"
     ],
@@ -356,14 +359,14 @@
       "reason": "Windows COM/DXC/DXGI ABI boundary per native-backends ADR; raw pointers are confined to this backend. Hash records existing unchecked ownership; this policy is not a concurrency-safety proof."
     },
     "Sources/SAGAVulkan/VulkanDevice.swift": {
-      "sha256": "cb21cad61b2efd53c2ac55d4e61518c8926d4d38f5978912d57ceb55900f0a67",
+      "sha256": "7aa2b4bd3f34d9c174ac1440c8483b13434d8a73464f209edac49bd7138c511b",
       "patterns": [
         "unsafeBitCast\\b"
       ],
       "reason": "System Vulkan entry points resolved at runtime and cast to typed C ABI, per add-vulkan-and-direct3d-native-backends ADR; not a shader compiler bridge."
     },
     "Sources/SAGAVulkan/VulkanPresentation.swift": {
-      "sha256": "13f69987cb3334b35205a91badb9dd7e058dcde1e9ce46b77bc99aca94d117fb",
+      "sha256": "2aa15fecccc0b32e274c66d7cc38429a92952ac70c6c9cbdbb87327cf3edeaf4",
       "patterns": [
         "unsafeBitCast\\b"
       ],
@@ -385,14 +388,14 @@
       "reason": "System Vulkan entry points resolved at runtime and cast to typed C ABI, per add-vulkan-and-direct3d-native-backends ADR; not a shader compiler bridge."
     },
     "Sources/SAGAVulkan/VulkanGraphicsFunctions.swift": {
-      "sha256": "59542b2ac0b3947d408dbbbfa0c1eec276c7d93e7d7e216caea77ec65d888db3",
+      "sha256": "08f1ee30a6c67c41bd7d99b1a7e50455b18b747de28b0b4747d63a0da4698898",
       "patterns": [
         "unsafeBitCast\\b"
       ],
       "reason": "System Vulkan entry points resolved at runtime and cast to typed C ABI, per add-vulkan-and-direct3d-native-backends ADR; not a shader compiler bridge."
     },
     "Sources/SAGAVulkan/VulkanAdapter.swift": {
-      "sha256": "cd76f2b75d31345a7d4100c9f5e00fc3bf4c292272d9c7d68b73b54465d9b736",
+      "sha256": "9f28ecc5faeaa38fb02beccfcca0b0e7d0f33acdd2af374a8907dd26b8833377",
       "patterns": [
         "unsafeBitCast\\b"
       ],
@@ -429,7 +432,7 @@
       "reason": "Linux-only real Xlib/Wayland presentation fixture uses system dynamic entry points and synchronous registry callback state; not linked into the runtime product."
     },
     "Tests/SAGAFoundationTests/VulkanComputeTests.swift": {
-      "sha256": "2f7942bf1a0520439007934c0006c541d4f6eb4ad4bf21f4b2437191725b33b3",
+      "sha256": "b8ebeac27da092f9170584fe05376a7ac4d03e4b7b9df1a0d96ac855641eaa7f",
       "patterns": [
         "@unchecked\\s+Sendable"
       ],

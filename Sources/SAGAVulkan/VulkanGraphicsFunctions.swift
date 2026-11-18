@@ -38,6 +38,7 @@ struct VulkanGraphicsFunctions: Sendable {
     let createSampler: @convention(c) (UInt, UnsafeRawPointer, UnsafeRawPointer?, UnsafeMutablePointer<UInt64>) -> VkResult
     let destroySampler: @convention(c) (UInt, UInt64, UnsafeRawPointer?) -> Void
     let cmdCopyImageToBuffer: @convention(c) (UInt, UInt64, UInt32, UInt64, UInt32, UnsafeRawPointer) -> Void
+    let cmdCopyImage: @convention(c) (UInt, UInt64, UInt32, UInt64, UInt32, UInt32, UnsafeRawPointer) -> Void
     let cmdClearDepthStencilImage: @convention(c) (UInt, UInt64, UInt32, UnsafeRawPointer, UInt32, UnsafeRawPointer) -> Void
 
     init(instance: VulkanInstance) throws {
@@ -87,6 +88,7 @@ struct VulkanGraphicsFunctions: Sendable {
         cmdClearColorImage = try load("vkCmdClearColorImage")
         cmdCopyBufferToImage = try load("vkCmdCopyBufferToImage")
         cmdCopyImageToBuffer = try load("vkCmdCopyImageToBuffer")
+        cmdCopyImage = try load("vkCmdCopyImage")
         cmdClearDepthStencilImage = try load("vkCmdClearDepthStencilImage")
     }
 }
