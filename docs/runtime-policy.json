@@ -271,6 +271,7 @@
   },
   "file_imports": {
     "Sources/SAGAVulkan/VulkanExtensionRequest.swift": [
+      "os",
       "Synchronization"
     ],
     "Tests/SAGAFoundationTests/MeshFragmentGLSLResourceLayoutTests.swift": [

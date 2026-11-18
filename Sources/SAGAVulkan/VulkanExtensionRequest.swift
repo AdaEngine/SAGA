@@ -1,4 +1,8 @@
+#if os(macOS)
+import os
+#else
 import Synchronization
+#endif
 
 /// Extra Vulkan extensions a host needs enabled for libraries that share SAGA's device (for example NVIDIA NGX).
 ///
@@ -10,7 +14,12 @@ public enum VulkanExtensionRequest {
         var device: [String] = []
     }
 
+    #if os(macOS)
+    // Keep the macOS 14 deployment target; Synchronization.Mutex requires macOS 15.
+    private static let names = OSAllocatedUnfairLock(initialState: Names())
+    #else
     private static let names = Mutex(Names())
+    #endif
 
     public static func set(instance: [String], device: [String]) {
         names.withLock { $0 = Names(instance: instance, device: device) }
