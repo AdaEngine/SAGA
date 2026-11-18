@@ -1064,6 +1064,31 @@ extension VulkanDevice: RenderBackendDevice {
         }
     }
 
+    func planTextureCopy(source: ResourceID, destination: ResourceID,
+                         region: TextureCopyRegion, origin: TextureCopyOrigin) throws -> Operation {
+        guard let sourceTexture = textures[source], let destinationTexture = textures[destination] else {
+            throw GPUError.validation("Unknown Vulkan texture")
+        }
+        guard sourceTexture.descriptor.dimension == destinationTexture.descriptor.dimension,
+              sourceTexture.format.aspect == VK.Image.aspectColor, destinationTexture.format.aspect == VK.Image.aspectColor,
+              sourceTexture.descriptor.format.compression == nil, destinationTexture.descriptor.format.compression == nil else {
+            throw GPUError.unsupported("Vulkan image copies require uncompressed color textures of the same dimension")
+        }
+
+        let isVolume = sourceTexture.descriptor.dimension == .d3
+        let layerCount = isVolume ? 1 : region.depth
+        let sourceLayers = VkImageSubresourceLayers(aspectMask: VK.Image.aspectColor, mipLevel: region.mipLevel,
+                                                    baseArrayLayer: region.arrayLayer, layerCount: layerCount)
+        let destinationLayers = VkImageSubresourceLayers(aspectMask: VK.Image.aspectColor, mipLevel: origin.mipLevel,
+                                                         baseArrayLayer: origin.arrayLayer, layerCount: layerCount)
+        let copy = VkImageCopy(srcSubresource: sourceLayers,
+                               srcOffset: VkOffset3D(x: Int32(region.x), y: Int32(region.y), z: Int32(region.z)),
+                               dstSubresource: destinationLayers,
+                               dstOffset: VkOffset3D(x: Int32(origin.x), y: Int32(origin.y), z: Int32(origin.z)),
+                               extent: VkExtent3D(width: region.width, height: region.height, depth: isVolume ? region.depth : 1))
+        return .textureCopy(source: sourceTexture.image, destination: destinationTexture.image, region: copy)
+    }
+
     /// Builds the buffer/image copy for a texture transfer command, or nil when the command is not one.
     func planImageCopy(_ command: BufferCommand, staged: inout [UInt8]) throws -> ImageCopyPlan? {
         func texture(_ id: ResourceID) throws -> Texture {

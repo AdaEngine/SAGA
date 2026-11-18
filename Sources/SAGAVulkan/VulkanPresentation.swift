@@ -251,7 +251,7 @@ final class VulkanPresenter {
         guard current.width != 0, current.height != 0, current.width != UInt32.max else { return false }
         if swapchain != 0, current == extent, srgb == wantSRGB { return true }
         let device = native.device
-        _ = native.f.deviceWaitIdle(device)
+        try vulkanCheck(native.f.deviceWaitIdle(device), "wait for swapchain recreation")
         let old = swapchain
         let preferred: [UInt32] = srgb ? [50, 43] : [44, 37]
         let chosen = preferred.lazy.compactMap { wanted in self.formatCandidates.first { $0.format == wanted } }.first
@@ -269,30 +269,39 @@ final class VulkanPresenter {
         info.compositeAlpha = alpha & 1 != 0 ? 1 : (alpha & 2 != 0 ? 2 : (alpha & 4 != 0 ? 4 : 8))
         info.oldSwapchain = old
         var created: UInt64 = 0
-        try vulkanCheck(withUnsafePointer(to: &info) { functions.createSwapchain(device, UnsafeRawPointer($0), nil, &created) },
-                        "swapchain creation")
+        let result = withUnsafePointer(to: &info) { functions.createSwapchain(device, UnsafeRawPointer($0), nil, &created) }
+        // vkCreateSwapchainKHR retires oldSwapchain even when it fails.
         releaseSwapchain(device: device, handle: old)
+        swapchain = 0
+        images.removeAll()
+        try vulkanCheck(result, "swapchain creation")
+
+        func makeSemaphore() throws -> UInt64 {
+            var info = VkSemaphoreCreateInfo()
+            var handle: UInt64 = 0
+            try vulkanCheck(withUnsafePointer(to: &info) { functions.createSemaphore(device, UnsafeRawPointer($0), nil, &handle) },
+                            "semaphore creation")
+            return handle
+        }
+
+        do {
+            var imageCount: UInt32 = 0
+            try vulkanCheck(functions.getSwapchainImages(device, created, &imageCount, nil), "swapchain image count")
+            guard imageCount > 0 else { throw GPUError.backendFailure("Vulkan swapchain has no images") }
+            var newImages = [UInt64](repeating: 0, count: Int(imageCount))
+            try vulkanCheck(functions.getSwapchainImages(device, created, &imageCount, &newImages), "swapchain image query")
+            guard imageCount > 0 else { throw GPUError.backendFailure("Vulkan swapchain has no images") }
+            for _ in 0...imageCount { acquireSemaphores.append(try makeSemaphore()) }
+            for _ in 0..<imageCount { renderSemaphores.append(try makeSemaphore()) }
+            images = Array(newImages.prefix(Int(imageCount)))
+        } catch {
+            releaseSwapchain(device: device, handle: created)
+            throw error
+        }
         swapchain = created
         rebuilds += 1
         extent = current
         wantSRGB = srgb
-        var imageCount: UInt32 = 0
-        _ = functions.getSwapchainImages(device, created, &imageCount, nil)
-        images = [UInt64](repeating: 0, count: Int(imageCount))
-        _ = functions.getSwapchainImages(device, created, &imageCount, &images)
-        var semaphoreInfo = VkSemaphoreCreateInfo()
-        for _ in 0..<(images.count + 1) {
-            var semaphore: UInt64 = 0
-            try vulkanCheck(withUnsafePointer(to: &semaphoreInfo) { functions.createSemaphore(device, UnsafeRawPointer($0), nil, &semaphore) },
-                            "semaphore creation")
-            acquireSemaphores.append(semaphore)
-        }
-        for _ in images {
-            var semaphore: UInt64 = 0
-            try vulkanCheck(withUnsafePointer(to: &semaphoreInfo) { functions.createSemaphore(device, UnsafeRawPointer($0), nil, &semaphore) },
-                            "semaphore creation")
-            renderSemaphores.append(semaphore)
-        }
         return true
     }
 
@@ -382,6 +391,8 @@ extension VulkanDevice: PresentationBackendDevice {
 
         let image = presenter.images[Int(index)]
         let renderDone = presenter.renderSemaphores[Int(index)]
+        let generation = presenter.rebuilds
+        let acquiredSwapchain = presenter.swapchain
         let extent = presenter.extent
         let sourceImage = texture.image
         let sourceExtent = texture.descriptor.mipExtent(0) ?? (width: texture.descriptor.width, height: texture.descriptor.height)
@@ -408,7 +419,9 @@ extension VulkanDevice: PresentationBackendDevice {
             transition(from: VKPresent.layoutTransferDestination, to: VKPresent.layoutPresentSource, access: 0)
         }
 
-        var swapchain = presenter.swapchain
+        // The Vulkan actor can detach or rebuild the surface while the blit fence is pending.
+        guard presenter.rebuilds == generation, presenter.swapchain == acquiredSwapchain else { return }
+        var swapchain = acquiredSwapchain
         var imageIndex = index
         var wait = renderDone
         var info = VkPresentInfoKHR()

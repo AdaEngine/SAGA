@@ -129,6 +129,21 @@ struct VkBufferImageCopy {
     var imageExtent = VkExtent3D()
 }
 
+struct VkImageSubresourceLayers {
+    let aspectMask: UInt32
+    let mipLevel: UInt32
+    let baseArrayLayer: UInt32
+    let layerCount: UInt32
+}
+
+struct VkImageCopy {
+    let srcSubresource: VkImageSubresourceLayers
+    let srcOffset: VkOffset3D
+    let dstSubresource: VkImageSubresourceLayers
+    let dstOffset: VkOffset3D
+    let extent: VkExtent3D
+}
+
 struct VkAttachmentDescription {
     var flags: UInt32 = 0
     var format: UInt32 = 0

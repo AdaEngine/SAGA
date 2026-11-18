@@ -617,6 +617,7 @@ public actor VulkanDevice: ComputeAccelerationStructureBackendDevice, PlanarExte
         case read(source: UInt64, readbackOffset: UInt64, count: UInt64)
         case dispatch(DispatchPlan)
         case imageCopy(ImageCopyPlan)
+        case textureCopy(source: UInt64, destination: UInt64, region: VkImageCopy)
         case render(RenderPlan)
         case resetQuery(pool: UInt64, index: UInt32)
         case writeTimestamp(pool: UInt64, index: UInt32, end: Bool)
@@ -832,6 +833,9 @@ public actor VulkanDevice: ComputeAccelerationStructureBackendDevice, PlanarExte
                 descriptorTotals.add(VK.DescriptorType.storageBuffer, 3)
                 indirectLimits.append((plan.indexed == nil ? 3 : 4, 0))
                 operations.append(.render(plan))
+            case .copyTextureToTexture(let source, let destination, let region, let origin):
+                guard !region.isEmpty else { return }
+                operations.append(try planTextureCopy(source: source, destination: destination, region: region, origin: origin))
             case .copyTextureToBuffer, .copyTextureRegionToBuffer, .copyBufferToTexture, .writeTexture:
                 guard let plan = try planImageCopy(command, staged: &staged) else {
                     throw GPUError.unsupported("Vulkan does not implement this command yet")
@@ -1057,6 +1061,9 @@ public actor VulkanDevice: ComputeAccelerationStructureBackendDevice, PlanarExte
                     } else {
                         native.g.cmdCopyImageToBuffer(commandBuffer, plan.image, VK.Image.layoutGeneral, bufferHandle, 1, &region)
                     }
+                case .textureCopy(let source, let destination, var region):
+                    native.g.cmdCopyImage(commandBuffer, source, VK.Image.layoutGeneral,
+                                          destination, VK.Image.layoutGeneral, 1, &region)
                 case .resetQuery(let pool, let index):
                     native.g.cmdResetQueryPool(commandBuffer, pool, index, 1)
                 case .writeTimestamp(let pool, let index, let end):

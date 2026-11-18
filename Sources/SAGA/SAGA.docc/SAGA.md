@@ -26,6 +26,8 @@ Use `copyTextureRegionToBuffer` to read a rectangular region rather than a
 whole mip level, including selected array layers or 3D slices.
 Texture-to-texture copies may cross dimensions, such as between 2D array
 layers and 3D slices, when the source and destination regions are valid.
+Vulkan supports texture-to-texture copies between uncompressed color textures
+of the same dimension.
 Copies between disjoint slices of the same 3D mip are supported; the browser
 backend uses an intermediate texture when its WebGPU implementation rejects
 copying a 3D mip to itself.

@@ -723,6 +723,37 @@ private func pixel(_ words: [UInt32], x: Int, y: Int) -> UInt32 { words[y * 64 +
     } catch { await device.close(); throw error }
 }
 
+@Test(.enabled(if: vulkanAvailable), .gpuExclusive) func vulkanCopiesAStudioColorTextureRegion() async throws {
+    let backend = try VulkanBackend.makeDevice()
+    let device = try await Device.make(backend: backend)
+    do {
+        let source = try await device.createTexture(.init(width: 4, height: 4, format: .bgra8Unorm,
+                                                          usage: [.copySource, .copyDestination]))
+        let destination = try await device.createTexture(.init(width: 4, height: 4, format: .bgra8Unorm,
+                                                               usage: [.copySource, .copyDestination]))
+        let read = try await device.createBuffer(.init(size: 1024, usage: [.copyDestination, .mapRead]))
+        let upload = (0..<64).map { UInt8($0 + 1) }
+        let ticket = try await device.submitCommands([
+            .writeTexture(destination: source, data: upload, layout: .init(bytesPerRow: 16),
+                          region: .init(width: 4, height: 4)),
+            .copyTextureToTexture(source: source, destination: destination,
+                                  sourceRegion: .init(x: 1, y: 0, width: 2, height: 2),
+                                  destinationOrigin: .init(x: 0, y: 1)),
+            .copyTextureToBuffer(source: destination, destination: read, bytesPerRow: 256),
+            .read(buffer: read, byteCount: 784),
+        ])
+        let snapshots = try await ticket.wait()
+        let pixels = try #require(snapshots.first)
+        #expect(pixel(pixels, x: 0, y: 1) == 0x0807_0605)
+        #expect(pixel(pixels, x: 1, y: 1) == 0x0c0b_0a09)
+        #expect(pixel(pixels, x: 0, y: 2) == 0x1817_1615)
+        #expect(pixel(pixels, x: 1, y: 2) == 0x1c1b_1a19)
+        #expect(pixel(pixels, x: 0, y: 0) == 0)
+        #expect(pixel(pixels, x: 2, y: 1) == 0)
+        await device.close()
+    } catch { await device.close(); throw error }
+}
+
 @Test(.enabled(if: vulkanAvailable), .gpuExclusive) func vulkanMapsBuffersForHostWritesAndReads() async throws {
     let backend = try VulkanBackend.makeDevice()
     let device = try await Device.make(backend: backend)

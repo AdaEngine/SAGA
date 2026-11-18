@@ -43,7 +43,7 @@ def unexpected_project_files(paths):
         path=pathlib.PurePosixPath(p)
         if p in POLICY['standalone_benchmark_files'] or p in POLICY['archived_shader_artifacts']: return True
         if path.name in {'Cargo.toml','Cargo.lock','Package.resolved','package.json'} or path.suffix in {'.rs','.c','.h','.cpp','.m','.mm','.a','.dylib','.so','.wasm','.modulemap'}: return False
-        if p in {'IDEA.md','README.md','AGENTS.md','Package.swift','.gitignore','.spi.yml'} | WEB_FILES: return True
+        if p in {'IDEA.md','README.md','AGENTS.md','LICENSE','Package.swift','.gitignore','.spi.yml'} | WEB_FILES: return True
         if p.startswith(('docs/','.sloppy/plans/')): return True
         if p.startswith('.github/workflows/'): return p.endswith(('.yml','.yaml'))
         if p.startswith('scripts/'): return p.endswith(('.py','.sh','.json'))
