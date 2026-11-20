@@ -1545,6 +1545,23 @@ public final class MetalDevice: ComputeAccelerationStructureBackendDevice, Prese
     public func submitCommands(_ submission: Submission, commands: [BufferCommand]) async throws -> [[UInt32]] {
         try requireActive()
         #if canImport(Metal)
+        // Device orders this write after the preceding ticket. Also require the
+        // native queue to have no in-flight batches before touching shared storage.
+        if submission.commandsValidated, inFlight.isEmpty, commands.count == 1,
+           case let .writeBytes(id, offset, bytes, dataOffset, byteCount) = commands[0],
+           submission.resources.count == 1, submission.resources.first == id,
+           let buffer = buffers[id], buffer.mapping == nil, buffer.native.storageMode == .shared {
+            try commands[0].validate(device: id.device, descriptors: [id: buffer.descriptor])
+            let source = try BufferCommand.uploadBytes(bytes, dataOffset: dataOffset, byteCount: byteCount)
+            source.withUnsafeBytes { bytes in
+                if let address = bytes.baseAddress, !bytes.isEmpty {
+                    buffer.native.contents().advanced(by: Int(offset))
+                        .copyMemory(from: address, byteCount: bytes.count)
+                }
+            }
+            return []
+        }
+
         let owner = submission.resources.first?.device ??
             commands.lazy.compactMap { $0.recordedPass.command.computeDispatch?.pipeline.id.device }.first ?? 0
         let descriptors = buffers.mapValues(\.descriptor)
