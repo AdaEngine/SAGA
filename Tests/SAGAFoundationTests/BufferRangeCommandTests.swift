@@ -1,7 +1,7 @@
 import Testing
 import SAGATypes
 import SAGACore
-import SAGAMetal
+@testable import SAGAMetal
 
 @Test func bufferRangeCommandsValidateByteAlignmentBoundsAndUsage() throws {
     let source = ResourceID(device: 1, serial: 1)
@@ -51,6 +51,39 @@ import SAGAMetal
 }
 
 #if canImport(Metal)
+private actor MetalBatchCount {
+    private(set) var count = 0
+
+    func record() { count += 1 }
+}
+
+@Test func isolatedValidatedByteUploadDoesNotSubmitAMetalBlit() async throws {
+    let backend = try MetalBackend.makeDevice()
+    let batches = MetalBatchCount()
+    await backend.setRetirementHookForTesting { await batches.record() }
+    let device = try await Device.make(backend: backend)
+    do {
+        let buffer = try await device.createBuffer(.init(size: 12, usage: [.copySource, .copyDestination]))
+        let upload = try await device.writeBuffer(buffer, offset: 4, bytes: [1, 2, 3, 4])
+        _ = try await upload.wait()
+        #expect(await batches.count == 0)
+
+        let readback = try await device.createBuffer(.init(size: 12, usage: [.mapRead, .copyDestination]))
+        let read = try await device.submitCommands([
+            .copy(source: buffer, destination: readback),
+        ])
+        _ = try await read.wait()
+        let mapping = try await device.mapBuffer(readback, mode: .read)
+        let bytes = try await device.readMappedBytes(mapping)
+        #expect(bytes == [0, 0, 0, 0, 1, 2, 3, 4, 0, 0, 0, 0])
+        try await device.unmapBuffer(readback)
+        await device.close()
+    } catch {
+        await device.close()
+        throw error
+    }
+}
+
 @Test func byteUploadRangeCopiesAndClearsPreserveNeighborsOnMetal() async throws {
     let device = try await Device.make(backend: MetalBackend.makeDevice())
     let source = try await device.createBuffer(.init(size: 20, usage: [.copySource, .copyDestination]))

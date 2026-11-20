@@ -816,19 +816,26 @@ public actor Device {
                 throw GPUError.unsupported("Backend does not implement command submission")
             }
             commandBackend = implementation
-            let descriptors = resources.compactMapValues { $0.descriptor.buffer }
-            let textures = resources.compactMapValues { $0.descriptor.texture }
-            let textureViews = resources.compactMapValues { $0.descriptor.textureView }
-            let externalTextures = Set(resources.compactMap { id, resource in
+            // An isolated byte upload only validates the destination buffer.
+            let validationResources: [ResourceID: Resource]
+            if list.count == 1, case let .writeBytes(destination, _, _, _, _)? = list.legacyCommands.first {
+                validationResources = resources[destination].map { [destination: $0] } ?? [:]
+            } else {
+                validationResources = resources
+            }
+            let descriptors = validationResources.compactMapValues { $0.descriptor.buffer }
+            let textures = validationResources.compactMapValues { $0.descriptor.texture }
+            let textureViews = validationResources.compactMapValues { $0.descriptor.textureView }
+            let externalTextures = Set(validationResources.compactMap { id, resource in
                 resource.descriptor.kind == .externalTexture ? id : nil
             })
-            let externalPlanes = resources.compactMapValues { resource in
+            let externalPlanes = validationResources.compactMapValues { resource in
                 let planes = resource.descriptor.externalPlanes
                 return planes.isEmpty ? nil : planes
             }
-            let samplerDescriptors = resources.compactMapValues { $0.descriptor.sampler }
-            let querySets = resources.compactMapValues { $0.descriptor.querySet }
-            let accelerationStructures = resources.compactMapValues { resource -> AccelerationStructureDescriptor? in
+            let samplerDescriptors = validationResources.compactMapValues { $0.descriptor.sampler }
+            let querySets = validationResources.compactMapValues { $0.descriptor.querySet }
+            let accelerationStructures = validationResources.compactMapValues { resource -> AccelerationStructureDescriptor? in
                 guard case .accelerationStructure(let descriptor) = resource.descriptor else { return nil }
                 return descriptor
             }
@@ -988,9 +995,15 @@ public actor Device {
             for id in ids { try requireGPUResource(id) }
             guard nextSubmission < UInt64.max else { throw GPUError.outOfMemory }
             nextSubmission += 1
-            let planes = ids.flatMap { resources[$0]?.descriptor.externalPlanes ?? [] }
-            let parents = (ids + planes).compactMap { resources[$0]?.descriptor.textureView?.texture }
-            let unique = Set(ids).union(planes).union(parents).sorted { $0.serial < $1.serial }
+            let unique: [ResourceID]
+            if ids.count == 1, resources[ids[0]]?.descriptor.buffer != nil {
+                // Buffers have no texture view parents or external planes to pin.
+                unique = ids
+            } else {
+                let planes = ids.flatMap { resources[$0]?.descriptor.externalPlanes ?? [] }
+                let parents = (ids + planes).compactMap { resources[$0]?.descriptor.textureView?.texture }
+                unique = Set(ids).union(planes).union(parents).sorted { $0.serial < $1.serial }
+            }
             for id in unique { resources[id]!.uses += 1 }
             let submission = Submission(sequence: nextSubmission, resources: unique)
             let predecessor = tail
