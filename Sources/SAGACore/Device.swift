@@ -995,9 +995,15 @@ public actor Device {
             for id in ids { try requireGPUResource(id) }
             guard nextSubmission < UInt64.max else { throw GPUError.outOfMemory }
             nextSubmission += 1
-            let planes = ids.flatMap { resources[$0]?.descriptor.externalPlanes ?? [] }
-            let parents = (ids + planes).compactMap { resources[$0]?.descriptor.textureView?.texture }
-            let unique = Set(ids).union(planes).union(parents).sorted { $0.serial < $1.serial }
+            let unique: [ResourceID]
+            if ids.count == 1, resources[ids[0]]?.descriptor.buffer != nil {
+                // Buffers have no texture view parents or external planes to pin.
+                unique = ids
+            } else {
+                let planes = ids.flatMap { resources[$0]?.descriptor.externalPlanes ?? [] }
+                let parents = (ids + planes).compactMap { resources[$0]?.descriptor.textureView?.texture }
+                unique = Set(ids).union(planes).union(parents).sorted { $0.serial < $1.serial }
+            }
             for id in unique { resources[id]!.uses += 1 }
             let submission = Submission(sequence: nextSubmission, resources: unique)
             let predecessor = tail
