@@ -67,7 +67,9 @@ cover early completion, late completion and actual timer expiry with no callback
 ## Indexed drawing and uploads
 
 Metal can combine consecutive indexed draws when the renderer identifies them as
-eligible and the backend's resource and attachment checks pass. The group preserves
+eligible and the backend's resource and attachment checks pass. The producer can
+combine the depth/stencil and additional color attachment permissions for a draw.
+The group preserves
 draw order and index validation. Attachment clears, copies, queries, incompatible
 targets, and ineligible draws end the group.
 

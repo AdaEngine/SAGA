@@ -78,7 +78,7 @@ func groupedMetalIndexedDrawsMatchSeparatePasses() async throws {
             ]
             if !separate {
                 let groups = Dictionary(uniqueKeysWithValues: commands.indices.compactMap { index in
-                    if case .renderIndexed = commands[index] { return (index, MetalIndexedDrawGrouping.ui) }
+                    if case .renderIndexed = commands[index] { return (index, MetalIndexedDrawGrouping.color) }
                     return nil
                 })
                 return try await MetalIndexedDrawGrouping.$commands.withValue(groups) {

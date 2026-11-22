@@ -12,17 +12,6 @@ import Metal
 import QuartzCore
 #endif
 
-/// Pass eligibility supplied by the producer of an indexed draw. Metal still validates each draw and attachment.
-@_spi(IndexedDrawGrouping)
-public enum MetalIndexedDrawGrouping: Sendable, Equatable {
-    case ui
-    case shadowDepth
-    case geometry
-
-    /// Indices in the original command list, before splitting query ranges.
-    @TaskLocal public static var commands: [Int: Self] = [:]
-}
-
 public struct MetalAdapter: Sendable {
     public let name: String
     #if canImport(Metal)

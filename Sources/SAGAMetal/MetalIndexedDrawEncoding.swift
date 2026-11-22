@@ -91,8 +91,10 @@ extension MetalDevice {
         color: Texture, additionalColors: [UInt32: RenderColorAttachment], depth: RenderDepthAttachment?,
         pipeline: RenderPipeline, state: RenderState, eligibility: MetalIndexedDrawGrouping?
     ) -> Bool {
+        guard eligibility?.allows(depthStencil: depth != nil, multipleColorAttachments: !additionalColors.isEmpty) == true
+        else { return false }
         if !additionalColors.isEmpty {
-            guard eligibility == .geometry, depth != nil,
+            guard depth != nil,
                   color.descriptor.format == .rgba16Float, pipeline.depthState?.writeEnabled == true,
                   additionalColors[1] != nil, additionalColors[2] != nil, additionalColors[3] != nil,
                   Set(pipeline.additionalColorTargets.keys) == Set(additionalColors.keys),
@@ -110,11 +112,10 @@ extension MetalDevice {
             guard pipeline.additionalColorTargets.isEmpty else { return false }
         }
         guard let depth else {
-            return eligibility == .ui && pipeline.depthState == nil && state.depth == nil
+            return pipeline.depthState == nil && state.depth == nil
         }
-        let shadows = eligibility == .shadowDepth
-            && (color.descriptor.format == .r32Float || color.descriptor.format == .rgba32Float)
-        guard !additionalColors.isEmpty || shadows,
+        let supportedDepthColor = color.descriptor.format == .r32Float || color.descriptor.format == .rgba32Float
+        guard !additionalColors.isEmpty || supportedDepthColor,
               let attachment = textures[depth.texture],
               attachment.descriptor.format == .depth24PlusStencil8 || attachment.descriptor.format == .depth32FloatStencil8,
               attachment.descriptor.sampleCount == 1,

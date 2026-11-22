@@ -73,7 +73,7 @@ func groupedLocalShadowDepthMatchesSeparatePasses(format: TextureFormat) async t
             if !separate {
                 let groups = Dictionary(uniqueKeysWithValues: commands.indices.compactMap { index in
                     if case .renderIndexed = commands[index] {
-                        return (index, MetalIndexedDrawGrouping.shadowDepth)
+                        return (index, MetalIndexedDrawGrouping([.color, .depthStencil]))
                     }
                     return nil
                 })
