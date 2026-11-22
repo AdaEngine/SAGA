@@ -56,12 +56,23 @@ struct MetalIndexValidator {
         indices: any MTLBuffer, format: IndexFormat, byteOffset: Int,
         draw: IndexedDraw, maximumVertex: UInt32, primitiveRestart: Bool
     ) throws -> any MTLBuffer {
+        guard let encoder = commands.makeComputeCommandEncoder() else { throw GPUError.outOfMemory }
+        defer { encoder.endEncoding() }
+        return try encode(on: encoder, device: device, indices: indices, format: format, byteOffset: byteOffset,
+                          draw: draw, maximumVertex: maximumVertex, primitiveRestart: primitiveRestart)
+    }
+
+    /// Records independent index checks in an encoder shared by one ordered draw group.
+    func encode(
+        on encoder: any MTLComputeCommandEncoder, device: any MTLDevice,
+        indices: any MTLBuffer, format: IndexFormat, byteOffset: Int,
+        draw: IndexedDraw, maximumVertex: UInt32, primitiveRestart: Bool
+    ) throws -> any MTLBuffer {
         var args = MTLDrawIndexedPrimitivesIndirectArguments(
             indexCount: draw.indexCount, instanceCount: draw.instances.count, indexStart: 0,
             baseVertex: draw.baseVertex, baseInstance: draw.instances.first)
         guard let indirect = device.makeBuffer(bytes: &args, length: MemoryLayout.size(ofValue: args),
-                                              options: .storageModeShared),
-              let encoder = commands.makeComputeCommandEncoder() else { throw GPUError.outOfMemory }
+                                              options: .storageModeShared) else { throw GPUError.outOfMemory }
         let pipeline = format == .uint16 ? uint16 : uint32
         let alignedOffset = byteOffset & ~3
         var bounds = SIMD4<UInt32>(draw.indexCount, UInt32(byteOffset - alignedOffset) / format.byteSize,
@@ -77,7 +88,6 @@ struct MetalIndexValidator {
         let groups = (Int(draw.indexCount) + width - 1) / width
         encoder.dispatchThreadgroups(MTLSize(width: groups, height: 1, depth: 1),
                                      threadsPerThreadgroup: MTLSize(width: width, height: 1, depth: 1))
-        encoder.endEncoding()
         return indirect
     }
 }

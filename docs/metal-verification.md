@@ -64,6 +64,19 @@ the timeout path without submitting a deliberately infinite shader. It is **not*
 of actual GPU removal, driver reset, hardware hang or recovery. Completion-latch tests also
 cover early completion, late completion and actual timer expiry with no callback.
 
+## Indexed drawing and uploads
+
+Metal can combine consecutive indexed draws when the renderer identifies them as
+eligible and the backend's resource and attachment checks pass. The producer can
+combine the depth/stencil and additional color attachment permissions for a draw.
+The group preserves
+draw order and index validation. Attachment clears, copies, queries, incompatible
+targets, and ineligible draws end the group.
+
+Validated batches of byte uploads to shared Metal buffers can execute without a
+staging command buffer. They validate every range before applying overlapping writes
+in command order.
+
 ## Reproduce
 
 Native:
