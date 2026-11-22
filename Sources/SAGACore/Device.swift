@@ -809,6 +809,7 @@ public actor Device {
     /// Validates and queues a recorded list. Compact records are validated without rebuilding `BufferCommand` values.
     public func submit(_ list: CommandList) throws -> CommandTicket {
         let commandBackend: any CommandBackendDevice
+        let commandResources = Set(list.resources)
         do {
             try Task.checkCancellation()
             try requireActive()
@@ -821,7 +822,21 @@ public actor Device {
             if list.count == 1, case let .writeBytes(destination, _, _, _, _)? = list.legacyCommands.first {
                 validationResources = resources[destination].map { [destination: $0] } ?? [:]
             } else {
-                validationResources = resources
+                var referenced: [ResourceID: Resource] = [:]
+                for id in commandResources {
+                    guard let resource = resources[id] else { continue }
+                    referenced[id] = resource
+                    if let parent = resource.descriptor.textureView?.texture {
+                        referenced[parent] = resources[parent]
+                    }
+                    for plane in resource.descriptor.externalPlanes {
+                        referenced[plane] = resources[plane]
+                        if let parent = resources[plane]?.descriptor.textureView?.texture {
+                            referenced[parent] = resources[parent]
+                        }
+                    }
+                }
+                validationResources = referenced
             }
             let descriptors = validationResources.compactMapValues { $0.descriptor.buffer }
             let textures = validationResources.compactMapValues { $0.descriptor.texture }
@@ -928,7 +943,7 @@ public actor Device {
             default: return nil
             }
         })
-        let (sequence, completion) = try enqueue(Array(Set(list.resources))) { submission in
+        let (sequence, completion) = try enqueue(Array(commandResources)) { submission in
             // Every command passed the shared validator against these pinned resources above.
             try await self.submitAccelerationCommands(submission.markingCommandsValidated(), list: list,
                                                       builds: buildDestinations, backend: commandBackend)

@@ -1,12 +1,27 @@
 import SAGATypes
 import SAGABackend
 import SAGAShaderIR
+import Foundation
+#if canImport(Darwin)
+import Darwin
+#endif
 #if canImport(Metal)
 import Metal
 #endif
 #if canImport(QuartzCore)
 import QuartzCore
 #endif
+
+/// Pass eligibility supplied by the producer of an indexed draw. Metal still validates each draw and attachment.
+@_spi(IndexedDrawGrouping)
+public enum MetalIndexedDrawGrouping: Sendable, Equatable {
+    case ui
+    case shadowDepth
+    case geometry
+
+    /// Indices in the original command list, before splitting query ranges.
+    @TaskLocal public static var commands: [Int: Self] = [:]
+}
 
 public struct MetalAdapter: Sendable {
     public let name: String
@@ -111,6 +126,7 @@ public final class MetalDevice: ComputeAccelerationStructureBackendDevice, Prese
         var committedHandlers: [@MainActor @Sendable () -> Void] = []
         var accelerationBuilds: [ResourceID: PendingAccelerationBuild] = [:]
         var retainedAccelerationBuilds: [MetalAccelerationStructureBuild] = []
+        var groupingStats: GroupingStats?
     }
     private struct RenderState {
         let pipeline: any MTLRenderPipelineState
@@ -125,6 +141,69 @@ public final class MetalDevice: ComputeAccelerationStructureBackendDevice, Prese
         let vertexImmediateBufferIndex: UInt32?
         let fragmentImmediateBufferIndex: UInt32?
         var metalRenderTargetLayer: UInt32? = nil
+    }
+
+    private static let traceGrouping = ProcessInfo.processInfo.environment["ADAENGINE_SAGA_TRACE_GROUPING"] == "1"
+    private func validationDescriptors<Value, Descriptor>(
+        _ all: [ResourceID: Value],
+        pinned: Set<ResourceID>,
+        extract: (Value) -> Descriptor
+    ) -> [ResourceID: Descriptor] {
+        var result: [ResourceID: Descriptor] = [:]
+        for id in pinned {
+            if let resource = all[id] { result[id] = extract(resource) }
+        }
+        return result
+    }
+
+    private struct GroupingStats {
+        var indexedDraws = 0
+        var renderEncoders = 0
+        var indexEncoders = 0
+        var groups = 0
+        var groupedDraws = 0
+        var cpu: UInt64 = 0
+    }
+
+    /// A draw that can share a render encoder. Sampling and index validation are read-only.
+    private struct IndexedColorDraw {
+        let pipeline: RenderPipeline
+        let state: RenderState
+        let target: ResourceID
+        let level: UInt32
+        let load: RenderColorLoadAction
+        let additionalColors: [UInt32: RenderColorAttachment]
+        let depth: RenderDepthAttachment?
+        let index: IndexBufferBinding
+        let draw: IndexedDraw
+        let vertices: [VertexBufferBinding]
+        let uniforms: [ComputeBindingSlot: ComputeBufferBinding]
+        let storage: [ComputeBindingSlot: ComputeBufferBinding]
+        let textures: [ComputeBindingSlot: ResourceID]
+        let samplers: [ComputeBindingSlot: ResourceID]
+        let blend: RenderClearColor
+        let raster: RenderRasterState
+        let maximumVertex: UInt32
+
+        func follows(_ first: Self) -> Bool {
+            guard target == first.target, level == first.level, load == .load,
+                  additionalColors.count == first.additionalColors.count,
+                  additionalColors.allSatisfy({ location, next in
+                      guard let initial = first.additionalColors[location] else { return false }
+                      return initial.texture == next.texture && initial.mipLevel == next.mipLevel
+                          && initial.depthSlice == next.depthSlice && next.loadAction == .load
+                  }) else { return false }
+            switch (first.depth, depth) {
+            case (nil, nil):
+                return true
+            case (let initial?, let next?):
+                // A clear in any aspect starts a new encoder, even on the same allocation.
+                return initial.texture == next.texture && initial.mipLevel == next.mipLevel
+                    && next.loadAction == .load && next.stencil?.loadAction == .load
+            default:
+                return false
+            }
+        }
     }
 
     private struct TextureSubresource: Hashable {
@@ -1545,32 +1624,22 @@ public final class MetalDevice: ComputeAccelerationStructureBackendDevice, Prese
     public func submitCommands(_ submission: Submission, commands: [BufferCommand]) async throws -> [[UInt32]] {
         try requireActive()
         #if canImport(Metal)
-        // Device orders this write after the preceding ticket. Also require the
-        // native queue to have no in-flight batches before touching shared storage.
-        if submission.commandsValidated, inFlight.isEmpty, commands.count == 1,
-           case let .writeBytes(id, offset, bytes, dataOffset, byteCount) = commands[0],
-           submission.resources.count == 1, submission.resources.first == id,
-           let buffer = buffers[id], buffer.mapping == nil, buffer.native.storageMode == .shared {
-            try commands[0].validate(device: id.device, descriptors: [id: buffer.descriptor])
-            let source = try BufferCommand.uploadBytes(bytes, dataOffset: dataOffset, byteCount: byteCount)
-            source.withUnsafeBytes { bytes in
-                if let address = bytes.baseAddress, !bytes.isEmpty {
-                    buffer.native.contents().advanced(by: Int(offset))
-                        .copyMemory(from: address, byteCount: bytes.count)
-                }
-            }
+        // The device tail orders CPU uploads after earlier uses of these buffers.
+        if submission.commandsValidated, inFlight.isEmpty,
+           try applySharedUploads(commands, resources: submission.resources) {
             return []
         }
 
         let owner = submission.resources.first?.device ??
             commands.lazy.compactMap { $0.recordedPass.command.computeDispatch?.pipeline.id.device }.first ?? 0
-        let descriptors = buffers.mapValues(\.descriptor)
-        let queryDescriptors = querySets.mapValues(\.descriptor)
-        let textureDescriptors = textures.mapValues(\.descriptor)
-        let samplerDescriptors = samplers.mapValues(\.descriptor)
-        let views = textureViews.mapValues(\.resource)
-        let externalPlanes = externalTextures.mapValues(\.planes)
         let pinned = Set(submission.resources)
+        let descriptors = validationDescriptors(buffers, pinned: pinned, extract: \.descriptor)
+        let queryDescriptors = validationDescriptors(querySets, pinned: pinned, extract: \.descriptor)
+        let textureDescriptors = validationDescriptors(textures, pinned: pinned, extract: \.descriptor)
+        let samplerDescriptors = validationDescriptors(samplers, pinned: pinned, extract: \.descriptor)
+        let views = validationDescriptors(textureViews, pinned: pinned, extract: \.resource)
+        let externalPlanes = validationDescriptors(externalTextures, pinned: pinned, extract: \.planes)
+        let accelerationDescriptors = validationDescriptors(accelerationStructures, pinned: pinned, extract: \.descriptor)
         for id in submission.resources {
             guard buffers[id] != nil || textures[id] != nil || views[id] != nil || samplers[id] != nil ||
                   querySets[id] != nil || externalPlanes[id] != nil || accelerationStructures[id] != nil || meshPipelines[id] != nil else {
@@ -1593,7 +1662,7 @@ public final class MetalDevice: ComputeAccelerationStructureBackendDevice, Prese
                                      maxBindGroupsPlusVertexBuffers: capabilities.maxBindGroupsPlusVertexBuffers, querySets: queryDescriptors,
                                   maxMultiviewViewCount: capabilities.maxMultiviewViewCount,
                                   features: capabilities.features, externalTextures: Set(externalPlanes.keys),
-                                  externalPlanes: externalPlanes, accelerationStructures: accelerationStructures.mapValues(\.descriptor),
+                                  externalPlanes: externalPlanes, accelerationStructures: accelerationDescriptors,
                                   maxComputeWorkgroupsPerDimension: capabilities.maxComputeWorkgroupsPerDimension,
                                   maxTaskWorkgroupTotalCount: capabilities.maxTaskWorkgroupTotalCount,
                                   maxTaskWorkgroupsPerDimension: capabilities.maxTaskWorkgroupsPerDimension,
@@ -1657,7 +1726,11 @@ public final class MetalDevice: ComputeAccelerationStructureBackendDevice, Prese
         }
         var snapshots: [[UInt32]] = []
         for item in encoded {
-            try await commit(item.batch, initialized: item.initialized, writtenQueries: item.written)
+            if let stats = item.batch.groupingStats {
+                print("SAGA-ENC\t\(submission.sequence)\t\(stats.cpu)\t\(stats.indexedDraws)\t\(stats.renderEncoders)\t\(stats.indexEncoders)\t\(stats.groups)\t\(stats.groupedDraws)")
+            }
+            try await commit(item.batch, initialized: item.initialized, writtenQueries: item.written,
+                             traceSequence: Self.traceGrouping ? submission.sequence : nil)
             snapshots += item.reads.map { buffer, count in
                 Array(UnsafeBufferPointer(start: buffer.contents().assumingMemoryBound(to: UInt32.self), count: count))
             }
@@ -1710,6 +1783,9 @@ public final class MetalDevice: ComputeAccelerationStructureBackendDevice, Prese
         initialized: inout [ResourceID: Set<TextureSubresource>], writtenQueries: inout [ResourceID: Set<UInt32>],
         precedingAccelerationBuilds: [ResourceID: PendingAccelerationBuild]
     ) throws -> (Batch, [(any MTLBuffer, Int)]) {
+        let trace = Self.traceGrouping
+        let cpuStart = trace ? clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID) : 0
+        var stats = GroupingStats()
         guard let commandBuffer = queue.makeCommandBuffer() else { throw GPUError.outOfMemory }
         var retained = resources.compactMap { buffers[$0]?.native ?? querySets[$0]?.visibility }
         var retainedCopyViews: [any MTLTexture] = []
@@ -1845,7 +1921,31 @@ public final class MetalDevice: ComputeAccelerationStructureBackendDevice, Prese
                                     additionalColors: additionalColors, initialized: &initialized)
         }
 
-        for recorded in commands {
+        var groupedUntil = commands.startIndex
+        for commandIndex in commands.indices {
+            if commandIndex < groupedUntil { continue }
+            if commandIndex + 1 < commands.endIndex,
+               let first = indexedColorDraw(commands[commandIndex], index: commandIndex),
+               let second = indexedColorDraw(commands[commandIndex + 1], index: commandIndex + 1), second.follows(first) {
+                var group = [first, second]
+                var next = commandIndex + 2
+                while next < commands.endIndex, let draw = indexedColorDraw(commands[next], index: next), draw.follows(first) {
+                    group.append(draw)
+                    next += 1
+                }
+                try encodeIndexedColorGroup(group[...], first: first, on: commandBuffer, initialized: &initialized,
+                                                          retained: &retained, pipelines: &retainedRenderPipelines)
+                if trace {
+                    stats.indexedDraws += group.count
+                    stats.groupedDraws += group.count
+                    stats.groups += 1
+                    stats.renderEncoders += 1
+                    stats.indexEncoders += 1
+                }
+                groupedUntil = next
+                continue
+            }
+            let recorded = commands[commandIndex]
             let (command, timestamps, occlusion) = recorded.recordedPass
             if let timestamps { writtenQueries[timestamps.querySet, default: []].formUnion(timestamps.indices) }
             if let occlusion { writtenQueries[occlusion.querySet, default: []].insert(occlusion.queryIndex) }
@@ -2145,6 +2245,10 @@ public final class MetalDevice: ComputeAccelerationStructureBackendDevice, Prese
                                            baseInstance: Int(instances.first))
                 }
             case .renderIndexed(let pipeline, let target, let colorLoad, let index, let draw, let vertexBuffers, let uniforms, let boundTextures, let samplerBindings, let targetMipLevel, let targetDepthSlice, let depth, let resolve, let blendConstant, let additionalColors, let raster, let storageBuffers, let immediates, let colorStore):
+                if trace {
+                    stats.indexedDraws += 1
+                    stats.renderEncoders += 1
+                }
                 let indexBuffer = buffers[index.buffer]!.native
                 let byteOffset = Int(index.offset + UInt64(draw.firstIndex) * UInt64(index.format.byteSize))
                 var indirect: (any MTLBuffer)?
@@ -2157,6 +2261,7 @@ public final class MetalDevice: ComputeAccelerationStructureBackendDevice, Prese
                             on: commandBuffer, device: native, indices: indexBuffer, format: index.format,
                             byteOffset: byteOffset, draw: draw, maximumVertex: UInt32(capacity - 1),
                             primitiveRestart: pipeline.primitive.topology.isStrip)
+                        if trace { stats.indexEncoders += 1 }
                         indirect = args
                         retained.append(args)
                     } else {
@@ -2332,13 +2437,17 @@ public final class MetalDevice: ComputeAccelerationStructureBackendDevice, Prese
                 reads.append((snapshot, Int(size / 4)))
             }
         }
-        let batch = Batch(
+        var batch = Batch(
             commandBuffer: commandBuffer, buffers: retained, pipelines: retainedPipelines,
             textures: resources.compactMap { textures[$0]?.native ?? textureViews[$0]?.native } + retainedCopyViews,
             samplers: resources.compactMap { samplers[$0]?.native }, renderPipelines: retainedRenderPipelines, drawable: nil,
             meshPipelines: retainedMeshPipelines, counterSampleBuffers: resources.compactMap { querySets[$0]?.samples },
             committedHandlers: committedHandlers,
             accelerationBuilds: accelerationBuilds, retainedAccelerationBuilds: retainedAccelerationBuilds)
+        if trace {
+            stats.cpu = clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID) - cpuStart
+            batch.groupingStats = stats
+        }
         return (batch, reads)
     }
 
@@ -2405,6 +2514,170 @@ public final class MetalDevice: ComputeAccelerationStructureBackendDevice, Prese
             let loadsDepth = depth.loadAction == .load || depth.loadAction == .readOnly
             let loadsStencil = depth.stencil?.loadAction == .load || depth.stencil?.loadAction == .readOnly
             if loadsDepth || loadsStencil { try initialize(depth.texture, level: depth.mipLevel) }
+        }
+    }
+
+    private func applySharedUploads(_ commands: [BufferCommand], resources: [ResourceID]) throws -> Bool {
+        guard let first = commands.first, case .writeBytes = first else { return false }
+        let pinned = Set(resources)
+        var uploads: [(buffer: any MTLBuffer, offset: Int, bytes: ArraySlice<UInt8>)] = []
+        uploads.reserveCapacity(commands.count)
+        for command in commands {
+            guard case let .writeBytes(id, offset, bytes, dataOffset, byteCount) = command,
+                  pinned.contains(id), let buffer = buffers[id], buffer.mapping == nil,
+                  buffer.native.storageMode == .shared else { return false }
+            try command.validate(device: id.device, descriptors: [id: buffer.descriptor])
+            let source = try BufferCommand.uploadBytes(bytes, dataOffset: dataOffset, byteCount: byteCount)
+            uploads.append((buffer.native, Int(offset), source))
+        }
+        if Self.traceGrouping && uploads.count > 1 { print("SAGA-UPLOAD\t\(uploads.count)") }
+        for upload in uploads {
+            upload.bytes.withUnsafeBytes { bytes in
+                if let address = bytes.baseAddress, !bytes.isEmpty {
+                    upload.buffer.contents().advanced(by: upload.offset).copyMemory(from: address, byteCount: bytes.count)
+                }
+            }
+        }
+        return true
+    }
+
+    private func indexedColorDraw(_ recorded: BufferCommand, index commandIndex: Int) -> IndexedColorDraw? {
+        // Restrict this path to draws whose reordering of initialization and index checks is invisible.
+        // Queries, copies, resolves and transitions through the same texture remain hard boundaries.
+        guard case .renderIndexed(let pipeline, let optionalTarget, let load, let index, let draw, let vertices,
+                                  let uniforms, let sampled, let samplers, let level, let layer, let depth,
+                                  let resolve, let blend, let colors, let raster, let storage, let immediates, let store) = recorded,
+              let target = optionalTarget, let color = textures[target], color.descriptor.sampleCount == 1,
+              color.descriptor.dimension == .d2, color.descriptor.arrayLayerCount == 1,
+              layer == nil || layer == 0,
+              resolve == nil, store == .store,
+              pipeline.multiviewMask == nil, pipeline.storageTextures.isEmpty,
+              raster.rateMap == nil, !raster.hasEmptyScissor, immediates.isEmpty,
+              let state = renderPipelines[pipeline.id], state.metalRenderTargetLayer == nil,
+              canGroupIndexedAttachments(
+                  color: color, additionalColors: colors, depth: depth, pipeline: pipeline, state: state,
+                  eligibility: MetalIndexedDrawGrouping.commands[commandIndex]
+              ),
+              colors.isEmpty ? (pipeline.storageBuffers.isEmpty && storage.isEmpty)
+                  : pipeline.storageBuffers.allSatisfy(\.isReadOnly),
+              state.vertexExternalTextures.isEmpty, state.fragmentExternalTextures.isEmpty,
+              state.fragmentTextureAtomicGuardBufferIndex == nil,
+              state.vertexImmediateBufferIndex == nil, state.fragmentImmediateBufferIndex == nil,
+              draw.indexCount > 0, draw.instances.count > 0,
+              pipeline.vertexBuffers.contains(where: { $0.stepMode == .vertex && !$0.attributes.isEmpty }),
+              sampled.values.allSatisfy({ id in
+                  let parent = colors.isEmpty ? id : (textureViews[id]?.resource.texture ?? id)
+                  guard let input = textures[parent] else { return false }
+                  return input.native !== color.native && !input.descriptor.usage.contains(.storageBinding)
+                      && depth.map { textures[$0.texture]?.native !== input.native } != false
+                      && !colors.values.contains(where: { $0.texture == parent })
+              })
+        else { return nil }
+        let capacity = fetchCapacity(pipeline.vertexBuffers, bindings: vertices, stepMode: .vertex)
+        guard capacity > 0 else { return nil }
+        return IndexedColorDraw(pipeline: pipeline, state: state, target: target, level: level, load: load,
+                                additionalColors: colors, depth: depth, index: index, draw: draw, vertices: vertices,
+                                uniforms: uniforms, storage: storage, textures: sampled, samplers: samplers, blend: blend, raster: raster,
+                                maximumVertex: UInt32(capacity - 1))
+    }
+
+    private func canGroupIndexedAttachments(
+        color: Texture, additionalColors: [UInt32: RenderColorAttachment], depth: RenderDepthAttachment?,
+        pipeline: RenderPipeline, state: RenderState, eligibility: MetalIndexedDrawGrouping?
+    ) -> Bool {
+        if !additionalColors.isEmpty {
+            guard eligibility == .geometry, depth != nil,
+                  color.descriptor.format == .rgba16Float, pipeline.depthState?.writeEnabled == true,
+                  additionalColors[1] != nil, additionalColors[2] != nil, additionalColors[3] != nil,
+                  Set(pipeline.additionalColorTargets.keys) == Set(additionalColors.keys),
+                  additionalColors.allSatisfy({ location, attachment in
+                      guard (1...5).contains(location), let texture = textures[attachment.texture],
+                            pipeline.additionalColorTargets[location]?.colorState.blend == nil else { return false }
+                      let format = texture.descriptor.format
+                      return (format == .rgba16Float || (location >= 4 && format == .rgba8Unorm))
+                          && texture.descriptor.dimension == .d2 && texture.descriptor.arrayLayerCount == 1
+                          && texture.descriptor.sampleCount == 1 && attachment.storeAction == .store
+                          && attachment.resolve == nil && (attachment.depthSlice ?? 0) == 0
+                  })
+            else { return false }
+        } else {
+            guard pipeline.additionalColorTargets.isEmpty else { return false }
+        }
+        guard let depth else {
+            return eligibility == .ui && pipeline.depthState == nil && state.depth == nil
+        }
+        let shadows = eligibility == .shadowDepth
+            && (color.descriptor.format == .r32Float || color.descriptor.format == .rgba32Float)
+        guard !additionalColors.isEmpty || shadows,
+              let attachment = textures[depth.texture],
+              attachment.descriptor.format == .depth24PlusStencil8 || attachment.descriptor.format == .depth32FloatStencil8,
+              attachment.descriptor.sampleCount == 1,
+              attachment.descriptor.dimension == .d2, attachment.descriptor.arrayLayerCount == 1,
+              depth.storeAction == .store, depth.loadAction != .readOnly, depth.loadAction != .unused,
+              let stencil = depth.stencil, stencil.storeAction == .store, stencil.loadAction != .readOnly,
+              let depthState = pipeline.depthState, depthState.bias == .init(), depthState.stencil == nil,
+              state.depth != nil
+        else { return false }
+        return true
+    }
+
+    private func encodeIndexedColorGroup(
+        _ draws: ArraySlice<IndexedColorDraw>, first: IndexedColorDraw, on command: any MTLCommandBuffer,
+        initialized: inout [ResourceID: Set<TextureSubresource>],
+        retained: inout [any MTLBuffer], pipelines: inout [RenderState]
+    ) throws {
+        for draw in draws {
+            try initializeBoundTextures(draw.textures, on: command, initialized: &initialized)
+        }
+        try initializeLoadedAttachments(target: first.target, level: first.level, depthSlice: nil,
+                                        colorLoad: first.load, depth: first.depth, additionalColors: first.additionalColors,
+                                        on: command, initialized: &initialized)
+        if indexValidator == nil { indexValidator = try MetalIndexValidator(device: native) }
+        guard let validator = indexValidator else { throw GPUError.backendFailure("No Metal index validator") }
+        let prepared = try validateIndexedColorGroup(draws, validator: validator, on: command)
+        retained.append(contentsOf: prepared.map(\.arguments))
+
+        let color = nativeTexture(first.target)
+        let clear = first.load.clearColor.map { MTLClearColor(red: $0.red, green: $0.green, blue: $0.blue, alpha: $0.alpha) }
+        let encoder = try renderEncoder(command, target: color, level: first.level, clear: clear,
+                                        depth: first.depth, additionalColors: first.additionalColors)
+        defer { encoder.endEncoding() }
+        let width = max(1, color.width >> Int(first.level))
+        let height = max(1, color.height >> Int(first.level))
+        let fullViewport = MTLViewport(originX: 0, originY: 0, width: Double(width), height: Double(height), znear: 0, zfar: 1)
+        let fullScissor = MTLScissorRect(x: 0, y: 0, width: width, height: height)
+        for (draw, prepared) in zip(draws, prepared) {
+            if draw.raster.viewport == nil { encoder.setViewport(fullViewport) }
+            if draw.raster.scissor == nil { encoder.setScissorRect(fullScissor) }
+            let vertexLengths = try runtimeLengthValues(draw.state.vertexRuntimeLengths, bindings: draw.storage)
+            let fragmentLengths = try runtimeLengthValues(draw.state.fragmentRuntimeLengths, bindings: draw.storage)
+            bindRender(encoder, state: draw.state, pipeline: draw.pipeline, vertexBuffers: draw.vertices,
+                       uniforms: draw.uniforms, storageBuffers: draw.storage, vertexLengths: vertexLengths, fragmentLengths: fragmentLengths,
+                       boundTextures: draw.textures, samplerBindings: draw.samplers, blendConstant: draw.blend, raster: draw.raster)
+            if let stencil = draw.depth?.stencil { encoder.setStencilReferenceValue(stencil.reference & 0xff) }
+            encoder.drawIndexedPrimitives(type: draw.pipeline.primitive.topology.metal.type, indexType: draw.index.format.metal,
+                                          indexBuffer: prepared.indices, indexBufferOffset: prepared.offset,
+                                          indirectBuffer: prepared.arguments, indirectBufferOffset: 0)
+            pipelines.append(draw.state)
+        }
+        markRenderedAttachments(target: first.target, level: first.level, depthSlice: nil, depth: first.depth, resolve: nil,
+                                additionalColors: first.additionalColors, initialized: &initialized)
+    }
+
+    private func validateIndexedColorGroup(
+        _ draws: ArraySlice<IndexedColorDraw>, validator: MetalIndexValidator, on command: any MTLCommandBuffer
+    ) throws -> [(indices: any MTLBuffer, offset: Int, arguments: any MTLBuffer)] {
+        guard let encoder = command.makeComputeCommandEncoder() else { throw GPUError.outOfMemory }
+        defer { encoder.endEncoding() }
+        return try draws.map { draw in
+            guard let indices = buffers[draw.index.buffer]?.native else {
+                throw GPUError.validation("Metal draw group names an unknown index buffer")
+            }
+            let offset = Int(draw.index.offset + UInt64(draw.draw.firstIndex) * UInt64(draw.index.format.byteSize))
+            let arguments = try validator.encode(on: encoder, device: native, indices: indices, format: draw.index.format,
+                                                 byteOffset: offset, draw: draw.draw, maximumVertex: draw.maximumVertex,
+                                                 primitiveRestart: draw.pipeline.primitive.topology.isStrip)
+            return (indices, offset, arguments)
         }
     }
 
@@ -2617,7 +2890,7 @@ public final class MetalDevice: ComputeAccelerationStructureBackendDevice, Prese
     }
 
     private func commit(_ batch: Batch, initialized: [ResourceID: Set<TextureSubresource>],
-                        writtenQueries: [ResourceID: Set<UInt32>] = [:]) async throws {
+                        writtenQueries: [ResourceID: Set<UInt32>] = [:], traceSequence: UInt64? = nil) async throws {
         guard nextBatch < UInt64.max else { throw GPUError.outOfMemory }
         nextBatch += 1
         let serial = nextBatch
@@ -2625,6 +2898,9 @@ public final class MetalDevice: ComputeAccelerationStructureBackendDevice, Prese
         inFlight[serial] = batch
         let retirementHook = retirementHook
         batch.commandBuffer.addCompletedHandler { [self] buffer in
+            if let traceSequence, buffer.gpuEndTime >= buffer.gpuStartTime, buffer.gpuStartTime > 0 {
+                print("SAGA-GPU\t\(traceSequence)\t\(buffer.gpuStartTime)\t\(buffer.gpuEndTime)")
+            }
             let result: Result<Void, GPUError> = buffer.status == .completed ? .success(()) :
                 .failure(.deviceLost("Metal command failed: \(String(describing: buffer.error))"))
             Task {
@@ -2632,7 +2908,11 @@ public final class MetalDevice: ComputeAccelerationStructureBackendDevice, Prese
                 await retire(serial, completion: completion, result: result)
             }
         }
+        let commitCPU = traceSequence != nil ? clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID) : 0
         batch.commandBuffer.commit()
+        if let traceSequence {
+            print("SAGA-COMMIT\t\(traceSequence)\t\(clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID) - commitCPU)")
+        }
         for handler in batch.committedHandlers { handler() }
         for (id, build) in batch.accelerationBuilds {
             if let current = accelerationStructures[id], (current.build?.serial ?? 0) < build.serial {
