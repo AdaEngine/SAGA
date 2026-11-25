@@ -71,7 +71,7 @@ final class COMObject: @unchecked Sendable {
 
 func d3dCheck(_ result: HRESULT, _ operation: String) throws {
     guard result < 0 else { return }
-    if let device = D3D12DebugLayer.device { D3D12DebugLayer.drain(device: device) }
+    D3D12DebugLayer.drainCurrentDevice()
     switch UInt32(bitPattern: result) {
     case 0x887A_0005, 0x887A_0006, 0x887A_0007: throw GPUError.deviceLost("Direct3D 12 device removed during \(operation)")
     case 0x8007_000E: throw GPUError.outOfMemory

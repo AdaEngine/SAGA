@@ -1,16 +1,16 @@
 #if os(Windows)
 import WinSDK
 import SAGATypes
+import Synchronization
 
 // Optional Direct3D 12 debug layer. Set `SAGA_D3D12_DEBUG=1` to enable it and print its messages.
 
 enum D3D12DebugLayer {
-    nonisolated(unsafe) static var device: COMObject?
+    private static let currentDevice = Mutex<COMObject?>(nil)
     static var enabled: Bool { environmentValue("SAGA_D3D12_DEBUG") != nil }
 
-    /// Turns the debug layer on. Must run before the device is created.
-    static func enableIfRequested() {
-        guard enabled, let module = "d3d12.dll".withCString(encodedAs: UTF16.self, { LoadLibraryW($0) }),
+    private static let enableOnce: Void = {
+        guard let module = "d3d12.dll".withCString(encodedAs: UTF16.self, { LoadLibraryW($0) }),
               let address = GetProcAddress(module, "D3D12GetDebugInterface") else { return }
         typealias GetDebug = @convention(c) (UnsafeRawPointer, UnsafeMutablePointer<UnsafeMutableRawPointer?>) -> HRESULT
         var iid = D3DGUID("344488b7-6846-474b-b989-f027448245e0")
@@ -20,6 +20,19 @@ enum D3D12DebugLayer {
         typealias Enable = @convention(c) (UnsafeMutableRawPointer) -> Void
         debug.slot(3, Enable.self)(debug.pointer)
         print("D3D12 debug layer enabled")
+    }()
+
+    /// Enables the process-wide layer before the first device. Enabling it again can remove live devices.
+    static func enableIfRequested() {
+        if enabled { _ = enableOnce }
+    }
+
+    static func register(_ device: COMObject) {
+        if enabled { currentDevice.withLock { $0 = device } }
+    }
+
+    static func drainCurrentDevice() {
+        if let device = currentDevice.withLock({ $0 }) { drain(device: device) }
     }
 
     /// Prints and clears the messages stored by the debug layer.

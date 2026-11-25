@@ -175,6 +175,11 @@ extension VulkanDevice: RenderBackendDevice {
         var pipeline: UInt64
         var renderPass: UInt64
         var descriptorTypes: [ComputeBindingSlot: UInt32]
+        var bufferBindings: [(slot: ComputeBindingSlot, usage: BufferUsage)]
+        var sampledTextureSlots: [ComputeBindingSlot]
+        var samplerSlots: [ComputeBindingSlot]
+        var externalTextureSlots: [ComputeBindingSlot]
+        var accelerationSlots: [ComputeBindingSlot]
     }
 
     enum BufferReference {
@@ -259,6 +264,28 @@ extension VulkanDevice: RenderBackendDevice {
         /// Mesh task group counts; the plan then ends in vkCmdDrawMeshTasksEXT instead of a vertex draw.
         var meshGroups: (UInt32, UInt32, UInt32)?
         var meshUsesTask = false
+        var readOnlyShaderBindings = false
+
+        var canShareRenderPass: Bool {
+            readOnlyShaderBindings && indirect == nil && occlusion == nil && meshGroups == nil
+        }
+
+        func continuesRenderPass(_ first: RenderPlan) -> Bool {
+            guard canShareRenderPass, clear == nil, image == first.image, format == first.format,
+                  mipLevel == first.mipLevel, layer == first.layer, extent == first.extent,
+                  extraColors.elementsEqual(first.extraColors, by: { next, previous in
+                      next.clear == nil && next.location == previous.location && next.image == previous.image
+                          && next.format == previous.format && next.mipLevel == previous.mipLevel && next.layer == previous.layer
+                  }) else { return false }
+            switch (depth, first.depth) {
+            case (nil, nil): return true
+            case let (next?, previous?):
+                return next.image == previous.image && next.format == previous.format && next.aspect == previous.aspect
+                    && next.mipLevel == previous.mipLevel && next.layer == previous.layer
+                    && next.loadOp == 0 && (next.aspect & VK.Depth.aspectStencil == 0 || next.stencilLoadOp == 0)
+            default: return false
+            }
+        }
     }
 
     // MARK: Textures
@@ -337,7 +364,10 @@ extension VulkanDevice: RenderBackendDevice {
         allocation.allocationSize = requirements.size
         allocation.memoryTypeIndex = type
         var memory: UInt64 = 0
-        let allocated = withUnsafePointer(to: &allocation) { f.allocateMemory(device, UnsafeRawPointer($0), nil, &memory) }
+        var allocated = withUnsafePointer(to: &allocation) { f.allocateMemory(device, UnsafeRawPointer($0), nil, &memory) }
+        if (allocated == VK.outOfHostMemory || allocated == VK.outOfDeviceMemory), releaseIdleResourceBuffers() {
+            allocated = withUnsafePointer(to: &allocation) { f.allocateMemory(device, UnsafeRawPointer($0), nil, &memory) }
+        }
         guard allocated == VK.success else {
             g.destroyImage(device, image, nil)
             try vulkanCheck(allocated, "image memory allocation")
@@ -462,71 +492,6 @@ extension VulkanDevice: RenderBackendDevice {
         guard let texture = textures.removeValue(forKey: id) else { return }
         native.g.destroyImage(native.device, texture.image, nil)
         native.f.freeMemory(native.device, texture.memory, nil)
-    }
-
-    /// Records and runs a command buffer to completion.
-    func runOneShot(waiting waitSemaphore: UInt64 = 0, signaling signalSemaphore: UInt64 = 0,
-                    _ record: (UInt) throws -> Void) async throws {
-        let f = native.f, device = native.device
-        var pool: UInt64 = 0
-        var fence: UInt64 = 0
-        var poolInfo = VkCommandPoolCreateInfo()
-        poolInfo.queueFamilyIndex = native.queueFamily
-        try vulkanCheck(withUnsafePointer(to: &poolInfo) { f.createCommandPool(device, UnsafeRawPointer($0), nil, &pool) },
-                        "command pool creation")
-        func cleanup() {
-            if fence != 0 { f.destroyFence(device, fence, nil) }
-            f.destroyCommandPool(device, pool, nil)
-        }
-        var commandBuffer: UInt = 0
-        do {
-            var allocate = VkCommandBufferAllocateInfo()
-            allocate.commandPool = pool
-            try vulkanCheck(withUnsafePointer(to: &allocate) { f.allocateCommandBuffers(device, UnsafeRawPointer($0), &commandBuffer) },
-                            "command buffer allocation")
-            var begin = VkCommandBufferBeginInfo()
-            try vulkanCheck(withUnsafePointer(to: &begin) { f.beginCommandBuffer(commandBuffer, UnsafeRawPointer($0)) },
-                            "command recording")
-            try record(commandBuffer)
-            try vulkanCheck(f.endCommandBuffer(commandBuffer), "command recording")
-            var fenceInfo = VkFenceCreateInfo()
-            try vulkanCheck(withUnsafePointer(to: &fenceInfo) { f.createFence(device, UnsafeRawPointer($0), nil, &fence) },
-                            "fence creation")
-            var submit = VkSubmitInfo()
-            submit.commandBufferCount = 1
-            let queue = native.queue
-            let fenceHandle = fence
-            var waitHandle = waitSemaphore, signalHandle = signalSemaphore
-            var waitStage = VKPresent.stageTransfer
-            if waitSemaphore != 0 {
-                submit.waitSemaphoreCount = 1
-            }
-            if signalSemaphore != 0 { submit.signalSemaphoreCount = 1 }
-            try withUnsafePointer(to: &commandBuffer) { pointer in
-                submit.pCommandBuffers = pointer
-                try withUnsafePointer(to: &waitHandle) { waitPointer in
-                    try withUnsafePointer(to: &signalHandle) { signalPointer in
-                        if waitSemaphore != 0 { submit.pWaitSemaphores = UnsafeRawPointer(waitPointer) }
-                        if signalSemaphore != 0 { submit.pSignalSemaphores = UnsafeRawPointer(signalPointer) }
-                        try withUnsafePointer(to: &waitStage) { stagePointer in
-                            if waitSemaphore != 0 { submit.pWaitDstStageMask = UnsafeRawPointer(stagePointer) }
-                            try vulkanCheck(withUnsafePointer(to: &submit) { f.queueSubmit(queue, 1, UnsafeRawPointer($0), fenceHandle) },
-                                            "queue submission")
-                        }
-                    }
-                }
-            }
-        } catch {
-            cleanup()
-            throw error
-        }
-        do {
-            try await waitForFence(fence)
-        } catch {
-            terminal = true  // the GPU may still own the pool; leak it
-            throw error
-        }
-        cleanup()
     }
 
     // MARK: Render pipelines
@@ -796,7 +761,13 @@ extension VulkanDevice: RenderBackendDevice {
         }
         renderPipelines[pipeline.id] = RenderPipelineState(
             model: pipeline, modules: modules, setLayouts: setLayouts,
-            layout: layout, pipeline: handle, renderPass: renderPass, descriptorTypes: types)
+            layout: layout, pipeline: handle, renderPass: renderPass, descriptorTypes: types,
+            bufferBindings: pipeline.uniforms.map { ($0.slot, .uniform) }
+                + pipeline.storageBuffers.map { ($0.handle.slot, .storage) },
+            sampledTextureSlots: pipeline.sampledTextures.map { $0.handle.slot },
+            samplerSlots: pipeline.samplerBindings.map { $0.handle.slot },
+            externalTextureSlots: pipeline.externalTextureBindings.map(\.slot),
+            accelerationSlots: pipeline.accelerationStructureBindings.map(\.slot))
     }
 
     public func destroyRenderPipeline(id: ResourceID) async {
@@ -994,17 +965,13 @@ extension VulkanDevice: RenderBackendDevice {
         guard UInt64(immediates.count) * 4 == (pipeline.immediateByteSize + 3) / 4 * 4 else {
             throw GPUError.validation("Immediate data size does not match the render pipeline")
         }
-        var merged = storageBuffers
-        merged.merge(uniforms) { first, _ in first }
         let writes = try planBindings(
             types: state.descriptorTypes,
-            buffers: pipeline.uniforms.map { ($0.slot, BufferUsage.uniform) }
-                + pipeline.storageBuffers.map { ($0.handle.slot, BufferUsage.storage) },
-            suppliedBuffers: merged, sampledTextures: pipeline.sampledTextures.map { $0.handle.slot },
-            storageTextures: [], samplerSlots: pipeline.samplerBindings.map { $0.handle.slot },
+            buffers: state.bufferBindings, suppliedBuffers: storageBuffers, sampledTextures: state.sampledTextureSlots,
+            storageTextures: [], samplerSlots: state.samplerSlots,
             textureResources: sampledTextures, samplerResources: samplers,
-            externalSlots: pipeline.externalTextureBindings.map(\.slot),
-            accelerationSlots: pipeline.accelerationStructureBindings.map(\.slot), accelerationResources: sampledTextures, totals: &totals)
+            externalSlots: state.externalTextureSlots, accelerationSlots: state.accelerationSlots,
+            accelerationResources: sampledTextures, additionalBuffers: uniforms, totals: &totals)
         var vertexTargets: [(buffer: UInt64, offset: UInt64)?] = Array(repeating: nil, count: pipeline.vertexBuffers.count)
         for (index, binding) in vertexBuffers.enumerated() {
             let slot = Int(binding.slot ?? UInt32(index))
@@ -1041,6 +1008,19 @@ extension VulkanDevice: RenderBackendDevice {
         }
         var scissor = VkRect2D(width: extent.width, height: extent.height)
         if let s = raster.scissor { scissor = VkRect2D(x: Int32(s.x), y: Int32(s.y), width: s.width, height: s.height) }
+        // Compatible draws can keep the render pass open. Shader writes or reads of another
+        // subresource of the attachment require the original boundary between draws.
+        let groupable = resolve == nil && colorStore == .store && extraTargets.allSatisfy({ $0.storeOp == 0 })
+            && (depthTarget?.storeOp ?? 0) == 0
+            && (depthTarget.map { $0.aspect & VK.Depth.aspectStencil == 0 || $0.stencilStoreOp == 0 } ?? true)
+            && pipeline.sampleCount == 1 && pipeline.multiviewMask == nil && texture.descriptor.dimension == .d2
+            && pipeline.storageBuffers.allSatisfy(\.isReadOnly) && pipeline.externalTextureBindings.isEmpty
+            && pipeline.accelerationStructureBindings.isEmpty
+            && sampledTextures.values.allSatisfy { resource in
+                guard let sampled = self.texture(for: resource) else { return false }
+                return sampled.image != texture.image && sampled.image != depthTarget?.image
+                    && !extraTargets.contains(where: { $0.image == sampled.image })
+            }
         return RenderPlan(
             pipeline: state, image: texture.image, format: texture.format.vk, mipLevel: mipLevel + texture.baseMip,
             extent: (extent.width, extent.height), clear: clear, writes: writes,
@@ -1051,7 +1031,7 @@ extension VulkanDevice: RenderBackendDevice {
             immediates: immediates, indexed: nil, depth: depthTarget, resolve: resolveTarget, extraColors: extraTargets,
             colorStore: colorStore == .store ? 0 : 1, samples: pipeline.sampleCount, layer: texture.baseLayer + (depthSlice ?? 0),
             layerCount: pipeline.multiviewMask == nil ? 1 : (texture.viewLayers ?? texture.descriptor.arrayLayerCount),
-            viewMask: pipeline.multiviewMask)
+            viewMask: pipeline.multiviewMask, readOnlyShaderBindings: groupable)
     }
 
     /// Vulkan aspect mask for a copy, or nil when the aspect is not copyable for this format.
@@ -1187,17 +1167,20 @@ func vulkanBlendFactor(_ factor: RenderBlendFactor) -> UInt32 {
 
 extension VulkanDevice {
     func recordRender(_ plan: RenderPlan, commandBuffer: UInt, batch: inout PendingBatch) throws {
-        let g = native.g, f = native.f, device = native.device
+        try beginRenderPass(plan, commandBuffer: commandBuffer, batch: &batch)
+        try recordRenderDraw(plan, commandBuffer: commandBuffer, batch: &batch)
+        native.g.cmdEndRenderPass(commandBuffer)
+    }
+
+    func beginRenderPass(_ plan: RenderPlan, commandBuffer: UInt, batch: inout PendingBatch) throws {
+        let g = native.g, device = native.device
         var viewInfo = VkImageViewCreateInfo()
         viewInfo.image = plan.image
         if plan.viewMask != nil { viewInfo.viewType = 5 }  // 2D array
         viewInfo.format = plan.format
         viewInfo.subresourceRange = VkImageSubresourceRange(baseMipLevel: plan.mipLevel, baseArrayLayer: plan.layer,
                                                                   layerCount: plan.layerCount)
-        var view: UInt64 = 0
-        try vulkanCheck(withUnsafePointer(to: &viewInfo) { g.createImageView(device, UnsafeRawPointer($0), nil, &view) },
-                        "image view creation")
-        batch.views.append(view)
+        let view = try batchImageView(viewInfo, batch: &batch)
         var extraViews: [UInt64] = []
         for extra in plan.extraColors {
             var extraInfo = VkImageViewCreateInfo()
@@ -1206,11 +1189,7 @@ extension VulkanDevice {
             extraInfo.format = extra.format
             extraInfo.subresourceRange = VkImageSubresourceRange(baseMipLevel: extra.mipLevel, baseArrayLayer: extra.layer,
                                                                  layerCount: plan.layerCount)
-            var extraView: UInt64 = 0
-            try vulkanCheck(withUnsafePointer(to: &extraInfo) { g.createImageView(device, UnsafeRawPointer($0), nil, &extraView) },
-                            "image view creation")
-            batch.views.append(extraView)
-            extraViews.append(extraView)
+            extraViews.append(try batchImageView(extraInfo, batch: &batch))
         }
         let renderPass = try makeRenderPass(format: plan.format, load: plan.clear == nil ? 0 : 1,
                                             depthFormat: plan.depth?.format, depthLoad: plan.depth?.loadOp ?? 0,
@@ -1233,11 +1212,7 @@ extension VulkanDevice {
             if plan.viewMask != nil { depthInfo.viewType = 5 }
             depthInfo.subresourceRange = VkImageSubresourceRange(aspectMask: depth.aspect, baseMipLevel: depth.mipLevel, baseArrayLayer: depth.layer,
                                                                layerCount: plan.layerCount)
-            var depthView: UInt64 = 0
-            try vulkanCheck(withUnsafePointer(to: &depthInfo) { g.createImageView(device, UnsafeRawPointer($0), nil, &depthView) },
-                            "image view creation")
-            batch.views.append(depthView)
-            attachments.append(depthView)
+            attachments.append(try batchImageView(depthInfo, batch: &batch))
         }
         if let resolve = plan.resolve {
             var resolveInfo = VkImageViewCreateInfo()
@@ -1246,11 +1221,7 @@ extension VulkanDevice {
             if plan.viewMask != nil { resolveInfo.viewType = 5 }
             resolveInfo.subresourceRange = VkImageSubresourceRange(baseMipLevel: resolve.mipLevel, baseArrayLayer: resolve.layer,
                                                                     layerCount: plan.layerCount)
-            var resolveView: UInt64 = 0
-            try vulkanCheck(withUnsafePointer(to: &resolveInfo) { g.createImageView(device, UnsafeRawPointer($0), nil, &resolveView) },
-                            "image view creation")
-            batch.views.append(resolveView)
-            attachments.append(resolveView)
+            attachments.append(try batchImageView(resolveInfo, batch: &batch))
         }
         try attachments.withUnsafeMutableBufferPointer { pointer in
             var info = VkFramebufferCreateInfo()
@@ -1281,22 +1252,47 @@ extension VulkanDevice {
             begin.pClearValues = UnsafeRawPointer(clearPointer.baseAddress)
             withUnsafePointer(to: &begin) { g.cmdBeginRenderPass(commandBuffer, UnsafeRawPointer($0), VK.subpassContentsInline) }
         }
-        f.cmdBindPipeline(commandBuffer, VK.pipelineBindPointGraphics, plan.pipeline.pipeline)
-        var viewport = plan.viewport
-        var scissor = plan.scissor
-        if let reference = plan.depth?.stencilReference { g.cmdSetStencilReference(commandBuffer, 3, reference) }
-        g.cmdSetViewport(commandBuffer, 0, 1, &viewport)
-        g.cmdSetScissor(commandBuffer, 0, 1, &scissor)
-        plan.blendConstant.withUnsafeBufferPointer { g.cmdSetBlendConstants(commandBuffer, $0.baseAddress!) }
-        try bindDescriptors(commandBuffer: commandBuffer, bindPoint: VK.pipelineBindPointGraphics, layout: plan.pipeline.layout,
-                            setLayouts: plan.pipeline.setLayouts, writes: plan.writes, batch: &batch)
-        if !plan.immediates.isEmpty {
+    }
+
+    func recordRenderDraw(
+        _ plan: RenderPlan, following previousDraw: RenderPlan? = nil, commandBuffer: UInt, batch: inout PendingBatch
+    ) throws {
+        let g = native.g, f = native.f
+        // Reuse state only between adjacent draws in this render pass and on the same pipeline.
+        let previous = previousDraw.flatMap { $0.pipeline.pipeline == plan.pipeline.pipeline ? $0 : nil }
+        if previous == nil {
+            f.cmdBindPipeline(commandBuffer, VK.pipelineBindPointGraphics, plan.pipeline.pipeline)
+            #if DEBUG
+            batch.graphicsPipelineBindCount += 1
+            #endif
+        }
+        if let reference = plan.depth?.stencilReference, reference != previous?.depth?.stencilReference {
+            g.cmdSetStencilReference(commandBuffer, 3, reference)
+        }
+        if previous?.viewport != plan.viewport {
+            var viewport = plan.viewport
+            g.cmdSetViewport(commandBuffer, 0, 1, &viewport)
+        }
+        if previous?.scissor != plan.scissor {
+            var scissor = plan.scissor
+            g.cmdSetScissor(commandBuffer, 0, 1, &scissor)
+        }
+        if previous?.blendConstant.elementsEqual(plan.blendConstant, by: { $0.bitPattern == $1.bitPattern }) != true {
+            plan.blendConstant.withUnsafeBufferPointer { g.cmdSetBlendConstants(commandBuffer, $0.baseAddress!) }
+        }
+        if !plan.pipeline.setLayouts.isEmpty, previous?.writes != plan.writes {
+            try bindDescriptors(commandBuffer: commandBuffer, bindPoint: VK.pipelineBindPointGraphics, layout: plan.pipeline.layout,
+                                setLayouts: plan.pipeline.setLayouts, writes: plan.writes, batch: &batch)
+        }
+        if !plan.immediates.isEmpty, previous?.immediates != plan.immediates {
             plan.immediates.withUnsafeBytes {
                 f.cmdPushConstants(commandBuffer, plan.pipeline.layout, VK.Stage.vertex | VK.Stage.fragment, 0,
                                    UInt32($0.count), $0.baseAddress!)
             }
         }
-        if !plan.vertexBuffers.isEmpty {
+        if !plan.vertexBuffers.isEmpty, previous?.vertexBuffers.elementsEqual(plan.vertexBuffers, by: {
+            $0.buffer == $1.buffer && $0.offset == $1.offset
+        }) != true {
             let handles = plan.vertexBuffers.map(\.buffer)
             let offsets = plan.vertexBuffers.map(\.offset)
             handles.withUnsafeBufferPointer { h in
@@ -1337,7 +1333,6 @@ extension VulkanDevice {
             }
         }
         if let occlusion = plan.occlusion { g.cmdEndQuery(commandBuffer, occlusion.pool, occlusion.index) }
-        g.cmdEndRenderPass(commandBuffer)
     }
 }
 

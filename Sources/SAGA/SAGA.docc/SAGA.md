@@ -1,6 +1,6 @@
 # ``SAGA``
 
-Compile shaders and submit GPU work from Swift on Metal and browser WebGPU.
+Compile shaders and submit GPU work from Swift on Metal, Vulkan, Direct3D 12, and browser WebGPU.
 
 ## Overview
 
@@ -41,6 +41,28 @@ Use the `SAGACompiler` module to translate supported WGSL, GLSL, and SPIR-V
 programs. Choose `SAGAMetal` for native Metal or `SAGAWebGPU` for an injected
 browser WebGPU host. The compiler reflects the entry point and bindings that the
 runtime uses to create a pipeline.
+
+On Windows Vulkan, request the latest completed frame at refresh with
+`VulkanDevice.attachSurface(_:prefersLatestFrame:onPresentationRetryChanged:)`.
+With `prefersLatestFrame` enabled, SAGA prefers FIFO Latest Ready when both the
+device and the Win32 surface support it. Otherwise it selects mailbox if the
+surface supports mailbox, or FIFO. The returned `usesMailbox` flag identifies
+mailbox so the caller can pace frame production for that mode.
+
+On Windows, `SAGAD3D12` renders directly through Direct3D 12. Compile shader stages
+to `.hlsl` and supply a matching `dxcompiler.dll` and `dxil.dll` through the
+application's DLL path or `SAGA_DXC_DIRECTORIES`. Use
+`D3D12Backend.makePresentableDevice()` to create a backend before opening windows.
+Call `addSurface(windowHandle:)` with each valid `HWND` and pass the returned ID to
+`Device.present(_:surface:)`. The texture must be a single-sampled RGBA8 or BGRA8
+copy source. Await the last presentation ticket before calling `removeSurface(_:)`
+and keep the native window alive until the surface has been detached.
+
+Direct3D 12 graphics pipelines support contiguous color attachments and vertex-only
+depth passes. Resolve is supported on the first color attachment. Keep additional
+color attachments single-sampled or store them without resolve.
+The backend adds shader-visible descriptor heap pages within a command list as needed
+and keeps each bound page alive through GPU completion.
 
 On Metal, submit a `BufferCommand.native(NativePass(...))` to record commands that use
 platform APIs. Declare every SAGA buffer and texture in the pass's `uses`, then downcast the

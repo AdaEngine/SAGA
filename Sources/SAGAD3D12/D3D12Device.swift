@@ -1,4 +1,5 @@
 #if os(Windows)
+import Dispatch
 import WinSDK
 import SAGATypes
 import SAGABackend
@@ -20,13 +21,23 @@ public enum D3D12Backend {
     ) throws -> D3D12Device {
         try D3D12Device(timeout: timeout, shaderCompilerDirectories: shaderCompilerDirectories, windowHandle: windowHandle)
     }
+
+    /// Creates a device that can attach Win32 windows after startup.
+    public static func makePresentableDevice(
+        timeout: Duration = .seconds(10), shaderCompilerDirectories: [String] = []
+    ) throws -> D3D12Device {
+        try D3D12Device(timeout: timeout, shaderCompilerDirectories: shaderCompilerDirectories, enablePresentation: true)
+    }
 }
 
 /// A compute-capable Direct3D 12 device: buffers, copies, direct dispatch and readback.
-public actor D3D12Device: ComputeBackendDevice, PlanarExternalTextureBackendDevice {
+public actor D3D12Device: ComputeBackendDevice, PlanarExternalTextureBackendDevice, PipelinedCommandBackendDevice {
     public nonisolated let capabilities: DeviceCapabilities
     public nonisolated let supportsPresentation: Bool
-    var presenter: D3D12Presenter?
+    /// Vertex and index ranges can occupy the same buffer in an indexed draw.
+    public nonisolated var supportsPackedVertexIndexBuffers: Bool { true }
+    var presenters: [UInt32: D3D12Presenter] = [:]
+    var nextSurfaceID: UInt32 = 1
 
     struct Buffer {
         var descriptor: BufferDescriptor
@@ -68,6 +79,12 @@ public actor D3D12Device: ComputeBackendDevice, PlanarExternalTextureBackendDevi
         var objects: [COMObject] = []
     }
 
+    struct CommandRecording {
+        let allocator: COMObject
+        let list: COMObject
+        let descriptors = D3D12DescriptorArena()
+    }
+
     let library: D3D12Library
     let device: COMObject
     let queue: COMObject
@@ -97,6 +114,9 @@ public actor D3D12Device: ComputeBackendDevice, PlanarExternalTextureBackendDevi
     var indexSanitizer: Pipeline?
     var terminal = false
     var quarantine: [Retained] = []
+    private var retiredRecordings: [CommandRecording] = []
+    private var retiredUploadPage: (buffer: COMObject, capacity: Int)?
+    private static let maximumInFlightSubmissions: UInt64 = 8
 
     static func makeNativeDevice() throws -> (D3D12Library, COMObject) {
         guard let library = D3D12Library.load() else { throw GPUError.adapterUnavailable }
@@ -106,20 +126,21 @@ public actor D3D12Device: ComputeBackendDevice, PlanarExternalTextureBackendDevi
         let result = library.createDevice(nil, D3D12.featureLevel12_0, &iid, &object)
         guard result >= 0, let object else { throw GPUError.adapterUnavailable }
         let native = COMObject(object)
-        D3D12DebugLayer.device = native
+        D3D12DebugLayer.register(native)
         return (library, native)
     }
 
-    init(timeout: Duration, shaderCompilerDirectories: [String], windowHandle: UInt? = nil) throws {
+    init(timeout: Duration, shaderCompilerDirectories: [String], windowHandle: UInt? = nil, enablePresentation: Bool = false) throws {
         (library, device) = try Self.makeNativeDevice()
         self.timeout = timeout
-        supportsPresentation = windowHandle != nil
-        if let windowHandle { presenter = try D3D12Presenter(window: windowHandle) }
+        supportsPresentation = enablePresentation || windowHandle != nil
+        if let windowHandle { presenters[0] = try D3D12Presenter(window: windowHandle) }
         var directories = shaderCompilerDirectories
         if let value = environmentValue("SAGA_DXC_DIRECTORIES") {
             directories += value.split(separator: ";").map(String.init)
         }
         compilerDirectories = directories
+        if enablePresentation { compiler = try D3D12ShaderCompiler(directories: directories) }
 
         typealias CreateQueue = @convention(c) (UnsafeMutableRawPointer, UnsafeRawPointer, UnsafeRawPointer,
                                                 UnsafeMutablePointer<UnsafeMutableRawPointer?>) -> HRESULT
@@ -172,6 +193,7 @@ public actor D3D12Device: ComputeBackendDevice, PlanarExternalTextureBackendDevi
             maxComputeInvocationsPerWorkgroup: 1024,
             maxComputeWorkgroupSize: DispatchWorkgroups(x: 1024, y: 1024, z: 64),
             maxComputeWorkgroupsPerDimension: 65_535,
+            maxColorAttachmentBytesPerSample: 48,
             cooperativeMatrixProperties: cooperativeProperties,
             maxTaskWorkgroupTotalCount: meshSupported ? 4_194_304 : nil,
             maxTaskWorkgroupsPerDimension: meshSupported ? 65_535 : nil,
@@ -232,6 +254,9 @@ public actor D3D12Device: ComputeBackendDevice, PlanarExternalTextureBackendDevi
     public func destroyExternalTexture(id: ResourceID) { externalTextures[id] = nil }
 
     public func close(owner: UInt64) {
+        retiredRecordings.removeAll()
+        retiredUploadPage = nil
+        presenters.removeAll()
         for id in buffers.keys where id.device == owner { buffers[id] = nil }
         for id in textures.keys where id.device == owner { textures[id] = nil }
         for id in samplers.keys where id.device == owner { samplers[id] = nil }
@@ -446,24 +471,26 @@ public actor D3D12Device: ComputeBackendDevice, PlanarExternalTextureBackendDevi
     }
 
     public func submitCommands(_ submission: Submission, commands: [BufferCommand]) async throws -> [[UInt32]] {
-        try await runCommands(submission, commands: commands, validate: true)
+        try await runCommands(submission, commands: commands, validate: !submission.commandsValidated)
     }
 
-    /// Runs commands. Internal callers such as buffer mapping skip usage validation for their own transfers.
-    func runCommands(_ submission: Submission, commands: [BufferCommand], validate: Bool) async throws -> [[UInt32]] {
-        try requireActive()
-        let owner = submission.resources.first?.device ??
-            commands.lazy.compactMap { $0.recordedPass.command.computeDispatch?.pipeline.id.device }.first ?? 0
-        let descriptors = buffers.mapValues(\.descriptor)
-        let textureDescriptors = textures.mapValues(\.descriptor)
-        let samplerDescriptors = samplers
-        let pinned = Set(submission.resources)
-        for id in submission.resources
-        where buffers[id] == nil && pipelines[id] == nil && textures[id] == nil && textureViews[id] == nil && samplers[id] == nil && externalTextures[id] == nil
-            && renderPipelines[id] == nil && querySets[id] == nil && accelerationStructures[id] == nil {
-            throw GPUError.validation("Unknown Direct3D 12 resource")
-        }
+    public func submitCommandList(
+        _ submission: Submission, list: CommandList, onSubmitted: @escaping @Sendable () -> Void
+    ) async throws -> [[UInt32]] {
+        try await runCommands(submission, commands: list.expandedCommands(),
+                              validate: !submission.commandsValidated, onSubmitted: onSubmitted)
+    }
 
+    /// Reset both objects only after the submission's fence has retired.
+    func beginCommandRecording() throws -> CommandRecording {
+        if let recording = retiredRecordings.popLast() {
+            typealias ResetAllocator = @convention(c) (UnsafeMutableRawPointer) -> HRESULT
+            typealias ResetList = @convention(c) (UnsafeMutableRawPointer, UnsafeMutableRawPointer, UnsafeMutableRawPointer?) -> HRESULT
+            try d3dCheck(recording.allocator.slot(8, ResetAllocator.self)(recording.allocator.pointer), "command allocator reset")
+            try d3dCheck(recording.list.slot(10, ResetList.self)(recording.list.pointer, recording.allocator.pointer, nil), "command list reset")
+            recording.descriptors.reset()
+            return recording
+        }
         typealias CreateAllocator = @convention(c) (UnsafeMutableRawPointer, UInt32, UnsafeRawPointer,
                                                     UnsafeMutablePointer<UnsafeMutableRawPointer?>) -> HRESULT
         typealias CreateList = @convention(c) (UnsafeMutableRawPointer, UInt32, UInt32, UnsafeMutableRawPointer, UnsafeMutableRawPointer?,
@@ -476,7 +503,50 @@ public actor D3D12Device: ComputeBackendDevice, PlanarExternalTextureBackendDevi
         var listObject: UnsafeMutableRawPointer?
         try d3dCheck(device.slot(12, CreateList.self)(device.pointer, 0, D3D12.commandListDirect, allocator.pointer, nil,
                                                       &listIID, &listObject), "command list creation")
-        let list = COMObject(listObject!)
+        return CommandRecording(allocator: allocator, list: COMObject(listObject!))
+    }
+
+    func recycleCommandRecording(_ recording: CommandRecording) {
+        if !terminal, retiredRecordings.count < Int(Self.maximumInFlightSubmissions) { retiredRecordings.append(recording) }
+    }
+
+    /// Runs commands. Internal callers such as buffer mapping skip usage validation for their own transfers.
+    func runCommands(
+        _ submission: Submission, commands: [BufferCommand], validate: Bool, onSubmitted: (@Sendable () -> Void)? = nil
+    ) async throws -> [[UInt32]] {
+        try requireActive()
+        while onSubmitted != nil, let oldest = try pendingFenceAtCapacity() {
+            try await waitForFence(oldest)
+            try requireActive()
+        }
+        let owner = submission.resources.first?.device ??
+            commands.lazy.compactMap { $0.recordedPass.command.computeDispatch?.pipeline.id.device }.first ?? 0
+        // Device submissions have already validated and pinned their resources.
+        let descriptors = validate ? buffers.mapValues(\.descriptor) : [:]
+        let textureDescriptors = validate ? textures.mapValues(\.descriptor) : [:]
+        let samplerDescriptors = validate ? samplers : [:]
+        let checkPins = !submission.commandsValidated
+        let pinned = checkPins ? Set(submission.resources) : []
+        for id in submission.resources
+        where buffers[id] == nil && pipelines[id] == nil && textures[id] == nil && textureViews[id] == nil && samplers[id] == nil && externalTextures[id] == nil
+            && renderPipelines[id] == nil && querySets[id] == nil && accelerationStructures[id] == nil {
+            throw GPUError.validation("Unknown Direct3D 12 resource")
+        }
+
+        if commands.isEmpty {
+            do {
+                let target = try signalSubmissionFence()
+                onSubmitted?()
+                try await waitForFence(target)
+            } catch {
+                terminal = true
+                throw error
+            }
+            return []
+        }
+
+        let recording = try beginCommandRecording()
+        let list = recording.list
 
         typealias Barrier = @convention(c) (UnsafeMutableRawPointer, UInt32, UnsafeRawPointer) -> Void
         typealias CopyRegion = @convention(c) (UnsafeMutableRawPointer, UnsafeMutableRawPointer, UInt64, UnsafeMutableRawPointer, UInt64, UInt64) -> Void
@@ -484,24 +554,51 @@ public actor D3D12Device: ComputeBackendDevice, PlanarExternalTextureBackendDevi
         typealias SetAddress = @convention(c) (UnsafeMutableRawPointer, UInt32, UInt64) -> Void
         typealias Dispatch = @convention(c) (UnsafeMutableRawPointer, UInt32, UInt32, UInt32) -> Void
 
-        var retained = Retained(objects: [allocator, list])
-        var states: [ResourceID: UInt32] = [:]
+        var retained = Retained(objects: [recording.allocator, list])
+        var states: [ResourceID: (flags: UInt32, promotedRead: Bool)] = [:]
         var resources: [ResourceID: COMObject] = [:]
         var reads: [(readback: COMObject, count: Int)] = []
-        var arena: D3D12DescriptorArena?
-        var heapsSet = false
+        let arena = recording.descriptors
         var renderTargets: D3D12RenderTargetArena?
+        var graphics = D3D12DrawState()
+        var uploadPage: (buffer: COMObject, capacity: Int, offset: Int)?
+        var reusableUploadPage: (buffer: COMObject, capacity: Int)?
 
-        func transition(_ id: ResourceID, to state: UInt32) {
+        func transition(_ id: ResourceID, to requested: UInt32) {
             let id = textureViews[id]?.texture ?? id  // views share the state of their texture
-            guard let object = buffers[id]?.resource ?? textures[id]?.resource else { return }
-            let current = states[id] ?? D3D12.stateCommon
-            resources[id] = object
+            let previous = states[id]
+            let current = previous?.flags ?? D3D12.stateCommon
+            guard current != requested else { return }
+            let buffer = buffers[id]
+            let texture = buffer == nil ? textures[id] : nil
+            guard let object = buffer?.resource ?? texture?.resource else { return }
+
+            let readMask = D3D12.stateGenericRead
+            let isRead = requested != D3D12.stateCommon && requested & ~readMask == 0
+            let textureReads = D3D12.stateNonPixelShaderResource | D3D12.statePixelShaderResource | D3D12.stateCopySource
+            // The tracker works on whole resources. Multi-subresource textures
+            // can be promoted independently by Direct3D, so keep explicit barriers there.
+            let promotesTextureRead = texture?.dsvFormat == nil && texture?.descriptor.mipLevelCount == 1
+                && texture?.descriptor.arrayLayerCount == 1 && requested & ~textureReads == 0
+            let canPromote = isRead && (buffer != nil || promotesTextureRead)
+            // Packed vertex/index bindings share read states. Color textures can also
+            // accumulate read states while they are implicitly promoted.
+            let canShareReads = current != D3D12.stateCommon && isRead && current & ~readMask == 0
+                && (buffer != nil || (previous?.promotedRead == true && promotesTextureRead))
+            let state = canShareReads ? current | requested : requested
             guard current != state else { return }
+
+            resources[id] = object
+            // Eligible resources in COMMON promote on first read. Promoted reads
+            // decay when this list finishes execution on the direct queue.
+            if canPromote, current == D3D12.stateCommon || previous?.promotedRead == true {
+                states[id] = (state, true)
+                return
+            }
             var barrier = D3D12ResourceBarrier(type: D3D12.barrierTransition, resource: object.pointer,
                                                subresource: 0xFFFF_FFFF, stateBefore: current, stateAfter: state)
             list.slot(26, Barrier.self)(list.pointer, 1, &barrier)
-            states[id] = state
+            states[id] = (state, false)
         }
         func uavBarrier(_ resource: COMObject) {
             var barrier = D3D12ResourceBarrier(type: D3D12.barrierUAV, resource: resource.pointer)
@@ -509,16 +606,34 @@ public actor D3D12Device: ComputeBackendDevice, PlanarExternalTextureBackendDevi
         }
         func upload(_ bytes: [UInt8], to id: ResourceID, offset: UInt64) throws {
             guard let destination = buffers[id], !bytes.isEmpty else { return }
-            let staging = try makeBuffer(size: UInt64(bytes.count), heap: D3D12.heapUpload, state: D3D12.stateGenericRead)
-            try map(staging, count: bytes.count) { $0.copyMemory(from: bytes, byteCount: bytes.count) }
-            retained.objects.append(staging)
+            let page: (buffer: COMObject, capacity: Int, offset: Int)
+            if let current = uploadPage, bytes.count <= current.capacity - current.offset {
+                page = current
+            } else if uploadPage == nil, let recycled = retiredUploadPage, bytes.count <= recycled.capacity {
+                retiredUploadPage = nil
+                page = (recycled.buffer, recycled.capacity, 0)
+                reusableUploadPage = recycled
+                retained.objects.append(recycled.buffer)
+            } else {
+                let capacity = max(64 * 1024, bytes.count)
+                let buffer = try makeBuffer(size: UInt64(capacity), heap: D3D12.heapUpload, state: D3D12.stateGenericRead)
+                page = (buffer, capacity, 0)
+                retained.objects.append(buffer)
+                if capacity <= 1024 * 1024, reusableUploadPage.map({ $0.capacity < capacity }) ?? true {
+                    reusableUploadPage = (buffer, capacity)
+                }
+            }
+            try map(page.buffer, count: page.capacity) { ($0 + page.offset).copyMemory(from: bytes, byteCount: bytes.count) }
+            // All recorded copies keep their own ranges until the GPU completes the list.
+            uploadPage = (page.buffer, page.capacity, page.offset + bytes.count)
             transition(id, to: D3D12.stateCopyDestination)
-            list.slot(15, CopyRegion.self)(list.pointer, destination.resource.pointer, offset, staging.pointer, 0, UInt64(bytes.count))
+            list.slot(15, CopyRegion.self)(list.pointer, destination.resource.pointer, offset,
+                                           page.buffer.pointer, UInt64(page.offset), UInt64(bytes.count))
         }
 
         do {
             for recorded in commands {
-                guard recorded.resources.allSatisfy(pinned.contains) else { throw GPUError.validation("Unpinned command resource") }
+                guard !checkPins || recorded.resources.allSatisfy(pinned.contains) else { throw GPUError.validation("Unpinned command resource") }
                 if validate { try recorded.validate(device: owner, descriptors: descriptors, textures: textureDescriptors, samplerDescriptors: samplerDescriptors,
                                       textureViews: textureViews.mapValues { .init(texture: $0.texture, levels: $0.levels, aspect: $0.aspect, layers: $0.layers, dimension: $0.dimension) },
                                       maximumViewportDimension: capabilities.maxTextureDimension2D,
@@ -633,17 +748,19 @@ public actor D3D12Device: ComputeBackendDevice, PlanarExternalTextureBackendDevi
                                                        bufferOffset: layout.offset, rowPitch: pitch),
                                         list: list, transition: transition)
                 case .renderMultiIndirect(let draw, let count):
-                    try recordDraw(draw, list: list, transition: transition, arena: &arena, heapsSet: &heapsSet,
-                                   renderTargets: &renderTargets, multiCount: count)
+                    try recordDraw(draw, list: list, transition: transition, arena: arena,
+                                   renderTargets: &renderTargets, graphics: &graphics, multiCount: count)
                 case .render, .renderIndexed, .renderIndirect:
-                    try recordDraw(command, list: list, transition: transition, arena: &arena, heapsSet: &heapsSet,
-                                   renderTargets: &renderTargets)
+                    try recordDraw(command, list: list, transition: transition, arena: arena,
+                                   renderTargets: &renderTargets, graphics: &graphics)
                 case .buildAccelerationStructure, .buildBoxAccelerationStructure, .buildTopLevelAccelerationStructure:
+                    graphics.pipeline = nil
                     try recordStructureBuild(command, list: list, transition: { transition($0, to: $1) }, retained: &retained)
                 case .drawMesh:
                     let (equivalent, groups, indirect) = try equivalentRender(for: command)
                     var validated: COMObject?
                     if let indirect {
+                        graphics.pipeline = nil
                         // GPU-authored group counts go through the mesh dispatch validator into a scratch buffer.
                         guard let source = buffers[indirect.buffer], indirect.offset % 4 == 0, indirect.offset <= source.descriptor.size,
                               source.descriptor.size - indirect.offset >= 12 else {
@@ -670,9 +787,10 @@ public actor D3D12Device: ComputeBackendDevice, PlanarExternalTextureBackendDevi
                         manual(target, D3D12.stateUnorderedAccess, D3D12.stateIndirectArgument)
                         validated = target
                     }
-                    try recordDraw(equivalent, list: list, transition: transition, arena: &arena, heapsSet: &heapsSet,
-                                   renderTargets: &renderTargets, meshGroups: groups, meshIndirect: validated)
+                    try recordDraw(equivalent, list: list, transition: transition, arena: arena,
+                                   renderTargets: &renderTargets, graphics: &graphics, meshGroups: groups, meshIndirect: validated)
                 case .dispatchCompute, .dispatchComputeRanges, .dispatchComputeIndirect:
+                    graphics.pipeline = nil
                     guard let dispatch = command.computeDispatch, let pipeline = pipelines[dispatch.pipeline.id],
                           pipeline.model == dispatch.pipeline else {
                         throw GPUError.validation("Unknown Direct3D 12 compute pipeline")
@@ -727,17 +845,11 @@ public actor D3D12Device: ComputeBackendDevice, PlanarExternalTextureBackendDevi
                     }
                     var writtenArrays: [COMObject] = []
                     if pipeline.viewRoot != nil || pipeline.samplerRoot != nil {
-                        if arena == nil { arena = try D3D12DescriptorArena(device: device) }
-                        let heaps = arena!
-                        if !heapsSet {
-                            typealias SetHeaps = @convention(c) (UnsafeMutableRawPointer, UInt32, UnsafeRawPointer) -> Void
-                            var heapPointers: [UnsafeMutableRawPointer?] = [heaps.viewHeap.pointer, heaps.samplerHeap.pointer]
-                            list.slot(28, SetHeaps.self)(list.pointer, 2, &heapPointers)
-                            heapsSet = true
-                        }
+                        let viewCount = pipeline.viewLayout.count + pipeline.bufferViewLayout.count + 3 * pipeline.externalLayouts.count
+                        let heaps = try arena.prepare(device: device, list: list, viewCount: viewCount, samplerCount: pipeline.samplerLayout.count)
                         typealias SetTable = @convention(c) (UnsafeMutableRawPointer, UInt32, UInt64) -> Void
                         if let root = pipeline.viewRoot {
-                            let base = try heaps.allocateViews(pipeline.viewLayout.count + pipeline.bufferViewLayout.count + 3 * pipeline.externalLayouts.count)
+                            let base = try heaps.allocateViews(viewCount)
                             for (offset, entry) in pipeline.bufferViewLayout.enumerated() {
                                 guard let supplied = dispatch.bindings[entry.slot], let buffer = buffers[supplied.buffer] else {
                                     throw GPUError.validation("Missing Direct3D 12 buffer array binding")
@@ -835,22 +947,24 @@ public actor D3D12Device: ComputeBackendDevice, PlanarExternalTextureBackendDevi
                     throw GPUError.unsupported("Direct3D 12 does not implement this command yet")
                 }
             }
-            // Buffers return to the common state so the next submission can assume it.
-            for id in states.keys.sorted(by: { ($0.device, $0.serial) < ($1.device, $1.serial) }) { transition(id, to: D3D12.stateCommon) }
+            // Direct-queue buffer states decay to COMMON between ExecuteCommandLists calls.
+            // Textures with explicit state transitions must be returned to COMMON.
+            for id in states.keys.sorted(by: { ($0.device, $0.serial) < ($1.device, $1.serial) })
+                where buffers[id] == nil && states[id]?.promotedRead != true {
+                transition(id, to: D3D12.stateCommon)
+            }
             typealias Close = @convention(c) (UnsafeMutableRawPointer) -> HRESULT
             try d3dCheck(list.slot(9, Close.self)(list.pointer), "command recording")
         }
 
         typealias Execute = @convention(c) (UnsafeMutableRawPointer, UInt32, UnsafePointer<UnsafeMutableRawPointer?>) -> Void
-        typealias Signal = @convention(c) (UnsafeMutableRawPointer, UnsafeMutableRawPointer, UInt64) -> HRESULT
-        if let arena { retained.objects += [arena.viewHeap, arena.samplerHeap] }
+        retained.objects += arena.retainedHeaps
         if let renderTargets { retained.objects.append(renderTargets.heap) }
         var lists: [UnsafeMutableRawPointer?] = [list.pointer]
         queue.slot(10, Execute.self)(queue.pointer, 1, &lists)
-        fenceValue += 1
-        let target = fenceValue
         do {
-            try d3dCheck(queue.slot(14, Signal.self)(queue.pointer, fence.pointer, target), "fence signal")
+            let target = try signalSubmissionFence()
+            onSubmitted?()
             try await waitForFence(target)
         } catch {
             D3D12DebugLayer.drain(device: device)
@@ -859,6 +973,10 @@ public actor D3D12Device: ComputeBackendDevice, PlanarExternalTextureBackendDevi
             throw error
         }
         D3D12DebugLayer.drain(device: device)
+        recycleCommandRecording(recording)
+        if !terminal, let page = reusableUploadPage, retiredUploadPage.map({ $0.capacity <= page.capacity }) ?? true {
+            retiredUploadPage = page
+        }
         var results: [[UInt32]] = []
         for read in reads {
             var words = [UInt32](repeating: 0, count: read.count / 4)
@@ -879,16 +997,46 @@ public actor D3D12Device: ComputeBackendDevice, PlanarExternalTextureBackendDevi
         resource.slot(9, Unmap.self)(resource.pointer, 0, nil)
     }
 
-    func waitForFence(_ value: UInt64) async throws {
+    func pendingFenceAtCapacity() throws -> UInt64? {
+        guard fenceValue >= Self.maximumInFlightSubmissions else { return nil }
+        let oldest = fenceValue - Self.maximumInFlightSubmissions + 1
+        return try completedFenceValue() < oldest ? oldest : nil
+    }
+
+    func signalSubmissionFence() throws -> UInt64 {
+        typealias Signal = @convention(c) (UnsafeMutableRawPointer, UnsafeMutableRawPointer, UInt64) -> HRESULT
+        fenceValue += 1
+        try d3dCheck(queue.slot(14, Signal.self)(queue.pointer, fence.pointer, fenceValue), "fence signal")
+        return fenceValue
+    }
+
+    private func completedFenceValue() throws -> UInt64 {
         typealias Completed = @convention(c) (UnsafeMutableRawPointer) -> UInt64
-        let clock = ContinuousClock()
-        let deadline = clock.now + timeout
-        var delay = Duration.microseconds(50)
-        while fence.slot(8, Completed.self)(fence.pointer) < value {
-            guard clock.now < deadline else { throw GPUError.timeout }
-            try? await Task.sleep(for: delay)
-            delay = min(delay * 2, .milliseconds(2))
+        let current = fence.slot(8, Completed.self)(fence.pointer)
+        if current == .max { throw GPUError.deviceLost("Direct3D 12 removed the device") }
+        return current
+    }
+
+    func waitForFence(_ value: UInt64) async throws {
+        if try completedFenceValue() >= value { return }
+        guard let event = CreateEventW(nil, false, false, nil) else {
+            throw GPUError.backendFailure("Could not create a Direct3D 12 fence event")
         }
+        defer { CloseHandle(event) }
+        typealias ArmEvent = @convention(c) (UnsafeMutableRawPointer, UInt64, HANDLE) -> HRESULT
+        try d3dCheck(fence.slot(9, ArmEvent.self)(fence.pointer, value, event), "fence event registration")
+        let eventAddress = UInt(bitPattern: event)
+        let components = timeout.components
+        let milliseconds = Double(components.seconds) * 1000 + Double(components.attoseconds) / 1e15
+        let wait = DWORD(max(0, min(Double(DWORD.max - 1), milliseconds.rounded(.up))))
+        let result = await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                continuation.resume(returning: WaitForSingleObject(HANDLE(bitPattern: eventAddress), wait))
+            }
+        }
+        if result == WAIT_TIMEOUT { throw GPUError.timeout }
+        guard result == WAIT_OBJECT_0 else { throw GPUError.backendFailure("Direct3D 12 fence wait failed") }
+        _ = try completedFenceValue()
     }
 }
 #endif

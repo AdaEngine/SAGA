@@ -95,7 +95,10 @@ public actor Device {
             return nil
         }
     }
-    private struct Resource {
+    // Only the device actor mutates a resource. Draws repeatedly pin the same allocations.
+    private final class Resource {
+        init(descriptor: ResourceDescriptor) { self.descriptor = descriptor }
+
         let descriptor: ResourceDescriptor
         var ready = false
         var destroyed = false
@@ -131,7 +134,10 @@ public actor Device {
     private var idleWaiters: [CheckedContinuation<Void, Never>] = []
     private var uncaptured: [GPUError] = []
     private var loss: GPUError?
-    private var tail: Task<Void, Error>?
+    /// Waits for the actual previous operation. A separate forwarding task per GPU submission adds a scheduler hop.
+    private var tail: (@Sendable () async -> Void)?
+    /// Only another operation on the same pipelined native queue can follow submission before retirement.
+    private var submissionTail: (@Sendable () async -> Void)?
 
     private init(identity: UInt64, backend: any BackendDevice) {
         self.identity = identity
@@ -780,6 +786,12 @@ public actor Device {
         } catch {
             let error = normalize(error); record(error); throw error
         }
+        if let pipelined = presentation as? any PipelinedPresentationBackendDevice {
+            let (sequence, completion) = try enqueue([source], pipelines: true) { submission, submitted in
+                try await pipelined.present(submission, source: source, surface: surface, onSubmitted: submitted)
+            }
+            return SubmissionTicket(sequence: sequence, completion: completion)
+        }
         let (sequence, completion) = try enqueue([source]) { submission in
             try await presentation.present(submission, source: source, surface: surface)
         }
@@ -810,6 +822,7 @@ public actor Device {
     public func submit(_ list: CommandList) throws -> CommandTicket {
         let commandBackend: any CommandBackendDevice
         let commandResources = Set(list.resources)
+        var usesAccelerationTracking = false
         do {
             try Task.checkCancellation()
             try requireActive()
@@ -817,54 +830,53 @@ public actor Device {
                 throw GPUError.unsupported("Backend does not implement command submission")
             }
             commandBackend = implementation
-            // An isolated byte upload only validates the destination buffer.
-            let validationResources: [ResourceID: Resource]
-            if list.count == 1, case let .writeBytes(destination, _, _, _, _)? = list.legacyCommands.first {
-                validationResources = resources[destination].map { [destination: $0] } ?? [:]
-            } else {
-                var referenced: [ResourceID: Resource] = [:]
-                for id in commandResources {
-                    guard let resource = resources[id] else { continue }
-                    referenced[id] = resource
-                    if let parent = resource.descriptor.textureView?.texture {
-                        referenced[parent] = resources[parent]
-                    }
-                    for plane in resource.descriptor.externalPlanes {
-                        referenced[plane] = resources[plane]
-                        if let parent = resources[plane]?.descriptor.textureView?.texture {
-                            referenced[parent] = resources[parent]
-                        }
-                    }
+            var descriptors: [ResourceID: BufferDescriptor] = [:]
+            var textures: [ResourceID: TextureDescriptor] = [:]
+            var textureViews: [ResourceID: TextureViewResource] = [:]
+            var externalTextures: Set<ResourceID> = []
+            var externalPlanes: [ResourceID: [ResourceID]] = [:]
+            var samplerDescriptors: [ResourceID: SamplerDescriptor] = [:]
+            var querySets: [ResourceID: QuerySetDescriptor] = [:]
+            var accelerationStructures: [ResourceID: AccelerationStructureDescriptor] = [:]
+
+            // Views and external planes may refer to a base texture outside the command list.
+            func includeTexture(_ id: ResourceID) {
+                switch resources[id]?.descriptor {
+                case let .texture(texture):
+                    textures[id] = texture
+                case let .textureView(view):
+                    textureViews[id] = view
+                    textures[view.texture] = resources[view.texture]?.descriptor.texture
+                default:
+                    break
                 }
-                validationResources = referenced
             }
-            let descriptors = validationResources.compactMapValues { $0.descriptor.buffer }
-            let textures = validationResources.compactMapValues { $0.descriptor.texture }
-            let textureViews = validationResources.compactMapValues { $0.descriptor.textureView }
-            let externalTextures = Set(validationResources.compactMap { id, resource in
-                resource.descriptor.kind == .externalTexture ? id : nil
-            })
-            let externalPlanes = validationResources.compactMapValues { resource in
-                let planes = resource.descriptor.externalPlanes
-                return planes.isEmpty ? nil : planes
-            }
-            let samplerDescriptors = validationResources.compactMapValues { $0.descriptor.sampler }
-            let querySets = validationResources.compactMapValues { $0.descriptor.querySet }
-            let accelerationStructures = validationResources.compactMapValues { resource -> AccelerationStructureDescriptor? in
-                guard case .accelerationStructure(let descriptor) = resource.descriptor else { return nil }
-                return descriptor
+            for id in commandResources {
+                try requireGPUResource(id)
+                switch resources[id]?.descriptor {
+                case let .buffer(buffer): descriptors[id] = buffer
+                case .texture, .textureView: includeTexture(id)
+                case .externalTexture: externalTextures.insert(id)
+                case let .planarExternalTexture(external):
+                    externalTextures.insert(id)
+                    if !external.planes.isEmpty { externalPlanes[id] = external.planes }
+                    for plane in external.planes { includeTexture(plane) }
+                case let .sampler(sampler): samplerDescriptors[id] = sampler
+                case let .querySet(querySet): querySets[id] = querySet
+                case let .accelerationStructure(structure): accelerationStructures[id] = structure
+                case .meshPipeline, nil: break
+                }
             }
             var availableBuilds = builtAccelerationStructures.union(pendingAccelerationBuilds.keys)
             for record in list.records {
                 if record.kind != .legacy {
-                    try list.forEachResource(of: record) { try requireGPUResource($0) }
                     try list.validate(record, device: identity, descriptors: descriptors,
                                       maxComputeWorkgroupsPerDimension: capabilities.maxComputeWorkgroupsPerDimension)
                     continue
                 }
                 let command = list.command(for: record)
-                for id in command.resources { try requireGPUResource(id) }
                 if !command.skipsAccelerationTracking {
+                    usesAccelerationTracking = true
                 let pass = command.recordedPass.command
                 if case .drawMesh(let pipeline, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _) = pass {
                     guard case .meshPipeline(let registered) = resources[pipeline.id]?.descriptor,
@@ -935,6 +947,18 @@ public actor Device {
         } catch {
             let error = normalize(error); record(error); throw error
         }
+        if !usesAccelerationTracking {
+            if let pipelined = commandBackend as? any PipelinedCommandBackendDevice {
+                let (sequence, completion) = try enqueue(Array(commandResources), pipelines: true) { submission, submitted in
+                    try await pipelined.submitCommandList(submission.markingCommandsValidated(), list: list, onSubmitted: submitted)
+                }
+                return CommandTicket(sequence: sequence, completion: completion)
+            }
+            let (sequence, completion) = try enqueue(Array(commandResources)) { submission in
+                try await commandBackend.submitCommandList(submission.markingCommandsValidated(), list: list)
+            }
+            return CommandTicket(sequence: sequence, completion: completion)
+        }
         let buildDestinations = Set(list.legacyCommands.compactMap { command -> ResourceID? in
             if command.skipsAccelerationTracking { return nil }
             switch command.recordedPass.command {
@@ -1004,6 +1028,13 @@ public actor Device {
     private func enqueue<Result: Sendable>(
         _ ids: [ResourceID], operation: @escaping @Sendable (Submission) async throws -> Result
     ) throws -> (UInt64, Task<Result, Error>) {
+        try enqueue(ids, pipelines: false) { submission, _ in try await operation(submission) }
+    }
+
+    private func enqueue<Result: Sendable>(
+        _ ids: [ResourceID], pipelines: Bool,
+        operation: @escaping @Sendable (Submission, @escaping @Sendable () -> Void) async throws -> Result
+    ) throws -> (UInt64, Task<Result, Error>) {
         do {
             try Task.checkCancellation()
             try requireActive()
@@ -1021,18 +1052,31 @@ public actor Device {
             }
             for id in unique { resources[id]!.uses += 1 }
             let submission = Submission(sequence: nextSubmission, resources: unique)
-            let predecessor = tail
+            let retirementPredecessor = tail
+            let predecessor = pipelines ? submissionTail ?? retirementPredecessor : retirementPredecessor
+            let submitted: (stream: AsyncStream<Void>, continuation: AsyncStream<Void>.Continuation)? =
+                pipelines ? AsyncStream<Void>.makeStream() : nil
+            let signalSubmission: @Sendable () -> Void = { submitted?.continuation.finish() }
             let operationScopes = beginOperation()
             let completion = Task {
-                defer { endOperation(operationScopes) }
-                if let predecessor { _ = await predecessor.result }
+                defer {
+                    signalSubmission()
+                    if nextSubmission == submission.sequence {
+                        tail = nil
+                        submissionTail = nil
+                    }
+                    endOperation(operationScopes)
+                }
+                await predecessor?()
                 do {
                     try requireActive()
-                    let result = try await operation(submission)
+                    let result = try await operation(submission, signalSubmission)
+                    if pipelines { await retirementPredecessor?() }
                     await finish(unique)
                     return result
                 } catch {
                     let error = normalize(error)
+                    if pipelines { await retirementPredecessor?() }
                     if case .deviceLost(let reason) = error { await lose(reason: reason) }
                     else if error == .timeout { await lose(reason: "GPU completion timeout") }
                     else { record(error, in: operationScopes) }
@@ -1040,7 +1084,15 @@ public actor Device {
                     throw error
                 }
             }
-            tail = Task { _ = try await completion.value }
+            if let submitted {
+                submissionTail = {
+                    var iterator = submitted.stream.makeAsyncIterator()
+                    _ = await iterator.next()
+                }
+            } else {
+                submissionTail = nil
+            }
+            tail = { _ = await completion.result }
             return (nextSubmission, completion)
         } catch is CancellationError {
             throw CancellationError()
@@ -1162,7 +1214,7 @@ extension Device {
             let predecessor = tail
             var opened = false
             do {
-                if let predecessor { _ = await predecessor.result }
+                await predecessor?()
                 try requireActive()
                 try Task.checkCancellation()
                 guard resources[buffer]?.mapping?.handle == handle,

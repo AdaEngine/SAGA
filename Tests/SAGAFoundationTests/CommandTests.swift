@@ -24,6 +24,55 @@ actor CommandTestBackend: CommandBackendDevice {
     func snapshot() -> (Int, [ResourceID]) { (calls, destroyed) }
 }
 
+private actor PipelinedCommandTestBackend: PipelinedCommandBackendDevice {
+    nonisolated let capabilities = try! DeviceCapabilities(maxBufferSize: 1024)
+    let firstRetirement = Gate()
+    let secondAdmission = Gate()
+    private(set) var submitted: [UInt64] = []
+    private(set) var serialSubmissions: [UInt64] = []
+    private(set) var destroyed: [ResourceID] = []
+
+    func allocateBuffer(id: ResourceID, descriptor: BufferDescriptor) {}
+    func destroyBuffer(id: ResourceID) { destroyed.append(id) }
+    func submit(_ submission: Submission) { serialSubmissions.append(submission.sequence) }
+    func submitCommands(_ submission: Submission, commands: [BufferCommand]) async throws -> [[UInt32]] { [] }
+
+    func submitCommandList(
+        _ submission: Submission, list: CommandList, onSubmitted: @escaping @Sendable () -> Void
+    ) async throws -> [[UInt32]] {
+        submitted.append(submission.sequence)
+        onSubmitted()
+        if submitted.count == 1 {
+            await firstRetirement.wait()
+        } else {
+            await secondAdmission.release()
+        }
+        return []
+    }
+}
+
+@Test(.timeLimit(.minutes(1)))
+func pipelinedCommandsAdmitTheirSuccessorsWhileKeepingRetirementInOrder() async throws {
+    let backend = PipelinedCommandTestBackend()
+    let device = try await Device.make(backend: backend)
+    let destination = try await device.createBuffer(.init(size: 4, usage: [.copyDestination]))
+    let first = try await device.writeBuffer(destination, bytes: [1, 0, 0, 0])
+    let second = try await device.writeBuffer(destination, bytes: [2, 0, 0, 0])
+    let barrier = try await device.submitResourceUse([])
+    await backend.secondAdmission.wait()
+    #expect(await backend.submitted == [first.sequence, second.sequence])
+    #expect(await backend.serialSubmissions.isEmpty)
+    try await device.destroyBuffer(destination)
+    #expect(await backend.destroyed.isEmpty)
+
+    await backend.firstRetirement.release()
+    _ = try await second.wait()
+    try await barrier.wait()
+    #expect(await backend.destroyed == [destination])
+    #expect(await backend.serialSubmissions == [barrier.sequence])
+    await device.close()
+}
+
 @Test func commandValidationRejectsSizeUsageAlignmentAndForeignIDsBeforeBackend() async throws {
     let backend = CommandTestBackend()
     let device = try await Device.make(backend: backend)

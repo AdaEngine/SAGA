@@ -11,7 +11,7 @@ SAGA is an independent shader compiler and WebGPU-style GPU runtime written in S
 | --- | --- |
 | macOS 14+ with Metal | Compute, offscreen rendering, and presentation through `CAMetalLayer` on supported devices |
 | Windows and Linux with Vulkan | Native compute and rendering |
-| Windows with Direct3D 12 | Native compute, single-target rendering, and window presentation |
+| Windows with Direct3D 12 | Native compute, multiple color attachments, depth-only rendering, and presentation to multiple Win32 windows |
 | Web browsers with WebGPU | Swift/Wasm compute, rendering, and canvas presentation through a JavaScript WebGPU host |
 
 The package requires Swift 6.2 or newer and has no third-party package dependencies.

@@ -1,6 +1,25 @@
 import SAGATypes
 
 extension VulkanDevice {
+    struct ImageViewKey: Hashable {
+        let image: UInt64
+        let format: UInt32
+        let type: UInt32
+        let range: VkImageSubresourceRange
+    }
+
+    /// All batch views use default component swizzles and live until the batch fence retires.
+    func batchImageView(_ info: VkImageViewCreateInfo, batch: inout PendingBatch) throws -> UInt64 {
+        let key = ImageViewKey(image: info.image, format: info.format, type: info.viewType, range: info.subresourceRange)
+        if let view = batch.views[key] { return view }
+        var view: UInt64 = 0
+        try vulkanCheck(withUnsafePointer(to: info) {
+            native.g.createImageView(native.device, UnsafeRawPointer($0), nil, &view)
+        }, "image view creation")
+        batch.views[key] = view
+        return view
+    }
+
     /// A single retired recording per backend. Its arenas keep the identity of the immutable list alive.
     struct DispatchRecording {
         let list: CommandList
@@ -73,7 +92,28 @@ extension VulkanDevice {
         finishDispatchRecording(recording)
     }
 
-    func submitBatch(_ batch: inout PendingBatch) throws {
+    func acquireCommandBuffer(batch: inout PendingBatch) throws -> UInt {
+        let f = native.f, device = native.device
+        if let idle = idleCommandPools.popLast() {
+            batch.commandPool = idle.pool
+            batch.commandBuffer = idle.buffer
+            try vulkanCheck(f.resetCommandPool(device, idle.pool, 0), "command pool reset")
+        } else {
+            var poolInfo = VkCommandPoolCreateInfo()
+            poolInfo.queueFamilyIndex = native.queueFamily
+            try vulkanCheck(withUnsafePointer(to: &poolInfo) {
+                f.createCommandPool(device, UnsafeRawPointer($0), nil, &batch.commandPool)
+            }, "command pool creation")
+            var allocateInfo = VkCommandBufferAllocateInfo()
+            allocateInfo.commandPool = batch.commandPool
+            try vulkanCheck(withUnsafePointer(to: &allocateInfo) {
+                f.allocateCommandBuffers(device, UnsafeRawPointer($0), &batch.commandBuffer)
+            }, "command buffer allocation")
+        }
+        return batch.commandBuffer
+    }
+
+    func submitBatch(_ batch: inout PendingBatch, waiting waitSemaphore: UInt64 = 0, signaling signalSemaphore: UInt64 = 0) throws {
         let f = native.f
         let device = native.device
         if batch.fence == 0, let fence = idleFences.popLast() { batch.fence = fence }
@@ -92,9 +132,31 @@ extension VulkanDevice {
         submit.commandBufferCount = 1
         try withUnsafePointer(to: &commandBuffer) { buffer in
             submit.pCommandBuffers = buffer
-            try vulkanCheck(withUnsafePointer(to: &submit) {
-                f.queueSubmit(native.queue, 1, UnsafeRawPointer($0), fence)
-            }, "queue submission")
+            func submitToQueue() throws {
+                try vulkanCheck(withUnsafePointer(to: &submit) {
+                    f.queueSubmit(native.queue, 1, UnsafeRawPointer($0), fence)
+                }, "queue submission")
+            }
+            if waitSemaphore == 0, signalSemaphore == 0 {
+                try submitToQueue()
+                return
+            }
+            try withUnsafePointer(to: waitSemaphore) { wait in
+                try withUnsafePointer(to: signalSemaphore) { signal in
+                    try withUnsafePointer(to: VKPresent.stageTransfer) { stage in
+                        if waitSemaphore != 0 {
+                            submit.waitSemaphoreCount = 1
+                            submit.pWaitSemaphores = UnsafeRawPointer(wait)
+                            submit.pWaitDstStageMask = UnsafeRawPointer(stage)
+                        }
+                        if signalSemaphore != 0 {
+                            submit.signalSemaphoreCount = 1
+                            submit.pSignalSemaphores = UnsafeRawPointer(signal)
+                        }
+                        try submitToQueue()
+                    }
+                }
+            }
         }
     }
 
@@ -108,6 +170,27 @@ extension VulkanDevice {
             quarantine.append(batch)
             throw error
         }
+    }
+
+    /// Records initialization work and keeps its command pool alive through retirement.
+    func runOneShot(_ record: (UInt) throws -> Void) async throws {
+        var batch = PendingBatch()
+        do {
+            let commandBuffer = try acquireCommandBuffer(batch: &batch)
+            var begin = VkCommandBufferBeginInfo()
+            try vulkanCheck(withUnsafePointer(to: &begin) {
+                native.f.beginCommandBuffer(commandBuffer, UnsafeRawPointer($0))
+            }, "command recording")
+            try record(commandBuffer)
+            try vulkanCheck(native.f.endCommandBuffer(commandBuffer), "command recording")
+            try submitBatch(&batch)
+        } catch {
+            if case GPUError.deviceLost = error { terminal = true }
+            releaseBatch(batch)
+            throw error
+        }
+        try await waitForBatch(batch)
+        releaseBatch(batch, recycle: true)
     }
 
     /// `recycle` is only for batches whose fence signalled: their pool and fence go back to the idle lists.
@@ -127,6 +210,6 @@ extension VulkanDevice {
         batch.owned.forEach { native.destroy($0) }
         batch.framebuffers.forEach { native.g.destroyFramebuffer(device, $0, nil) }
         batch.renderPasses.forEach { native.g.destroyRenderPass(device, $0, nil) }
-        batch.views.forEach { native.g.destroyImageView(device, $0, nil) }
+        batch.views.values.forEach { native.g.destroyImageView(device, $0, nil) }
     }
 }

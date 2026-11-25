@@ -20,6 +20,7 @@ struct VulkanFeatureSupport: Sendable {
     var bufferDeviceAddress = false
     var rayPositionFetch = false
     var astcHDR = false
+    var fifoLatestReady = false
     var memoryModel = false
     var memoryModelDeviceScope = false
     var cooperativeProperties: [CooperativeMatrixProperties] = []
@@ -95,7 +96,8 @@ struct VulkanFeatureSupport: Sendable {
 /// The three chained feature structures as one raw allocation, so pNext links stay valid for the call.
 final class VulkanFeatureChain {
     private let memory: UnsafeMutableRawPointer
-    private static let size = 600
+    private static let fifoLatestReadyOffset = 600
+    private static let size = 624
 
     /// Offsets: features2 at 0 (16 header bytes + 220 feature bytes), multiview at 256, float16/int8 at 288,
     /// 16-bit storage at 320. They are chained in that order.
@@ -124,6 +126,7 @@ final class VulkanFeatureChain {
         (memory + 552).storeBytes(of: 1000481000, as: UInt32.self)  // ray tracing position fetch features
         (memory + 552).storeBytes(of: UInt(bitPattern: memory + 576), toByteOffset: 8, as: UInt.self)
         (memory + 576).storeBytes(of: 1000066000, as: UInt32.self)  // ASTC HDR texture compression features
+        (memory + Self.fifoLatestReadyOffset).storeBytes(of: VKPresent.fifoLatestReadyFeatureType, as: UInt32.self)
         // Mesh features link onward to the ray structures so a full query sees every one.
         (memory + 416).storeBytes(of: UInt(bitPattern: memory + 456), toByteOffset: 8, as: UInt.self)
     }
@@ -139,6 +142,15 @@ final class VulkanFeatureChain {
     var astcHDR: UInt32 {
         get { (memory + 576).load(fromByteOffset: 16, as: UInt32.self) }
         set { (memory + 576).storeBytes(of: newValue, toByteOffset: 16, as: UInt32.self) }
+    }
+
+    var fifoLatestReady: UInt32 {
+        get { (memory + Self.fifoLatestReadyOffset).load(fromByteOffset: 16, as: UInt32.self) }
+        set { (memory + Self.fifoLatestReadyOffset).storeBytes(of: newValue, toByteOffset: 16, as: UInt32.self) }
+    }
+
+    func queryFIFOLatestReady() {
+        (memory + 576).storeBytes(of: UInt(bitPattern: memory + Self.fifoLatestReadyOffset), toByteOffset: 8, as: UInt.self)
     }
     var rayPositionFetch: UInt32 {
         get { (memory + 552).load(fromByteOffset: 16, as: UInt32.self) }
@@ -175,7 +187,7 @@ final class VulkanFeatureChain {
 
     /// Chains only the optional structures that will be enabled.
     func relink(float16: Bool, cooperative: Bool, mesh: Bool = false, rayQuery: Bool = false, positionFetch: Bool = false,
-                astcHDR: Bool = false) {
+                astcHDR: Bool = false, fifoLatestReady: Bool = false) {
         var order: [Int] = [256]
         if float16 { order += [288, 320] }
         if cooperative { order += [352, 384] }
@@ -183,6 +195,7 @@ final class VulkanFeatureChain {
         if rayQuery { order += [456, 488, 528] }
         if positionFetch { order.append(552) }
         if astcHDR { order.append(576) }
+        if fifoLatestReady { order.append(Self.fifoLatestReadyOffset) }
         memory.storeBytes(of: UInt(bitPattern: memory + 256), toByteOffset: 8, as: UInt.self)
         for (index, offset) in order.enumerated() {
             let next = index + 1 < order.count ? UInt(bitPattern: memory + order[index + 1]) : 0
@@ -231,7 +244,11 @@ func vulkanQueryFeatures(physical: UInt, instance: VulkanInstance) -> VulkanFeat
     var support = VulkanFeatureSupport()
     support.deviceExtensions = vulkanDeviceExtensions(physical: physical, instance: instance)
     let chain = VulkanFeatureChain()
+    #if os(Windows)
+    if VKPresent.fifoLatestReadyExtension(in: support.deviceExtensions) != nil { chain.queryFIFOLatestReady() }
+    #endif
     instance.functions.getPhysicalDeviceFeatures2(physical, chain.features2)
+    support.fifoLatestReady = chain.fifoLatestReady != 0
     support.core = (0..<55).map { chain.core($0) }
     support.float16 = chain.float16 != 0
     support.int8 = chain.int8 != 0

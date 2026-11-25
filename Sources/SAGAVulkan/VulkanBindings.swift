@@ -94,11 +94,15 @@ extension VulkanDevice {
         storageTextures: [ComputeBindingSlot], samplerSlots: [ComputeBindingSlot],
         textureResources: [ComputeBindingSlot: ResourceID], samplerResources: [ComputeBindingSlot: ResourceID],
         externalSlots: [ComputeBindingSlot] = [], accelerationSlots: [ComputeBindingSlot] = [],
-        accelerationResources: [ComputeBindingSlot: ResourceID] = [:], totals: inout DescriptorTotals
+        accelerationResources: [ComputeBindingSlot: ResourceID] = [:],
+        additionalBuffers: [ComputeBindingSlot: StorageBufferBinding] = [:], totals: inout DescriptorTotals
     ) throws -> [DescriptorWrite] {
         var writes: [DescriptorWrite] = []
+        writes.reserveCapacity(bufferBindings.count + sampledTextures.count + storageTextures.count + samplerSlots.count
+            + accelerationSlots.count + externalSlots.count * 4)
         for (slot, usage) in bufferBindings {
-            guard let supplied = suppliedBuffers[slot], let buffer = buffers[supplied.buffer], let type = types[slot] else {
+            guard let supplied = suppliedBuffers[slot] ?? additionalBuffers[slot],
+                let buffer = buffers[supplied.buffer], let type = types[slot] else {
                 throw GPUError.validation("Missing Vulkan buffer binding")
             }
             let range = try supplied.range(in: buffer.descriptor, usage: usage)
@@ -190,12 +194,26 @@ extension VulkanDevice {
         return writes
     }
 
-    /// Allocates one descriptor set per layout from the batch pool, fills them and binds them at set zero.
-    /// Image views are created per use and released with the batch.
+    struct DescriptorSetKey: Hashable {
+        let layout: UInt64
+        let writes: [DescriptorWrite]
+    }
+
+    /// Each binding configuration is immutable for the life of its batch.
     func bindDescriptors(commandBuffer: UInt, bindPoint: UInt32, layout: UInt64, setLayouts: [UInt64],
                          writes writeList: [DescriptorWrite], batch: inout PendingBatch) throws {
         guard !setLayouts.isEmpty else { return }
-        let f = native.f, g = native.g, device = native.device
+        let f = native.f, device = native.device
+        func bind(_ sets: [UInt64]) {
+            sets.withUnsafeBufferPointer {
+                f.cmdBindDescriptorSets(commandBuffer, bindPoint, layout, 0, UInt32($0.count), $0.baseAddress!, 0, nil)
+            }
+        }
+        let key = DescriptorSetKey(layout: layout, writes: writeList)
+        if let sets = batch.descriptorSets[key] {
+            bind(sets)
+            return
+        }
         var sets = [UInt64](repeating: 0, count: setLayouts.count)
         let pool = batch.descriptorPool
         try setLayouts.withUnsafeBufferPointer { layouts in
@@ -206,7 +224,7 @@ extension VulkanDevice {
             try vulkanCheck(withUnsafePointer(to: &info) { f.allocateDescriptorSets(device, UnsafeRawPointer($0), &sets) },
                             "descriptor set allocation")
         }
-        var accelerationHandles = writeList.map(\.accelerationStructure)
+        let accelerationHandles = writeList.map(\.accelerationStructure)
         var accelerationInfos = [VkWriteDescriptorSetAccelerationStructure](repeating: .init(), count: writeList.count)
         var bufferInfos = [VkDescriptorBufferInfo](repeating: .init(), count: writeList.count)
         var imageInfos = [VkDescriptorImageInfo](repeating: .init(), count: writeList.count)
@@ -222,48 +240,43 @@ extension VulkanDevice {
                 info.subresourceRange = VkImageSubresourceRange(aspectMask: write.imageAspect, baseMipLevel: write.baseMip,
                     levelCount: write.type == VK.DescriptorType.sampledImage ? write.mipLevels : 1,
                     baseArrayLayer: write.baseLayer, layerCount: write.layerCount)
-                var view: UInt64 = 0
-                try vulkanCheck(withUnsafePointer(to: &info) { g.createImageView(device, UnsafeRawPointer($0), nil, &view) },
-                                "image view creation")
-                batch.views.append(view)
-                imageInfos[index].imageView = view
+                imageInfos[index].imageView = try batchImageView(info, batch: &batch)
             default:
                 bufferInfos[index] = VkDescriptorBufferInfo(buffer: write.buffer, offset: write.offset, range: write.range)
             }
         }
-        accelerationHandles.withUnsafeMutableBufferPointer { handlePointer in
-            for index in accelerationInfos.indices {
-                accelerationInfos[index].pAccelerationStructures = UnsafeRawPointer(handlePointer.baseAddress! + index)
+        accelerationHandles.withUnsafeBufferPointer { handles in
+            for index in accelerationInfos.indices where writeList[index].type == Self.accelerationDescriptorType {
+                accelerationInfos[index].pAccelerationStructures = UnsafeRawPointer(handles.baseAddress! + index)
             }
-        bufferInfos.withUnsafeBufferPointer { bufferPointer in
-            imageInfos.withUnsafeBufferPointer { imagePointer in
-              accelerationInfos.withUnsafeBufferPointer { accelerationPointer in
-                let writes = writeList.enumerated().map { index, write in
-                    var native = VkWriteDescriptorSet()
-                    native.dstSet = sets[write.set]
-                    native.dstBinding = write.binding
-                    native.dstArrayElement = write.arrayElement
-                    native.descriptorType = write.type
-                    switch write.type {
-                    case VK.DescriptorType.sampler, VK.DescriptorType.sampledImage, VK.DescriptorType.storageImage:
-                        native.pImageInfo = UnsafeRawPointer(imagePointer.baseAddress! + index)
-                    case Self.accelerationDescriptorType:
-                        native.pNext = UnsafeRawPointer(accelerationPointer.baseAddress! + index)
-                    default:
-                        native.pBufferInfo = bufferPointer.baseAddress! + index
+            bufferInfos.withUnsafeBufferPointer { bufferPointer in
+                imageInfos.withUnsafeBufferPointer { imagePointer in
+                    accelerationInfos.withUnsafeBufferPointer { accelerationPointer in
+                        let writes = writeList.enumerated().map { index, write in
+                            var native = VkWriteDescriptorSet()
+                            native.dstSet = sets[write.set]
+                            native.dstBinding = write.binding
+                            native.dstArrayElement = write.arrayElement
+                            native.descriptorType = write.type
+                            switch write.type {
+                            case VK.DescriptorType.sampler, VK.DescriptorType.sampledImage, VK.DescriptorType.storageImage:
+                                native.pImageInfo = UnsafeRawPointer(imagePointer.baseAddress! + index)
+                            case Self.accelerationDescriptorType:
+                                native.pNext = UnsafeRawPointer(accelerationPointer.baseAddress! + index)
+                            default:
+                                native.pBufferInfo = bufferPointer.baseAddress! + index
+                            }
+                            return native
+                        }
+                        writes.withUnsafeBufferPointer {
+                            f.updateDescriptorSets(device, UInt32($0.count), UnsafeRawPointer($0.baseAddress), 0, nil)
+                        }
                     }
-                    return native
                 }
-                writes.withUnsafeBufferPointer {
-                    f.updateDescriptorSets(device, UInt32($0.count), UnsafeRawPointer($0.baseAddress), 0, nil)
-                }
-              }
             }
         }
-        }
-        sets.withUnsafeBufferPointer {
-            f.cmdBindDescriptorSets(commandBuffer, bindPoint, layout, 0, UInt32($0.count), $0.baseAddress!, 0, nil)
-        }
+        batch.descriptorSets[key] = sets
+        bind(sets)
     }
 }
 

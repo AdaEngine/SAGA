@@ -78,7 +78,7 @@ struct VkImageCreateInfo {
     var initialLayout: UInt32 = VK.Image.layoutUndefined
 }
 
-struct VkImageSubresourceRange {
+struct VkImageSubresourceRange: Hashable {
     var aspectMask: UInt32 = VK.Image.aspectColor
     var baseMipLevel: UInt32 = 0
     var levelCount: UInt32 = 1
@@ -335,7 +335,7 @@ struct VkGraphicsPipelineCreateInfo {
     var basePipelineIndex: Int32 = -1
 }
 
-struct VkViewport {
+struct VkViewport: Equatable {
     var x: Float = 0
     var y: Float = 0
     var width: Float = 0
@@ -344,7 +344,7 @@ struct VkViewport {
     var maxDepth: Float = 1
 }
 
-struct VkRect2D {
+struct VkRect2D: Equatable {
     var x: Int32 = 0
     var y: Int32 = 0
     var width: UInt32 = 0

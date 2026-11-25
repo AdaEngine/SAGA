@@ -74,3 +74,38 @@ private typealias FillBuffer = @convention(c) (UInt, UInt64, UInt64, UInt64, UIn
         await device.close()
     } catch { await device.close(); throw error }
 }
+
+@Test func latestSurfaceFrameUsesOnlySupportedModesAndImageCounts() {
+    var info = VkSwapchainCreateInfoKHR()
+    let fifo = VKPresent.preferredMode([2], fifoLatestReadyEnabled: true)
+    let mailbox = VKPresent.preferredMode([2, 1], fifoLatestReadyEnabled: true)
+    info.configurePresentation(mode: fifo, minimumImages: 1, maximumImages: 0)
+    #expect(info.presentMode == 2 && info.minImageCount == 2)
+    info.configurePresentation(mode: mailbox, minimumImages: 2, maximumImages: 0)
+    #expect(info.presentMode == 1 && info.minImageCount == 3)
+    info.configurePresentation(mode: mailbox, minimumImages: 1, maximumImages: 2)
+    #expect(info.presentMode == 1 && info.minImageCount == 2)
+    info.configurePresentation(mode: VKPresent.preferredMode([], fifoLatestReadyEnabled: true), minimumImages: 4, maximumImages: 5)
+    #expect(info.presentMode == 2 && info.minImageCount == 4)
+}
+
+@Test func fifoLatestReadyTakesPriorityOverMailboxWhenAvailable() {
+    // VkPresentModeKHR::VK_PRESENT_MODE_FIFO_LATEST_READY_KHR.
+    let latestReady: UInt32 = 1_000_361_000
+    var info = VkSwapchainCreateInfoKHR()
+    let supported = [2, 1, latestReady]
+    let preferred = VKPresent.preferredMode(supported, fifoLatestReadyEnabled: true)
+    info.configurePresentation(mode: preferred, minimumImages: 2, maximumImages: 0)
+    #expect(info.presentMode == latestReady && info.minImageCount == 3)
+    info.configurePresentation(mode: preferred, minimumImages: 1, maximumImages: 2)
+    #expect(info.presentMode == latestReady && info.minImageCount == 2)
+    #expect(VKPresent.preferredMode(supported, fifoLatestReadyEnabled: false) == VKPresent.mailbox)
+}
+
+@Test func fifoLatestReadyUsesTheAvailableExtensionName() {
+    let khr = "VK_KHR_present_mode_fifo_latest_ready"
+    let ext = "VK_EXT_present_mode_fifo_latest_ready"
+    #expect(VKPresent.fifoLatestReadyExtension(in: [khr, ext]) == khr)
+    #expect(VKPresent.fifoLatestReadyExtension(in: [ext]) == ext)
+    #expect(VKPresent.fifoLatestReadyExtension(in: ["VK_KHR_swapchain"]) == nil)
+}

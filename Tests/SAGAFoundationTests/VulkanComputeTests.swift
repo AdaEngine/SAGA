@@ -858,16 +858,25 @@ private final class TestWindow: @unchecked Sendable {
     }
 }
 
-@Test(.enabled(if: vulkanAvailable), .gpuExclusive) func vulkanPresentsToAWin32WindowAndRebuildsItsSwapchain() async throws {
+@Test(.enabled(if: vulkanAvailable), .gpuExclusive, arguments: [false, true])
+func vulkanPresentsToAWin32WindowAndRebuildsItsSwapchain(prefersLatestFrame: Bool) async throws {
     let window = TestWindow()
     defer { window.close() }
     try #require(window.handle != nil)
     let target = VulkanSurfaceTarget.win32(hinstance: UInt(bitPattern: GetModuleHandleW(nil)),
                                            hwnd: UInt(bitPattern: window.handle))
     let backend: VulkanDevice
-    do { backend = try VulkanBackend.makeDevice(surface: target) } catch GPUError.unsupported { return }  // no presentation support
+    do {
+        if prefersLatestFrame {
+            let adapter = try #require(VulkanBackend.requestAdapter())
+            backend = try VulkanBackend.makePresentableDevice(adapter: adapter)
+        } else {
+            backend = try VulkanBackend.makeDevice(surface: target)
+        }
+    } catch GPUError.unsupported { return }  // no presentation support
     let device = try await Device.make(backend: backend)
     do {
+        let surface = prefersLatestFrame ? try await backend.attachSurface(target, prefersLatestFrame: true, onPresentationRetryChanged: nil).id : 0
         let compiler = IndependentShaderCompiler()
         let source = """
             @vertex fn vs(@builtin(vertex_index) index: u32) -> @builtin(position) vec4f {
@@ -884,13 +893,13 @@ private final class TestWindow: @unchecked Sendable {
                                                          usage: [.renderAttachment, .copySource]))
         _ = try await device.submitCommands([
             .render(pipeline: pipeline, target: frame, clear: .init(red: 0, green: 0, blue: 1, alpha: 1), vertexCount: 3)])
-        try await device.present(frame).wait()
+        try await device.present(frame, surface: surface).wait()
         // Resizing forces the swapchain to be rebuilt on the next present.
         let handle = window.handle
         window.perform { SetWindowPos(handle, nil, 0, 0, 320, 240, UINT(SWP_NOMOVE | SWP_NOZORDER)) }
-        try await device.present(frame).wait()
-        try await device.present(frame).wait()
-        #expect(await backend.presentationRebuildsForTesting() == 2)
+        try await device.present(frame, surface: surface).wait()
+        try await device.present(frame, surface: surface).wait()
+        #expect(await backend.presentationRebuildsForTesting(surface: surface) == 2)
         await device.close()
     } catch { await device.close(); throw error }
 }
