@@ -36,9 +36,9 @@ The native C ABI necessarily uses dynamic system entry points and pointer casts.
 source files, allowed escape patterns and reasons are recorded in `runtime-policy.json` under
 `native_abi_exceptions`. A changed file digest, a copied file, or a new escape elsewhere fails;
 there is no backend-wide exemption for unsafe casts or unchecked concurrency. Web reactor exports
-retain their separate, exact ABI rule. The digest inventory is a review gate, **not proof of pointer
-or concurrency safety**. In particular, the existing D3D12 process-global debug device remains a
-concurrency risk for separate source review, not a safety claim granted by passing this audit.
+retain their separate, exact ABI rule. The digest inventory records the reviewed source.
+Review pointer and concurrency safety separately. The Direct3D 12 debug layer uses a synchronized
+process-wide device reference, so diagnostics from concurrent devices can still be misattributed.
 Do not regenerate the inventory automatically after source changes.
 
 The exact seven files in `Benchmarks/` are a separate opt-in comparison harness, not a SwiftPM

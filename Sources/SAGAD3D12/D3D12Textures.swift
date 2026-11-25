@@ -95,8 +95,53 @@ struct D3D12Box {
     var back: UInt32 = 1
 }
 
-/// A shader-visible descriptor heap pair that hands out consecutive slots for one submission.
-final class D3D12DescriptorArena: @unchecked Sendable {
+/// Retains every shader-visible heap bound while recording one command list.
+final class D3D12DescriptorArena {
+    private var pages: [D3D12DescriptorPage] = []
+    private var reusablePage: D3D12DescriptorPage?
+
+    var retainedHeaps: [COMObject] { pages.flatMap { [$0.viewHeap, $0.samplerHeap] } }
+
+    /// Called only after the command list's fence completes.
+    func reset() {
+        if let first = pages.first, first.isStandardSize {
+            first.reset()
+            reusablePage = first
+        }
+        pages.removeAll(keepingCapacity: true)
+    }
+
+    func prepare(device: COMObject, list: COMObject, viewCount: Int, samplerCount: Int) throws -> D3D12DescriptorPage {
+        if let current = pages.last, current.hasSpace(views: viewCount, samplers: samplerCount) {
+            return current
+        }
+
+        let page: D3D12DescriptorPage
+        if let reusablePage, reusablePage.hasSpace(views: viewCount, samplers: samplerCount) {
+            page = reusablePage
+            self.reusablePage = nil
+        } else {
+            page = try D3D12DescriptorPage(
+                device: device,
+                viewCapacity: max(D3D12DescriptorPage.standardViewCapacity, viewCount),
+                samplerCapacity: max(D3D12DescriptorPage.standardSamplerCapacity, samplerCount)
+            )
+        }
+        pages.append(page)
+        // Heap switches invalidate the root descriptor tables; each draw or dispatch sets all its tables.
+        typealias SetHeaps = @convention(c) (UnsafeMutableRawPointer, UInt32, UnsafeRawPointer) -> Void
+        let heapPointers: [UnsafeMutableRawPointer?] = [page.viewHeap.pointer, page.samplerHeap.pointer]
+        heapPointers.withUnsafeBufferPointer { pointers in
+            list.slot(28, SetHeaps.self)(list.pointer, UInt32(pointers.count), UnsafeRawPointer(pointers.baseAddress!))
+        }
+        return page
+    }
+}
+
+final class D3D12DescriptorPage {
+    static let standardViewCapacity = 4096
+    static let standardSamplerCapacity = 512
+
     let viewHeap: COMObject
     let samplerHeap: COMObject
     let viewIncrement: UInt
@@ -109,8 +154,21 @@ final class D3D12DescriptorArena: @unchecked Sendable {
     private let samplerCapacity: Int
     private var viewsUsed = 0
     private var samplersUsed = 0
+    var sampledTables: [[ResourceID]: UInt64] = [:]
+    var samplerTables: [[ResourceID]: UInt64] = [:]
 
-    init(device: COMObject, viewCapacity: Int = 4096, samplerCapacity: Int = 512) throws {
+    var isStandardSize: Bool {
+        viewCapacity == Self.standardViewCapacity && samplerCapacity == Self.standardSamplerCapacity
+    }
+
+    func reset() {
+        viewsUsed = 0
+        samplersUsed = 0
+        sampledTables.removeAll(keepingCapacity: true)
+        samplerTables.removeAll(keepingCapacity: true)
+    }
+
+    init(device: COMObject, viewCapacity: Int, samplerCapacity: Int) throws {
         typealias CreateHeap = @convention(c) (UnsafeMutableRawPointer, UnsafeRawPointer, UnsafeRawPointer,
                                                UnsafeMutablePointer<UnsafeMutableRawPointer?>) -> HRESULT
         typealias Increment = @convention(c) (UnsafeMutableRawPointer, UInt32) -> UInt32
@@ -137,6 +195,10 @@ final class D3D12DescriptorArena: @unchecked Sendable {
         viewGPU = start(viewHeap, gpu: true)
         samplerCPU = UInt(start(samplerHeap, gpu: false))
         samplerGPU = start(samplerHeap, gpu: true)
+    }
+
+    func hasSpace(views: Int, samplers: Int) -> Bool {
+        views <= viewCapacity - viewsUsed && samplers <= samplerCapacity - samplersUsed
     }
 
     func allocateViews(_ count: Int) throws -> (cpu: UInt, gpu: UInt64) {
@@ -223,8 +285,28 @@ extension D3D12Device: RenderBackendDevice, SamplerBackendDevice {
         description.sampleCount = descriptor.sampleCount
         description.layout = 0
         description.flags = flags
-        let created = Self.createCommitted(device, properties: &properties, description: &description,
-                                           create: device.slot(27, CreateCommitted.self))
+        // D3D12_CLEAR_VALUE starts with the typed view format, followed by the color or depth/stencil union.
+        // Favor far depth, single-channel shadow maps, and opaque black for the common color passes.
+        // The clear commands still specify their own values.
+        let one = Float(1).bitPattern
+        let preferredClear: [UInt32]
+        if let depth = depthFormats?.dsv, flags & D3D12.flagAllowDepthStencil != 0 {
+            preferredClear = [depth, one, 0, 0, 0]
+        } else if flags & D3D12.flagAllowRenderTarget != 0 {
+            let channel = descriptor.format == .r32Float ? one : 0
+            preferredClear = [format, channel, channel, channel, one]
+        } else {
+            preferredClear = []
+        }
+        let created = preferredClear.withUnsafeBytes { value in
+            Self.createCommitted(
+                device,
+                properties: &properties,
+                description: &description,
+                preferredClear: value.isEmpty ? nil : value.baseAddress,
+                create: device.slot(27, CreateCommitted.self)
+            )
+        }
         D3D12DebugLayer.drain(device: device)
         try d3dCheck(created.0, "texture creation")
         textures[id] = Texture(descriptor: descriptor, format: format, resource: created.1!,
@@ -235,17 +317,23 @@ extension D3D12Device: RenderBackendDevice, SamplerBackendDevice {
 
     nonisolated static func createCommitted(
         _ device: COMObject, properties: inout D3D12HeapProperties, description: inout D3D12ResourceDesc,
+        preferredClear: UnsafeRawPointer?,
         create: @convention(c) (UnsafeMutableRawPointer, UnsafeRawPointer, UInt32, UnsafeRawPointer, UInt32, UnsafeRawPointer?,
                                 UnsafeRawPointer, UnsafeMutablePointer<UnsafeMutableRawPointer?>) -> HRESULT
     ) -> (HRESULT, COMObject?) {
         var iid = IID.resource
         var object: UnsafeMutableRawPointer?
-        let result = create(device.pointer, &properties, 0, &description, D3D12.stateCommon, nil, &iid, &object)
+        let result = create(device.pointer, &properties, 0, &description, D3D12.stateCommon, preferredClear, &iid, &object)
         return (result, object.map(COMObject.init))
     }
 
     public func allocateRenderPipeline(_ pipeline: RenderPipeline, vertex: RenderStageArtifact,
                                        fragment: RenderStageArtifact) async throws {
+        try await allocateRenderPipeline(pipeline, vertex: vertex, fragment: Optional(fragment))
+    }
+
+    public func allocateRenderPipeline(_ pipeline: RenderPipeline, vertex: RenderStageArtifact,
+                                       fragment: RenderStageArtifact?) async throws {
         try requireActive()
         guard renderPipelines[pipeline.id] == nil else { throw GPUError.validation("Duplicate Direct3D 12 render pipeline") }
         renderPipelines[pipeline.id] = try allocateRenderPipelineNative(pipeline, vertex: vertex, fragment: fragment)

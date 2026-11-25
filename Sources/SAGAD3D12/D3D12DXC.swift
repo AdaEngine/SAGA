@@ -11,14 +11,23 @@ final class D3D12ShaderCompiler: @unchecked Sendable {
         func load(_ path: String) -> HMODULE? { path.withCString(encodedAs: UTF16.self) { LoadLibraryW($0) } }
         var module: HMODULE?
         for directory in directories {
-            // dxil.dll must already be loaded when dxcompiler.dll looks it up by name.
-            _ = load(directory + "\\dxil.dll")
-            if module == nil { module = load(directory + "\\dxcompiler.dll") }
+            // Load the matching validator before the compiler, which looks it up by name.
+            guard let validator = load(directory + "\\dxil.dll") else { continue }
+            guard let candidate = load(directory + "\\dxcompiler.dll") else {
+                FreeLibrary(validator)
+                continue
+            }
+            guard GetProcAddress(candidate, "DxcCreateInstance") != nil else {
+                FreeLibrary(candidate)
+                FreeLibrary(validator)
+                continue
+            }
+            module = candidate
+            break
         }
-        if module == nil { module = load("dxil.dll") ?? load("dxcompiler.dll"); _ = load("dxil.dll") }
-        if module == nil || GetProcAddress(module, "DxcCreateInstance") == nil { module = load("dxcompiler.dll") }
+        if module == nil, load("dxil.dll") != nil { module = load("dxcompiler.dll") }
         guard let module, let create = GetProcAddress(module, "DxcCreateInstance") else {
-            throw GPUError.unsupported("dxcompiler.dll was not found; Direct3D 12 needs the DirectX Shader Compiler")
+            throw GPUError.unsupported("Direct3D 12 needs matching dxcompiler.dll and dxil.dll libraries")
         }
         typealias Create = @convention(c) (UnsafeRawPointer, UnsafeRawPointer, UnsafeMutablePointer<UnsafeMutableRawPointer?>) -> HRESULT
         var clsid = IID.dxcCompilerClass, iid = IID.dxcCompiler

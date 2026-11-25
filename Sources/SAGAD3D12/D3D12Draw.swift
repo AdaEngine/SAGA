@@ -3,11 +3,23 @@ import WinSDK
 import SAGATypes
 import SAGABackend
 
+/// Native graphics state lasts until the list is reset or another command changes it.
+struct D3D12DrawState {
+    var colorCount: Int?
+    var hasDepth = false
+    var stencilReference: UInt32?
+    var viewport: RenderViewport?
+    var scissor: RenderScissor?
+    var blend: RenderClearColor?
+    var topology: UInt32?
+    var pipeline: ResourceID?
+}
+
 extension D3D12Device {
     /// Records one `render` or `renderIndexed` command into the command list.
     func recordDraw(
         _ command: BufferCommand, list: COMObject, transition: (ResourceID, UInt32) -> Void,
-        arena: inout D3D12DescriptorArena?, heapsSet: inout Bool, renderTargets: inout D3D12RenderTargetArena?,
+        arena: D3D12DescriptorArena, renderTargets: inout D3D12RenderTargetArena?, graphics: inout D3D12DrawState,
         meshGroups: (UInt32, UInt32, UInt32)? = nil, meshIndirect: COMObject? = nil, multiCount: IndirectDrawCount? = nil
     ) throws {
         let pipeline: RenderPipeline, target: ResourceID?, colorLoad: RenderColorLoadAction
@@ -50,13 +62,13 @@ extension D3D12Device {
         guard let state = renderPipelines[pipeline.id], state.model == pipeline else {
             throw GPUError.validation("Unknown Direct3D 12 render pipeline")
         }
-        guard additional.isEmpty, colorStore == .store || resolve != nil else {
-            throw GPUError.unsupported("Direct3D 12 render commands support one color target, discarded only when it resolves")
+        guard Set(additional.keys) == Set(pipeline.additionalColorTargets.keys),
+              (target == nil) == (pipeline.colorFormat == nil) else {
+            throw GPUError.validation("Color attachments do not match the Direct3D 12 pipeline")
         }
-        guard let target, let texture = self.texture(for: target), texture.descriptor.format == pipeline.colorFormat,
-              texture.descriptor.sampleCount == pipeline.sampleCount,
-              texture.descriptor.usage.contains(.renderAttachment), let extent = texture.descriptor.mipExtent(mipLevel + texture.baseMip) else {
-            throw GPUError.validation("Invalid Direct3D 12 render target")
+        guard colorStore == .store || resolve != nil,
+              additional.values.allSatisfy({ $0.storeAction == .store && $0.resolve == nil }) else {
+            throw GPUError.unsupported("Direct3D 12 supports resolving and discarding only the primary color target")
         }
         guard (pipeline.depthState == nil) == (depth == nil) else {
             throw GPUError.validation("Direct3D 12 render pipeline and depth attachment do not match")
@@ -71,45 +83,89 @@ extension D3D12Device {
         typealias SetConstants = @convention(c) (UnsafeMutableRawPointer, UInt32, UInt32, UnsafeRawPointer, UInt32) -> Void
         typealias SetTable = @convention(c) (UnsafeMutableRawPointer, UInt32, UInt64) -> Void
 
-        // Render target.
-        transition(target, D3D12.stateRenderTarget)
         if renderTargets == nil { renderTargets = try D3D12RenderTargetArena(device: device) }
-        let handle = try renderTargets!.allocate()
-        typealias CreateRTV = @convention(c) (UnsafeMutableRawPointer, UnsafeMutableRawPointer, UnsafeRawPointer?, UInt) -> Void
-        var viewWords = [UInt32](repeating: 0, count: 8)
-        viewWords[0] = texture.viewFormat
-        let is3D = texture.descriptor.dimension == .d3
-        let isArray = texture.descriptor.arrayLayerCount > 1
-        viewWords[1] = pipeline.sampleCount > 1 ? 6 : (is3D ? 8 : (isArray ? 5 : 4))
-        viewWords[2] = mipLevel + texture.baseMip
-        if is3D { viewWords[3] = depthSlice ?? 0; viewWords[4] = 1 }
-        else if texture.layerCount != nil && pipeline.sampleCount == 1 { viewWords[1] = 5; viewWords[3] = texture.baseLayer; viewWords[4] = 1 }
-        else if isArray { viewWords[3] = 0; viewWords[4] = texture.descriptor.arrayLayerCount }
-        viewWords.withUnsafeBytes { device.slot(20, CreateRTV.self)(device.pointer, texture.resource.pointer, $0.baseAddress, handle) }
-        if case .clear(let color) = colorLoad {
-            typealias Clear = @convention(c) (UnsafeMutableRawPointer, UInt, UnsafeRawPointer, UInt32, UnsafeRawPointer?) -> Void
-            let components = [Float(color.red), Float(color.green), Float(color.blue), Float(color.alpha)]
-            components.withUnsafeBytes { list.slot(48, Clear.self)(list.pointer, handle, $0.baseAddress!, 0, nil) }
+        renderTargets?.beginDraw()
+        var extent: (width: UInt32, height: UInt32)?
+        var handles: [UInt] = []
+        var changedAttachments = false
+        func bindColor(_ attachment: RenderColorAttachment, format: TextureFormat) throws {
+            let target = attachment.texture
+            guard let texture = self.texture(for: target), texture.descriptor.format == format,
+                  texture.descriptor.sampleCount == pipeline.sampleCount, texture.descriptor.usage.contains(.renderAttachment),
+                  let size = texture.descriptor.mipExtent(attachment.mipLevel + texture.baseMip),
+                  extent.map({ $0 == size }) ?? true else {
+                throw GPUError.validation("Invalid Direct3D 12 render target")
+            }
+            extent = size
+            transition(target, D3D12.stateRenderTarget)
+            let (handle, needsWrite) = try renderTargets!.allocateColor(
+                .init(texture: target, mip: attachment.mipLevel, sliceOrFlags: attachment.depthSlice ?? 0)
+            )
+            if needsWrite {
+                changedAttachments = true
+                typealias CreateRTV = @convention(c) (UnsafeMutableRawPointer, UnsafeMutableRawPointer, UnsafeRawPointer?, UInt) -> Void
+                var viewWords = [UInt32](repeating: 0, count: 8)
+                viewWords[0] = texture.viewFormat
+                let is3D = texture.descriptor.dimension == .d3
+                let isArray = texture.descriptor.arrayLayerCount > 1
+                viewWords[1] = pipeline.sampleCount > 1 ? 6 : (is3D ? 8 : (isArray ? 5 : 4))
+                viewWords[2] = attachment.mipLevel + texture.baseMip
+                if is3D { viewWords[3] = attachment.depthSlice ?? 0; viewWords[4] = 1 }
+                else if isArray && pipeline.sampleCount > 1 {
+                    viewWords[1] = 7; viewWords[2] = texture.baseLayer; viewWords[3] = texture.layerCount ?? texture.descriptor.arrayLayerCount
+                } else if isArray {
+                    viewWords[3] = texture.baseLayer; viewWords[4] = texture.layerCount ?? texture.descriptor.arrayLayerCount
+                }
+                viewWords.withUnsafeBytes { device.slot(20, CreateRTV.self)(device.pointer, texture.resource.pointer, $0.baseAddress, handle) }
+            }
+            if case .clear(let color) = attachment.loadAction {
+                typealias Clear = @convention(c) (UnsafeMutableRawPointer, UInt, UnsafeRawPointer, UInt32, UnsafeRawPointer?) -> Void
+                let components = [Float(color.red), Float(color.green), Float(color.blue), Float(color.alpha)]
+                components.withUnsafeBytes { list.slot(48, Clear.self)(list.pointer, handle, $0.baseAddress!, 0, nil) }
+            }
+            handles.append(handle)
+        }
+        if let target, let format = pipeline.colorFormat {
+            try bindColor(.init(texture: target, mipLevel: mipLevel, loadAction: colorLoad, depthSlice: depthSlice), format: format)
+        }
+        for location in additional.keys.sorted() {
+            guard let attachment = additional[location], let format = pipeline.additionalColorTargets[location]?.format else {
+                throw GPUError.validation("Missing Direct3D 12 render target")
+            }
+            try bindColor(attachment, format: format)
         }
         // Depth-stencil attachment.
         var depthHandle: [UInt] = []
         var stencilReference: UInt32?
         if let depth, let depthState = pipeline.depthState {
-            guard let attachment = textures[depth.texture], let dsvFormat = attachment.dsvFormat,
+            guard let attachment = texture(for: depth.texture), let dsvFormat = attachment.dsvFormat,
                   attachment.descriptor.format == depthState.format, attachment.descriptor.sampleCount == pipeline.sampleCount,
                   attachment.descriptor.usage.contains(.renderAttachment),
-                  let depthExtent = attachment.descriptor.mipExtent(depth.mipLevel), depthExtent == extent else {
+                  let depthExtent = attachment.descriptor.mipExtent(depth.mipLevel + attachment.baseMip),
+                  extent.map({ $0 == depthExtent }) ?? true else {
                 throw GPUError.validation("Invalid Direct3D 12 depth attachment")
             }
+            extent = depthExtent
             let readOnly = depth.loadAction == .readOnly && (depth.stencil == nil || depth.stencil?.loadAction == .readOnly)
             transition(depth.texture, readOnly ? D3D12.stateDepthRead : D3D12.stateDepthWrite)
-            let dsv = try renderTargets!.allocateDepth()
-            typealias CreateDSV = @convention(c) (UnsafeMutableRawPointer, UnsafeMutableRawPointer, UnsafeRawPointer, UInt) -> Void
             var flags: UInt32 = 0
             if depth.loadAction == .readOnly { flags |= 1 }
             if depth.stencil?.loadAction == .readOnly { flags |= 2 }
-            let words: [UInt32] = [dsvFormat, pipeline.sampleCount > 1 ? 5 : 3, flags, depth.mipLevel]
-            words.withUnsafeBytes { device.slot(21, CreateDSV.self)(device.pointer, attachment.resource.pointer, $0.baseAddress!, dsv) }
+            let (dsv, needsWrite) = try renderTargets!.allocateDepth(.init(texture: depth.texture, mip: depth.mipLevel, sliceOrFlags: flags))
+            if needsWrite {
+                changedAttachments = true
+                typealias CreateDSV = @convention(c) (UnsafeMutableRawPointer, UnsafeMutableRawPointer, UnsafeRawPointer, UInt) -> Void
+                let array = attachment.descriptor.arrayLayerCount > 1
+                let mip = attachment.baseMip + depth.mipLevel
+                let layers = attachment.layerCount ?? attachment.descriptor.arrayLayerCount
+                let words: [UInt32] = switch (pipeline.sampleCount > 1, array) {
+                case (true, true): [dsvFormat, 6, flags, attachment.baseLayer, layers, 0]
+                case (true, false): [dsvFormat, 5, flags, 0, 0, 0]
+                case (false, true): [dsvFormat, 4, flags, mip, attachment.baseLayer, layers]
+                case (false, false): [dsvFormat, 3, flags, mip, 0, 0]
+                }
+                words.withUnsafeBytes { device.slot(21, CreateDSV.self)(device.pointer, attachment.resource.pointer, $0.baseAddress!, dsv) }
+            }
             var clearFlags: UInt32 = 0
             var clearDepth: Float = 1
             var clearStencil: UInt8 = 0
@@ -122,33 +178,57 @@ extension D3D12Device {
             depthHandle = [dsv]
             stencilReference = depth.stencil?.reference
         }
-        typealias SetTargets = @convention(c) (UnsafeMutableRawPointer, UInt32, UnsafeRawPointer, Bool, UnsafeRawPointer?) -> Void
-        let handles: [UInt] = [handle]
-        handles.withUnsafeBytes { targets in
-            depthHandle.withUnsafeBytes { list.slot(46, SetTargets.self)(list.pointer, 1, targets.baseAddress!, false, depthHandle.isEmpty ? nil : $0.baseAddress) }
+        guard let extent else { throw GPUError.validation("Direct3D 12 draw has no attachments") }
+        typealias SetTargets = @convention(c) (UnsafeMutableRawPointer, UInt32, UnsafeRawPointer?, Bool, UnsafeRawPointer?) -> Void
+        let hasDepth = !depthHandle.isEmpty
+        if changedAttachments || graphics.colorCount != handles.count || graphics.hasDepth != hasDepth {
+            handles.withUnsafeBytes { targets in
+                depthHandle.withUnsafeBytes {
+                    list.slot(46, SetTargets.self)(list.pointer, UInt32(handles.count), handles.isEmpty ? nil : targets.baseAddress,
+                                                  false, depthHandle.isEmpty ? nil : $0.baseAddress)
+                }
+            }
+            graphics.colorCount = handles.count
+            graphics.hasDepth = hasDepth
         }
-        if let stencilReference {
+        if let stencilReference, graphics.stencilReference != stencilReference {
             typealias SetStencil = @convention(c) (UnsafeMutableRawPointer, UInt32) -> Void
             list.slot(24, SetStencil.self)(list.pointer, stencilReference)
+            graphics.stencilReference = stencilReference
         }
 
         // Viewport, scissor, blend constant, topology.
-        var viewport: [Float] = [0, 0, Float(extent.width), Float(extent.height), 0, 1]
-        if let v = raster.viewport { viewport = [v.x, v.y, v.width, v.height, v.minDepth, v.maxDepth] }
-        var scissor: [Int32] = [0, 0, Int32(extent.width), Int32(extent.height)]
-        if let s = raster.scissor { scissor = [Int32(s.x), Int32(s.y), Int32(s.x + s.width), Int32(s.y + s.height)] }
+        let viewport = raster.viewport ?? RenderViewport(x: 0, y: 0, width: Float(extent.width), height: Float(extent.height))
+        let scissor = raster.scissor ?? RenderScissor(x: 0, y: 0, width: extent.width, height: extent.height)
         typealias SetViewports = @convention(c) (UnsafeMutableRawPointer, UInt32, UnsafeRawPointer) -> Void
-        viewport.withUnsafeBytes { list.slot(21, SetViewports.self)(list.pointer, 1, $0.baseAddress!) }
-        scissor.withUnsafeBytes { list.slot(22, SetViewports.self)(list.pointer, 1, $0.baseAddress!) }
-        let blend = [Float(blendConstant.red), Float(blendConstant.green), Float(blendConstant.blue), Float(blendConstant.alpha)]
-        typealias SetBlend = @convention(c) (UnsafeMutableRawPointer, UnsafeRawPointer) -> Void
-        blend.withUnsafeBytes { list.slot(23, SetBlend.self)(list.pointer, $0.baseAddress!) }
-        typealias SetTopology = @convention(c) (UnsafeMutableRawPointer, UInt32) -> Void
-        list.slot(20, SetTopology.self)(list.pointer, state.topology)
+        if graphics.viewport != viewport {
+            let values = [viewport.x, viewport.y, viewport.width, viewport.height, viewport.minDepth, viewport.maxDepth]
+            values.withUnsafeBytes { list.slot(21, SetViewports.self)(list.pointer, 1, $0.baseAddress!) }
+            graphics.viewport = viewport
+        }
+        if graphics.scissor != scissor {
+            let values = [Int32(scissor.x), Int32(scissor.y), Int32(scissor.x + scissor.width), Int32(scissor.y + scissor.height)]
+            values.withUnsafeBytes { list.slot(22, SetViewports.self)(list.pointer, 1, $0.baseAddress!) }
+            graphics.scissor = scissor
+        }
+        if graphics.blend != blendConstant {
+            let blend = [Float(blendConstant.red), Float(blendConstant.green), Float(blendConstant.blue), Float(blendConstant.alpha)]
+            typealias SetBlend = @convention(c) (UnsafeMutableRawPointer, UnsafeRawPointer) -> Void
+            blend.withUnsafeBytes { list.slot(23, SetBlend.self)(list.pointer, $0.baseAddress!) }
+            graphics.blend = blendConstant
+        }
+        if graphics.topology != state.topology {
+            typealias SetTopology = @convention(c) (UnsafeMutableRawPointer, UInt32) -> Void
+            list.slot(20, SetTopology.self)(list.pointer, state.topology)
+            graphics.topology = state.topology
+        }
 
         // Pipeline and bindings.
-        list.slot(30, SetRoot.self)(list.pointer, state.rootSignature.pointer)
-        list.slot(25, SetState.self)(list.pointer, state.state.pointer)
+        if graphics.pipeline != pipeline.id {
+            list.slot(30, SetRoot.self)(list.pointer, state.rootSignature.pointer)
+            list.slot(25, SetState.self)(list.pointer, state.state.pointer)
+            graphics.pipeline = pipeline.id
+        }
         var rootIndex = 0
         for uniform in pipeline.uniforms {
             guard let supplied = uniforms[uniform.slot], let buffer = buffers[supplied.buffer] else {
@@ -199,16 +279,13 @@ extension D3D12Device {
             list.slot(38, SetAddress.self)(list.pointer, UInt32(entry.root), external.address)
         }
         if state.viewRoot != nil || state.samplerRoot != nil {
-            if arena == nil { arena = try D3D12DescriptorArena(device: device) }
-            let heaps = arena!
-            if !heapsSet {
-                typealias SetHeaps = @convention(c) (UnsafeMutableRawPointer, UInt32, UnsafeRawPointer) -> Void
-                var heapPointers: [UnsafeMutableRawPointer?] = [heaps.viewHeap.pointer, heaps.samplerHeap.pointer]
-                list.slot(28, SetHeaps.self)(list.pointer, 2, &heapPointers)
-                heapsSet = true
-            }
+            let viewCount = state.viewLayout.count + state.bufferViewLayout.count + 3 * state.externalLayouts.count
+            let heaps = try arena.prepare(device: device, list: list, viewCount: viewCount, samplerCount: state.samplerLayout.count)
             if let root = state.viewRoot {
-                let base = try heaps.allocateViews(state.viewLayout.count + state.bufferViewLayout.count + 3 * state.externalLayouts.count)
+                let sampledKey: [ResourceID]? = state.externalLayouts.isEmpty && state.bufferViewLayout.isEmpty
+                    && !state.viewLayout.contains(where: { $0.storage }) ? state.viewLayout.compactMap { sampledTextures[$0.slot] } : nil
+                let cachedTable = sampledKey.flatMap { heaps.sampledTables[$0] }
+                let base = try cachedTable.map { (cpu: UInt(0), gpu: $0) } ?? heaps.allocateViews(viewCount)
                 for (offset, entry) in state.bufferViewLayout.enumerated() {
                     guard let supplied = storageBuffers[entry.slot], let buffer = buffers[supplied.buffer] else {
                         throw GPUError.validation("Missing Direct3D 12 buffer array binding")
@@ -226,7 +303,9 @@ extension D3D12Device {
                     }
                     transition(id, entry.storage ? D3D12.stateUnorderedAccess
                                : D3D12.stateNonPixelShaderResource | D3D12.statePixelShaderResource)
-                    createView(bound, storage: entry.storage, at: base.cpu + UInt(index) * heaps.viewIncrement)
+                    if cachedTable == nil {
+                        createView(bound, storage: entry.storage, at: base.cpu + UInt(index) * heaps.viewIncrement)
+                    }
                 }
                 let externalBase = state.viewLayout.count + state.bufferViewLayout.count
                 for (index, entry) in state.externalLayouts.enumerated() {
@@ -244,17 +323,33 @@ extension D3D12Device {
                                    at: base.cpu + UInt(externalBase + 3 * index + plane) * heaps.viewIncrement)
                     }
                 }
+                if let sampledKey, cachedTable == nil {
+                    heaps.sampledTables[sampledKey] = base.gpu
+                }
                 list.slot(32, SetTable.self)(list.pointer, UInt32(root), base.gpu)
             }
             if let root = state.samplerRoot {
-                let base = try heaps.allocateSamplers(state.samplerLayout.count)
-                for (index, slot) in state.samplerLayout.enumerated() {
-                    guard let id = samplerBindings[slot], let sampler = samplers[id] else {
+                let key = try state.samplerLayout.map { slot in
+                    guard let id = samplerBindings[slot] else {
                         throw GPUError.validation("Missing Direct3D 12 sampler binding")
                     }
-                    createSampler(sampler, at: base.cpu + UInt(index) * heaps.samplerIncrement)
+                    return id
                 }
-                list.slot(32, SetTable.self)(list.pointer, UInt32(root), base.gpu)
+                let table: UInt64
+                if let cached = heaps.samplerTables[key] {
+                    table = cached
+                } else {
+                    let base = try heaps.allocateSamplers(key.count)
+                    for (index, id) in key.enumerated() {
+                        guard let sampler = samplers[id] else {
+                            throw GPUError.validation("Missing Direct3D 12 sampler binding")
+                        }
+                        createSampler(sampler, at: base.cpu + UInt(index) * heaps.samplerIncrement)
+                    }
+                    table = base.gpu
+                    heaps.samplerTables[key] = table
+                }
+                list.slot(32, SetTable.self)(list.pointer, UInt32(root), table)
             }
         }
 
@@ -330,7 +425,8 @@ extension D3D12Device {
             list.slot(12, Draw.self)(list.pointer, vertexCount, instances.count, firstVertex, instances.first)
         }
         if let resolve {
-            guard let destination = textures[resolve.texture], destination.descriptor.sampleCount == 1,
+            guard let target, let texture = texture(for: target),
+                  let destination = textures[resolve.texture], destination.descriptor.sampleCount == 1,
                   destination.descriptor.format == pipeline.colorFormat,
                   destination.descriptor.usage.contains(.renderAttachment),
                   let destinationExtent = destination.descriptor.mipExtent(resolve.mipLevel),

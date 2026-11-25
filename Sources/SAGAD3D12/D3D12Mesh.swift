@@ -104,7 +104,7 @@ extension D3D12Device: MeshBackendDevice {
         let desc = UnsafeMutableRawPointer.allocate(byteCount: size, alignment: 8)
         defer { desc.deallocate() }
         desc.initializeMemory(as: UInt8.self, repeating: 0, count: size)
-        Self.writeFixedFunctionState(desc, pipeline: surrogate, target: target, depthFormat: depthFormat)
+        Self.writeFixedFunctionState(desc, pipeline: surrogate, formats: [target], depthFormat: depthFormat)
         let fixed = Array(UnsafeRawBufferPointer(start: desc, count: size))
 
         var stream: [UInt8] = []

@@ -297,6 +297,9 @@ public enum BufferCommand: Sendable, Equatable {
     package var skipsAccelerationTracking: Bool {
         switch self {
         case .dispatchCompute(_, _, _, _, _, _, let structures): structures.isEmpty
+        case .render(let p, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _): p.accelerationStructureBindings.isEmpty
+        case .renderIndexed(let p, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _): p.accelerationStructureBindings.isEmpty
+        case .renderIndirect(let p, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _): p.accelerationStructureBindings.isEmpty
         case .write, .writeBytes, .copy, .clearBuffer, .read: true
         default: false
         }
@@ -490,8 +493,9 @@ public enum BufferCommand: Sendable, Equatable {
             blendConstant: RenderClearColor, additionalColors: [UInt32: RenderColorAttachment], raster: RenderRasterState,
             immediates: [UInt32]
         ) throws {
+            // Each additional color location is checked against the pipeline below.
             guard pipeline.id.device == device, (target == nil) == (pipeline.colorFormat == nil),
-                  Set(additionalColors.keys) == Set(pipeline.additionalColorTargets.keys) else {
+                  additionalColors.count == pipeline.additionalColorTargets.count else {
                 throw GPUError.validation("Color attachments do not match the render pipeline")
             }
             guard UInt64(immediates.count) == pipeline.immediateByteSize / 4 else {
@@ -643,11 +647,13 @@ public enum BufferCommand: Sendable, Equatable {
                     throw GPUError.validation("Invalid or duplicate vertex buffer slot")
                 }
             }
-            let groups = uniforms.keys.map(\.group) + storageBuffers.keys.map(\.group)
-                + boundTextures.keys.map(\.group) + samplerBindings.keys.map(\.group)
-            let groupSpan = groups.max().map { UInt64($0) + 1 } ?? 0
+            func groupSpan(_ keys: some Sequence<ComputeBindingSlot>) -> UInt64 {
+                keys.reduce(0) { max($0, UInt64($1.group) + 1) }
+            }
+            let boundGroupSpan = max(groupSpan(uniforms.keys), groupSpan(storageBuffers.keys),
+                                     groupSpan(boundTextures.keys), groupSpan(samplerBindings.keys))
             let vertexSpan = vertexBindings.keys.max().map { UInt64($0) + 1 } ?? 0
-            guard groupSpan + vertexSpan <= UInt64(maxBindGroupsPlusVertexBuffers) else {
+            guard boundGroupSpan + vertexSpan <= UInt64(maxBindGroupsPlusVertexBuffers) else {
                 throw GPUError.validation("Bind groups and vertex buffer slots exceed the combined limit")
             }
             guard pipeline.vertexBuffers.enumerated().allSatisfy({ $0.element.attributes.isEmpty || vertexBindings[$0.offset] != nil }) else {
@@ -677,14 +683,14 @@ public enum BufferCommand: Sendable, Equatable {
                 }) else {
                     throw GPUError.validation("Render attachment cannot be bound as a sampled texture")
                 }
-                usedTextures.append((binding, false))
+                if !pipeline.storageTextures.isEmpty { usedTextures.append((binding, false)) }
             }
             for external in pipeline.externalTextureBindings {
                 for plane in try requireExternalTexture(boundTextures[external.slot]) {
                     guard !usedTextures.contains(where: { $0.writable && $0.view.overlaps(plane) }) else {
                         throw GPUError.validation("Render attachment cannot be bound as an external texture plane")
                     }
-                    usedTextures.append((plane, false))
+                    if !pipeline.storageTextures.isEmpty { usedTextures.append((plane, false)) }
                 }
             }
             try requireStorageTextures(pipeline.storageTextures.map(\.requirement), bindings: boundTextures,
@@ -706,9 +712,14 @@ public enum BufferCommand: Sendable, Equatable {
                     throw GPUError.validation("Render uniform binding is smaller than the shader layout")
                 }
             }
-            var readOnlyBuffers = Set(uniforms.values.map(\.buffer) + bindings.map(\.buffer))
-            if let indexBuffer { readOnlyBuffers.insert(indexBuffer) }
-            if let indirectBuffer { readOnlyBuffers.insert(indirectBuffer) }
+            let tracksBufferAliases = pipeline.storageBuffers.contains { !$0.isReadOnly }
+            var readOnlyBuffers: Set<ResourceID> = []
+            if tracksBufferAliases {
+                for binding in uniforms.values { readOnlyBuffers.insert(binding.buffer) }
+                for binding in bindings { readOnlyBuffers.insert(binding.buffer) }
+                if let indexBuffer { readOnlyBuffers.insert(indexBuffer) }
+                if let indirectBuffer { readOnlyBuffers.insert(indirectBuffer) }
+            }
             var writableRanges: [ResourceID: [Range<UInt64>]] = [:]
             for requirement in pipeline.storageBuffers {
                 guard let binding = storageBuffers[requirement.handle.slot], binding.buffer.device == device,
@@ -719,6 +730,7 @@ public enum BufferCommand: Sendable, Equatable {
                 guard range.upperBound - range.lowerBound >= requirement.minimumByteSize else {
                     throw GPUError.validation("Render storage binding is smaller than the shader layout")
                 }
+                guard tracksBufferAliases else { continue }
                 if requirement.isReadOnly {
                     guard writableRanges[binding.buffer] == nil else {
                         throw GPUError.validation("Aliased writable render buffers")

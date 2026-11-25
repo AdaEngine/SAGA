@@ -1,5 +1,8 @@
 import SAGATypes
 import SAGABackend
+#if os(Windows)
+import WinSDK
+#endif
 
 // Presentation: a swapchain per attached window, fed by blitting an offscreen color texture.
 //
@@ -47,9 +50,24 @@ enum VKPresent {
     static let suboptimal: VkResult = 1000001003
     static let layoutTransferDestination: UInt32 = 7
     static let layoutPresentSource: UInt32 = 1000001002
+    static let fifo: UInt32 = 2
+    static let mailbox: UInt32 = 1
+    static let fifoLatestReady: UInt32 = 1_000_361_000
+    static let fifoLatestReadyFeatureType: UInt32 = 1_000_361_000
     static let usageTransferDestination: UInt32 = 0x2
     static let accessTransferWrite: UInt32 = 0x1000
     static let stageTransfer: UInt32 = 0x1000
+
+    static func fifoLatestReadyExtension(in available: Set<String>) -> String? {
+        // The KHR promotion shares the feature structure and mode value with EXT.
+        ["VK_KHR_present_mode_fifo_latest_ready", "VK_EXT_present_mode_fifo_latest_ready"].first(where: available.contains)
+    }
+
+    static func preferredMode(_ modes: [UInt32], fifoLatestReadyEnabled: Bool) -> UInt32 {
+        if fifoLatestReadyEnabled, modes.contains(fifoLatestReady) { return fifoLatestReady }
+        if modes.contains(mailbox) { return mailbox }
+        return fifo
+    }
 }
 
 struct VkSwapchainCreateInfoKHR {
@@ -69,9 +87,15 @@ struct VkSwapchainCreateInfoKHR {
     var pQueueFamilyIndices: UnsafePointer<UInt32>?
     var preTransform: UInt32 = 1
     var compositeAlpha: UInt32 = 1
-    var presentMode: UInt32 = 2
+    var presentMode: UInt32 = VKPresent.fifo
     var clipped: UInt32 = 1
     var oldSwapchain: UInt64 = 0
+
+    mutating func configurePresentation(mode: UInt32, minimumImages: UInt32, maximumImages: UInt32) {
+        presentMode = mode
+        let desired: UInt32 = presentMode == VKPresent.fifo ? 2 : 3
+        minImageCount = max(minimumImages, maximumImages == 0 ? desired : min(maximumImages, desired))
+    }
 }
 
 struct VkPresentInfoKHR {
@@ -142,6 +166,7 @@ struct VulkanPresentationFunctions: Sendable {
     let destroySurface: @convention(c) (UInt, UInt64, UnsafeRawPointer?) -> Void
     let getSurfaceSupport: @convention(c) (UInt, UInt32, UInt64, UnsafeMutablePointer<UInt32>) -> VkResult
     let getSurfaceCapabilities: @convention(c) (UInt, UInt64, UnsafeMutableRawPointer) -> VkResult
+    let getSurfacePresentModes: @convention(c) (UInt, UInt64, UnsafeMutablePointer<UInt32>, UnsafeMutablePointer<UInt32>?) -> VkResult
     let getSurfaceFormats: @convention(c) (UInt, UInt64, UnsafeMutablePointer<UInt32>, UnsafeMutableRawPointer?) -> VkResult
     let createSwapchain: @convention(c) (UInt, UnsafeRawPointer, UnsafeRawPointer?, UnsafeMutablePointer<UInt64>) -> VkResult
     let destroySwapchain: @convention(c) (UInt, UInt64, UnsafeRawPointer?) -> Void
@@ -168,6 +193,7 @@ struct VulkanPresentationFunctions: Sendable {
         destroySurface = try load("vkDestroySurfaceKHR")
         getSurfaceSupport = try load("vkGetPhysicalDeviceSurfaceSupportKHR")
         getSurfaceCapabilities = try load("vkGetPhysicalDeviceSurfaceCapabilitiesKHR")
+        getSurfacePresentModes = try load("vkGetPhysicalDeviceSurfacePresentModesKHR")
         getSurfaceFormats = try load("vkGetPhysicalDeviceSurfaceFormatsKHR")
         createSwapchain = try load("vkCreateSwapchainKHR")
         destroySwapchain = try load("vkDestroySwapchainKHR")
@@ -191,6 +217,8 @@ struct VulkanPresentationFunctions: Sendable {
 final class VulkanPresenter {
     let functions: VulkanPresentationFunctions
     let surface: UInt64
+    private let target: VulkanSurfaceTarget
+    private let onPresentationRetryChanged: (@Sendable (Bool) -> Void)?
     private(set) var swapchain: UInt64 = 0
     private(set) var rebuilds = 0
     private(set) var images: [UInt64] = []
@@ -198,12 +226,19 @@ final class VulkanPresenter {
     private(set) var acquireSemaphores: [UInt64] = []
     private(set) var renderSemaphores: [UInt64] = []
     private var frame = 0
+    private let presentMode: UInt32
+    var usesMailbox: Bool { presentMode == VKPresent.mailbox }
     private var wantSRGB = false
     private var formatCandidates: [(format: UInt32, colorSpace: UInt32)] = []
 
-    init(adapter: VulkanAdapter, target: VulkanSurfaceTarget) throws {
+    init(
+        adapter: VulkanAdapter, target: VulkanSurfaceTarget, prefersLatestFrame: Bool = false,
+        supportsFIFOLatestReady: Bool = false, onPresentationRetryChanged: (@Sendable (Bool) -> Void)? = nil
+    ) throws {
         let functions = try VulkanPresentationFunctions(instance: adapter.instance, target: target)
         self.functions = functions
+        self.target = target
+        self.onPresentationRetryChanged = onPresentationRetryChanged
         var surfaceHandle: UInt64 = 0
         let instance = adapter.instance.handle
         let create = functions.createSurface
@@ -229,6 +264,21 @@ final class VulkanPresenter {
         guard supportResult == VK.success, supported != 0 else {
             functions.destroySurface(instance, surface, nil)
             throw GPUError.unsupported("The Vulkan queue family cannot present to this window")
+        }
+        if prefersLatestFrame, case .win32 = target {
+            var modeCount: UInt32 = 0
+            if functions.getSurfacePresentModes(adapter.physical, surfaceHandle, &modeCount, nil) == VK.success, modeCount > 0 {
+                var modes = [UInt32](repeating: 0, count: Int(modeCount))
+                let status = modes.withUnsafeMutableBufferPointer {
+                    functions.getSurfacePresentModes(adapter.physical, surfaceHandle, &modeCount, $0.baseAddress)
+                }
+                let supported = status == VK.success ? Array(modes.prefix(Int(modeCount))) : []
+                presentMode = VKPresent.preferredMode(supported, fifoLatestReadyEnabled: supportsFIFOLatestReady)
+            } else {
+                presentMode = VKPresent.fifo
+            }
+        } else {
+            presentMode = VKPresent.fifo
         }
         var count: UInt32 = 0
         _ = functions.getSurfaceFormats(adapter.physical, surface, &count, nil)
@@ -258,7 +308,7 @@ final class VulkanPresenter {
             ?? formatCandidates[0]
         var info = VkSwapchainCreateInfoKHR()
         info.surface = surface
-        info.minImageCount = max(capabilities[0], min(2, capabilities[1] == 0 ? 2 : capabilities[1]))
+        info.configurePresentation(mode: presentMode, minimumImages: capabilities[0], maximumImages: capabilities[1])
         info.imageFormat = chosen.format
         info.imageColorSpace = chosen.colorSpace
         info.imageExtentWidth = current.width
@@ -310,6 +360,18 @@ final class VulkanPresenter {
         return acquireSemaphores[frame]
     }
 
+    var acquireTimeout: UInt64 {
+        #if os(Windows)
+        if case let .win32(_, window) = target {
+            // A secondary surface shares this graphics queue. Never wait for its next refresh.
+            return UInt(bitPattern: GetForegroundWindow()) == window ? 50_000_000 : 0
+        }
+        #endif
+        return UInt64.max
+    }
+
+    func reportPresentationRetry(_ needed: Bool) { onPresentationRetryChanged?(needed) }
+
     /// Invalidates the swapchain so the next `prepare` rebuilds it.
     func invalidate() { extent = (0, 0) }
 
@@ -346,11 +408,29 @@ extension VulkanDevice: PresentationBackendDevice {
 
     /// Attaches a window to a device created with swapchain support.
     public func addSurface(_ target: VulkanSurfaceTarget) throws -> UInt32 {
+        try addSurface(target, onPresentationRetryChanged: nil)
+    }
+
+    /// Attaches a surface and reports whether the latest backbuffer needs another present attempt.
+    public func addSurface(_ target: VulkanSurfaceTarget, onPresentationRetryChanged: (@Sendable (Bool) -> Void)?) throws -> UInt32 {
+        try attachSurface(target, prefersLatestFrame: false, onPresentationRetryChanged: onPresentationRetryChanged).id
+    }
+
+    /// Requests the freshest complete image at refresh on Win32. FIFO Latest Ready is preferred
+    /// when available, with mailbox and FIFO as fallbacks. Pace production explicitly for mailbox.
+    public func attachSurface(
+        _ target: VulkanSurfaceTarget, prefersLatestFrame: Bool,
+        onPresentationRetryChanged: (@Sendable (Bool) -> Void)?
+    ) throws -> (id: UInt32, usesMailbox: Bool) {
         guard supportsPresentation else { throw GPUError.unsupported("This Vulkan device has no presentation support") }
         let id = nextSurfaceID
-        extraPresenters[id] = try VulkanPresenter(adapter: adapter, target: target)
+        let presenter = try VulkanPresenter(
+            adapter: adapter, target: target, prefersLatestFrame: prefersLatestFrame,
+            supportsFIFOLatestReady: native.fifoLatestReady, onPresentationRetryChanged: onPresentationRetryChanged
+        )
+        extraPresenters[id] = presenter
         nextSurfaceID += 1
-        return id
+        return (id, presenter.usesMailbox)
     }
 
     /// Detaches a surface. The device can still attach replacement surfaces.
@@ -377,15 +457,26 @@ extension VulkanDevice: PresentationBackendDevice {
         var acquire: UInt64 = 0
         var attempts = 0
         while true {
-            guard try presenter.prepare(native: native, adapter: adapter, srgb: srgb) else { return }  // minimized
+            guard try presenter.prepare(native: native, adapter: adapter, srgb: srgb) else {
+                presenter.reportPresentationRetry(true)
+                return  // minimized
+            }
             acquire = presenter.nextAcquireSemaphore()
-            let result = functions.acquireNextImage(device, presenter.swapchain, UInt64.max, acquire, 0, &index)
+            let result = functions.acquireNextImage(device, presenter.swapchain, presenter.acquireTimeout, acquire, 0, &index)
             if result == VK.success || result == VKPresent.suboptimal { break }
-            guard result == VKPresent.outOfDate, attempts < 2 else {
+            if result == VK.notReady || result == VK.timeout {
+                presenter.reportPresentationRetry(true)
+                return
+            }
+            guard result == VKPresent.outOfDate else {
                 try vulkanCheck(result, "swapchain image acquisition")
                 return
             }
             presenter.invalidate()
+            if attempts >= 2 {
+                presenter.reportPresentationRetry(true)
+                return
+            }
             attempts += 1
         }
 
@@ -396,7 +487,11 @@ extension VulkanDevice: PresentationBackendDevice {
         let extent = presenter.extent
         let sourceImage = texture.image
         let sourceExtent = texture.descriptor.mipExtent(0) ?? (width: texture.descriptor.width, height: texture.descriptor.height)
-        try await runOneShot(waiting: acquire, signaling: renderDone) { commandBuffer in
+        var batch = PendingBatch()
+        do {
+            let commandBuffer = try acquireCommandBuffer(batch: &batch)
+            var begin = VkCommandBufferBeginInfo()
+            try vulkanCheck(withUnsafePointer(to: &begin) { f.beginCommandBuffer(commandBuffer, UnsafeRawPointer($0)) }, "presentation recording")
             func transition(from old: UInt32, to new: UInt32, access: UInt32) {
                 var barrier = VkImageMemoryBarrier()
                 barrier.dstAccessMask = access
@@ -417,10 +512,17 @@ extension VulkanDevice: PresentationBackendDevice {
                                        VKPresent.layoutTransferDestination, 1, UnsafeRawPointer($0), 0)
             }
             transition(from: VKPresent.layoutTransferDestination, to: VKPresent.layoutPresentSource, access: 0)
+            try vulkanCheck(f.endCommandBuffer(commandBuffer), "presentation recording")
+            try submitBatch(&batch, waiting: acquire, signaling: renderDone)
+        } catch {
+            // The acquired image and semaphore were not consumed. Recreate them before another acquire.
+            presenter.invalidate()
+            if case GPUError.deviceLost = error { terminal = true }
+            releaseBatch(batch)
+            throw error
         }
 
-        // The Vulkan actor can detach or rebuild the surface while the blit fence is pending.
-        guard presenter.rebuilds == generation, presenter.swapchain == acquiredSwapchain else { return }
+        // Queue the present immediately. Its semaphore orders the copy; the fence still pins the source and command pool.
         var swapchain = acquiredSwapchain
         var imageIndex = index
         var wait = renderDone
@@ -437,15 +539,30 @@ extension VulkanDevice: PresentationBackendDevice {
                 }
             }
         }
-        if result == VKPresent.outOfDate || result == VKPresent.suboptimal {
-            presenter.invalidate()  // the next present rebuilds the swapchain at the new size
-        } else {
-            try vulkanCheck(result, "presentation")
+        try await waitForBatch(batch)
+        releaseBatch(batch, recycle: true)
+        if result != VK.success, presenter.rebuilds == generation, presenter.swapchain == acquiredSwapchain {
+            // On some failures the presentation wait was never queued and renderDone stays signaled.
+            presenter.invalidate()
         }
+        if result == VKPresent.outOfDate {
+            presenter.reportPresentationRetry(true)
+            return
+        }
+        if result == VK.success || result == VKPresent.suboptimal {
+            presenter.reportPresentationRetry(false)
+            return
+        }
+        if result == VK.deviceLost { terminal = true }
+        try vulkanCheck(result, "presentation")
     }
 }
 
 extension VulkanDevice {
     /// Number of swapchains built so far; the first present builds one and each window resize builds another.
     public func presentationRebuildsForTesting() -> Int { presenter?.rebuilds ?? 0 }
+
+    func presentationRebuildsForTesting(surface id: UInt32) -> Int {
+        id == 0 ? presentationRebuildsForTesting() : extraPresenters[id]?.rebuilds ?? 0
+    }
 }

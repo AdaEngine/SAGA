@@ -12,6 +12,14 @@ public protocol PresentationBackendDevice: RenderBackendDevice {
     func present(_ submission: Submission, source: ResourceID, surface: UInt32) async throws
 }
 
+/// Presentation submits to the same ordered native queue as pipelined command lists.
+public protocol PipelinedPresentationBackendDevice: PresentationBackendDevice, PipelinedCommandBackendDevice {
+    /// Signals admission after the copy and present enter the queue, then waits for retirement.
+    func present(
+        _ submission: Submission, source: ResourceID, surface: UInt32, onSubmitted: @escaping @Sendable () -> Void
+    ) async throws
+}
+
 extension PresentationBackendDevice {
     public func present(_ submission: Submission, source: ResourceID, surface: UInt32) async throws {
         guard surface == 0 else { throw GPUError.unsupported("Backend does not have the requested surface") }

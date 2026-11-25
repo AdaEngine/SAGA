@@ -113,7 +113,7 @@ extension VulkanDevice {
 
     /// Creates the views of the pass's textures (released with the batch) and runs its body.
     func recordNative(_ plan: NativePlan, commandBuffer: UInt, batch: inout PendingBatch) throws {
-        let g = native.g, device = native.device
+        let device = native.device
         var images: [ResourceID: VulkanNativePassContext.Image] = [:]
         for (id, texture) in plan.textures {
             let descriptor = texture.descriptor
@@ -125,10 +125,7 @@ extension VulkanDevice {
             info.subresourceRange = VkImageSubresourceRange(
                 aspectMask: aspect, baseMipLevel: 0, levelCount: descriptor.mipLevelCount,
                 baseArrayLayer: 0, layerCount: descriptor.arrayLayerCount)
-            var view: UInt64 = 0
-            try vulkanCheck(withUnsafePointer(to: &info) { g.createImageView(device, UnsafeRawPointer($0), nil, &view) },
-                            "native pass image view creation")
-            batch.views.append(view)
+            let view = try batchImageView(info, batch: &batch)
             images[id] = .init(
                 image: texture.image, view: view, format: texture.format.vk, width: descriptor.width, height: descriptor.height,
                 mipLevels: descriptor.mipLevelCount, arrayLayers: descriptor.arrayLayerCount, aspectMask: aspect,

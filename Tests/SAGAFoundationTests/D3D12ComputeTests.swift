@@ -10,19 +10,20 @@ import SAGACompiler
 import SAGAD3D12
 
 // These tests run on a real Direct3D 12 device and need the DirectX Shader Compiler. Without either they are skipped.
-private let dxcDirectories: [String] = {
-    let candidates = [
+let dxcDirectories: [String] = {
+    let configured = ProcessInfo.processInfo.environment["SAGA_DXC_DIRECTORIES"]?.split(separator: ";").map(String.init) ?? []
+    let candidates = configured + [
         #"C:\VulkanSDK\1.4.313.0\Bin"#,
         #"C:\Program Files (x86)\Windows Kits\10\bin\10.0.22000.0\x64"#,
         #"C:\Program Files (x86)\Windows Kits\10\bin\10.0.26100.0\x64"#,
     ]
-    return candidates.filter { FileManager.default.fileExists(atPath: $0) }
+    return candidates.filter {
+        FileManager.default.fileExists(atPath: $0 + #"\dxcompiler.dll"#)
+            && FileManager.default.fileExists(atPath: $0 + #"\dxil.dll"#)
+    }
 }()
 
-private let d3d12Available: Bool = {
-    guard D3D12Backend.isAvailable() else { return false }
-    return dxcDirectories.contains { FileManager.default.fileExists(atPath: $0 + #"\dxcompiler.dll"#) }
-}()
+let d3d12Available = !dxcDirectories.isEmpty && D3D12Backend.isAvailable()
 
 @Test(.enabled(if: d3d12Available), .gpuExclusive) func d3d12RunsHlslComputeWithUniformAndStorageBuffers() async throws {
     let backend = try D3D12Backend.makeDevice(shaderCompilerDirectories: dxcDirectories)
@@ -1022,6 +1023,47 @@ private final class D3D12TestWindow: @unchecked Sendable {
         try await device.present(large).wait()
         #expect(await backend.presentationRebuildsForTesting() == 2)
         await device.close()
+    } catch { await device.close(); throw error }
+}
+
+@Test(.enabled(if: d3d12Available), .gpuExclusive) func d3d12PresentsToTwoWindowsWithOneDevice() async throws {
+    let firstWindow = D3D12TestWindow()
+    let secondWindow = D3D12TestWindow()
+    defer { firstWindow.close(); secondWindow.close() }
+    try #require(firstWindow.handle != nil)
+    try #require(secondWindow.handle != nil)
+    let firstHandle = UInt(bitPattern: firstWindow.handle)
+    let secondHandle = UInt(bitPattern: secondWindow.handle)
+    let backend = try D3D12Backend.makePresentableDevice(shaderCompilerDirectories: dxcDirectories)
+    let device = try await Device.make(backend: backend)
+    do {
+        let small = try await device.createTexture(.init(width: 48, height: 48, format: .bgra8Unorm,
+                                                         usage: [.copySource, .copyDestination]))
+        let large = try await device.createTexture(.init(width: 96, height: 96, format: .bgra8Unorm,
+                                                         usage: [.copySource, .copyDestination]))
+        let first = try await backend.addSurface(windowHandle: firstHandle)
+        let second = try await backend.addSurface(windowHandle: secondHandle)
+        await #expect(throws: GPUError.self) { try await backend.addSurface(windowHandle: firstHandle) }
+        let initial = try await device.present(small, surface: first)
+        let independent = try await device.present(large, surface: second)
+        let resized = try await device.present(large, surface: first)
+        try await resized.wait()
+        try await initial.wait()
+        try await independent.wait()
+        #expect(await backend.presentationRebuildsForTesting(surface: first) == 2)
+        #expect(await backend.presentationRebuildsForTesting(surface: second) == 1)
+
+        await backend.removeSurface(first)
+        let replacement = try await backend.addSurface(windowHandle: firstHandle)
+        #expect(replacement != first)
+        try await device.present(small, surface: replacement).wait()
+        try await device.present(large, surface: second).wait()
+        #expect(await backend.presentationRebuildsForTesting(surface: replacement) == 1)
+        #expect(await backend.presentationRebuildsForTesting(surface: second) == 1)
+        await device.close()
+        let reopened = try await backend.addSurface(windowHandle: secondHandle)
+        #expect(reopened != second)
+        await backend.removeSurface(reopened)
     } catch { await device.close(); throw error }
 }
 

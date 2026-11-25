@@ -14,6 +14,15 @@ extension CommandBackendDevice {
     }
 }
 
+/// A single ordered native queue can accept another list before the previous list retires.
+public protocol PipelinedCommandBackendDevice: CommandBackendDevice {
+    /// Calls `onSubmitted` once after the list has been queued in native order. Return still means
+    /// real GPU retirement (and delivers any readbacks). On an early error the callback may be omitted.
+    func submitCommandList(
+        _ submission: Submission, list: CommandList, onSubmitted: @escaping @Sendable () -> Void
+    ) async throws -> [[UInt32]]
+}
+
 /// Single consumer completion latch. Deadlines end waiting, never imply GPU retirement.
 public actor BackendCompletion {
     private var result: Result<Void, GPUError>?

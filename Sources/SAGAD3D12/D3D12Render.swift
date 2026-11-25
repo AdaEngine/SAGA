@@ -4,17 +4,24 @@ import SAGATypes
 import SAGABackend
 import SAGAShaderIR
 
-// Render pipelines and draws: one color target, optional vertex and index buffers, buffer/texture/sampler bindings.
+// Render pipelines with color and depth attachments, vertex input, and resource bindings.
 
-/// A CPU-only render target view heap that hands out consecutive slots for one submission.
+/// CPU-only attachment descriptors can be reused after the command list records them.
 final class D3D12RenderTargetArena: @unchecked Sendable {
+    struct Attachment: Equatable {
+        let texture: ResourceID
+        let mip: UInt32
+        let sliceOrFlags: UInt32
+    }
+
     let heap: COMObject
     let depthHeap: COMObject
     let increment: UInt
     let depthIncrement: UInt
     let start: UInt
     let depthStart: UInt
-    private let capacity: Int
+    private var colorAttachments: [Attachment?]
+    private var depthAttachments: [Attachment?]
     private var used = 0
     private var depthUsed = 0
 
@@ -44,23 +51,33 @@ final class D3D12RenderTargetArena: @unchecked Sendable {
         var object: UnsafeMutableRawPointer?
         try d3dCheck(device.slot(14, CreateHeap.self)(device.pointer, &description, &iid, &object), "render target heap creation")
         heap = COMObject(object!)
-        self.capacity = capacity
+        colorAttachments = Array(repeating: nil, count: capacity)
+        depthAttachments = Array(repeating: nil, count: capacity)
         increment = UInt(device.slot(15, Increment.self)(device.pointer, 2))
         var handle: UInt64 = 0
         _ = heap.slot(9, HeapStart.self)(heap.pointer, &handle)
         start = UInt(handle)
     }
 
-    func allocateDepth() throws -> UInt {
-        guard depthUsed < capacity else { throw GPUError.outOfMemory }
-        defer { depthUsed += 1 }
-        return depthStart + UInt(depthUsed) * depthIncrement
+    func beginDraw() {
+        used = 0
+        depthUsed = 0
     }
 
-    func allocate() throws -> UInt {
-        guard used < capacity else { throw GPUError.outOfMemory }
+    func allocateDepth(_ attachment: Attachment) throws -> (handle: UInt, needsWrite: Bool) {
+        guard depthUsed < depthAttachments.count else { throw GPUError.outOfMemory }
+        defer { depthUsed += 1 }
+        let needsWrite = depthAttachments[depthUsed] != attachment
+        depthAttachments[depthUsed] = attachment
+        return (depthStart + UInt(depthUsed) * depthIncrement, needsWrite)
+    }
+
+    func allocateColor(_ attachment: Attachment) throws -> (handle: UInt, needsWrite: Bool) {
+        guard used < colorAttachments.count else { throw GPUError.outOfMemory }
         defer { used += 1 }
-        return start + UInt(used) * increment
+        let needsWrite = colorAttachments[used] != attachment
+        colorAttachments[used] = attachment
+        return (start + UInt(used) * increment, needsWrite)
     }
 }
 
@@ -147,13 +164,16 @@ func d3d12BlendFactor(_ factor: RenderBlendFactor) -> UInt32 {
 
 extension D3D12Device {
     func allocateRenderPipelineNative(_ pipeline: RenderPipeline, vertex: RenderStageArtifact,
-                                      fragment: RenderStageArtifact) throws -> D3D12RenderPipelineState {
-        guard case .text(.hlsl, let vertexSource) = vertex.artifact, case .text(.hlsl, let fragmentSource) = fragment.artifact,
-              let vertexProfile = vertex.hlslProfile, let fragmentProfile = fragment.hlslProfile else {
+                                      fragment: RenderStageArtifact?) throws -> D3D12RenderPipelineState {
+        guard case .text(.hlsl, let vertexSource) = vertex.artifact, let vertexProfile = vertex.hlslProfile else {
             throw GPUError.validation("Direct3D 12 requires HLSL render stages")
         }
-        guard let colorFormat = pipeline.colorFormat, let target = d3d12Format(colorFormat) else {
-            throw GPUError.unsupported("Direct3D 12 render pipelines require a supported color format")
+        let colorTargets = pipeline.colorTargets
+        let formats = try (0..<UInt32(colorTargets.count)).map { location in
+            guard let target = colorTargets[location], let format = d3d12Format(target.format) else {
+                throw GPUError.unsupported("Direct3D 12 requires contiguous, supported color targets")
+            }
+            return format
         }
         var depthFormat: UInt32 = 0
         if let depthState = pipeline.depthState {
@@ -162,12 +182,12 @@ extension D3D12Device {
             }
             depthFormat = formats.dsv
         }
-        guard pipeline.multiviewMask == nil,
-              pipeline.additionalColorTargets.isEmpty, !pipeline.alphaToCoverageEnabled, !pipeline.primitive.unclippedDepth,
-              !pipeline.colorState.usesSecondBlendSource,
+        guard formats.count <= 8, pipeline.multiviewMask == nil,
+              !pipeline.alphaToCoverageEnabled, !pipeline.primitive.unclippedDepth,
+              colorTargets.values.allSatisfy({ !$0.colorState.usesSecondBlendSource }),
               pipeline.uniforms.allSatisfy({ $0.slot.arrayElement == nil }),
               pipeline.sampledTextures.allSatisfy({ !$0.requirement.isMultisampled }) else {
-            throw GPUError.unsupported("Direct3D 12 render pipelines support one single-sampled color target without depth in this release")
+            throw GPUError.unsupported("Direct3D 12 does not support this render pipeline configuration")
         }
         if compiler == nil { compiler = try D3D12ShaderCompiler(directories: compilerDirectories) }
         // Shader model 6.8 needs a newer DXIL validator than many machines have. When it is missing, the draw
@@ -189,7 +209,17 @@ extension D3D12Device {
             vertexCode = try compiler!.compile(declaration + rewritten, entryPoint: vertex.entryPoint, profile: "vs_6_0")
             drawParametersRoot = -1
         }
-        let fragmentCode = try compiler!.compile(fragmentSource, entryPoint: fragment.entryPoint, profile: fragmentProfile)
+        let fragmentCode: [UInt8]
+        if let stage = fragment {
+            guard case .text(.hlsl, let source) = stage.artifact, let profile = stage.hlslProfile else {
+                throw GPUError.validation("Direct3D 12 requires HLSL render stages")
+            }
+            let linked = D3D12ShaderLinkage.fragmentSource(source, matchingVertexSource: vertexSource)
+            fragmentCode = try compiler!.compile(linked, entryPoint: stage.entryPoint, profile: profile)
+        } else {
+            fragmentCode = []
+        }
+        let stages = [vertex] + (fragment.map { [$0] } ?? [])
 
         // Root signature: buffers as root descriptors, immediates as constants, textures and samplers as tables.
         var parameters: [D3D12RootParameter] = []
@@ -211,7 +241,7 @@ extension D3D12Device {
         var immediateRoot: Int?
         let immediateWords = Int((pipeline.immediateByteSize + 3) / 4)
         if immediateWords > 0 {
-            guard let binding = vertex.immediateLayout?.hlslBinding ?? fragment.immediateLayout?.hlslBinding else {
+            guard let binding = vertex.immediateLayout?.hlslBinding ?? fragment?.immediateLayout?.hlslBinding else {
                 throw GPUError.unsupported("Direct3D 12 render stages need an HLSL immediate binding")
             }
             immediateRoot = parameters.count
@@ -230,7 +260,7 @@ extension D3D12Device {
                                                  registerSpace: binding.slot.group))
         }
         var externalLayouts: [(layout: ComputeShaderArtifact.ExternalTextureLayout, root: Int)] = []
-        for layout in vertex.externalTextureLayouts + fragment.externalTextureLayouts
+        for layout in stages.flatMap(\.externalTextureLayouts)
         where !externalLayouts.contains(where: { $0.layout.binding == layout.binding }) {
             externalLayouts.append((layout, parameters.count))
             parameters.append(D3D12RootParameter(parameterType: D3D12.rootParameterCBV, shaderRegister: layout.parametersBindingIndex,
@@ -238,7 +268,7 @@ extension D3D12Device {
         }
         // Binding arrays declare their first register in the artifact of the stage that uses them.
         var arrayInfo: [IRResourceBinding: (count: UInt32, base: UInt32)] = [:]
-        for stage in [vertex, fragment] {
+        for stage in stages {
             for binding in stage.storageBindings { if let a = binding.bindingArray, let base = a.hlslRegisterBase { arrayInfo[binding.binding] = (a.count, base) } }
             for binding in stage.sampledTextures { if let a = binding.bindingArray, let base = a.hlslRegisterBase { arrayInfo[binding.binding] = (a.count, base) } }
             for binding in stage.storageTextures { if let a = binding.bindingArray, let base = a.hlslRegisterBase { arrayInfo[binding.binding] = (a.count, base) } }
@@ -334,11 +364,11 @@ extension D3D12Device {
         func put64(_ offset: Int, _ value: Int) { desc.storeBytes(of: value, toByteOffset: offset, as: Int.self) }
         putPointer(0, UnsafeRawPointer(root.pointer))
         let state: COMObject = try vertexCode.withUnsafeBytes { vertexBytes in
-            try fragmentCode.withUnsafeBytes { fragmentBytes in
+            try fragmentCode.withUnsafeBufferPointer { fragmentBytes in
                 try elements.withUnsafeBytes { elementBytes in
                     putPointer(8, vertexBytes.baseAddress); put64(16, vertexBytes.count)
-                    putPointer(24, fragmentBytes.baseAddress); put64(32, fragmentBytes.count)
-                    Self.writeFixedFunctionState(desc, pipeline: pipeline, target: target, depthFormat: depthFormat)
+                    putPointer(24, fragmentBytes.isEmpty ? nil : UnsafeRawPointer(fragmentBytes.baseAddress)); put64(32, fragmentBytes.count)
+                    Self.writeFixedFunctionState(desc, pipeline: pipeline, formats: formats, depthFormat: depthFormat)
                     putPointer(552, elementBytes.baseAddress)
                     put32(560, UInt32(elements.count / 8))
                     let topologyType: UInt32 = switch pipeline.primitive.topology {
@@ -370,23 +400,31 @@ extension D3D12Device {
 
     /// Writes blend, rasterizer, depth-stencil and target-format state of a graphics pipeline description at its x64 offsets.
     nonisolated static func writeFixedFunctionState(
-        _ desc: UnsafeMutableRawPointer, pipeline: RenderPipeline, target: UInt32, depthFormat: UInt32
+        _ desc: UnsafeMutableRawPointer, pipeline: RenderPipeline, formats: [UInt32], depthFormat: UInt32
     ) {
         func put32(_ offset: Int, _ value: UInt32) { desc.storeBytes(of: value, toByteOffset: offset, as: UInt32.self) }
-        // Blend state: one render target at offset 128.
-        if let blend = pipeline.colorState.blend {
-            put32(128, 1)
-            put32(136, d3d12BlendFactor(blend.color.sourceFactor))
-            put32(140, d3d12BlendFactor(blend.color.destinationFactor))
-            put32(144, blend.color.operation.rawValue + 1)
-            put32(148, d3d12BlendFactor(blend.alpha.sourceFactor))
-            put32(152, d3d12BlendFactor(blend.alpha.destinationFactor))
-            put32(156, blend.alpha.operation.rawValue + 1)
-        } else {
-            put32(136, 2); put32(140, 1); put32(144, 1); put32(148, 2); put32(152, 1); put32(156, 1)
+        // The blend description holds eight 40-byte target records starting at offset 128.
+        put32(124, formats.count > 1 ? 1 : 0)
+        for index in 0..<max(1, formats.count) {
+            let location = UInt32(index)
+            let state = index == 0 ? pipeline.colorState : pipeline.additionalColorTargets[location]?.colorState ?? .init()
+            let offset = 128 + index * 40
+            if let blend = state.blend {
+                put32(offset, 1)
+                put32(offset + 8, d3d12BlendFactor(blend.color.sourceFactor))
+                put32(offset + 12, d3d12BlendFactor(blend.color.destinationFactor))
+                put32(offset + 16, blend.color.operation.rawValue + 1)
+                put32(offset + 20, d3d12BlendFactor(blend.alpha.sourceFactor))
+                put32(offset + 24, d3d12BlendFactor(blend.alpha.destinationFactor))
+                put32(offset + 28, blend.alpha.operation.rawValue + 1)
+            } else {
+                put32(offset + 8, 2); put32(offset + 12, 1); put32(offset + 16, 1)
+                put32(offset + 20, 2); put32(offset + 24, 1); put32(offset + 28, 1)
+            }
+            put32(offset + 32, 4)  // logic op: no-op
+            let mask = pipeline.colorWriteMask(at: location)
+            desc.storeBytes(of: UInt8(mask.rawValue & 0xF), toByteOffset: offset + 36, as: UInt8.self)
         }
-        put32(160, 4)  // logic op: no-op
-        desc.storeBytes(of: UInt8(pipeline.colorState.writeMask.rawValue & 0xF), toByteOffset: 164, as: UInt8.self)
         put32(448, pipeline.sampleMask)
         // Rasterizer state.
         put32(452, pipeline.primitive.polygonMode == .line ? 2 : 3)  // wireframe or solid
@@ -430,8 +468,8 @@ extension D3D12Device {
                 for offset in [516, 532] { put32(offset, 1); put32(offset + 4, 1); put32(offset + 8, 1); put32(offset + 12, 8) }
             }
         }
-        put32(576, 1)
-        put32(580, target)
+        put32(576, UInt32(formats.count))
+        for (index, format) in formats.enumerated() { put32(580 + index * 4, format) }
         put32(612, depthFormat)
         put32(616, pipeline.sampleCount)
     }

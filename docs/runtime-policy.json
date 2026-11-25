@@ -270,6 +270,12 @@
     ]
   },
   "file_imports": {
+    "Sources/SAGAD3D12/D3D12Debug.swift": [
+      "Synchronization"
+    ],
+    "Sources/SAGAD3D12/D3D12Device.swift": [
+      "Dispatch"
+    ],
     "Sources/SAGAVulkan/VulkanExtensionRequest.swift": [
       "os",
       "Synchronization"
@@ -313,30 +319,22 @@
     ".linkedLibrary(\"m\", .when(platforms: [.linux]))"
   ],
   "native_abi_exceptions": {
-    "Sources/SAGAD3D12/D3D12Textures.swift": {
-      "sha256": "df821a082c54192151de6492e305d500780597b432b2f2fde8f4ac35999c15c1",
-      "patterns": [
-        "@unchecked\\s+Sendable"
-      ],
-      "reason": "Windows COM/DXC/DXGI ABI boundary per native-backends ADR; raw pointers are confined to this backend. Hash records existing unchecked ownership; this policy is not a concurrency-safety proof."
-    },
     "Sources/SAGAD3D12/D3D12Render.swift": {
-      "sha256": "2e1cb7e8616f6fa2680c0945a98f0b657ff3497b2f4f874933883d9589400ea6",
+      "sha256": "8a915f43cf46278578159d858f322bb1f1c0f641734b7653623c0b816b53d4a8",
       "patterns": [
         "@unchecked\\s+Sendable"
       ],
       "reason": "Windows COM/DXC/DXGI ABI boundary per native-backends ADR; raw pointers are confined to this backend. Hash records existing unchecked ownership; this policy is not a concurrency-safety proof."
     },
     "Sources/SAGAD3D12/D3D12Debug.swift": {
-      "sha256": "958c47cb28c7b693d57ea55450abc109f26cc7560f11e85d5b62a10444647af5",
+      "sha256": "ae5958a4dd76e0b9ccec40ce2f4ac851b7d5598ee1628e141a2ab039ac2cf46c",
       "patterns": [
-        "unsafeBitCast\\b",
-        "\\bnonisolated\\s*\\(unsafe\\)"
+        "unsafeBitCast\\b"
       ],
-      "reason": "Windows COM/DXC/DXGI ABI boundary per native-backends ADR; raw pointers are confined to this backend. Hash records existing unchecked ownership; this policy is not a concurrency-safety proof. Existing process-global diagnostic device remains an explicit concurrency risk requiring separate source review."
+      "reason": "Windows COM diagnostics per the native-backends ADR. Only the typed D3D12 debug interface entry point is cast, and the reference to the current diagnostic device is synchronized."
     },
     "Sources/SAGAD3D12/D3D12Presentation.swift": {
-      "sha256": "16f04def434477d1e0acb22c84125f7cdea6499358bd670471b8e66586de10ab",
+      "sha256": "45edf1772b4ffac661cefc6ab5a302d8f4f2bb60a424091ae738f5613562f3cb",
       "patterns": [
         "@unchecked\\s+Sendable",
         "unsafeBitCast\\b"
@@ -344,7 +342,7 @@
       "reason": "Windows COM/DXC/DXGI ABI boundary per native-backends ADR; raw pointers are confined to this backend. Hash records existing unchecked ownership; this policy is not a concurrency-safety proof."
     },
     "Sources/SAGAD3D12/D3D12DXC.swift": {
-      "sha256": "452c434a5a29d0ea628b315b0e02bf2bc41a5d59b96359c8889ea6e016655819",
+      "sha256": "7c422dd8e2ee35c66f7ed88bfb54816139dd957c71e34d154d62f4bfaffd6b66",
       "patterns": [
         "@unchecked\\s+Sendable",
         "unsafeBitCast\\b"
@@ -352,7 +350,7 @@
       "reason": "Windows COM/DXC/DXGI ABI boundary per native-backends ADR; raw pointers are confined to this backend. Hash records existing unchecked ownership; this policy is not a concurrency-safety proof."
     },
     "Sources/SAGAD3D12/D3D12ABI.swift": {
-      "sha256": "73771874b183f6055b37b15fc24e8742ed36893b1ad019d8227ff86d7067290b",
+      "sha256": "aa73ed49ca0ebf04724bb6228d86108878ca6c5af6bb47d33c1bcb2f39745377",
       "patterns": [
         "@unchecked\\s+Sendable",
         "unsafeBitCast\\b"
@@ -360,14 +358,14 @@
       "reason": "Windows COM/DXC/DXGI ABI boundary per native-backends ADR; raw pointers are confined to this backend. Hash records existing unchecked ownership; this policy is not a concurrency-safety proof."
     },
     "Sources/SAGAVulkan/VulkanDevice.swift": {
-      "sha256": "7aa2b4bd3f34d9c174ac1440c8483b13434d8a73464f209edac49bd7138c511b",
+      "sha256": "fb239cad87d3dec5c3f8e2e1bc105098308626819103a12476efb98538e8a1f3",
       "patterns": [
         "unsafeBitCast\\b"
       ],
       "reason": "System Vulkan entry points resolved at runtime and cast to typed C ABI, per add-vulkan-and-direct3d-native-backends ADR; not a shader compiler bridge."
     },
     "Sources/SAGAVulkan/VulkanPresentation.swift": {
-      "sha256": "2aa15fecccc0b32e274c66d7cc38429a92952ac70c6c9cbdbb87327cf3edeaf4",
+      "sha256": "31c379d78468e87f5c551e62228f09b31597e618b93a68f222ec3754975711a6",
       "patterns": [
         "unsafeBitCast\\b"
       ],
@@ -403,7 +401,7 @@
       "reason": "System Vulkan entry points resolved at runtime and cast to typed C ABI, per add-vulkan-and-direct3d-native-backends ADR; not a shader compiler bridge."
     },
     "Sources/SAGAVulkan/VulkanFeatures.swift": {
-      "sha256": "35212512c6de09c38ea32518fde02c8312c9809425446699e32242edf0d9491f",
+      "sha256": "345417a5c6c9ac55deb1994b2c4a665ba18a1d6b461c5ad135aa3e8e3d80b700",
       "patterns": [
         "unsafeBitCast\\b"
       ],
@@ -417,7 +415,7 @@
       "reason": "Standalone benchmark optimizer sink, not a runtime-library state variable; used by the sequential runSpike probes."
     },
     "Tests/SAGAFoundationTests/D3D12ComputeTests.swift": {
-      "sha256": "b1390ef95f6cace479e2bf9a70f61cc0ce5d50e887a8a55b4b230aa1eb834c1c",
+      "sha256": "aa00c9b91ba7b704244043d9949b891303d7f41066ad5f76a262d58053d94ce1",
       "patterns": [
         "@unchecked\\s+Sendable"
       ],
@@ -433,21 +431,21 @@
       "reason": "Linux-only real Xlib/Wayland presentation fixture uses system dynamic entry points and synchronous registry callback state; not linked into the runtime product."
     },
     "Tests/SAGAFoundationTests/VulkanComputeTests.swift": {
-      "sha256": "b8ebeac27da092f9170584fe05376a7ac4d03e4b7b9df1a0d96ac855641eaa7f",
+      "sha256": "808a6035d9a22fc74fd7c9b113b2198f9036523c2202f42a35960b74370bfec5",
       "patterns": [
         "@unchecked\\s+Sendable"
       ],
       "reason": "Windows-only test window owned by a dedicated Thread and coordinated with semaphores; unchecked handle wrapper is not linked into runtime products."
     },
     "Sources/SAGAVulkan/VulkanNativePass.swift": {
-      "sha256": "8f78bb0a4c70c20144b05eb7eed2014e261b23c9cda42457f297caac385fa319",
+      "sha256": "40e72f4ee17e528f1dc8885059dcfa73c7495f535845aac5088f7df66ff74511",
       "patterns": [
         "unsafeBitCast\\b"
       ],
       "reason": "System Vulkan entry points resolved at runtime and cast to typed C ABI, per add-vulkan-and-direct3d-native-backends ADR; not a shader compiler bridge."
     },
     "Tests/SAGAFoundationTests/VulkanNativePassTests.swift": {
-      "sha256": "ec64f437ae5f0c42b59fa0dc85daf1a11b1f70c134ccc8213684dd80da2c60c8",
+      "sha256": "e3c4576597f99e3f2753a39383f16369f87d124dcfab7e1de5dcd96c4ed677e3",
       "patterns": [
         "@unchecked\\s+Sendable",
         "unsafeBitCast\\b"
