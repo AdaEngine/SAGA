@@ -1,6 +1,8 @@
 .build/
 .build-*/
 .swiftpm/
+# Generated locally by the Swiftly-based setup-swift action.
+/.swift-version
 __pycache__/
 *.pyc
 .verification/

@@ -90,7 +90,8 @@ private actor TimestampTestHost: BrowserGPUComputeHost, QuerySetBackendDevice {
 }
 
 #if canImport(Metal)
-@Test func resolvesComputeAndRenderTimestampsAcrossSubmissionsOnMetal() async throws {
+@Test(.enabled(if: try MetalBackend.makeDevice().capabilities.features.contains(.timestampQuery)))
+func resolvesComputeAndRenderTimestampsAcrossSubmissionsOnMetal() async throws {
     let device = try await Device.make(backend: MetalBackend.makeDevice(), requiredFeatures: [.timestampQuery])
     let compiler = IndependentShaderCompiler()
     let compute = try await device.createComputePipeline(compiler.compileCompute(.wgsl(timestampCompute), to: .msl))

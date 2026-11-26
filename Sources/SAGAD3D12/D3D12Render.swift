@@ -197,8 +197,10 @@ extension D3D12Device {
         do {
             vertexCode = try compiler!.compile(vertexSource, entryPoint: vertex.entryPoint, profile: vertexProfile)
         } catch let error as GPUError {
-            guard vertexProfile == "vs_6_8", case .backendFailure(let message) = error,
-                  message.contains("does not support target profile") else { throw error }
+            guard vertexProfile == "vs_6_8", case .backendFailure(let message) = error else { throw error }
+            let invalidProfile = "HLSL compilation failed: error: invalid profile \(vertexProfile)"
+            guard message.contains("does not support target profile") ||
+                    message.prefix(while: { !$0.isNewline }) == invalidProfile else { throw error }
             let rewritten = vertexSource
                 .replacingAll(", int saga_first_vertex : SV_StartVertexLocation", with: "")
                 .replacingAll(", uint saga_first_instance : SV_StartInstanceLocation", with: "")

@@ -1206,7 +1206,9 @@ struct ShaderBodyWriter {
                 captured.append(definition)
             }
         }
-        try append("\(declaration("bool", named: first)) = true;", to: &lines)
+        // Metal can miscompile this synthetic guard and produce incorrect loop results.
+        let firstType = outputFormat == .msl ? "volatile bool" : "bool"
+        try append("\(declaration(firstType, named: first)) = true;", to: &lines)
         try append("while (true) {", to: &lines)
         try budget.consume(.work, amount: continuingLines.count + bodyLines.count)
         lines.append(contentsOf: continuingLines)

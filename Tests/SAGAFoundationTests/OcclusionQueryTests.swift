@@ -106,7 +106,13 @@ private let occlusionQueryShader = """
         ]
     }
     let overwrite = BufferCommand.occlusionQueried(pass: empty, query: .init(querySet: query, queryIndex: 1))
-    let commands = initial + capture + queries + capture + [overwrite] + capture + captureTimestamp
+    var commands = initial
+    commands += capture
+    commands += queries
+    commands += capture
+    commands.append(overwrite)
+    commands += capture
+    commands += captureTimestamp
     let snapshots = try await device.submitCommands(commands).wait()
     if !captureTimestamp.isEmpty {
         let words = try #require(snapshots.last)
@@ -117,8 +123,11 @@ private let occlusionQueryShader = """
     let occlusionSnapshots = snapshots.prefix(3)
     #expect(occlusionSnapshots.map { $0[0] } == [0x11223344, 0x11223344, 0x11223344])
     #expect(repeated == [try #require(occlusionSnapshots.last)])
+    let queryWordOffsets = stride(from: 64, to: 72, by: 2)
     let visibleSlots = occlusionSnapshots.map { words in
-        stride(from: 64, to: 72, by: 2).map { words[$0] != 0 || words[$0 + 1] != 0 }
+        queryWordOffsets.map { offset in
+            words[offset] != 0 || words[offset + 1] != 0
+        }
     }
     #expect(visibleSlots == [[false, false, false, false], [false, true, false, true], [false, false, false, true]])
     await device.close()

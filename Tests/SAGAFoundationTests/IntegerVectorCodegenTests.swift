@@ -102,16 +102,17 @@ func emitsVec4ArithmeticDependenciesBeforeUserHelpers(to format: ShaderOutputFor
     let counts: [UInt32] = [32, 63, 33]
     let unsignedA = a.map(UInt32.init(bitPattern:))
     let unsignedB = b.map(UInt32.init(bitPattern:))
-    let expected: [UInt32] =
-        [0x80000000, 0xfffffff9, 0xd5555556] +
-        [0, 0, 1] +
-        [0x80000000, .max, 0x3fffffff] +
-        [0x80000000, 0x80000000, 0xfffffffe] +
-        [0x80000001, 0xfffffffa, 0x80000000] +
-        [0, 0xfffffff2, 0xfffffffe] +
-        [0x80000000, 7, 0x80000001] +
-        [0, 0xfffffff9, 0] +
-        [1, 1, 0]
+    let expected: [UInt32] = [
+        0x80000000, 0xfffffff9, 0xd5555556,
+        0, 0, 1,
+        0x80000000, .max, 0x3fffffff,
+        0x80000000, 0x80000000, 0xfffffffe,
+        0x80000001, 0xfffffffa, 0x80000000,
+        0, 0xfffffff2, 0xfffffffe,
+        0x80000000, 7, 0x80000001,
+        0, 0xfffffff9, 0,
+        1, 1, 0,
+    ]
     let device = try await Device.make(backend: MetalBackend.makeDevice())
     do {
         let shader = try IndependentShaderCompiler().compileCompute(.wgsl(vectorShader), to: .msl)

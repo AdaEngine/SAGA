@@ -1,8 +1,8 @@
-import Foundation
 import SAGABackend
 import SAGAShaderIR
 import SAGATypes
 #if canImport(Metal)
+import Foundation
 import Metal
 #endif
 

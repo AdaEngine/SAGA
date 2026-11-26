@@ -36,9 +36,19 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p .verification
-          swift test -Xswiftc -warnings-as-errors -Xswiftc -strict-concurrency=complete 2>&1 | tee .verification/swift-test.log
+          # Native GPU tests share a single Metal device on the runner.
+          swift test --no-parallel -Xswiftc -warnings-as-errors -Xswiftc -strict-concurrency=complete 2>&1 | tee .verification/swift-test.log
           python3 scripts/check-swift-test-log.py .verification/swift-test.log
+      - name: Check out the pinned wgpu reference for the docs audit
+        uses: actions/checkout@v4
+        with:
+          repository: gfx-rs/wgpu
+          ref: a55352911bb26a1b33bc8d5fc03bdebb0a967f5a
+          path: .verification/wgpu
+          persist-credentials: false
       - name: Docs, immutable baseline, dependency and module policies
+        env:
+          SAGA_REFERENCE: ${{ github.workspace }}/.verification/wgpu
         run: python3 -B docs/tools/verify_docs.py
   web-compile:
     runs-on: macos-15

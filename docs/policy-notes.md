@@ -87,6 +87,8 @@ for Wasm with the exact Swift 6.3.2 toolchain and matching SDK. The pinned SDK c
 from the official release record at https://www.swift.org/api/v1/install/releases.json,
 saved in scripts/swift-web-sdk.json. SDK installation verifies the compiler version and
 uses SwiftPM's `--checksum` verification. No toolchain/SDK is installed by the docs audit.
+The macOS jobs run the tests serially because they share a Metal device. The docs step
+receives a checkout of the pinned wgpu revision through `SAGA_REFERENCE`.
 
 The workflow YAML is authored configuration, not a successful hosted CI run. Wasm
 compilation is not browser execution or WebGPU conformance. `check-swift-test-log.py`

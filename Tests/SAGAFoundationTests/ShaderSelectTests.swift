@@ -67,7 +67,8 @@ func rejectsInvalidSelectOverloads(expression: String) {
             .copy(source: output, destination: read, byteCount: 32),
             .read(buffer: read, byteCount: 32),
         ])
-        #expect(try await ticket.wait() == [[3, 23, 40, 20, 60, .max, .max - 1, 1]])
+        let expected: [UInt32] = [3, 23, 40, 20, 60, .max, UInt32.max - 1, 1]
+        #expect(try await ticket.wait() == [expected])
     } catch {
         await device.close()
         throw error

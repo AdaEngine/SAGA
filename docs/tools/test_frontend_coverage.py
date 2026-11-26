@@ -2,6 +2,7 @@
 import copy
 import hashlib
 import json
+import os
 import pathlib
 import tempfile
 import unittest
@@ -236,8 +237,9 @@ class CoverageAuditTests(unittest.TestCase):
 
 
 class PinnedDiscoveryTests(unittest.TestCase):
+    @unittest.skipUnless(os.environ.get('SAGA_REFERENCE'), 'set SAGA_REFERENCE for pinned frontend coverage audit')
     def test_full_pinned_tree_and_real_manifest(self):
-        expected = fc.authoritative(fc.ROOT.parent / 'wgpu')
+        expected = fc.authoritative(pathlib.Path(os.environ['SAGA_REFERENCE']))
         ids = [r['id'] for r in expected['records']]
         self.assertEqual(len(ids), len(set(ids)))
         self.assertEqual(sum(r['kind'] == 'lexical-feature' for r in expected['records']), 557)
