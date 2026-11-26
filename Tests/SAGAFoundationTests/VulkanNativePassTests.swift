@@ -102,6 +102,12 @@ private typealias FillBuffer = @convention(c) (UInt, UInt64, UInt64, UInt64, UIn
     #expect(VKPresent.preferredMode(supported, fifoLatestReadyEnabled: false) == VKPresent.mailbox)
 }
 
+@Test func uncappedSurfaceUsesImmediateOnlyWhenAdvertised() {
+    #expect(VKPresent.uncappedMode([2, 1, 0]) == 0)
+    #expect(VKPresent.uncappedMode([2, 1]) == 2)
+    #expect(VKPresent.uncappedMode([]) == 2)
+}
+
 @Test func fifoLatestReadyUsesTheAvailableExtensionName() {
     let khr = "VK_KHR_present_mode_fifo_latest_ready"
     let ext = "VK_EXT_present_mode_fifo_latest_ready"
