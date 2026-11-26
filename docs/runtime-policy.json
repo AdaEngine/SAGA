@@ -332,7 +332,7 @@
   ],
   "native_abi_exceptions": {
     "Sources/SAGAD3D12/D3D12Render.swift": {
-      "sha256": "8a915f43cf46278578159d858f322bb1f1c0f641734b7653623c0b816b53d4a8",
+      "sha256": "e16b1751df8fac120fbc3abf8d4d987a75a64dc9b97fc93913ae4814952898d7",
       "patterns": [
         "@unchecked\\s+Sendable"
       ],
