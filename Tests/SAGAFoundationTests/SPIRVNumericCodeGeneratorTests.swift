@@ -115,7 +115,12 @@ func spirvNumericCodeGeneratorRoundTripsCoreBuiltins(_ format: ShaderOutputForma
             0.5, 0.5, 0.5, 0.5, 0, 0, 1, 1, 2, 0.5, 0, 1, 2.5, -1, -2.5, 2.5,
         ]
         let interpolation: [Float] = [-0.5, 0.5, 0.5, -3.5, 6, 0, 1, 0]
-        #expect(words == integers + floats.map(\.bitPattern) + [22, 32, 1, .max] + interpolation.map(\.bitPattern))
+        let numericBuiltins: [UInt32] = [22, 32, 1, .max]
+        var expected = integers
+        expected += floats.map(\.bitPattern)
+        expected += numericBuiltins
+        expected += interpolation.map(\.bitPattern)
+        #expect(words == expected)
     } catch {
         await device.close()
         throw error

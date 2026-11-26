@@ -99,8 +99,11 @@ func multisampledArrayResolvesAllAttachmentLayersOnMetal(_ mask: UInt32) async t
             mask & (1 << layer) != 0 ? color : 0xffff0000
         }
         let colors = [0x04030201] + rendered + [0x08070605]
-        #expect(snapshots == [[0, 64, 128, 191], [0xff00, 0xff00, 0xff00, 0xff00]] +
-                (colors + colors + [0x04030201, 0, 0, 0, 0x08070605]).map { [$0] })
+        let cleared: [UInt32] = [0x04030201, 0, 0, 0, 0x08070605]
+        let colorSnapshots = (colors + colors + cleared).map { [$0] }
+        let sampleSnapshots: [[UInt32]] = [[0, 64, 128, 191], [0xff00, 0xff00, 0xff00, 0xff00]]
+        let expected = sampleSnapshots + colorSnapshots
+        #expect(snapshots == expected)
     } catch {
         await device.close()
         throw error

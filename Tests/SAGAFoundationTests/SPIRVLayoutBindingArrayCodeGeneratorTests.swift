@@ -123,7 +123,9 @@ func spirvLayoutBindingArrayCodeGeneratorSpecializesCountsPerBinding(_ format: S
         ]).wait()
         let green: [UInt32] = [0, Float(1).bitPattern, 0, 3]
         let blue: [UInt32] = [0, 0, Float(1).bitPattern, 3]
-        #expect(snapshots == [green + green + blue + blue, [0xff000000], [0xffff00ff]])
+        let sampled = green + green + blue + blue
+        let expected: [[UInt32]] = [sampled, [0xff000000], [0xffff00ff]]
+        #expect(snapshots == expected)
     } catch {
         await device.close()
         throw error
