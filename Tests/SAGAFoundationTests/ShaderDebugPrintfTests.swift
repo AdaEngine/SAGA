@@ -89,11 +89,10 @@ func shaderDebugPrintfRejectsInvalidFormatsTypesAndValueUse(_ body: String) {
 }
 
 #if canImport(Metal)
-@Test func shaderDebugPrintfLogsAndRetainsStorageSideEffectsOnMetal() async throws {
+@Test(.enabled(if: try MetalBackend.makeDevice().capabilities.features.contains(.shaderDebugPrintf)))
+func shaderDebugPrintfLogsAndRetainsStorageSideEffectsOnMetal() async throws {
     let compiler = IndependentShaderCompiler()
     let shader = try compiler.compileCompute(debugSource, entryPoint: "run", to: .msl)
-    let base = try MetalBackend.makeDevice()
-    guard base.capabilities.features.contains(.shaderDebugPrintf) else { return }
     let (messages, continuation) = AsyncStream<String>.makeStream(bufferingPolicy: .bufferingNewest(16))
     defer { continuation.finish() }
     let backend = try MetalBackend.makeDevice(shaderLogHandler: { _ = continuation.yield($0) })

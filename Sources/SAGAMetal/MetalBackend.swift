@@ -1,11 +1,8 @@
 import SAGATypes
 import SAGABackend
 import SAGAShaderIR
-import Foundation
-#if canImport(Darwin)
-import Darwin
-#endif
 #if canImport(Metal)
+import Foundation
 import Metal
 #endif
 #if canImport(QuartzCore)
@@ -247,24 +244,30 @@ public final class MetalDevice: ComputeAccelerationStructureBackendDevice, Prese
         #if canImport(Metal)
         native = adapter.native
         self.surfaces = surface.map { [0: $0] } ?? [:]
-        let supportsShaderLogging = if #available(macOS 15, iOS 18, tvOS 18, visionOS 2, *) {
-            native.supportsFamily(.apple6) || native.supportsFamily(.mac2)
-        } else { false }
-        let commandQueue: (any MTLCommandQueue)?
-        if let shaderLogHandler {
-            guard supportsShaderLogging, #available(macOS 15, iOS 18, tvOS 18, visionOS 2, *) else {
-                throw GPUError.unsupported("Metal shader logging requires MSL 3.2 and a supported GPU")
-            }
+        var supportsShaderLogging = false
+        var commandQueue: (any MTLCommandQueue)?
+        if #available(macOS 15, iOS 18, tvOS 18, visionOS 2, *), native.supportsFamily(.apple6) {
             let logging = MTLLogStateDescriptor()
             logging.level = .info
-            let state: any MTLLogState
-            do { state = try native.makeLogState(descriptor: logging) }
-            catch { throw GPUError.backendFailure("Unable to create Metal shader log state") }
-            state.addLogHandler { _, _, _, message in shaderLogHandler(message as String) }
-            let descriptor = MTLCommandQueueDescriptor()
-            descriptor.logState = state
-            commandQueue = native.makeCommandQueue(descriptor: descriptor)
-        } else {
+            // A compatible family may still expose an adapter that cannot create log state.
+            do {
+                let state = try native.makeLogState(descriptor: logging)
+                supportsShaderLogging = true
+                if let shaderLogHandler {
+                    state.addLogHandler { _, _, _, message in shaderLogHandler(message as String) }
+                    let descriptor = MTLCommandQueueDescriptor()
+                    descriptor.logState = state
+                    commandQueue = native.makeCommandQueue(descriptor: descriptor)
+                }
+            } catch {
+                if shaderLogHandler != nil {
+                    throw GPUError.backendFailure("Unable to create Metal shader log state: \(error)")
+                }
+            }
+        } else if shaderLogHandler != nil {
+            throw GPUError.unsupported("Metal shader logging requires MSL 3.2 and a supported GPU")
+        }
+        if shaderLogHandler == nil {
             commandQueue = native.makeCommandQueue()
         }
         guard let commandQueue else { throw GPUError.outOfMemory }

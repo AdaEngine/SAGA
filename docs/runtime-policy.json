@@ -276,6 +276,18 @@
     "Sources/SAGAD3D12/D3D12Device.swift": [
       "Dispatch"
     ],
+    "Sources/SAGAMetal/MetalBackend.swift": [
+      "Foundation"
+    ],
+    "Sources/SAGAMetal/MetalCommandEncoding.swift": [
+      "Darwin"
+    ],
+    "Sources/SAGAMetal/MetalDevicePipelines.swift": [
+      "Foundation"
+    ],
+    "Sources/SAGAMetal/MetalDeviceSubmission.swift": [
+      "Darwin"
+    ],
     "Sources/SAGAVulkan/VulkanExtensionRequest.swift": [
       "os",
       "Synchronization"

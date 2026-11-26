@@ -142,8 +142,12 @@ private func packedColorDiagnostic(_ device: Device) async throws -> [UInt32] {
 @Test func storesAndReadsPackedColorTexelsOnMetal() async throws {
     let device = try await Device.make(backend: MetalBackend.makeDevice(), requiredFeatures: [.packedColorStorageTextures])
     let words = try await packedStorageDiagnostic(device)
-    #expect(words == [0xbff003ff, 0x803803ff, 0x882003c0] +
-        [Float(1), 0, 1, 2.0 / 3.0].map(\.bitPattern) + [1023, 512, 3, 2] + [Float(1), 2, 4, 1].map(\.bitPattern))
+    let packed: [UInt32] = [0xbff003ff, 0x803803ff, 0x882003c0]
+    let normalized: [Float] = [1, 0, 1, 2.0 / 3.0]
+    let unsigned: [UInt32] = [1023, 512, 3, 2]
+    let hdr: [Float] = [1, 2, 4, 1]
+    let expected = packed + normalized.map(\.bitPattern) + unsigned + hdr.map(\.bitPattern)
+    #expect(words == expected)
     await device.close()
 }
 

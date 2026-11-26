@@ -133,10 +133,18 @@ func subgroupCollectiveOperationsRejectInvalidOverloads(expression: String) {
             let remaining = min(32, max(0, Int(size) - word * 32))
             return remaining == 32 ? .max : (UInt32(1) << remaining) - 1
         }
-        let expected: [UInt32] = [size, lane, 1, 1] + ballot.map { $0 & 0x55555555 } +
-            [size * (size - 1) / 2, 8, 7, size - 1,
-             0x80000000, size - 1, 0, lane * (lane + 1) / 2,
-             lane * (lane &- 1) / 2, 1 << min(lane, 3), 1 << min(lane + 1, 3), lane == 0 ? 1 : 0] + ballot + [1, 1, 1, 1]
+        let reductions: [UInt32] = [size * (size - 1) / 2, 8, 7, size - 1]
+        let bitwiseAndInclusiveSum: [UInt32] = [0x80000000, size - 1, 0, lane * (lane + 1) / 2]
+        let prefixesAndLeader: [UInt32] = [
+            lane * (lane &- 1) / 2, 1 << min(lane, 3), 1 << min(lane + 1, 3), lane == 0 ? 1 : 0,
+        ]
+        var expected: [UInt32] = [size, lane, 1, 1]
+        expected += ballot.map { $0 & 0x55555555 }
+        expected += reductions
+        expected += bitwiseAndInclusiveSum
+        expected += prefixesAndLeader
+        expected += ballot
+        expected += [1, 1, 1, 1]
         #expect(Array(words[base..<(base + 28)]) == expected)
     }
     let pixels = try #require(snapshots.last)

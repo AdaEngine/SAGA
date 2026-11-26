@@ -71,8 +71,9 @@ func spirvRemainderTranslatesAllTextTargets(_ format: ShaderOutputFormat) throws
             .copy(source: output, destination: read, byteCount: 64), .read(buffer: read, byteCount: 64),
         ]).wait()
         let vectorRemainders = [Float(-2.5), 2.5, -2.5, 2.5, 0.5, -0.5, -2.5, 2.5].map(\.bitPattern)
-        let expected: [UInt32] = [2, .max, 1, .max - 1] + vectorRemainders
-            + [2, Float(-2.5).bitPattern, Float(0.5).bitPattern, 0]
+        let scalarIntegers: [UInt32] = [2, .max, 1, UInt32.max - 1]
+        let scalarTail: [UInt32] = [2, Float(-2.5).bitPattern, Float(0.5).bitPattern, 0]
+        let expected = scalarIntegers + vectorRemainders + scalarTail
         #expect(snapshots == [expected])
     } catch {
         await device.close()
