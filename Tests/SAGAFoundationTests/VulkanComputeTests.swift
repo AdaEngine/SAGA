@@ -858,8 +858,12 @@ private final class TestWindow: @unchecked Sendable {
     }
 }
 
-@Test(.enabled(if: vulkanAvailable), .gpuExclusive, arguments: [false, true])
-func vulkanPresentsToAWin32WindowAndRebuildsItsSwapchain(prefersLatestFrame: Bool) async throws {
+enum Win32TestPresentation: CaseIterable {
+    case primary, latest, uncapped
+}
+
+@Test(.enabled(if: vulkanAvailable), .gpuExclusive, arguments: Win32TestPresentation.allCases)
+func vulkanPresentsToAWin32WindowAndRebuildsItsSwapchain(presentation: Win32TestPresentation) async throws {
     let window = TestWindow()
     defer { window.close() }
     try #require(window.handle != nil)
@@ -867,7 +871,7 @@ func vulkanPresentsToAWin32WindowAndRebuildsItsSwapchain(prefersLatestFrame: Boo
                                            hwnd: UInt(bitPattern: window.handle))
     let backend: VulkanDevice
     do {
-        if prefersLatestFrame {
+        if presentation != .primary {
             let adapter = try #require(VulkanBackend.requestAdapter())
             backend = try VulkanBackend.makePresentableDevice(adapter: adapter)
         } else {
@@ -876,7 +880,11 @@ func vulkanPresentsToAWin32WindowAndRebuildsItsSwapchain(prefersLatestFrame: Boo
     } catch GPUError.unsupported { return }  // no presentation support
     let device = try await Device.make(backend: backend)
     do {
-        let surface = prefersLatestFrame ? try await backend.attachSurface(target, prefersLatestFrame: true, onPresentationRetryChanged: nil).id : 0
+        let surface = switch presentation {
+        case .primary: UInt32(0)
+        case .latest: try await backend.attachSurface(target, prefersLatestFrame: true, onPresentationRetryChanged: nil).id
+        case .uncapped: try await backend.attachUncappedSurface(target, onPresentationRetryChanged: nil).id
+        }
         let compiler = IndependentShaderCompiler()
         let source = """
             @vertex fn vs(@builtin(vertex_index) index: u32) -> @builtin(position) vec4f {

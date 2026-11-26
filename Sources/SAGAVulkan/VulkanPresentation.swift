@@ -50,6 +50,7 @@ enum VKPresent {
     static let suboptimal: VkResult = 1000001003
     static let layoutTransferDestination: UInt32 = 7
     static let layoutPresentSource: UInt32 = 1000001002
+    static let immediate: UInt32 = 0
     static let fifo: UInt32 = 2
     static let mailbox: UInt32 = 1
     static let fifoLatestReady: UInt32 = 1_000_361_000
@@ -67,6 +68,10 @@ enum VKPresent {
         if fifoLatestReadyEnabled, modes.contains(fifoLatestReady) { return fifoLatestReady }
         if modes.contains(mailbox) { return mailbox }
         return fifo
+    }
+
+    static func uncappedMode(_ modes: [UInt32]) -> UInt32 {
+        modes.contains(immediate) ? immediate : fifo
     }
 }
 
@@ -228,11 +233,13 @@ final class VulkanPresenter {
     private var frame = 0
     private let presentMode: UInt32
     var usesMailbox: Bool { presentMode == VKPresent.mailbox }
+    var usesImmediate: Bool { presentMode == VKPresent.immediate }
     private var wantSRGB = false
     private var formatCandidates: [(format: UInt32, colorSpace: UInt32)] = []
 
     init(
         adapter: VulkanAdapter, target: VulkanSurfaceTarget, prefersLatestFrame: Bool = false,
+        prefersUncapped: Bool = false,
         supportsFIFOLatestReady: Bool = false, onPresentationRetryChanged: (@Sendable (Bool) -> Void)? = nil
     ) throws {
         let functions = try VulkanPresentationFunctions(instance: adapter.instance, target: target)
@@ -265,7 +272,7 @@ final class VulkanPresenter {
             functions.destroySurface(instance, surface, nil)
             throw GPUError.unsupported("The Vulkan queue family cannot present to this window")
         }
-        if prefersLatestFrame, case .win32 = target {
+        if prefersLatestFrame || prefersUncapped, case .win32 = target {
             var modeCount: UInt32 = 0
             if functions.getSurfacePresentModes(adapter.physical, surfaceHandle, &modeCount, nil) == VK.success, modeCount > 0 {
                 var modes = [UInt32](repeating: 0, count: Int(modeCount))
@@ -273,7 +280,9 @@ final class VulkanPresenter {
                     functions.getSurfacePresentModes(adapter.physical, surfaceHandle, &modeCount, $0.baseAddress)
                 }
                 let supported = status == VK.success ? Array(modes.prefix(Int(modeCount))) : []
-                presentMode = VKPresent.preferredMode(supported, fifoLatestReadyEnabled: supportsFIFOLatestReady)
+                presentMode = prefersUncapped
+                    ? VKPresent.uncappedMode(supported)
+                    : VKPresent.preferredMode(supported, fifoLatestReadyEnabled: supportsFIFOLatestReady)
             } else {
                 presentMode = VKPresent.fifo
             }
@@ -360,11 +369,14 @@ final class VulkanPresenter {
         return acquireSemaphores[frame]
     }
 
-    var acquireTimeout: UInt64 {
+    func acquireTimeout(isOnlySurface: Bool) -> UInt64 {
         #if os(Windows)
         if case let .win32(_, window) = target {
-            // A secondary surface shares this graphics queue. Never wait for its next refresh.
-            return UInt(bitPattern: GetForegroundWindow()) == window ? 50_000_000 : 0
+            let handle = HWND(bitPattern: window)
+            if GetForegroundWindow() == handle { return 50_000_000 }
+            // A standalone visible window can pace itself even when another process has focus.
+            // A secondary surface must never stall a different window on the same graphics queue.
+            return isOnlySurface && IsWindowVisible(handle) && !IsIconic(handle) ? 16_000_000 : 0
         }
         #endif
         return UInt64.max
@@ -422,15 +434,38 @@ extension VulkanDevice: PresentationBackendDevice {
         _ target: VulkanSurfaceTarget, prefersLatestFrame: Bool,
         onPresentationRetryChanged: (@Sendable (Bool) -> Void)?
     ) throws -> (id: UInt32, usesMailbox: Bool) {
+        let (id, presenter) = try makeSurface(
+            target, prefersLatestFrame: prefersLatestFrame, prefersUncapped: false,
+            onPresentationRetryChanged: onPresentationRetryChanged
+        )
+        return (id, presenter.usesMailbox)
+    }
+
+    /// Requests immediate Win32 presentation and reports whether the surface supports it. Falls back to FIFO.
+    public func attachUncappedSurface(
+        _ target: VulkanSurfaceTarget,
+        onPresentationRetryChanged: (@Sendable (Bool) -> Void)?
+    ) throws -> (id: UInt32, usesImmediate: Bool) {
+        let (id, presenter) = try makeSurface(
+            target, prefersLatestFrame: false, prefersUncapped: true,
+            onPresentationRetryChanged: onPresentationRetryChanged
+        )
+        return (id, presenter.usesImmediate)
+    }
+
+    private func makeSurface(
+        _ target: VulkanSurfaceTarget, prefersLatestFrame: Bool, prefersUncapped: Bool,
+        onPresentationRetryChanged: (@Sendable (Bool) -> Void)?
+    ) throws -> (UInt32, VulkanPresenter) {
         guard supportsPresentation else { throw GPUError.unsupported("This Vulkan device has no presentation support") }
         let id = nextSurfaceID
         let presenter = try VulkanPresenter(
-            adapter: adapter, target: target, prefersLatestFrame: prefersLatestFrame,
+            adapter: adapter, target: target, prefersLatestFrame: prefersLatestFrame, prefersUncapped: prefersUncapped,
             supportsFIFOLatestReady: native.fifoLatestReady, onPresentationRetryChanged: onPresentationRetryChanged
         )
         extraPresenters[id] = presenter
         nextSurfaceID += 1
-        return (id, presenter.usesMailbox)
+        return (id, presenter)
     }
 
     /// Detaches a surface. The device can still attach replacement surfaces.
@@ -452,6 +487,7 @@ extension VulkanDevice: PresentationBackendDevice {
         let srgb = texture.descriptor.format == .rgba8UnormSrgb || texture.descriptor.format == .bgra8UnormSrgb
         let f = native.f, device = native.device, queue = native.queue
         let functions = presenter.functions
+        let isOnlySurface = extraPresenters.count == (self.presenter == nil ? 1 : 0)
 
         var index: UInt32 = 0
         var acquire: UInt64 = 0
@@ -462,7 +498,8 @@ extension VulkanDevice: PresentationBackendDevice {
                 return  // minimized
             }
             acquire = presenter.nextAcquireSemaphore()
-            let result = functions.acquireNextImage(device, presenter.swapchain, presenter.acquireTimeout, acquire, 0, &index)
+            let timeout = presenter.acquireTimeout(isOnlySurface: isOnlySurface)
+            let result = functions.acquireNextImage(device, presenter.swapchain, timeout, acquire, 0, &index)
             if result == VK.success || result == VKPresent.suboptimal { break }
             if result == VK.notReady || result == VK.timeout {
                 presenter.reportPresentationRetry(true)

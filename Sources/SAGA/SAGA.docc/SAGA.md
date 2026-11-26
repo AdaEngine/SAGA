@@ -49,6 +49,11 @@ device and the Win32 surface support it. Otherwise it selects mailbox if the
 surface supports mailbox, or FIFO. The returned `usesMailbox` flag identifies
 mailbox so the caller can pace frame production for that mode.
 
+For uncapped Win32 presentation, call
+`VulkanDevice.attachUncappedSurface(_:onPresentationRetryChanged:)`. Its
+`usesImmediate` result reports whether the surface accepted immediate
+presentation. Otherwise the surface uses FIFO.
+
 On Windows, `SAGAD3D12` renders directly through Direct3D 12. Compile shader stages
 to `.hlsl` and supply a matching `dxcompiler.dll` and `dxil.dll` through the
 application's DLL path or `SAGA_DXC_DIRECTORIES`. Use

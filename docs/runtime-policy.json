@@ -377,7 +377,7 @@
       "reason": "System Vulkan entry points resolved at runtime and cast to typed C ABI, per add-vulkan-and-direct3d-native-backends ADR; not a shader compiler bridge."
     },
     "Sources/SAGAVulkan/VulkanPresentation.swift": {
-      "sha256": "31c379d78468e87f5c551e62228f09b31597e618b93a68f222ec3754975711a6",
+      "sha256": "7fa6239e42a68f3c6f0f0d4638fc011953dd069ca69ada5206cbe5178e833d80",
       "patterns": [
         "unsafeBitCast\\b"
       ],
@@ -443,7 +443,7 @@
       "reason": "Linux-only real Xlib/Wayland presentation fixture uses system dynamic entry points and synchronous registry callback state; not linked into the runtime product."
     },
     "Tests/SAGAFoundationTests/VulkanComputeTests.swift": {
-      "sha256": "808a6035d9a22fc74fd7c9b113b2198f9036523c2202f42a35960b74370bfec5",
+      "sha256": "804504a17f57ccd8fa15bf0322d83fe9216b7546355d8b5e71b95737bc3d6529",
       "patterns": [
         "@unchecked\\s+Sendable"
       ],
@@ -457,7 +457,7 @@
       "reason": "System Vulkan entry points resolved at runtime and cast to typed C ABI, per add-vulkan-and-direct3d-native-backends ADR; not a shader compiler bridge."
     },
     "Tests/SAGAFoundationTests/VulkanNativePassTests.swift": {
-      "sha256": "e3c4576597f99e3f2753a39383f16369f87d124dcfab7e1de5dcd96c4ed677e3",
+      "sha256": "e5fb85a55a94f01f41cd6d94f76b86523656386ca787144bef7a4c7f2bf9e14b",
       "patterns": [
         "@unchecked\\s+Sendable",
         "unsafeBitCast\\b"
